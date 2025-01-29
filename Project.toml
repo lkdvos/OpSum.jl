@@ -1,0 +1,7 @@
+name = "OpSum"
+uuid = "ad22a312-ed53-41dd-b1d0-052652c9fe0a"
+authors = ["Lukas Devos <ldevos98@gmail.com> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1.10"

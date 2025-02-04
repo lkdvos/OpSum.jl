@@ -1,6 +1,3 @@
-# TODO: Sorteddict?
-using Dictionaries
-
 """
     SDAWG{K,I} <: AbstractIndices{I}
 
@@ -22,28 +19,43 @@ mutable struct SDAWG{K,I} <: AbstractIndices{I}
     end
 end
 
-function SDAWG(list::AbstractVector{I}) where {I}
+function SDAWG(list)
     sortedlist = unique!(sort(list))
-    dawg = SDAWG{eltype(eltype(sortedlist)),I}()
+    root = SDAWG{eltype(eltype(sortedlist)),eltype(sortedlist)}()
+    root, _ = _sdawg!(root, sortedlist)
+    return root
+end
 
+function _sdawg!(root, sortedlist)
+    dawg = root
     register = Vector{typeof(dawg)}(undef, 0)
     # push!(register, similar(dawg))
     for word in sortedlist
-        @info "adding word:" word
         prefix = common_prefix(dawg, word)
         state = subdawg(dawg, prefix)
         suffix = @view(word[(length(prefix) + 1):end])
 
         replace_or_register!(register, state)
-        @info "length register:" register
         add_suffix!(state, suffix)
     end
     replace_or_register!(register, dawg)
 
-    return dawg
+    return dawg, register
 end
 
+children(inds::SDAWG) = inds.children
+
 Base.length(dawg::SDAWG) = max(1, sum(length, dawg.children; init=0))
+
+function depth(dawg::SDAWG)
+    d = 0
+    state = dawg
+    while !isempty(state.children)
+        state = first(state.children)
+        d += 1
+    end
+    return d
+end
 
 Base.similar(::SDAWG{K,I}) where {K,I} = SDAWG{K,I}()
 
@@ -71,6 +83,12 @@ function subdawg(dawg::SDAWG, prefix)
         sdawg = sdawg.children[subkey]
     end
     return sdawg
+end
+
+function partial_getindex(inds::SDAWG, prefix)
+    state = subdawg(inds, prefix)
+    isnothing(state) && throw(BoundsError(inds, prefix))
+    return state
 end
 
 function common_prefix(dawg::SDAWG, word)
@@ -101,7 +119,6 @@ function replace_or_register!(register, state)
 end
 
 function add_suffix!(dawg::SDAWG, suffix)
-    # dawg.descendants += 1
     for c in suffix
         child = similar(dawg)
         insert!(dawg.children, c, child)
@@ -112,10 +129,10 @@ function add_suffix!(dawg::SDAWG, suffix)
     return dawg
 end
 
-function Base.iterate(dawg::SDAWG{K}, i=1) where {K}
-    i > length(dawg) && return nothing
-    return gettokenvalue(dawg, i), i + 1
-end
+# function Base.iterate(dawg::SDAWG{K}, i=1) where {K}
+#     i > length(dawg) && return nothing
+#     return Dictionaries.gettokenvalue(dawg, i), i + 1
+# end
 
 # function Base.iterate(indices::Iterators.Reverse{<:SDAWG}, i=length(indices.itr))
 #     i < 1 && return nothing
@@ -135,31 +152,28 @@ end
 function Dictionaries.gettoken(indices::SDAWG, key)
     token = 0
     state = indices
-    for subkey in key
+    for (d, subkey) in enumerate(key)
+        if d != length(key) && isempty(state.children)
+            return false, token
+        end
         for k in keys(state.children)
             if k == subkey
                 state = state.children[k]
                 break
             else
-                token += length(child)
+                token += length(state.children[k])
             end
         end
-        if isempty(state.children)
-            token += 1
-        else
-            return false, token
-        end
     end
-    return true, token
+    return true, token + 1
 end
 
 function Dictionaries.gettokenvalue(indices::SDAWG{K}, token) where {K}
     @boundscheck 0 ≤ token ≤ length(indices) || throw(KeyError(token))
     # @info "getting token" token
     state = indices
-    keystack = Vector{K}(undef, 0)
+    keystack = empty_prefix(indices)
     while token > 0
-        # @show token state.children length(state)
         if isempty(state.children)
             token -= 1
             break
@@ -173,41 +187,17 @@ function Dictionaries.gettokenvalue(indices::SDAWG{K}, token) where {K}
                 token -= max(1, length(child))
             end
         end
-        # @assert false
     end
 
     return _create_key(indices, keystack)
 end
 
+# utility
 _create_key(::SDAWG{K,I}, keystack::I) where {K,I} = keystack
 _create_key(::SDAWG{Char,String}, keystack::Vector{Char}) = join(keystack)
 _create_key(::SDAWG{K,Tuple{Vararg{K}}}, keystack::Vector{K}) where {K} = Tuple(keystack)
 
-# Printing
-# --------
-# function Base.show(io::IO, ::MIME"text/plain", dawg::SDAWG)
-#     show(io, typeof(dawg))
-#     println(io, "of length: ", dawg.descendants)
-#     if isempty(dawg.children)
-#         println(io, " empty")
-#     else
-#         show_dawg(io, dawg)
-#     end
-#     return nothing
-# end
-
-function show_dawg(io, dawg, prefix="  ")
-    println(io, dawg.descendants)
-    if isempty(dawg.children)
-        println(io)
-        print(io, prefix)
-        return nothing
-    end
-    for (k, v) in pairs(dawg.children)
-        show_dawg(io, v, prefix * string(k))
-    end
-    return nothing
-end
+empty_prefix(inds::SDAWG) = Vector{eltype(keytype(inds))}(undef, 0)
 
 function _num_unique_nodes(indices::SDAWG)
     s = Set(objectid(indices))
@@ -222,3 +212,44 @@ function _add_nodes!(s::Set, indices::SDAWG)
         _add_nodes!(s, c)
     end
 end
+
+# ------------------------------------------------------------------------------------------------------
+# store registers to improve efficiency
+struct SDAWGIndices{K,I} <: AbstractIndices{I}
+    root::SDAWG{K,I}
+    registers::Vector{Vector{SDAWG{K,I}}}
+end
+
+function SDAWGIndices(list)
+    sortedlist = unique!(sort(list))
+    root = SDAWG{eltype(eltype(sortedlist)),eltype(sortedlist)}()
+    root, allregisters = _sdawg!(root, sortedlist)
+    # TODO: create registers separately
+    registers = map(reverse(1:depth(root))) do d
+        return filter(x -> depth(x) == d - 1, allregisters)
+    end
+    return SDAWGIndices(root, registers)
+end
+
+state_registers(inds::SDAWGIndices) = inds.registers
+state_registers(inds::SDAWGIndices, d::Int) = inds.registers[d]
+
+depth(inds::SDAWGIndices) = depth(inds.root)
+
+empty_prefix(inds::SDAWGIndices) = empty_prefix(inds.root)
+
+partial_getindex(inds::SDAWGIndices, prefix) = partial_getindex(inds.root, prefix)
+
+children(inds::SDAWGIndices) = children(inds.root)
+
+# Token interaface
+# ----------------
+Dictionaries.istokenizable(::SDAWGIndices) = true
+Dictionaries.tokentype(::SDAWGIndices) = Int
+
+Dictionaries.iteratetoken(indices::SDAWGIndices, state...) = iterate(1:length(indices), state)
+Dictionaries.iteratetoken_reverse(indices::SDAWGIndices, state...) = iterate(Iterators.reverse(1:length(indices)), state...)
+
+Dictionaries.gettoken(inds::SDAWGIndices, key) = gettoken(inds.root, key)
+Dictionaries.gettokenvalue(inds::SDAWGIndices, token) = gettokenvalue(inds.root, token)
+

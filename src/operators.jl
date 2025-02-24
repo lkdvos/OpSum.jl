@@ -61,6 +61,7 @@ one(x::PauliOperator) = one(typeof(x))
 one(::Type{PauliOperator{T}}) where {T} = PauliOperator{T}(one(PauliBasis))
 zero(x::PauliOperator) = zero(typeof(x))
 zero(::Type{PauliOperator{T}}) where {T} = PauliOperator{T}(I) * false # TODO
+Base.iszero(x::PauliOperator) = all(iszero, x.components)
 
 coefficient!(x::PauliOperator) = (n = norm(x.components); x.components ./= n; n)
 coefficient(x::PauliOperator) = norm(x.components)

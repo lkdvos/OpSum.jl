@@ -2,7 +2,7 @@ using OpSum
 using Test: @test, @testset
 using OpSum: depth, opsum_state_machine, compress_state_machine
 
-N = 10
+N = 6
 
 using OpSum.PauliOperators: B, I, X, Y, Z, E
 
@@ -15,12 +15,22 @@ end
 
 list = vcat(ops_onesite, ops_twosite)
 dawg = DAWGDictionary(sort!(list), collect(1:length(list)))
+
 Ws, = opsum_state_machine(dawg)
 # Ws = compress_state_machine(Ws)
 @info "simple"
 foreach(display, Ws)
 
-ops_all_to_all = Vector{OpSum.PauliOperators.PauliBasis}[]
+## next-nearest neighbour:
+ops_nnn = map(1:(N - 2)) do i
+    return vcat(fill(B, i - 1), [X, I, X], fill(E, N - i - 2))
+end
+list = sort(vcat(ops_onesite, ops_twosite, ops_nnn, [fill(B, N), fill(E, N)]))
+dawg = DAWGDictionary(list, trues(length(list)))
+
+Ws, Ms = opsum_state_machine(dawg);
+
+ops_all_to_all = Vector{OpSum.PauliOperators.PauliBasis}[fill(B, N), fill(E, N)]
 
 for i in 1:N, j in (i + 1):N, k in (j + 1):N, l in (k + 1):N
     ops = fill(I, N)
@@ -33,7 +43,9 @@ for i in 1:N, j in (i + 1):N, k in (j + 1):N, l in (k + 1):N
     push!(ops_all_to_all, ops)
 end
 
-dawg = DAWGDictionary(ops_all_to_all, ones(Float64, length(ops_all_to_all)))
+dawg = DAWGDictionary(
+    ops_all_to_all, vcat([0.0], ones(Float64, length(ops_all_to_all)), [0.0])
+)
 Ws, Ms = opsum_state_machine(dawg)
 @info "uncompressed"
 io = IOContext(stdout, :limit => false)

@@ -65,7 +65,7 @@ zero(::Type{PauliOperator{T}}) where {T} = PauliOperator{T}(I) * false # TODO
 coefficient!(x::PauliOperator) = (n = norm(x.components); x.components ./= n; n)
 coefficient(x::PauliOperator) = norm(x.components)
 
-function Base.show(io::IO, ::MIME"text/plain", x::PauliOperator)
+function Base.show(io::IO, x::PauliOperator)
     iszero(x) && print(io, zero(scalartype(x)), one(PauliBasis))
     isone(x) && print(io, one(PauliBasis))
     inds = findall(!≈(0), x.components)

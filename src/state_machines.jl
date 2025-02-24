@@ -32,10 +32,11 @@ function opsum_state_machine(opsum::DAWGDictionary)
         current_state = first(current_register)
         for (k, next_state) in pairs(children(current_state))
             site == 1 && isend(k) && continue
+            site == chain_length && isbegin(k) && continue
+
             if isbegin(k)
-                if site != chain_length
-                    insert!(W, CartesianIndex(row, 1), TW(k))
-                end
+                # handle this separately, only single suffix counts
+                insert!(W, CartesianIndex(row, 1), TW(k))
                 continue
             end
 

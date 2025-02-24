@@ -5,7 +5,12 @@ version = "0.1.0"
 
 [deps]
 Dictionaries = "85a47980-9c8c-11e8-2b9f-f7ca1fa99fb4"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MatrixAlgebraKit = "6c742aac-3347-4629-af66-fc926824e5e4"
+SparseArraysBase = "0d5efcca-f356-4864-8770-e1ed8d78f208"
 
 [compat]
 Dictionaries = "0.4.3"
+LinearAlgebra = "1.11.0"
+SparseArraysBase = "0.2.11"
 julia = "1.10"

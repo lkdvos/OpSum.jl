@@ -216,7 +216,6 @@ end
 # ------------------------------------------------------------------------------------------------------
 # store registers to improve efficiency
 struct SDAWGIndices{K,I} <: AbstractIndices{I}
-    root::SDAWG{K,I}
     registers::Vector{Vector{SDAWG{K,I}}}
 end
 
@@ -228,28 +227,34 @@ function SDAWGIndices(list)
     registers = map(reverse(1:depth(root))) do d
         return filter(x -> depth(x) == d - 1, allregisters)
     end
-    return SDAWGIndices(root, registers)
+    pushfirst!(registers, [root])
+    return SDAWGIndices(registers)
 end
 
+root(inds::SDAWGIndices) = only(state_registers(inds, 0))
 state_registers(inds::SDAWGIndices) = inds.registers
-state_registers(inds::SDAWGIndices, d::Int) = inds.registers[d]
+state_registers(inds::SDAWGIndices, d::Int) = inds.registers[d + 1]
 
-depth(inds::SDAWGIndices) = depth(inds.root)
+Base.length(inds::SDAWGIndices) = length(root(inds))
+depth(inds::SDAWGIndices) = depth(root(inds))
 
-empty_prefix(inds::SDAWGIndices) = empty_prefix(inds.root)
+empty_prefix(inds::SDAWGIndices) = empty_prefix(root(inds))
 
-partial_getindex(inds::SDAWGIndices, prefix) = partial_getindex(inds.root, prefix)
+partial_getindex(inds::SDAWGIndices, prefix) = partial_getindex(root(inds), prefix)
 
-children(inds::SDAWGIndices) = children(inds.root)
+children(inds::SDAWGIndices) = children(root(inds))
 
 # Token interaface
 # ----------------
 Dictionaries.istokenizable(::SDAWGIndices) = true
 Dictionaries.tokentype(::SDAWGIndices) = Int
 
-Dictionaries.iteratetoken(indices::SDAWGIndices, state...) = iterate(1:length(indices), state)
-Dictionaries.iteratetoken_reverse(indices::SDAWGIndices, state...) = iterate(Iterators.reverse(1:length(indices)), state...)
+function Dictionaries.iteratetoken(indices::SDAWGIndices, state...)
+    return iterate(1:length(indices), state...)
+end
+function Dictionaries.iteratetoken_reverse(indices::SDAWGIndices, state...)
+    return iterate(Iterators.reverse(1:length(indices)), state...)
+end
 
-Dictionaries.gettoken(inds::SDAWGIndices, key) = gettoken(inds.root, key)
-Dictionaries.gettokenvalue(inds::SDAWGIndices, token) = gettokenvalue(inds.root, token)
-
+Dictionaries.gettoken(inds::SDAWGIndices, key) = gettoken(root(inds), key)
+Dictionaries.gettokenvalue(inds::SDAWGIndices, token) = gettokenvalue(root(inds), token)

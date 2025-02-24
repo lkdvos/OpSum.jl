@@ -17,6 +17,8 @@ end
 
 depth(dict::DAWGDictionary) = depth(keys(dict))
 state_register(dict::DAWGDictionary, d) = state_register(keys(dict), d)
+Base.isempty(dict::DAWGDictionary) = isempty(dict.values)
+Base.length(dict::DAWGDictionary) = length(dict.values)
 
 # Tokens
 # ------

@@ -73,7 +73,7 @@ function opsum_state_machine(opsum::DAWGDictionary)
             end
         end
 
-        push!(vertex_operators, instantiate_W(W))
+        push!(vertex_operators, _instantiate_matrix(W))
 
         # add bond coefficients
         if site != 1
@@ -93,7 +93,7 @@ function opsum_state_machine(opsum::DAWGDictionary)
                     end
                 end
             end
-            push!(bond_coefficients, instantiate_M(M))
+            push!(bond_coefficients, _instantiate_matrix(M))
             @assert size(last(bond_coefficients), 2) + 2 == size(last(vertex_operators), 1) "incompatible sizes"
             @debug "coefficients left of $site" M = last(bond_coefficients)
         end
@@ -117,30 +117,13 @@ function state_offset(register, state)
 end
 
 """
-    interaction_started(prefix)
-
-Determine if an operator string has already acted non-trivially.
-
-See also [`isbegin`](@ref).
-"""
-interaction_started(state) =
-    !isempty(state.children) && !isbegin(first(keys(state.children)))
-
-"""
     interaction_ended(state)
 
 Determine if an operator string will no longer act non-trivially.
 
 See also [`isend`](@ref).
 """
-interaction_ended(state::SDAWG) =
-    isempty(state.children) || length(state) == 1 && isend(only(keys(state.children)))
 interaction_ended(suffix) = length(suffix) == 1 || isend(suffix[2])
-
-# TODO: generalize to non-uniform operators
-function prefix_interaction_ended(inds::SDAWGIndices, site::Int)
-    return fill(one(eltype(keytype(inds))), site)
-end
 
 function increaseindex!(W, index, val)
     if haskey(W, index)
@@ -150,19 +133,11 @@ function increaseindex!(W, index, val)
     end
 end
 
-function instantiate_W(W)
+function _instantiate_matrix(W)
     nrows, ncols = mapreduce(Tuple, (x, y) -> max.(x, y), keys(W); init=(1, 1))
     Wmat = SparseArrayDOK{eltype(W)}(undef, (nrows, ncols))
     for (I, v) in pairs(W)
         Wmat[I] = v
     end
     return Wmat
-end
-function instantiate_M(M)
-    nrows, ncols = mapreduce(Tuple, (x, y) -> max.(x, y), keys(M); init=(1, 1))
-    Mmat = SparseArrayDOK{eltype(M)}(undef, (nrows, ncols))
-    for (I, v) in pairs(M)
-        Mmat[I] = v
-    end
-    return Mmat
 end

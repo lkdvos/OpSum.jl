@@ -1,7 +1,7 @@
 "verify if this token represents the starting state"
 isbegin(O::Enum) = O == first(instances(typeof(O)))
 "verify if this token represents the ending state"
-isend(O::Enum) = O == last(instances(typeof(O)))
+isend(O::Enum) = O == instances(typeof(O))[2]
 
 function scalartype end
 scalartype(x) = scalartype(typeof(x))
@@ -22,7 +22,7 @@ import Base: +, *, -, /, one, zero
 import ..OpSum: operator_type, scalartype, coefficient, coefficient!
 
 # TODO: @algebragenerators
-@enum PauliBasis B I X Y Z E
+@enum PauliBasis B E I X Y Z
 one(::PauliBasis) = I
 one(::Type{PauliBasis}) = I
 

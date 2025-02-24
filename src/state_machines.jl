@@ -28,32 +28,27 @@ function opsum_state_machine(opsum::DAWGDictionary)
 
         # starting operators treated separately:
         # they need to include the coefficient
-        row_offset = 1
+        row = 1
         current_state = first(current_register)
         for (k, next_state) in pairs(children(current_state))
             site == 1 && isend(k) && continue
             if isbegin(k)
                 if site != chain_length
-                    insert!(W, CartesianIndex(row_offset, 1), TW(k))
+                    insert!(W, CartesianIndex(row, 1), TW(k))
                 end
                 continue
             end
 
-            col_offset = state_offset(next_register, next_state)
+            col = state_offset(next_register, next_state)
 
-            # no starting state on last site
-            site == chain_length && (col_offset -= 1)
+            # no next state on last site
+            site == chain_length && (col -= 1)
 
             # loop over all suffixes and add
-            for (suffix_id, suffix) in enumerate(next_state)
+            for suffix in next_state
+                col += 1
                 key = vcat(@view(trivial_prefix[1:(site - 1)]), k, suffix)
-                coefficient = opsum[key]
-                index = CartesianIndex(row_offset, col_offset + suffix_id)
-                if haskey(W, index)
-                    W[index] += coefficient * TW(k)
-                else
-                    insert!(W, index, coefficient * TW(k))
-                end
+                increaseindex!(W, CartesianIndex(row, col), opsum[key] * TW(k))
 
                 if !(isempty(suffix) || isend(suffix[1]))
                     push!(next_prefixes, vcat(trivial_prefix[1:(site - 1)], k))
@@ -61,46 +56,46 @@ function opsum_state_machine(opsum::DAWGDictionary)
             end
         end
 
-        # rest
+        # add other operators
         for current_state in @view(current_register[2:end])
             for (k, next_state) in pairs(children(current_state))
                 @assert !isbegin(k)
 
-                col_offset = state_offset(next_register, next_state)
-                site == chain_length && (col_offset -= 1)
+                col = state_offset(next_register, next_state)
+                site == chain_length && (col -= 1)
 
                 # loop over all suffixes and add
                 for j in 1:length(next_state)
-                    insert!(W, CartesianIndex(row_offset + j, col_offset + j), TW(k))
+                    insert!(W, CartesianIndex(row + j, col + j), TW(k))
                 end
-                row_offset += length(next_state)
+                row += length(next_state)
             end
         end
 
         push!(vertex_operators, instantiate_W(W))
 
+        # add bond coefficients
         if site != 1
-            # bond coefficients need prefixes
             M = Dictionary{CartesianIndex{2},T}()
-            for (i, prefix) in enumerate(current_prefixes)
+            for (row, prefix) in enumerate(current_prefixes)
                 state = partial_getindex(opsum_keys, prefix)
-                col_offset = state_offset(current_register, state) - 1
+                col = state_offset(current_register, state)
+                col -= 2 # skip first two columns: no starting/ending state
                 for suffix in state
                     (isbegin(first(suffix)) || isend(first(suffix))) && continue
                     key = vcat(prefix, suffix)
                     coefficient = opsum[key]
-                    col_offset += 1
-                    # @debug "adding coefficient" prefix suffix
-                    insert!(M, CartesianIndex(i, col_offset), coefficient)
+                    col += 1
+                    insert!(M, CartesianIndex(row, col), coefficient)
                     if !interaction_ended(suffix)
                         push!(next_prefixes, vcat(prefix, suffix[1:1]))
                     end
                 end
             end
             push!(bond_coefficients, instantiate_M(M))
+            @assert size(last(bond_coefficients), 2) + 2 == size(last(vertex_operators), 1) "incompatible sizes"
             @debug "coefficients left of $site" M = last(bond_coefficients)
         end
-
         @debug "operators at site $site" W = last(vertex_operators)
     end
 
@@ -146,8 +141,16 @@ function prefix_interaction_ended(inds::SDAWGIndices, site::Int)
     return fill(one(eltype(keytype(inds))), site)
 end
 
+function increaseindex!(W, index, val)
+    if haskey(W, index)
+        W[index] += val
+    else
+        insert!(W, index, val)
+    end
+end
+
 function instantiate_W(W)
-    nrows, ncols = mapreduce(I -> I.I, (x, y) -> max.(x, y), keys(W); init=(1, 1))
+    nrows, ncols = mapreduce(Tuple, (x, y) -> max.(x, y), keys(W); init=(1, 1))
     Wmat = SparseArrayDOK{eltype(W)}(undef, (nrows, ncols))
     for (I, v) in pairs(W)
         Wmat[I] = v
@@ -155,7 +158,7 @@ function instantiate_W(W)
     return Wmat
 end
 function instantiate_M(M)
-    nrows, ncols = mapreduce(I -> I.I, (x, y) -> max.(x, y), keys(M); init=(1, 1))
+    nrows, ncols = mapreduce(Tuple, (x, y) -> max.(x, y), keys(M); init=(1, 1))
     Mmat = SparseArrayDOK{eltype(M)}(undef, (nrows, ncols))
     for (I, v) in pairs(M)
         Mmat[I] = v

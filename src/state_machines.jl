@@ -1,31 +1,24 @@
 """
-    opsum_state_machine(opsum)
+    opsum_vertex_operators(opsum) -> Ws::Vector{<:SparseMatrixDOK}
 
 Convert a representation of a sum of operators into a finite state machine representation.
 """
-function opsum_state_machine(
-    opsum::DAWGDictionary; alg=nothing, trunc=MatrixAlgebraKit.trunctol(eps())
-)
+function opsum_vertex_operators(opsum::DAWGDictionary)
     opsum_keys = keys(opsum)
     chain_length = depth(opsum)
     T = eltype(opsum) # coefficient_type
     TW = operator_type(eltype(keytype(opsum)), T) # single operator type
 
     # preallocate storage
-    vertex_operators = []
+    vertex_operators = SparseMatrixDOK{TW}[]
     trivial_prefix = first(opsum_keys)
     next_register = state_registers(opsum_keys, 0)
-    next_prefixes = map(
-        x -> [x], filter!(!isbegin, collect(keys(children(root(opsum_keys)))))
-    )
 
     for site in 1:chain_length
         # initialize variables
         current_register = next_register
         next_register = state_registers(opsum_keys, site)
         W = Dictionary{CartesianIndex{2},TW}()
-        current_prefixes = next_prefixes
-        next_prefixes = similar(current_prefixes, 0)
 
         # starting operators treated separately:
         # they need to include the coefficient
@@ -50,11 +43,7 @@ function opsum_state_machine(
             for suffix in next_state
                 col += 1
                 key = vcat(@view(trivial_prefix[1:(site - 1)]), k, suffix)
-                setwith!(+, d, CartesianIndex(row, col), opsum[key] * TW(k))
-
-                if !(isempty(suffix) || isend(suffix[1]))
-                    push!(next_prefixes, vcat(trivial_prefix[1:(site - 1)], k))
-                end
+                setwith!(+, W, CartesianIndex(row, col), opsum[key] * TW(k))
             end
         end
 
@@ -76,46 +65,68 @@ function opsum_state_machine(
 
         push!(vertex_operators, _instantiate_matrix(W))
         @debug "operators at site $site" W = last(vertex_operators)
-
-        # Truncation
-        if !isnothing(trunc) && site != 1
-            # generate bond coefficients
-            M = Dictionary{CartesianIndex{2},T}()
-            for (row, prefix) in enumerate(unique!(current_prefixes))
-                state = partial_getindex(opsum_keys, prefix)
-                col = state_offset(current_register, state)
-                col -= 2 # skip first two columns: no starting/ending state
-                for suffix in state
-                    (isbegin(first(suffix)) || isend(first(suffix))) && continue
-                    key = vcat(prefix, suffix)
-                    coefficient = opsum[key]
-                    col += 1
-                    insert!(M, CartesianIndex(row, col), coefficient)
-                    if !interaction_ended(suffix)
-                        push!(next_prefixes, vcat(prefix, suffix[1:1]))
-                    end
-                end
-            end
-            bond_coefficients = _instantiate_matrix(M)
-            @assert size(bond_coefficients, 2) + 2 == size(last(vertex_operators), 1) "incompatible sizes"
-
-            # decompose and apply
-            _, _, Vᴴ = svd_trunc(bond_coefficients; alg, trunc)
-            @debug "coefficients left of $site" M = bond_coefficients Vᴴ
-
-            vertex_operators[end - 1] = right_multiply(
-                vertex_operators[end - 1], adjoint(Vᴴ)
-            )
-            vertex_operators[end] = left_multiply(Vᴴ, vertex_operators[end])
-
-            @debug "truncated operators at site $(site-1)" W = vertex_operators[end - 1]
-            if site == chain_length
-                @debug "truncated operators at site $chain_length" W = vertex_operators[end]
-            end
-        end
     end
 
     return vertex_operators
+end
+
+function opsum_bond_coefficients(opsum::DAWGDictionary)
+    opsum_keys = keys(opsum)
+    chain_length = depth(opsum)
+    T = eltype(opsum) # coefficient_type
+
+    # preallocate storage
+    bond_coefficients = SparseMatrixDOK{T}[]
+    trivial_prefix = first(opsum_keys)
+    next_register = state_registers(opsum_keys, 0)
+    next_prefixes = map(
+        x -> [x], filter!(!isbegin, collect(keys(children(root(opsum_keys)))))
+    )
+
+    for site in 1:chain_length
+        # initialize variables
+        current_register = next_register
+        next_register = state_registers(opsum_keys, site)
+        current_prefixes = next_prefixes
+        next_prefixes = similar(current_prefixes, 0)
+
+        # Collect the prefixes for the next site
+        row = 1
+        current_state = first(current_register)
+        for (k, next_state) in pairs(children(current_state))
+            (isbegin(k) || isend(k)) && continue
+            for suffix in next_state
+                if !isempty(suffix) && !isend(suffix[1])
+                    push!(next_prefixes, vcat(trivial_prefix[1:(site - 1)], k))
+                end
+            end
+        end
+
+        site == 1 && continue
+
+        # generate bond coefficients
+        M = Dictionary{CartesianIndex{2},T}()
+        for (row, prefix) in enumerate(@show unique!(current_prefixes))
+            @show state = partial_getindex(opsum_keys, prefix)
+            col = state_offset(current_register, state)
+            col -= 2 # skip first two columns: no starting/ending state
+            for suffix in state
+                (isbegin(first(suffix)) || isend(first(suffix))) && continue
+                key = vcat(prefix, suffix)
+                coefficient = opsum[key]
+                col += 1
+                insert!(M, CartesianIndex(row, col), coefficient)
+                if !interaction_ended(suffix)
+                    push!(next_prefixes, vcat(prefix, suffix[1:1]))
+                end
+            end
+        end
+        push!(bond_coefficients, _instantiate_matrix(M))
+
+        @debug "coefficients left of $site" M = last(bond_coefficients)
+    end
+
+    return bond_coefficients
 end
 
 # state_offset counts all states that come before a given state.

@@ -11,6 +11,7 @@ using Dictionaries
 using SparseArraysBase: SparseArrayDOK, SparseMatrixDOK, storedpairs
 using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
+using Moshi
 
 # Utility
 # -------
@@ -24,6 +25,7 @@ include("datastructures/dawgdict.jl")
 
 # Operators
 # ---------
+include("operators/symbolicoperator.jl")
 include("operators/operators.jl")
 
 # State machines

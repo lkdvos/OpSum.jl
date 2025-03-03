@@ -8,17 +8,13 @@ function opsum_vertex_operators(opsum::DAWGDictionary)
     chain_length = depth(opsum)
     T = eltype(opsum) # coefficient_type
     TW = operator_type(eltype(keytype(opsum)), T) # single operator type
-
-    # preallocate storage
-    vertex_operators = SparseMatrixDOK{TW}[]
     trivial_prefix = first(opsum_keys)
-    next_register = state_registers(opsum_keys, 0)
 
-    for site in 1:chain_length
+    return map(1:chain_length) do site
         # initialize variables
-        current_register = next_register
-        next_register = state_registers(opsum_keys, site)
         W = Dictionary{CartesianIndex{2},TW}()
+        current_register = state_registers(opsum_keys, site - 1)
+        next_register = state_registers(opsum_keys, site)
 
         # starting operators treated separately:
         # they need to include the coefficient
@@ -63,11 +59,10 @@ function opsum_vertex_operators(opsum::DAWGDictionary)
             end
         end
 
-        push!(vertex_operators, _instantiate_matrix(W))
-        @debug "operators at site $site" W = last(vertex_operators)
+        W_mat = _instantiate_matrix(W)
+        @debug "operators at site $site" W = W_mat
+        return W_mat
     end
-
-    return vertex_operators
 end
 
 function opsum_bond_coefficients(opsum::DAWGDictionary)

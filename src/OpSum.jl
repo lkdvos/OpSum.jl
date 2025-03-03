@@ -12,19 +12,23 @@ using SparseArraysBase: SparseArrayDOK, SparseMatrixDOK, storedpairs
 using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
 
+# Utility
+# -------
+include("utility/linalg.jl")
+
 # Data structures
 # ---------------
-include("sparsearrays.jl")
-include("trie.jl")
-include("dawg.jl")
-include("dawgdict.jl")
-
-include("linalg.jl")
+include("datastructures/trie.jl")
+include("datastructures/dawg.jl")
+include("datastructures/dawgdict.jl")
 
 # Operators
 # ---------
-include("operators.jl")
-include("state_machines.jl")
-include("compression.jl")
+include("operators/operators.jl")
+
+# State machines
+# --------------
+include("statemachines/state_machines.jl")
+include("statemachines/compression.jl")
 
 end

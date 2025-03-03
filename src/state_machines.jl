@@ -50,7 +50,7 @@ function opsum_state_machine(
             for suffix in next_state
                 col += 1
                 key = vcat(@view(trivial_prefix[1:(site - 1)]), k, suffix)
-                increaseindex!(W, CartesianIndex(row, col), opsum[key] * TW(k))
+                setwith!(+, d, CartesianIndex(row, col), opsum[key] * TW(k))
 
                 if !(isempty(suffix) || isend(suffix[1]))
                     push!(next_prefixes, vcat(trivial_prefix[1:(site - 1)], k))
@@ -139,14 +139,6 @@ Determine if an operator string will no longer act non-trivially.
 See also [`isend`](@ref).
 """
 interaction_ended(suffix) = length(suffix) == 1 || isend(suffix[2])
-
-function increaseindex!(W, index, val)
-    if haskey(W, index)
-        W[index] += val
-    else
-        insert!(W, index, val)
-    end
-end
 
 function _instantiate_matrix(W)
     nrows, ncols = mapreduce(Tuple, (x, y) -> max.(x, y), keys(W); init=(1, 1))

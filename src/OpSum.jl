@@ -11,7 +11,8 @@ using Dictionaries
 using SparseArraysBase: SparseArrayDOK, SparseMatrixDOK, storedpairs
 using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
-using Moshi
+using Moshi.Data: @data
+using Moshi.Match: @match
 
 # Utility
 # -------

@@ -1,9 +1,7 @@
 module OpSum
 
-export Trie
-export SDAWG
-export DAWGDictionary
-export opsum_to_fsm
+export Trie, SDAWG, DAWGDictionary
+export @op_str, AbstractOperator, Operator, Scaled, Sum, Product
 
 export ParallelDecomposition
 

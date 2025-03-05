@@ -217,9 +217,12 @@ function show(io::IO, O::AbstractOperator)
         # Operator => op"flavour_site"
         Operator(flavour, site) => begin
             if !get(io, _print_op_macro_ctx, true)::Bool
-                print(io, flavour, '_', site)
+                print(io, flavour)
+                print_subscript(io, site)
             else
-                print(io, "op\"", flavour, '_', site, "\"")
+                print(io, "op\"", flavour)
+                print_subscript(io, site)
+                print(io, "\"")
             end
         end
 
@@ -300,3 +303,28 @@ function show_unquoted(io::IO, O::AbstractOperator, indent::Int, precedence::Int
 
     return nothing
 end
+
+const subscript_dict = Dict(
+    '0' => '₀',
+    '1' => '₁',
+    '2' => '₂',
+    '3' => '₃',
+    '4' => '₄',
+    '5' => '₅',
+    '6' => '₆',
+    '7' => '₇',
+    '8' => '₈',
+    '9' => '₉',
+)
+function print_subscript(s::Int)
+    return sprint(print_subscript, s)
+end
+function print_subscript(io::IO, s::Int)
+    use_unicode = get(io, :unicode, true)
+    if use_unicode
+        join(io, subscript_dict[d] for d in string(s))
+    else
+        @invoke print_subscript(io, s::Any)
+    end
+end
+print_subscript(io::IO, s) = print(io, '_', s)

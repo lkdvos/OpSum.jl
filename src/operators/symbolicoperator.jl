@@ -47,7 +47,7 @@ export AbstractOperator
 # ------------
 # TODO: default scalartype?
 function Operator(flavour::I, site::S) where {I,S}
-    return Operator{I,S,Bool}(flavour, site)
+    return Operator{I,S,Float64}(flavour, site)
 end
 
 macro op_str(op)

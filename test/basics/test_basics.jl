@@ -1,16 +1,25 @@
 using OpSum
 using Test: @test, @testset
-using OpSum:
-    depth,
-    opsum_state_machine,
-    compress_state_machine,
-    opsum_vertex_operators,
-    opsum_bond_coefficients
+using OpSum: depth, compress_state_machine, opsum_vertex_operators, opsum_bond_coefficients
 
 N = 8
 T = Int
 
 using OpSum.PauliOperators: B, I, X, Y, Z, E
+
+ops_onesite = map(Base.Fix1(Operator, :X), 1:N)
+# TODO: should also handle Operator(:XX, (i, i + 1))
+ops_twosite = map(1:(N - 1)) do i
+    return Operator(:X, i) * Operator(:X, i + 1)
+end
+
+operators = sum(ops_onesite) + sum(ops_twosite)
+
+ops_str = operator_strings(operators)
+
+dawg = DAWGDictionary(
+    vcat(ops_onesite, ops_twosite), ones(length(ops_onesite) + length(ops_twosite))
+)
 
 ops_onesite = map(1:N) do i
     return vcat(fill(B, i - 1), [Z], fill(E, N - i))

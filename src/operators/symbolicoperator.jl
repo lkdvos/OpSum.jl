@@ -199,6 +199,7 @@ function (O₁::SO * O₂::SO) where {I,S,C,SO<:AbstractOperator{I,S,C}}
         (o₁, o₂) => Product([o₁, o₂])
     end
 end
+(O1::AbstractOperator * O2::AbstractOperator) = *(promote(O1, O2)...)
 
 # show
 # ----

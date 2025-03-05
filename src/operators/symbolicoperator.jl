@@ -204,12 +204,19 @@ end
 # ----
 import Base: show, show_unquoted
 
+# show (human-readable)
+const _print_op_macro_ctx = gensym("print_op")
+function show(io::IO, ::MIME"text/plain", O::AbstractOperator)
+    ioctx = IOContext(io, _print_op_macro_ctx => false)
+    return show(ioctx, O)
+end
+
 # show (parseable)
 function show(io::IO, O::AbstractOperator)
     @match O begin
         # Operator => op"flavour_site"
         Operator(flavour, site) => begin
-            if !get(io, :_print_op, true)::Bool
+            if !get(io, _print_op_macro_ctx, true)::Bool
                 print(io, flavour, '_', site)
             else
                 print(io, "op\"", flavour, '_', site, "\"")
@@ -269,12 +276,6 @@ function show(io::IO, O::AbstractOperator)
             end
         end
     end
-end
-
-# show (human-readable)
-function show(io::IO, ::MIME"text/plain", O::AbstractOperator)
-    ioctx = IOContext(io, :_print_op => false)
-    return show(ioctx, O)
 end
 
 # show in the context of an expression

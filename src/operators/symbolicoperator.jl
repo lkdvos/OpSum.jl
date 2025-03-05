@@ -280,43 +280,23 @@ end
 
 # show in the context of an expression
 function show_unquoted(io::IO, O::AbstractOperator, indent::Int, precedence::Int)
-    @match O begin
-        # operators are always fine
-        Operator(flavour, site) => show(io, O)
-
-        # scaled operators might be (scalar * operator)
-        Scaled(scalar, operator) => begin
-            if isone(scalar) ||
-                (isreal(scalar) && isone(abs(scalar))) ||
-                Base.operator_precedence(:*) > precedence
-                show(io, O)
-            else
-                print(io, "(")
-                show(io, O)
-                print(io, ")")
-            end
-        end
-
-        # sums might be (o1 + o2 + ...)
-        Sum(arguments) => begin
-            if length(arguments) > 1 && Base.operator_precedence(:+) ≤ precedence
-                print(io, "(")
-                show(io, O)
-                print(io, ")")
-            else
-                show(io, O)
-            end
-        end
-
-        # products might be (o1 * o2 * ...)
-        Product(arguments) => begin
-            if length(arguments) > 1 && Base.operator_precedence(:*) ≤ precedence
-                print(io, "(")
-                show(io, O)
-                print(io, ")")
-            else
-                show(io, O)
-            end
-        end
+    should_paranthesize = @match O begin
+        Operator(flavour, site) => false
+        Scaled(scalar, operator) =>
+            !isone(scalar) &&
+                (!isreal(scalar) || !isone(abs(scalar))) &&
+                Base.operator_precedence(:*) ≤ precedence
+        Sum(args) => (length(args) > 1 && Base.operator_precedence(:+) ≤ precedence)
+        Product(args) => (length(args) > 1 && Base.operator_precedence(:*) ≤ precedence)
     end
+
+    if should_paranthesize
+        print(io, "(")
+        show(io, O)
+        print(io, ")")
+    else
+        show(io, O)
+    end
+
+    return nothing
 end

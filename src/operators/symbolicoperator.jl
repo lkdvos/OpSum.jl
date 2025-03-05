@@ -125,7 +125,7 @@ function Base.isless(O₁::AbstractOperator{I,S}, O₂::AbstractOperator{I,S}) w
             Sum(_) => true
         end
 
-        Sum(args₁) => @match O2 begin
+        Sum(args₁) => @match O₂ begin
             Operator(_, _) => !(O₁ ≥ O₂)
             Scaled(_, _) => !(O₁ ≥ O₂)
             Product(_) => !(O₁ ≥ O₂)

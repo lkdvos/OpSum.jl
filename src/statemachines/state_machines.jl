@@ -10,53 +10,45 @@ function opsum_vertex_operators(opsum::DAWGDictionary)
     TW = operator_type(eltype(keytype(opsum)), T) # single operator type
     trivial_prefix = first(opsum_keys)
 
-    return map(1:chain_length) do site
+    vertices = 1:chain_length
+    return map(vertices) do site
         # initialize variables
         W = Dictionary{CartesianIndex{2},TW}()
         current_register = state_registers(opsum_keys, site - 1)
         next_register = state_registers(opsum_keys, site)
 
-        # starting operators treated separately:
-        # they need to include the coefficient
         row = 1
-        current_state = first(current_register)
-        for (k, next_state) in pairs(children(current_state))
-            site == 1 && isend(k) && continue
-            site == chain_length && isbegin(k) && continue
+        isstarting = true
+        for current_state in current_register # loop over all states
+            for (k, next_state) in pairs(children(current_state)) # loop over transitions
+                # handle special cases first:
+                (site == first(vertices) && isend(k)) ||
+                    (site == last(vertices) && isbegin(k)) && continue
 
-            if isbegin(k)
-                # handle this separately, only single suffix counts
-                insert!(W, CartesianIndex(row, 1), TW(k))
-                continue
-            end
+                if isbegin(k) # handle this separately, only single suffix counts
+                    insert!(W, CartesianIndex(row, 1), TW(k))
+                    continue
+                end
 
-            col = state_offset(next_register, next_state)
-
-            # no next state on last site
-            site == chain_length && (col -= 1)
-
-            # loop over all suffixes and add
-            for suffix in next_state
-                col += 1
-                key = vcat(@view(trivial_prefix[1:(site - 1)]), k, suffix)
-                setwith!(+, W, CartesianIndex(row, col), opsum[key] * TW(k))
-            end
-        end
-
-        # add other operators
-        for current_state in @view(current_register[2:end])
-            for (k, next_state) in pairs(children(current_state))
-                @assert !isbegin(k)
-
+                # determine how many "states" are before the current state
                 col = state_offset(next_register, next_state)
                 site == chain_length && (col -= 1)
 
                 # loop over all suffixes and add
-                for j in 1:length(next_state)
-                    insert!(W, CartesianIndex(row + j, col + j), TW(k))
+                if isstarting # coefficients are only added at "first" site of operator
+                    for suffix in next_state
+                        col += 1
+                        key = vcat(@view(trivial_prefix[1:(site - 1)]), k, suffix)
+                        setwith!(+, W, CartesianIndex(row, col), opsum[key] * TW(k))
+                    end
+                else
+                    for j in 1:length(next_state)
+                        insert!(W, CartesianIndex(row + j, col + j), TW(k))
+                    end
+                    row += length(next_state)
                 end
-                row += length(next_state)
             end
+            isstarting = false
         end
 
         W_mat = _instantiate_matrix(W)

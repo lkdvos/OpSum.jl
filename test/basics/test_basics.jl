@@ -1,25 +1,56 @@
 using OpSum
 using Test: @test, @testset
-using OpSum: depth, compress_state_machine, opsum_vertex_operators, opsum_bond_coefficients
+using Dictionaries
+using OpSum:
+             depth,
+             compress_state_machine,
+             opsum_vertex_operators,
+             opsum_bond_coefficients,
+             DawgIndices,
+             DawgDictionary, mpo_to_opsum
+using QuantumOperatorAlgebra
+using QuantumOperatorAlgebra: operatorstrings
 
-N = 8
+ENV["JULIA_DEBUG"] = OpSum
+
+N = 5
 T = Int
+vertices = 1:N
 
-using OpSum.PauliOperators: B, I, X, Y, Z, E
+# using OpSum.PauliOperators: B, I, X, Y, Z, E
 
-ops_onesite = map(Base.Fix1(Operator, :X), 1:N)
-# TODO: should also handle Operator(:XX, (i, i + 1))
-ops_twosite = map(1:(N - 1)) do i
-    return Operator(:X, i) * Operator(:X, i + 1)
+# ops_bookkeeping = map(0:N) do i
+#     return mapreduce(*, 1:N) do j
+#         Operator(j <= i ? :B : :E, j)
+#     end
+# end
+g = 1.0
+J = 1.0
+
+ops_onesite = sum(vertices) do i
+    return GlobalOp(LocalOp(:Z)[i]) * (-g)
+end
+ops_twosite = sum(@view(vertices[1:(end - 1)])) do i
+    return GlobalOp((LocalOp(:X) ⊗ LocalOp(:X))[i, i + 1]) * J
 end
 
-operators = sum(ops_onesite) + sum(ops_twosite)
+Ws = opsum_vertex_operators(vertices, ops_onesite + ops_twosite);
+for i in eachindex(Ws)
+    @info "site $i" W=Ws[i]
+end
+ex = mpo_to_opsum(Ws)
+ex == ops_onesite + ops_twosite
+ops_onesite + ops_twosite
 
-ops_str = operator_strings(operators)
+opstrings, coeffs = operatorstrings(vertices, ops_onesite)
+I = sortperm(opstrings)
+permute!(opstrings, I)
+permute!(coeffs, I)
+dawginds = DawgIndices(vertices, opstrings)
 
-dawg = DAWGDictionary(
-    vcat(ops_onesite, ops_twosite), ones(length(ops_onesite) + length(ops_twosite))
-)
+dawg = DawgDictionary(dawginds, collect(1:length(dawginds)))
+
+opsum_vertex_operators(dawg)
 
 ops_onesite = map(1:N) do i
     return vcat(fill(B, i - 1), [Z], fill(E, N - i))
@@ -95,3 +126,9 @@ foreach(x -> (show(io, MIME"text/plain"(), Matrix(x)); println()), Ms)
 # Ws = compress_state_machine(ws)
 @info "compressed"
 foreach(display, Ws)
+
+
+using LightSumTypes
+using QuantumOperatorAlgebra
+using QuantumOperatorAlgebra: Op, Sum, Prod, Kron, Fun
+

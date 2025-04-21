@@ -6,11 +6,14 @@ export @op_str, AbstractOperator, Operator, Scaled, Sum, Product
 export ParallelDecomposition
 
 using Dictionaries
+using AbstractTrees
+using SparseArraysBase: SparseArraysBase
 using SparseArraysBase: SparseArrayDOK, SparseMatrixDOK, storedpairs
 using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
-using Moshi.Data: @data
-using Moshi.Match: @match
+using QuantumOperatorAlgebra
+using QuantumOperatorAlgebra: operatorstrings, begin_marker, end_marker, isbegin, isend
+using LightSumTypes
 
 # Utility
 # -------
@@ -24,8 +27,12 @@ include("datastructures/dawgdict.jl")
 
 # Operators
 # ---------
-include("operators/symbolicoperator.jl")
-include("operators/operators.jl")
+# include("operators/localoperator.jl")
+# using .LocalOperators
+# import .LocalOperators: scalartype, flavourtype, isbegin, isend
+
+# include("operators/symbolicoperator.jl")
+# include("operators/operators.jl")
 
 # State machines
 # --------------

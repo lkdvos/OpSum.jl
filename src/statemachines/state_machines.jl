@@ -3,11 +3,11 @@
 
 Convert a representation of a sum of operators into a finite state machine representation.
 """
-function opsum_vertex_operators(opsum::DAWGDictionary)
+function opsum_vertex_operators(opsum::DawgDictionary)
     opsum_keys = keys(opsum)
     chain_length = depth(opsum)
     T = eltype(opsum) # coefficient_type
-    TW = operator_type(eltype(keytype(opsum)), T) # single operator type
+    TW = eltype(keytype(opsum)) # single operator type
     trivial_prefix = first(opsum_keys)
 
     vertices = 1:chain_length
@@ -21,12 +21,13 @@ function opsum_vertex_operators(opsum::DAWGDictionary)
         isstarting = true
         for current_state in current_register # loop over all states
             for (k, next_state) in pairs(children(current_state)) # loop over transitions
+                @info "moving" site k current_state next_state
                 # handle special cases first:
                 (site == first(vertices) && isend(k)) ||
                     (site == last(vertices) && isbegin(k)) && continue
 
                 if isbegin(k) # handle this separately, only single suffix counts
-                    insert!(W, CartesianIndex(row, 1), TW(k))
+                    insert!(W, CartesianIndex(row, 1), k)
                     continue
                 end
 
@@ -39,11 +40,11 @@ function opsum_vertex_operators(opsum::DAWGDictionary)
                     for suffix in next_state
                         col += 1
                         key = vcat(@view(trivial_prefix[1:(site - 1)]), k, suffix)
-                        setwith!(+, W, CartesianIndex(row, col), opsum[key] * TW(k))
+                        setwith!(+, W, CartesianIndex(row, col), opsum[key] * k)
                     end
                 else
                     for j in 1:length(next_state)
-                        insert!(W, CartesianIndex(row + j, col + j), TW(k))
+                        insert!(W, CartesianIndex(row + j, col + j), k)
                     end
                     row += length(next_state)
                 end
@@ -57,7 +58,92 @@ function opsum_vertex_operators(opsum::DAWGDictionary)
     end
 end
 
-function opsum_bond_coefficients(opsum::DAWGDictionary)
+opsum_vertex_operators(vertices, ex::GlobalOp) = opsum_vertex_operators(Trie(vertices, ex))
+
+function opsum_vertex_operators(opsum::Trie)
+    vertices = 1:depth(opsum)
+
+    TW = keytype(opsum) # single operator type
+    indices = [
+        CartesianIndex{2}[CartesianIndex(1, 1), CartesianIndex(2, 2)] for _ in vertices
+    ]
+    operators = [TW[begin_marker(TW), end_marker(TW)] for _ in vertices]
+
+    # recursive depth first search
+    lvl = 1
+    for p in pairs(opsum.children)
+        _opsum_vertex_operators!(@view(indices[1:end]), @view(operators[1:end]), p, lvl)
+    end
+
+    return map(indices, operators) do inds, ops
+        nrows, ncols = mapreduce(Tuple, (x, y) -> max.(x, y), inds; init=(1, 1))
+        W = SparseMatrixDOK{TW}(undef, (nrows, ncols))
+        for (I, v) in zip(inds, ops)
+            row = if I[1] == 1
+                1
+            elseif I[1] == 2
+                nrows
+            else
+                I[1] - 1
+            end
+            col = if I[2] == 1
+                1
+            elseif I[2] == 2
+                ncols
+            else
+                I[2] - 1
+            end
+            W[row, col] = v
+        end
+        return W
+    end
+end
+
+function _opsum_vertex_operators!(indices, operators, (op, child), lvl)
+    lvl == 2 && return nothing # early bailout if interaction ended
+
+    nextlvl = if isbegin(op)
+        1
+    elseif isend(child)
+        2
+    else
+        # TODO: might not need to search all values - last one should be max
+        maximum(Base.Fix2(getindex, 2), indices[1]; init=2) + 1
+    end
+
+    # add the operator to the list
+    if !(lvl == nextlvl == 2)
+        push!(first(indices), CartesianIndex(lvl, nextlvl))
+        push!(first(operators), child.value)
+    end
+
+    nextindices = @view(indices[2:end])
+    nextoperators = @view(operators[2:end])
+    for p in pairs(child.children)
+        _opsum_vertex_operators!(nextindices, nextoperators, p, nextlvl)
+    end
+
+    return nothing
+end
+
+function QuantumOperatorAlgebra.isend(op::Trie)
+    return isend(op.value) ||
+           isempty(op.children) ||
+           (length(op.children) == 1 && isend(first(keys(op.children))))
+end
+
+function mpo_to_opsum(Ws::Vector{<:SparseMatrixDOK{<:LocalOp}})
+    vertices = eachindex(Ws)
+    globalops = map(vertices) do i
+        return map(Array(Ws[i])) do W
+            w = (isend(W) || isbegin(W)) ? one(W) : W
+            return GlobalOp(SiteOp(w, [i]))
+        end
+    end
+    return simplify(reduce(*, globalops)[1, end])
+end
+
+function opsum_bond_coefficients(opsum::DawgDictionary)
     opsum_keys = keys(opsum)
     chain_length = depth(opsum)
     T = eltype(opsum) # coefficient_type
@@ -119,7 +205,7 @@ end
 # state_offset counts all states that come before a given state.
 # the first state may be interpreted as "not-started", and thus has length 1
 function state_offset(register, state)
-    @assert state in register "should not happen"
+    @assert state in register "should not happen:\n$state\n\n ∉\n\n $register"
     offset = 1
     state == first(register) && return offset
     for state′ in @view(register[2:end])

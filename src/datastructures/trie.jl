@@ -1,24 +1,23 @@
 # equal word length trie
-mutable struct Trie{K,V}
-    const children::Dict{K,Trie{K,V}}
-    value::Union{Nothing,V}
+mutable struct Trie{K} <: AbstractIndices{K}
+    const children::Dictionary{K,Trie{K}}
+    value::K
 
-    function Trie{K,V}() where {K,V}
-        children = Dict{K,Trie{K,V}}()
-        return new{K,V}(children, nothing)
+    function Trie{K}(value::K) where {K}
+        children = Dictionary{K,Trie{K}}()
+        return new{K}(children, value)
     end
 end
 
 # Constructors
 # ------------
-Trie() = Trie{Any,Any}()
-function Trie(ks, vs)
+Trie() = Trie{Any}()
+function Trie(ks)
     K = eltype(eltype(ks)) # K is the type of iterating the key
-    V = eltype(vs)
-    return Trie{K,V}(ks, vs)
+    return Trie{K}(ks)
 end
-function Trie{K,V}(ks, vs) where {K,V}
-    trie = Trie{K,V}()
+function Trie{K}(ks) where {K}
+    trie = Trie{K}(begin_marker(V))
     for (k, v) in zip(ks, vs)
         trie[k] = v
     end
@@ -27,12 +26,44 @@ end
 
 Base.similar(t::Trie) = Trie{keytype(t),valtype(t)}()
 
+function Trie(vertices, ex::GlobalOp)
+    A = algebratype(ex)
+    root = Trie{A}(begin_marker(A))
+
+    opstrings = operatorstrings(vertices, ex)
+
+    for op in opstrings
+        trie = root
+        for o in op
+            child = get!(trie.children, o) do
+                Trie{keytype(trie)}(o)
+            end
+            trie = child
+        end
+    end
+
+    return root
+end
+
 # Properties
 # ----------
-Base.keytype(trie::Trie) = keytype(typeof(trie))
-Base.keytype(::Type{<:Trie{K}}) where {K} = K
-Base.valtype(trie::Trie) = valtype(typeof(trie))
-Base.valtype(::Type{<:Trie{K,V}}) where {K,V} = V
+# Base.keytype(trie::Trie) = keytype(typeof(trie))
+# Base.keytype(::Type{<:Trie{K}}) where {K} = K
+# Base.valtype(trie::Trie) = valtype(typeof(trie))
+# Base.valtype(::Type{<:Trie{K}}) where {K,V} = V
+
+AbstractTrees.children(trie::Trie) = keys(trie.children)
+AbstractTrees.nodevalue(trie::Trie) = trie.value
+
+function depth(trie::Trie)
+    d = 0
+    strie = trie
+    while !isempty(strie.children)
+        d += 1
+        strie = first(strie.children)
+    end
+    return d
+end
 
 # Accessors
 # ---------
@@ -142,45 +173,65 @@ end
 Base.IteratorSize(::Type{<:Trie}) = Base.SizeUnknown()
 Base.eltype(::Type{T}) where {T<:Trie} = valtype(T)
 
-function Base.iterate(
-    trie::Trie,
-    (keystack, statestack)=(Vector{keytype(trie)}(undef, 0), [trie.children.idxfloor]),
-)
+function Base.iterate(trie::Trie)
+    keystack = keytype(trie)[]
+    statestack = Int[0]
+    return iterate(trie, (keystack, statestack))
+end
+
+function Base.iterate(trie::Trie, (keystack, statestack))
     strie = subtrie(trie, keystack)
-    next = iterate(strie.children, statestack[end])
 
-    if isnothing(next)
-        isempty(keystack) && return nothing
-        pop!(keystack)
-        pop!(statestack)
+    # check if need to go deeper
+    if length(statestack) == length(keystack)
+        push!(statestack, 0)
+        if isnothing(strie.value) || !isempty(strie.children)
+            return iterate(trie, (keystack, statestack))
+        else
+            return strie.value, (keystack, statestack)
+        end
+    end
+
+    # check at current level
+    next = iterate(pairs(strie.children), pop!(statestack))
+    if !isnothing(next)
+        (k, child), nstate = next
+        push!(keystack, k)
+        push!(statestack, nstate)
         return iterate(trie, (keystack, statestack))
     end
 
-    (k, child), statestack[end] = next
-    push!(keystack, k)
-    push!(statestack, child.children.idxfloor)
+    # check if need to backtrack
+    isempty(keystack) && return nothing
+    pop!(keystack)
+    return iterate(trie, (keystack, statestack))
+end
 
-    if !isnothing(child.value)
-        return child.value, (keystack, statestack)
-    else
-        return iterate(trie, (keystack, statestack))
-    end
+# Utility
+# -------
+function Base.sort!(trie::Trie)
+    foreach(sort!, trie.children)
+    sortkeys!(trie.children)
+    return trie
 end
 
 # Printing
 # --------
-function Base.show(io::IO, ::MIME"text/plain", trie::Trie)
-    show(io, typeof(trie))
-    println(io, ":")
-    return show_trie(io, trie)
-end
+# function Base.show(io::IO, ::MIME"text/plain", trie::Trie)
+#     show(io, typeof(trie))
+#     println(io, ":")
+#     iob = IOContext(io, :typeinfo => keytype(trie))
+#     return show_trie(iob, trie)
+# end
 
-function show_trie(io, trie, prefix="  ")
-    if !isnothing(trie.value)
-        println(io, prefix, " => ", trie.value)
-    end
-    for (k, v) in trie.children
-        show_trie(io, v, prefix * string(k))
-    end
-    return nothing
-end
+show_trie(io, trie::Trie) = AbstractTrees.print_tree(io, trie)
+
+# function show_trie(io, trie, prefix=keytype(trie)[])
+#     if !isnothing(trie.value)
+#         println(io, prefix, " => ", trie.value)
+#     end
+#     for (k, v) in pairs(trie.children)
+#         show_trie(io, v, vcat(prefix, k))
+#     end
+#     return nothing
+# end

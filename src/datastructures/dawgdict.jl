@@ -1,38 +1,38 @@
-struct DAWGDictionary{I,T,C} <: AbstractDictionary{I,T}
-    indices::SDAWGIndices{C,I}
+struct DawgDictionary{I,T,C} <: AbstractDictionary{I,T}
+    indices::DawgIndices{C,I}
     values::Vector{T}
 end
 
-Base.keys(dict::DAWGDictionary) = getfield(dict, :indices)
-_values(dict::DAWGDictionary) = getfield(dict, :values)
+Base.keys(dict::DawgDictionary) = getfield(dict, :indices)
+_values(dict::DawgDictionary) = getfield(dict, :values)
 
 # Constructors
 # ------------
 
-function DAWGDictionary(inds, values)
+function DawgDictionary(inds, values)
     I = sortperm(inds)
-    indices_dawg = SDAWGIndices(inds[I])
-    return DAWGDictionary(indices_dawg, values[I])
+    indices_dawg = DawgIndices(inds[I])
+    return DawgDictionary(indices_dawg, values[I])
 end
 
-depth(dict::DAWGDictionary) = depth(keys(dict))
-state_register(dict::DAWGDictionary, d) = state_register(keys(dict), d)
-Base.isempty(dict::DAWGDictionary) = isempty(dict.values)
-Base.length(dict::DAWGDictionary) = length(dict.values)
+depth(dict::DawgDictionary) = depth(keys(dict))
+state_register(dict::DawgDictionary, d) = state_register(keys(dict), d)
+Base.isempty(dict::DawgDictionary) = isempty(dict.values)
+Base.length(dict::DawgDictionary) = length(dict.values)
 
 # Tokens
 # ------
-Dictionaries.istokenizable(dict::DAWGDictionary) = true
+Dictionaries.istokenizable(dict::DawgDictionary) = true
 
-Dictionaries.tokenized(dict::DAWGDictionary) = _values(dict)
+Dictionaries.tokenized(dict::DawgDictionary) = _values(dict)
 
-function Dictionaries.istokenassigned(dict::DAWGDictionary, (_slot, index))
+function Dictionaries.istokenassigned(dict::DawgDictionary, (_slot, index))
     return isassigned(_values(dict), index)
 end
-function Dictionaries.istokenassigned(dict::DAWGDictionary, index::Int)
+function Dictionaries.istokenassigned(dict::DawgDictionary, index::Int)
     return isassigned(_values(dict), index)
 end
 
-@inline Dictionaries.gettokenvalue(dict::DAWGDictionary, (_slot, index)) =
+@inline Dictionaries.gettokenvalue(dict::DawgDictionary, (_slot, index)) =
     _values(dict)[index]
-@inline Dictionaries.gettokenvalue(dict::DAWGDictionary, index::Int) = _values(dict)[index]
+@inline Dictionaries.gettokenvalue(dict::DawgDictionary, index::Int) = _values(dict)[index]

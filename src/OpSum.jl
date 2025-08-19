@@ -2,6 +2,7 @@ module OpSum
 
 export Trie, SDAWG, DAWGDictionary
 export @op_str, AbstractOperator, Operator, Scaled, Sum, Product
+export opsum_vertex_operators, compress_vertex_operators
 
 export ParallelDecomposition
 

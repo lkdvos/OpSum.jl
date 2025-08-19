@@ -62,23 +62,41 @@ opsum_vertex_operators(vertices, ex::GlobalOp) = opsum_vertex_operators(Trie(ver
 
 function opsum_vertex_operators(opsum::Trie)
     vertices = 1:depth(opsum)
+    dawgdict = DawgDictionary(opsum)
 
-    TW = keytype(opsum) # single operator type
-    indices = [
-        CartesianIndex{2}[CartesianIndex(1, 1), CartesianIndex(2, 2)] for _ in vertices
+    T = valtype(opsum) # coefficient type
+    TW = eltype(keytype(opsum)) # single operator type
+    vertex_operators = [
+        Pair{CartesianIndex{2},TW}[
+            CartesianIndex(1, 1) => begin_marker(TW), CartesianIndex(2, 2) => end_marker(TW)
+        ] for _ in vertices
     ]
-    operators = [TW[begin_marker(TW), end_marker(TW)] for _ in vertices]
+    bond_coefficients = [
+        Pair{CartesianIndex{2},T}[
+            CartesianIndex(1, 1) => one(T), CartesianIndex(2, 2) => one(T),
+        ] for _ in vertices[1:(end - 1)]
+    ]
 
-    # recursive depth first search
+    # recursive depth first search to place all operators
     lvl = 1
+    prefix = keytype(opsum)()
     for p in pairs(opsum.children)
-        _opsum_vertex_operators!(@view(indices[1:end]), @view(operators[1:end]), p, lvl)
+        _opsum_vertex_operators!(
+            @view(vertex_operators[1:end]),
+            @view(bond_coefficients[1:end]),
+            p,
+            lvl,
+            prefix,
+            dawgdict,
+        )
     end
 
-    return map(indices, operators) do inds, ops
-        nrows, ncols = mapreduce(Tuple, (x, y) -> max.(x, y), inds; init=(1, 1))
+    Ws = map(vertex_operators) do vertex_operator
+        nrows, ncols = mapreduce(
+            Tuple ∘ first, (x, y) -> max.(x, y), vertex_operator; init=(1, 1)
+        )
         W = SparseMatrixDOK{TW}(undef, (nrows, ncols))
-        for (I, v) in zip(inds, ops)
+        for (I, v) in vertex_operator
             row = if I[1] == 1
                 1
             elseif I[1] == 2
@@ -97,9 +115,112 @@ function opsum_vertex_operators(opsum::Trie)
         end
         return W
     end
+
+    Ms = map(enumerate(bond_coefficients)) do (i, bond_coefficient)
+        # nrows = size(Ws[i], 2)
+        # ncols = mapreduce(x -> first(x)[2], max, bond_coefficient; init=1)
+        nrows, ncols = mapreduce(
+            Tuple ∘ first, (x, y) -> max.(x, y), bond_coefficient; init=(3, 3)
+        )
+        M = SparseMatrixDOK{T}(undef, (nrows, ncols))
+        for (I, v) in bond_coefficient
+            # M[I] = v
+            row = if I[1] == 1
+                1
+            elseif I[1] == 2
+                nrows
+            else
+                I[1] - 1
+            end
+            col = if I[2] == 1
+                1
+            elseif I[2] == 2
+                ncols
+            else
+                I[2] - 1
+            end
+
+            M[row, col] = v
+        end
+        return M
+    end
+
+    return Ws, Ms
 end
 
-function _opsum_vertex_operators!(indices, operators, (op, child), lvl)
+function _opsum_vertex_operators!(
+    vertex_operators, bond_coefficients, (op, child), lvl, prefix, dawgdict
+)
+    lvl == 2 && return nothing # early bailout if interaction ended
+
+    nextlvl = if isbegin(op)
+        1
+    elseif isend(child)
+        2
+    else
+        # TODO: might not need to search all values - last one should be max
+        maximum(Base.Fix2(getindex, 2) ∘ first, vertex_operators[1]; init=2) + 1
+    end
+
+    # add the operator to the list
+    if !(lvl == nextlvl == 2)
+        ind = CartesianIndex(lvl, nextlvl)
+        op′ = isnothing(child.value) ? op : child.value * op
+        push!(first(vertex_operators), ind => op′)
+    end
+
+    # add the coefficients to the list
+    if !isempty(prefix) && nextlvl != 1 && nextlvl != 2
+        state = partial_getindex(keys(dawgdict), prefix)
+        register = state_registers(keys(dawgdict), length(prefix))
+        col = state_offset(register, state)
+        for suffix in state
+            (isbegin(first(suffix)) || interaction_ended(suffix)) && continue
+            key = vcat(prefix, suffix)
+            coefficient = dawgdict[key]
+            col += 1
+            push!(first(bond_coefficients), CartesianIndex(nextlvl, col) => coefficient)
+        end
+    end
+
+    next_vertex_operators = @view(vertex_operators[2:end])
+    next_bond_coefficients =
+        isempty(prefix) ? @view(bond_coefficients[1:end]) : @view(bond_coefficients[2:end])
+    for (op, child) in pairs(child.children)
+        nextprefix = vcat(prefix, op)
+        _opsum_vertex_operators!(
+            next_vertex_operators,
+            next_bond_coefficients,
+            (op, child),
+            nextlvl,
+            nextprefix,
+            dawgdict,
+        )
+    end
+
+    return nothing
+end
+
+function opsum_bond_coefficients(opsum::Trie)
+    dawgdict = DawgDictionary(opsum)
+    vertices = 1:depth(opsum)
+
+    TW = valtype(opsum) # coefficient type 
+    indices = [
+        CartesianIndex{2}[CartesianIndex(1, 1), CartesianIndex(2, 2)] for _ in vertices
+    ]
+    operators = [TW[one(TW), one(TW)] for _ in vertices]
+
+    # recursive depth first search
+    lvl = 1
+    prefix = keytype(opsum)()
+    for (op, child) in pairs(opsum.children)
+        _opsum_bond_coefficients!(
+            @view(indices[1:end]), @view(operators[1:end]), p, prefix, lvl, dawgdict
+        )
+    end
+end
+function _opsum_bond_coefficients!(indices, operators, (op, child), prefix, lvl, dawgdict)
     lvl == 2 && return nothing # early bailout if interaction ended
 
     nextlvl = if isbegin(op)
@@ -111,23 +232,23 @@ function _opsum_vertex_operators!(indices, operators, (op, child), lvl)
         maximum(Base.Fix2(getindex, 2), indices[1]; init=2) + 1
     end
 
-    # add the operator to the list
-    if !(lvl == nextlvl == 2)
-        push!(first(indices), CartesianIndex(lvl, nextlvl))
-        push!(first(operators), child.value)
+    # add coefficient to the list
+    if lvl != 1 && nextlvl != 1 && nextlvl != 2
+        state = partial_getindex(keys(dawgdict), prefix)
+        col = state_offset(register, state)
+        for suffix in state
+            (isbegin(first(suffix)) || isend(first(suffix))) && continue
+            key = vcat(prefix, suffix)
+            coefficient = dawgdict[key]
+            col += 1
+            push!(first(indices), CartesianIndex(lvl, col))
+            push!(first(operators), coefficient)
+        end
     end
-
-    nextindices = @view(indices[2:end])
-    nextoperators = @view(operators[2:end])
-    for p in pairs(child.children)
-        _opsum_vertex_operators!(nextindices, nextoperators, p, nextlvl)
-    end
-
-    return nothing
 end
 
 function QuantumOperatorAlgebra.isend(op::Trie)
-    return isend(op.value) ||
+    return !isnothing(op.value) ||
            isempty(op.children) ||
            (length(op.children) == 1 && isend(first(keys(op.children))))
 end
@@ -179,8 +300,8 @@ function opsum_bond_coefficients(opsum::DawgDictionary)
 
         # generate bond coefficients
         M = Dictionary{CartesianIndex{2},T}()
-        for (row, prefix) in enumerate(@show unique!(current_prefixes))
-            @show state = partial_getindex(opsum_keys, prefix)
+        for (row, prefix) in enumerate(unique!(current_prefixes))
+            state = partial_getindex(opsum_keys, prefix)
             col = state_offset(current_register, state)
             col -= 2 # skip first two columns: no starting/ending state
             for suffix in state

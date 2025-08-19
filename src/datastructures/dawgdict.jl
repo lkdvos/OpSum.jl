@@ -15,6 +15,13 @@ function DawgDictionary(inds, values)
     return DawgDictionary(indices_dawg, values[I])
 end
 
+function DawgDictionary(trie::Trie)
+    trie_sorted = sortkeys(trie)
+    inds = DawgIndices(trie_sorted)
+    values = [trie_sorted...]
+    return DawgDictionary(inds, values)
+end
+
 depth(dict::DawgDictionary) = depth(keys(dict))
 state_register(dict::DawgDictionary, d) = state_register(keys(dict), d)
 Base.isempty(dict::DawgDictionary) = isempty(dict.values)

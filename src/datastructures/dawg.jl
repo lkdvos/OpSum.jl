@@ -93,7 +93,7 @@ end
 # Here, because of the order, we have instead of 4.
 # 4′. corresponding transitions lead to the same states.
 function issameclass(dawg1::DawgNode, dawg2::DawgNode)
-    @assert depth(dawg1) == depth(dawg2) "depths must be equal"
+    # @assert depth(dawg1) == depth(dawg2) "depths must be equal"
     # length(dawg1) == length(dawg2) || return false
     isdictequal(keys(dawg1.children), keys(dawg2.children)) || return false
     return all(Base.Splat(===), zip((dawg1.children), (dawg2.children)))
@@ -177,7 +177,7 @@ function Dictionaries.insert!(dawg::DawgNode, key, value)
     return dawg
 end
 
-Base.show(io::IO, dawg::DawgNode) = AbstractTrees.print_tree(io, dawg)
+# Base.show(io::IO, dawg::DawgNode) = AbstractTrees.print_tree(io, dawg)
 
 function Base.iterate(dawg::DawgNode, iterstate=1)
     token = iterstate
@@ -231,30 +231,6 @@ function DawgIndices(vertices, allterms)
     registers = map(x -> nodetype[], 1:(length(vertices) + 1))
     root = nodetype()
     root.descendants = 1
-    # for i in eachindex(registers)
-    #     node = nodetype()
-    #     node.descendants = 1
-    #     push!(registers[i], node)
-    #     node = nodetype()
-    #     node.descendants = 1
-    #     push!(registers[i], node)
-    # end
-
-    # # connect
-    # B = begin_marker(lettertype)
-    # E = end_marker(lettertype)
-    # for i in reverse(eachindex(registers))[2:end]
-    #     insert!(registers[i][1], B, registers[i + 1][1])
-    #     insert!(registers[i][2], E, registers[i + 1][2])
-    #     insert!(registers[i][1], E, registers[i + 1][2])
-    #     registers[i][1].descendants = length(registers[i][1])
-    #     registers[i][2].descendants = length(registers[i][2])
-    # end
-
-    # # handle edges
-    # pop!(registers[1])
-    # popfirst!(registers[end])
-    # root = only(registers[1])
 
     # add bookkeeping:
     terms = collect(allterms)
@@ -286,51 +262,53 @@ function DawgIndices(vertices, allterms)
         replace_or_register!(registers[(length(prefix) + 2):end], state)
         add_suffix!(state, suffix)
 
-        # iterable = enumerate(operatorstring(vertices, term))
-        # ((i, k), iterstate) = @something iterate(iterable) continue
-        # while haskey(state.children, k)
-        #     state = state.children[k]
-        #     state.descendants += 1
-        #     ((i, k), iterstate) = @something iterate(iterable, iterstate) break
-        # end
-        # @info "found prefix" i state
-
-        # # minimize word graph
-        # state.descendants += 1
-        # replace_or_register!(@view(registers[(i + 1):end]), state)
-        # @info "minimzed"
-
-        # # add suffix
-        # while true
-        #     if i == length(iterable) && !isempty(registers[end])
-        #         newstate = last(registers[end])
-        #     else
-        #         newstate = similar(state)
-        #         newstate.descendants = 1
-        #     end
-        #     insert!(state, k, newstate)
-        #     state = newstate
-        #     ((i, k), iterstate) = @something iterate(iterable, iterstate) break
-        # end
-
         @debug "added term" term root
     end
     replace_or_register!(registers[2:end], root)
 
     @debug "built dawg" registers
 
-    # remove auxiliary states?
-    # unset!(registers[end - 1][1].children, B)
-    # for i in reverse(eachindex(registers))[2:end]
-    #     unset!(registers[i][1].children, E)
-    #     registers[i][1].descendants = length(registers[i][1])
-    # end
-
-    # @debug "cleant dawg" registers
-    # replace_or_register!(registers[2:end], root)
-
     push!(registers[1], root)
     return DawgIndices{lettertype,Vector{lettertype}}(registers)
+end
+
+# DFS traversal of the trie to find common suffixes
+function DawgIndices(trie::Trie{K}) where {K}
+    # @assert issorted(trie) "trie must be sorted"
+    root = DawgNode{K}()
+    root.descendants = 1
+    registers = map(x -> typeof(root)[], 1:depth(trie))
+    # push!(registers, root)
+
+    _dawgindices!(root, trie, @view(registers[1:end]))
+    pushfirst!(registers, [root])
+
+    return DawgIndices{K,Vector{K}}(registers)
+end
+function _dawgindices!(root, trie, registers)
+    for (op, child) in pairs(trie.children)
+        # depth first search
+        child_dawg = similar(root)
+        child_dawg.descendants = 1
+        _dawgindices!(child_dawg, child, @view(registers[2:end]))
+
+        # minimize
+        i = findfirst(issameclass(child_dawg), first(registers))
+        if isnothing(i)
+            if isbegin(op)
+                pushfirst!(first(registers), child_dawg) # starting state should be first
+            elseif isend(op)
+                @assert isbegin(first(registers)[1]) "begin should be first"
+                insert!(first(registers), 2, child_dawg) # starting state should already be there?
+            else
+                push!(first(registers), child_dawg)
+            end
+        else
+            child_dawg = first(registers)[i]
+        end
+
+        insert!(root, op, child_dawg)
+    end
 end
 
 root(inds::DawgIndices) = only(state_registers(inds, 0))

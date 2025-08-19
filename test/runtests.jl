@@ -50,12 +50,14 @@ isexamplefile(fn) =
             filename = joinpath(root, file)
             @eval begin
                 @safetestset $file begin
-                    $(Expr(
-                        :macrocall,
-                        GlobalRef(Suppressor, Symbol("@suppress")),
-                        LineNumberNode(@__LINE__, @__FILE__),
-                        :(include($filename)),
-                    ))
+                    $(
+                        Expr(
+                            :macrocall,
+                            GlobalRef(Suppressor, Symbol("@suppress")),
+                            LineNumberNode(@__LINE__, @__FILE__),
+                            :(include($filename)),
+                        )
+                    )
                 end
             end
         end

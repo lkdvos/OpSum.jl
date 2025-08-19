@@ -1,5 +1,5 @@
-struct DawgDictionary{I,T,C} <: AbstractDictionary{I,T}
-    indices::DawgIndices{C,I}
+struct DawgDictionary{I, T, C} <: AbstractDictionary{I, T}
+    indices::DawgIndices{C, I}
     values::Vector{T}
 end
 

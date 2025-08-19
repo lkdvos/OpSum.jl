@@ -19,11 +19,11 @@ function compress_vertex_operators(Ws, Ms; trunc = nothing)
 end
 
 
-function trunc_bondcoefficient(M; trunc=nothing)
-    Upart, = svd_trunc!(Matrix(M)[2:end-1,2:end-1]; trunc)
+function trunc_bondcoefficient(M; trunc = nothing)
+    Upart, = svd_trunc!(Matrix(M)[2:(end - 1), 2:(end - 1)]; trunc)
     return if length(Upart) == 0
-        cat(M[1, 1], one(eltype(M)), M[end, end]; dims=(1, 2))
+        cat(M[1, 1], one(eltype(M)), M[end, end]; dims = (1, 2))
     else
-        cat(M[1, 1], Upart, M[end, end]; dims=(1, 2))
+        cat(M[1, 1], Upart, M[end, end]; dims = (1, 2))
     end
 end

@@ -1,5 +1,5 @@
 # # OpSum.jl
-# 
+#
 # [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://ITensor.github.io/OpSum.jl/stable/)
 # [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://ITensor.github.io/OpSum.jl/dev/)
 # [![Build Status](https://github.com/ITensor/OpSum.jl/actions/workflows/Tests.yml/badge.svg?branch=main)](https://github.com/ITensor/OpSum.jl/actions/workflows/Tests.yml?query=branch%3Amain)

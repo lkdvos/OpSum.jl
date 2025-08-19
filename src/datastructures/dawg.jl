@@ -1,4 +1,3 @@
-
 """
     DawgNode{K}
 
@@ -12,11 +11,11 @@ Importantly, here we assume that all words are of equal lenght, which saves slig
 storage space as well as efficiency.
 """
 mutable struct DawgNode{K}
-    const children::Dictionary{K,DawgNode{K}}
+    const children::Dictionary{K, DawgNode{K}}
     descendants::Int
 
     function DawgNode{K}() where {K}
-        children = Dictionary{K,DawgNode{K}}()
+        children = Dictionary{K, DawgNode{K}}()
         return new{K}(children, 0)
     end
 end
@@ -43,7 +42,7 @@ Base.similar(::DawgNode{K}) where {K} = DawgNode{K}()
 AbstractTrees.children(inds::DawgNode) = inds.children
 AbstractTrees.nodevalue(inds::DawgNode) = objectid(inds) # inds.descendants
 AbstractTrees.childtype(dawg::DawgNode) = typeof(dawg)
-Base.length(dawg::DawgNode) = max(1, sum(length, dawg.children; init=0))
+Base.length(dawg::DawgNode) = max(1, sum(length, dawg.children; init = 0))
 
 Base.keytype(dawg::DawgNode) = keytype(dawg.children)
 # Base.length(dawg::DawgNode) = dawg.descendants
@@ -179,7 +178,7 @@ end
 
 # Base.show(io::IO, dawg::DawgNode) = AbstractTrees.print_tree(io, dawg)
 
-function Base.iterate(dawg::DawgNode, iterstate=1)
+function Base.iterate(dawg::DawgNode, iterstate = 1)
     token = iterstate
     0 ≤ token ≤ length(dawg) || return nothing
     state = dawg
@@ -218,7 +217,7 @@ empty_prefix(node::DawgNode) = Vector{keytype(node)}(undef, 0)
 
 Directed Acyclic Word Graph for words of type `W` with characters of type `K`.
 """
-struct DawgIndices{K,W} <: AbstractIndices{W}
+struct DawgIndices{K, W} <: AbstractIndices{W}
     registers::Vector{Vector{DawgNode{K}}}
 end
 
@@ -269,7 +268,7 @@ function DawgIndices(vertices, allterms)
     @debug "built dawg" registers
 
     push!(registers[1], root)
-    return DawgIndices{lettertype,Vector{lettertype}}(registers)
+    return DawgIndices{lettertype, Vector{lettertype}}(registers)
 end
 
 # DFS traversal of the trie to find common suffixes
@@ -283,7 +282,7 @@ function DawgIndices(trie::Trie{K}) where {K}
     _dawgindices!(root, trie, @view(registers[1:end]))
     pushfirst!(registers, [root])
 
-    return DawgIndices{K,Vector{K}}(registers)
+    return DawgIndices{K, Vector{K}}(registers)
 end
 function _dawgindices!(root, trie, registers)
     for (op, child) in pairs(trie.children)
@@ -309,6 +308,7 @@ function _dawgindices!(root, trie, registers)
 
         insert!(root, op, child_dawg)
     end
+    return
 end
 
 root(inds::DawgIndices) = only(state_registers(inds, 0))
@@ -394,9 +394,9 @@ function Dictionaries.gettokenvalue(indices::DawgIndices{K}, token) where {K}
 end
 
 # utility
-_create_key(::DawgIndices{K,I}, keystack::I) where {K,I} = keystack
-_create_key(::DawgIndices{Char,String}, keystack::Vector{Char}) = join(keystack)
-function _create_key(::DawgIndices{K,Tuple{Vararg{K}}}, keystack::Vector{K}) where {K}
+_create_key(::DawgIndices{K, I}, keystack::I) where {K, I} = keystack
+_create_key(::DawgIndices{Char, String}, keystack::Vector{Char}) = join(keystack)
+function _create_key(::DawgIndices{K, Tuple{Vararg{K}}}, keystack::Vector{K}) where {K}
     return Tuple(keystack)
 end
 
@@ -414,4 +414,5 @@ function _add_nodes!(s::Set, indices::DawgIndices)
     for c in indices.children
         _add_nodes!(s, c)
     end
+    return
 end

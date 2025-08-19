@@ -1,36 +1,36 @@
 # equal word length trie
-mutable struct Trie{K,V} <: AbstractDictionary{Vector{K},V}
-    const children::Dictionary{K,Trie{K}}
-    value::Union{V,Nothing}
+mutable struct Trie{K, V} <: AbstractDictionary{Vector{K}, V}
+    const children::Dictionary{K, Trie{K}}
+    value::Union{V, Nothing}
 
-    function Trie{K,V}(value::Union{V,Nothing}=nothing) where {K,V}
-        children = Dictionary{K,Trie{K,V}}()
-        return new{K,V}(children, value)
+    function Trie{K, V}(value::Union{V, Nothing} = nothing) where {K, V}
+        children = Dictionary{K, Trie{K, V}}()
+        return new{K, V}(children, value)
     end
 end
 
 # Constructors
 # ------------
-Trie() = Trie{Any,Any}()
+Trie() = Trie{Any, Any}()
 function Trie(ks, vs)
     K = eltype(eltype(ks)) # K is the type of iterating the key
     V = eltype(vs)
-    return Trie{K,V}(ks, vs)
+    return Trie{K, V}(ks, vs)
 end
-function Trie{K,V}(ks, vs) where {K,V}
-    trie = Trie{K,V}(begin_marker(V))
+function Trie{K, V}(ks, vs) where {K, V}
+    trie = Trie{K, V}(begin_marker(V))
     for (k, v) in zip(ks, vs)
         trie[k] = v
     end
     return trie
 end
 
-Base.similar(t::Trie) = Trie{keytype(t),valtype(t)}()
+Base.similar(t::Trie) = Trie{keytype(t), valtype(t)}()
 
 function Trie(vertices, ex::GlobalOp)
     A = algebratype(ex)
     V = scalartype(ex)
-    root = Trie{A,V}()
+    root = Trie{A, V}()
 
     coefficients, opstrings = operatorstrings(vertices, ex)
 
@@ -38,7 +38,7 @@ function Trie(vertices, ex::GlobalOp)
         trie = root
         for o in op
             child = get!(trie.children, o) do
-                Trie{A,V}()
+                Trie{A, V}()
             end
             trie = child
         end
@@ -162,7 +162,7 @@ end
 
 # TODO: iterator
 function Base.pairs(trie::Trie)
-    found = Vector{Pair{keytype(trie),valtype(trie)}}(undef, 0)
+    found = Vector{Pair{keytype(trie), valtype(trie)}}(undef, 0)
     next = iterate(trie)
     while !isnothing(next)
         val, (keystack, statestack) = next
@@ -180,7 +180,7 @@ end
 # Iterators
 # ---------
 Base.IteratorSize(::Type{<:Trie}) = Base.SizeUnknown()
-Base.eltype(::Type{T}) where {T<:Trie} = valtype(T)
+Base.eltype(::Type{T}) where {T <: Trie} = valtype(T)
 
 function Base.iterate(trie::Trie)
     keystack = keytype(trie)()
@@ -223,8 +223,8 @@ function Dictionaries.sortkeys!(trie::Trie)
     sortkeys!(trie.children)
     return trie
 end
-function Dictionaries.sortkeys(trie::Trie{K,V}) where {K,V}
-    trie_sorted = Trie{K,V}(trie.value)
+function Dictionaries.sortkeys(trie::Trie{K, V}) where {K, V}
+    trie_sorted = Trie{K, V}(trie.value)
     for (k, v) in pairs(trie.children)
         insert!(trie_sorted.children, k, sortkeys(v))
     end

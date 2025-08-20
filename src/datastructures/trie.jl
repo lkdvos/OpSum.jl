@@ -60,13 +60,7 @@ AbstractTrees.children(trie::Trie) = keys(trie.children)
 AbstractTrees.nodevalue(trie::Trie) = trie.value
 
 function depth(trie::Trie)
-    d = 0
-    strie = trie
-    while !isempty(strie.children)
-        d += 1
-        strie = first(strie.children)
-    end
-    return d
+    return isempty(trie.children) ? 0 : maximum(depth, trie.children; init = 0) + 1
 end
 
 # Accessors

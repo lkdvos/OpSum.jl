@@ -107,6 +107,7 @@ function opsum_vertex_operators(vertices, opsum::Trie)
         nrows, ncols = mapreduce(
             Tuple ∘ first, (x, y) -> max.(x, y), bond_coefficient; init = (3, 3)
         )
+        ncols = size(Ws[i + 1], 1)
         M = SparseMatrixDOK{T}(undef, (nrows, ncols))
         for (I, v) in bond_coefficient
             row = I[1] == 1 ? 1 : I[1] == 2 ? nrows : I[1] - 1

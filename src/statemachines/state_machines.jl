@@ -58,10 +58,9 @@ function opsum_vertex_operators(opsum::DawgDictionary)
     end
 end
 
-opsum_vertex_operators(vertices, ex::GlobalOp) = opsum_vertex_operators(Trie(vertices, ex))
+opsum_vertex_operators(vertices, ex::GlobalOp) = opsum_vertex_operators(vertices, Trie(vertices, ex))
 
-function opsum_vertex_operators(opsum::Trie)
-    vertices = 1:depth(opsum)
+function opsum_vertex_operators(vertices, opsum::Trie)
     dawgdict = DawgDictionary(opsum)
 
     T = valtype(opsum) # coefficient type
@@ -158,15 +157,13 @@ function _opsum_vertex_operators!(
     next_vertex_operators = @view(vertex_operators[2:end])
     next_bond_coefficients =
         isempty(prefix) ? @view(bond_coefficients[1:end]) : @view(bond_coefficients[2:end])
+
     for (op, child) in pairs(child.children)
         nextprefix = vcat(prefix, op)
         _opsum_vertex_operators!(
-            next_vertex_operators,
-            next_bond_coefficients,
+            next_vertex_operators, next_bond_coefficients,
             (op, child),
-            nextlvl,
-            nextprefix,
-            dawgdict,
+            nextlvl, nextprefix, dawgdict,
         )
     end
 

@@ -1,11 +1,12 @@
 function compress_vertex_operators(Ws, Ms; trunc = nothing)
     length(Ws) == 1 && return copy.(Ws)
 
-    @show Us = map(Ms) do M
+    Us = map(Ms) do M
         return trunc_bondcoefficient(M; trunc)
     end
 
     return map(enumerate(Ws)) do (i, W)
+        # TODO: this should be kept sparse?
         W′ = if i == 1
             W * Us[1]
         elseif i == length(Ws)
@@ -13,8 +14,15 @@ function compress_vertex_operators(Ws, Ms; trunc = nothing)
         else
             Us[i - 1]' * W * Us[i]
         end
-        @info "test $i" W′ QuantumOperatorAlgebra._simplify.(W′)
-        return QuantumOperatorAlgebra._simplify.(W′)
+
+        W_simplified = similar(W)
+        for (k, v) in storedpairs(W′)
+            v′ = QuantumOperatorAlgebra._simplify(v)
+            if !iszero(v′)
+                W_simplified[k] = v′
+            end
+        end
+        return W_simplified
     end
 end
 

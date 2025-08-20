@@ -97,49 +97,21 @@ function opsum_vertex_operators(opsum::Trie)
         )
         W = SparseMatrixDOK{TW}(undef, (nrows, ncols))
         for (I, v) in vertex_operator
-            row = if I[1] == 1
-                1
-            elseif I[1] == 2
-                nrows
-            else
-                I[1] - 1
-            end
-            col = if I[2] == 1
-                1
-            elseif I[2] == 2
-                ncols
-            else
-                I[2] - 1
-            end
+            row = I[1] == 1 ? 1 : I[1] == 2 ? nrows : I[1] - 1
+            col = I[2] == 1 ? 1 : I[2] == 2 ? ncols : I[2] - 1
             W[row, col] = v
         end
         return W
     end
 
     Ms = map(enumerate(bond_coefficients)) do (i, bond_coefficient)
-        # nrows = size(Ws[i], 2)
-        # ncols = mapreduce(x -> first(x)[2], max, bond_coefficient; init=1)
         nrows, ncols = mapreduce(
             Tuple ∘ first, (x, y) -> max.(x, y), bond_coefficient; init = (3, 3)
         )
         M = SparseMatrixDOK{T}(undef, (nrows, ncols))
         for (I, v) in bond_coefficient
-            # M[I] = v
-            row = if I[1] == 1
-                1
-            elseif I[1] == 2
-                nrows
-            else
-                I[1] - 1
-            end
-            col = if I[2] == 1
-                1
-            elseif I[2] == 2
-                ncols
-            else
-                I[2] - 1
-            end
-
+            row = I[1] == 1 ? 1 : I[1] == 2 ? nrows : I[1] - 1
+            col = I[2] == 1 ? 1 : I[2] == 2 ? ncols : I[2] - 1
             M[row, col] = v
         end
         return M

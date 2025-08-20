@@ -4,7 +4,7 @@ using OpSum
 using OpSum: Trie
 
 @testset "Core functionality" begin
-    t = Trie{Char,Int}()
+    t = Trie{Char, Int}()
     @test keytype(t) === Char
     @test valtype(t) === Int
 

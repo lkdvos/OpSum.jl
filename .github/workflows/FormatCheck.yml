@@ -1,13 +1,17 @@
-name: "Format Check"
+name: FormatCheck
 
 on:
   push:
     branches:
       - 'main'
+      - 'master'
     tags: '*'
   pull_request:
+    branches:
+      - 'main'
+      - 'master'
 
 jobs:
-  format-check:
+  formatcheck:
     name: "Format Check"
-    uses: "ITensor/ITensorActions/.github/workflows/FormatCheck.yml@main"
+    uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/FormatCheck.yml@main"

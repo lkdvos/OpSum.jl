@@ -51,7 +51,13 @@ struct Fun{O <: SymbolicAlgebra}
     Fun{O}(f, args::Vector{O}) where {O} = new{O}(f, args)
 end
 
-struct SiteOp{T, A, S}
-    op::LocalOp{T, A}
-    sites::Vector{S}
-end
+# Linear Algebra
+# --------------
+Base.:+(x::SymbolicAlgebra) = scale(x, One())
+Base.:+(x::SymbolicAlgebra, y::SymbolicAlgebra) = add(x, y)
+Base.:-(x::SymbolicAlgebra) = scale(x, -1)
+Base.:-(x::SymbolicAlgebra, y::SymbolicAlgebra) = add(x, y, -1)
+Base.:*(x::SymbolicAlgebra, y::Number) = scale(x, y)
+Base.:*(x::Number, y::SymbolicAlgebra) = scale(y, x)
+Base.:/(x::SymbolicAlgebra, y::Number) = scale(x, inv(y))
+Base.:\(x::Number, y::SymbolicAlgebra) = scale(y, inv(x))

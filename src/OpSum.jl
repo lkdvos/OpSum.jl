@@ -4,16 +4,14 @@ export Trie, SDAWG, DAWGDictionary
 export @op_str, AbstractOperator, Operator, Scaled, Sum, Product
 export opsum_vertex_operators, compress_vertex_operators
 
-export ParallelDecomposition
-
 using Dictionaries
 using AbstractTrees
 using SparseArraysBase: SparseArraysBase
 using SparseArraysBase: SparseArrayDOK, SparseMatrixDOK, storedpairs
+using VectorInterface
 using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
-# using QuantumOperatorAlgebra
-# using QuantumOperatorAlgebra: operatorstrings, begin_marker, end_marker, isbegin, isend
+using LinearAlgebra: LinearAlgebra
 using LightSumTypes
 
 # Utility
@@ -33,13 +31,7 @@ include("operators/operatorbasis.jl")
 include("operators/operatoralgebra.jl")
 include("operators/globalalgebra.jl")
 
-
-# include("operators/localoperator.jl")
-# using .LocalOperators
-# import .LocalOperators: scalartype, flavourtype, isbegin, isend
-
-# include("operators/symbolicoperator.jl")
-# include("operators/operators.jl")
+include("operators/paulioperators.jl")
 
 # State machines
 # --------------

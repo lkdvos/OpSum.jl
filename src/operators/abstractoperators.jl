@@ -61,3 +61,82 @@ Base.:*(x::SymbolicAlgebra, y::Number) = scale(x, y)
 Base.:*(x::Number, y::SymbolicAlgebra) = scale(y, x)
 Base.:/(x::SymbolicAlgebra, y::Number) = scale(x, inv(y))
 Base.:\(x::Number, y::SymbolicAlgebra) = scale(y, inv(x))
+
+# Show
+# ----
+function show_scaled(io::IO, operator, scalar, precedence::Int)
+    should_parenthesize = !isone(scalar) && (!isreal(scalar) || !isone(abs(scalar))) &&
+        Base.operator_precedence(:*) ≤ precedence
+
+    should_parenthesize && print(io, '(')
+
+    compact = get(io, :compact, false)
+    print_type = !(get(io, :typeinfo, Any) <: typeof(operator))
+    if print_type
+        print(io, typeof(operator))
+        if compact
+            print(io, '(')
+        else
+            println(io, ':')
+            print(io, " ")
+        end
+
+        io = IOContext(io, :typeinfo => typeof(operator))
+    end
+
+    if isone(scalar)
+        show(io, operator)
+    elseif isreal(scalar) && isone(abs(scalar))
+        print(io, '-')
+        show(io, operator)
+    else
+        Base.show_unquoted(io, scalar, 0, Base.operator_precedence(:*))
+        print(io, " * ")
+        Base.show_unquoted(io, operator, 0, Base.operator_precedence(:*))
+    end
+
+    print_type && compact && print(io, ')')
+    should_parenthesize && print(io, ')')
+
+    return nothing
+end
+
+function Base.show(io::IO, operator::Sum)
+    precedence = Base.operator_precedence(:+)
+
+    for (i, (op, scalar)) in enumerate(pairs(operator.terms))
+        if i == 1
+            show_scaled(io, op, scalar, precedence)
+            continue
+        end
+
+        if isreal(scalar) && real(scalar) < 0
+            print(io, " - ")
+            scalar = abs(scalar)
+        else
+            print(io, " + ")
+        end
+
+        show_scaled(io, op, scalar, precedence)
+    end
+
+    return nothing
+end
+
+function Base.show_unquoted(io::IO, operator::Sum, ::Int, precedence::Int)
+    if length(operator.terms) == 1
+        op, scalar = only(pairs(operator.terms))
+        show_scaled(io, op, scalar, precedence)
+        return nothing
+    end
+
+    if Base.operator_precedence(:+) ≤ precedence
+        print(io, "(")
+        show(io, operator)
+        print(io, ")")
+    else
+        show(io, operator)
+    end
+
+    return nothing
+end

@@ -127,3 +127,32 @@ function VectorInterface.scale!(y::LocalOp, x::LocalOp, α::Number)
     end
     return y
 end
+
+# Show
+# ----
+function Base.show(io::IO, operator::LocalOp)
+  compact = get(io, :compact, false)
+  print_type = !(get(io, :typeinfo, Any) <: typeof(operator))
+  if print_type
+    print(io, typeof(operator))
+    if compact
+      print(io, "(")
+    else
+      println(io, ":")
+      print(io, " ")
+    end
+    io = IOContext(io, :typeinfo => typeof(operator))
+  end
+
+  show(io, variant(operator))
+
+  if print_type && compact
+    print(io, ")")
+  end
+  return nothing
+end
+
+function Base.show_unquoted(io::IO, operator::LocalOp, ::Int, precedence::Int)
+  Base.show_unquoted(io, variant(operator), 0, precedence)
+  return nothing
+end

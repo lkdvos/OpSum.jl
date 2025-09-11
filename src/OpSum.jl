@@ -12,8 +12,8 @@ using SparseArraysBase: SparseArraysBase
 using SparseArraysBase: SparseArrayDOK, SparseMatrixDOK, storedpairs
 using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
-using QuantumOperatorAlgebra
-using QuantumOperatorAlgebra: operatorstrings, begin_marker, end_marker, isbegin, isend
+# using QuantumOperatorAlgebra
+# using QuantumOperatorAlgebra: operatorstrings, begin_marker, end_marker, isbegin, isend
 using LightSumTypes
 
 # Utility
@@ -28,6 +28,12 @@ include("datastructures/dawgdict.jl")
 
 # Operators
 # ---------
+include("operators/abstractoperators.jl")
+include("operators/operatorbasis.jl")
+include("operators/operatoralgebra.jl")
+include("operators/globalalgebra.jl")
+
+
 # include("operators/localoperator.jl")
 # using .LocalOperators
 # import .LocalOperators: scalartype, flavourtype, isbegin, isend

@@ -27,28 +27,6 @@ end
 
 Base.similar(t::Trie) = Trie{keytype(t), valtype(t)}()
 
-function Trie(vertices, ex::GlobalOp)
-    A = algebratype(ex)
-    V = scalartype(ex)
-    root = Trie{A, V}()
-
-    coefficients, opstrings = operatorstrings(vertices, ex)
-
-    for (c, op) in zip(coefficients, opstrings)
-        trie = root
-        for o in op
-            child = get!(trie.children, o) do
-                Trie{A, V}()
-            end
-            trie = child
-        end
-        @assert isnothing(trie.value) "Duplicate values?"
-        trie.value = c
-    end
-
-    return sortkeys!(root)
-end
-
 # Properties
 # ----------
 # Base.keytype(trie::Trie) = keytype(typeof(trie))

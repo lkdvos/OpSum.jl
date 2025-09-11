@@ -6,6 +6,11 @@ with `T`.
 """
 abstract type SymbolicAlgebra{T <: Number} end
 
+VectorInterface.scalartype(::Type{<:SymbolicAlgebra{T}}) where {T} = T
+
+algebratype(x) = algebratype(typeof(x))
+algebratype(T::Type) = throw(MethodError(algebratype, (T,)))
+
 # Building blocks
 # ---------------
 # these are helper structs to denote the different ways to compose symbolic operators

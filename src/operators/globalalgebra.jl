@@ -175,6 +175,56 @@ function VectorInterface.inner(x::SiteOp, y::SiteOp)
     end
 end
 
+# Operator products
+# -----------------
+function Base.:*(x::GlobalOp{T, A, S}, y::GlobalOp{T, A, S}) where {T, A, S}
+    o1 = variant(x)
+    o2 = variant(y)
+    return if o1 isa SiteOp
+        if o2 isa SiteOp
+            return GlobalOp{T, A, S}(o1 * o2)
+        elseif o2 isa Sum
+            return sum(pairs(o2.terms)) do (k, v)
+                return v * (x * k)
+            end
+        else
+            error()
+        end
+    elseif o1 isa Sum
+        return sum(pairs(o1.terms)) do (k, v)
+            return v * (k * y)
+        end
+    else
+        error()
+    end
+end
+
+function Base.:*(x::SiteOp, y::SiteOp)
+    if maximum(x.sites) < minimum(y.sites)
+        sites = vcat(x.sites, y.sites)
+        op = kron(x.op, y.op)
+        return SiteOp(op, sites)
+    elseif maximum(y.sites) < minimum(x.sites)
+        # assume commutative if sites disjoint for now
+        return y * x
+    elseif x.sites == y.sites
+        return SiteOp(x.op * y.op, x.sites)
+    else
+        error("TBA")
+    end
+end
+function Base.:*(x::SiteOp{T, A, S}, y::Sum{T, GlobalOp{T, A, S}}) where {T, A, S}
+    return sum(pairs(y.terms)) do (k, v)
+        return v * (x * variant(k))
+    end
+end
+function Base.:*(x::Sum{T, GlobalOp{T, A, S}}, y::SiteOp{T, A, S}) where {T, A, S}
+    return sum(pairs(x.terms)) do (k, v)
+        return v * (variant(k) * y)
+    end
+end
+
+
 # Incorporating lattice information
 # ---------------------------------
 

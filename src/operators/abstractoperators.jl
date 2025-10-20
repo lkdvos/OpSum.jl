@@ -83,7 +83,7 @@ function VectorInterface.inner(x::Sum, y::Sum)
     T = VectorInterface.promote_inner(x, y)
     result = zero(T)
     for (O₁, λ₁) in pairs(x.terms), (O₂, λ₂) in pairs(y.terms)
-        result += @show inner(O₁, O₂) * @show inner(λ₁, λ₂)
+        result += inner(O₁, O₂) * inner(λ₁, λ₂)
     end
     return result
 end

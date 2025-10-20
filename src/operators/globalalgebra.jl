@@ -29,7 +29,6 @@ end
 
 # Properties
 # ----------
-algebratype(t) = algebratype(typeof(t))
 algebratype(::Type{GlobalOp{T, A, S}}) where {T, A, S} = A
 algebratype(::Type{T}) where {T} = throw(MethodError(algebratype, (T,)))
 
@@ -76,16 +75,68 @@ function VectorInterface.add!!(x::GlobalOp, y::GlobalOp, α::Number, β::Number)
     return add(x, y, α, β)
 end
 
+function VectorInterface.scale(x::GlobalOp, α::Number)
+    A = algebratype(x)
+    S = sitetype(x)
+    T = VectorInterface.promote_scale(x, α)
+    z = GlobalOp{T, A, S}(Sum{T, GlobalOp{T, A, S}}())
+    A = algebratype(x)
+    z = GlobalOp{T, A, S}(Sum{T, GlobalOp{T, A, S}}())
+    return scale!(z, x, α)
+end
+
+function VectorInterface.scale!(x::GlobalOp, α::Number)
+    xvar = variant(x)
+    @assert xvar isa Sum
+    map!(Base.Fix2(scale, α), xvar.terms, xvar.terms)
+    return x
+end
+
+function VectorInterface.scale!(y::GlobalOp, x::GlobalOp, α::Number)
+    yvar = variant(y)
+    @assert yvar isa Sum
+    empty!(yvar.terms)
+
+    xvar = variant(x)
+    if xvar isa Sum
+        for (o, λ) in pairs(xvar.terms)
+            λα = λ * α
+            iszero(λα) || insert!(yvar.terms, o, λα)
+        end
+    else
+        iszero(α) || insert!(yvar.terms, x, α)
+    end
+    return y
+end
+
 LinearAlgebra.norm(x::GlobalOp) = sqrt(abs(inner(x, x)))
 VectorInterface.inner(x::GlobalOp, y::GlobalOp) = inner(variant(x), variant(y))
 
 function VectorInterface.inner(x::SiteOp, y::SiteOp)
     if x.sites == y.sites
         return inner(x.op, y.op)
+    elseif isdisjoint(x.sites, y.sites)
+        return inner(x.op, one(x.op)) * inner(one(y.op), y.op)
     else
-        for s in union(x.sites, y.sites)
-
-        return zero(VectorInterface.promote_inner(scalartype(x), scalartype(y)))
+        @assert variant(x.op) isa Kron && length(x.sites) == length(variant(x).ops) "TBA"
+        @assert variant(y.op) isa Kron && length(y.sites) == length(variant(y).ops) "TBA"
+        return prod(union(x.sites, y.sites)) do s
+            i = findfirst(==(s), x.sites)
+            j = findfirst(==(s), y.sites)
+            if isnothing(i) && isnothing(j)
+                return inner(one(x), one(y))
+            elseif isnothing(i)
+                O = variant(y.op).ops[j]
+                return inner(one(O), O)
+            elseif isnothing(j)
+                O = variant(x.op).ops[i]
+                return inner(O, one(O))
+            else
+                O₁ = variant(x.op).ops[i]
+                O₂ = variant(y.op).ops[j]
+                return inner(O₁, O₂)
+            end
+        end
     end
 end
 

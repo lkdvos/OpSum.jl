@@ -60,6 +60,12 @@ end
 
 # LinearAlgebra
 # -------------
+
+Base.one(x::LocalOp) = one(typeof(x))
+Base.one(::Type{LocalOp{T, A}}) where {T, A} = LocalOp{T, A}(one(T))
+Base.zero(x::LocalOp) = zero(typeof(x))
+Base.zero(::Type{LocalOp{T, A}}) where {T, A} = LocalOp{T, A}(zero(T))
+
 function VectorInterface.add(x::LocalOp, y::LocalOp, α::Number, β::Number)
     @assert algebratype(x) == algebratype(y)
     A = algebratype(x)

@@ -7,7 +7,7 @@ abstract type OperatorBasis end
 
 function namemap end
 
-function Base.instances(::Type{O}) where {O<:OperatorBasis}
+function Base.instances(::Type{O}) where {O <: OperatorBasis}
     maps = namemap(O)
     return O.(keys(maps))
 end
@@ -35,7 +35,7 @@ function LinearAlgebra.dot(x::OperatorBasis, y::AbstractArray)
         @assert axes(y, i) == axes(y, i + (N ÷ 2)) "operators must have equal in and out legs"
     end
 
-    yax = map(Base.Fix1(axes, y), 1:(N÷2))
+    yax = map(Base.Fix1(axes, y), 1:(N ÷ 2))
     T = VectorInterface.promote_inner(x, y)
     x′ = instantiate(x, T, yax)
     return LinearAlgebra.dot(x′, y)
@@ -61,3 +61,8 @@ end
 
 Base.:*(x::OperatorBasis, y::Number) = LocalOp(x) * y
 Base.:*(x::Number, y::OperatorBasis) = x * LocalOp(y)
+
+Base.one(x::OperatorBasis) = one(typeof(x))
+
+VectorInterface.inner(x::OperatorBasis, y::Number) = inner(x, one(x)) * y
+VectorInterface.inner(x::Number, y::OperatorBasis) = conj(x) * inner(one(y), y)

@@ -39,6 +39,8 @@ function instantiate(x::PauliOperator, ::Type{T}, axs) where {T}
     return destination
 end
 
+Base.one(::Type{PauliOperator}) = PauliOperator(0x00)
+
 const I = LocalOp(PauliOperator(0x00))
 const X = LocalOp(PauliOperator(0x01))
 const Y = LocalOp(PauliOperator(0x02))

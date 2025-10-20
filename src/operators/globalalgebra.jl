@@ -35,6 +35,42 @@ sitetype(t) = sitetype(typeof(t))
 sitetype(::Type{GlobalOp{T, A, S}}) where {T, A, S} = S
 sitetype(::Type{T}) where {T} = throw(MethodError(sitetype, (T,)))
 
+# Instantiation
+# -------------
+function instantiate(O::GlobalOp{T, A, S}, sites) where {T, A, S}
+    o = variant(O)
+    if o isa SiteOp
+        @assert issorted(o.sites) && allunique(o.sites) "Sites must be sorted and unique."
+        if length(o.sites) == length(sites)
+            return instantiate(o.op, map(Base.Fix1(getindex, sites), o.sites))
+        else
+            return mapfoldl(kron, eachindex(sites)) do i
+                j = findfirst(==(i), o.sites)
+                if isnothing(j)
+                    return instantiate(one(o.op), sites[i])
+                else
+                    return instantiate(o.op, sites[i])
+                end
+            end
+        end
+    elseif o isa Sum
+        return sum(pairs(o.terms)) do (k, v)
+            return v * instantiate(k, sites)
+        end
+    elseif o isa Prod
+        return prod(o.factors) do f
+            return instantiate(f, sites)
+        end
+    elseif o isa Pow
+        return instantiate(o.op, sites)^o.exponent
+    elseif o isa Fun
+        return o.f(map(x -> instantiate(x, sites), o.args)...)
+    else
+        error()
+    end
+
+end
+
 # LinearAlgebra
 # -------------
 function VectorInterface.add(x::GlobalOp, y::GlobalOp, α::Number, β::Number)

@@ -23,7 +23,7 @@ namemap(::Type{PauliOperator}) = Dict{UInt8, Symbol}(0x00 => :I, 0x01 => :X, 0x0
 function instantiate(x::PauliOperator, ::Type{T}, axs) where {T}
     destination = fill!(similar(Array{T}, (axs..., axs...)), zero(T))
     # destination = zeros(T, (axs..., axs...))
-    @assert size(destination) == (2, 2) "only 2x2 pauli supported for now"
+    size(destination) == (2, 2) || throw(ArgumentError("only 2x2 pauli supported for now ($axs)"))
 
     if x == PauliOperator(0x00)
         destination[1, 1] = destination[2, 2] = 1

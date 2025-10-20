@@ -11,7 +11,7 @@ using SparseArraysBase: SparseArrayDOK, SparseMatrixDOK, storedpairs
 using VectorInterface
 using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
-using LinearAlgebra: LinearAlgebra
+using LinearAlgebra: LinearAlgebra, kron
 using LightSumTypes
 
 # Utility

@@ -50,8 +50,8 @@ function instantiate(O::LocalOp{T, A}, sites) where {T, A}
             return instantiate(f, sites)
         end
     elseif o isa Kron
-        return mapreduce(kron, o.factors) do f
-            return instantiate(f, sites)
+        return mapreduce(kron, o.factors, sites) do f, s
+            return instantiate(f, s)
         end
     else
         error("TBA")
@@ -136,6 +136,16 @@ end
 
 VectorInterface.inner(x::LocalOp, y::LocalOp) = inner(variant(x), variant(y))
 LinearAlgebra.norm(x::LocalOp) = sqrt(abs(inner(x, x)))
+
+
+# Algebra
+# -------
+function LinearAlgebra.kron(x::L, y::L) where {L <: LocalOp}
+    result = Kron{L}(L[])
+    variant(x) isa Kron ? append!(result.factors, x.factors) : push!(result.factors, x)
+    variant(y) isa Kron ? append!(result.factors, y.factors) : push!(result.factors, y)
+    return LocalOp(result)
+end
 
 # Show
 # ----

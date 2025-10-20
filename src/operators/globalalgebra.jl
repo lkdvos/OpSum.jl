@@ -30,7 +30,6 @@ end
 # Properties
 # ----------
 algebratype(::Type{GlobalOp{T, A, S}}) where {T, A, S} = A
-algebratype(::Type{T}) where {T} = throw(MethodError(algebratype, (T,)))
 
 sitetype(t) = sitetype(typeof(t))
 sitetype(::Type{GlobalOp{T, A, S}}) where {T, A, S} = S

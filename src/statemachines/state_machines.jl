@@ -21,7 +21,6 @@ function opsum_vertex_operators(opsum::DawgDictionary)
         isstarting = true
         for current_state in current_register # loop over all states
             for (k, next_state) in pairs(children(current_state)) # loop over transitions
-                @info "moving" site k current_state next_state
                 # handle special cases first:
                 (site == first(vertices) && isend(k)) ||
                     (site == last(vertices) && isbegin(k)) && continue
@@ -58,7 +57,7 @@ function opsum_vertex_operators(opsum::DawgDictionary)
     end
 end
 
-opsum_vertex_operators(vertices, ex::GlobalOp) = opsum_vertex_operators(vertices, Trie(vertices, ex))
+# opsum_vertex_operators(vertices, ex::GlobalOp) = opsum_vertex_operators(vertices, Trie(vertices, ex))
 
 function opsum_vertex_operators(vertices, opsum::Trie)
     dawgdict = DawgDictionary(opsum)
@@ -159,8 +158,9 @@ function _opsum_vertex_operators!(
     next_bond_coefficients =
         isempty(prefix) ? @view(bond_coefficients[1:end]) : @view(bond_coefficients[2:end])
 
+    nextprefix = vcat(prefix, op)
     for (op, child) in pairs(child.children)
-        nextprefix = vcat(prefix, op)
+
         _opsum_vertex_operators!(
             next_vertex_operators, next_bond_coefficients,
             (op, child),
@@ -218,11 +218,11 @@ function _opsum_bond_coefficients!(indices, operators, (op, child), prefix, lvl,
     end
 end
 
-function QuantumOperatorAlgebra.isend(op::Trie)
-    return !isnothing(op.value) ||
-        isempty(op.children) ||
-        (length(op.children) == 1 && isend(first(keys(op.children))))
-end
+# function QuantumOperatorAlgebra.isend(op::Trie)
+#     return !isnothing(op.value) ||
+#         isempty(op.children) ||
+#         (length(op.children) == 1 && isend(first(keys(op.children))))
+# end
 
 function mpo_to_opsum(Ws::Vector{<:SparseMatrixDOK{<:LocalOp}})
     vertices = eachindex(Ws)

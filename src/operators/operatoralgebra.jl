@@ -147,6 +147,42 @@ function LinearAlgebra.kron(x::L, y::L) where {L <: LocalOp}
     return LocalOp(result)
 end
 
+
+# Incorporating lattice information
+# ---------------------------------
+function operatorstrings(x::LocalOp{T, A}) where {T, A}
+    if variant(x) isa T
+        return [variant(x)], [one(A)]
+    elseif variant(x) isa A
+        return [one(T)], [variant(x)]
+    elseif variant(x) isa Sum
+        coeffs = T[]
+        opstrings = Vector{A}[]
+        for (k, v) in pairs(variant(x).terms)
+            coeff, opstring = operatorstrings(k)
+            append!(coeffs, v .* coeff)
+            append!(opstrings, opstring)
+        end
+        return coeffs, opstrings
+    elseif variant(x) isa Kron
+        λ = one(T)
+        opstring = map(variant(x).factors) do f
+            fvar = variant(f)
+            if fvar isa A
+                return fvar
+            elseif fvar isa T
+                λ *= fvar
+                return one(A)
+            else
+                error("$(typeof(f))")
+            end
+        end
+        return [λ], Vector{A}[opstring]
+    else
+        error("unsupported $(typeof(variant(x)))")
+    end
+end
+
 # Show
 # ----
 function Base.show(io::IO, operator::LocalOp)

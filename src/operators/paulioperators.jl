@@ -16,6 +16,8 @@ Base.Integer(x::PauliOperator) = Core.Intrinsics.bitcast(UInt8, x)
 
 Base.isreal(::Type{PauliOperator}) = false
 
+Base.isless(x::PauliOperator, y::PauliOperator) = isless(Integer(x), Integer(y))
+
 VectorInterface.scalartype(::Type{PauliOperator}) = Complex{Bool}
 VectorInterface.inner(x::PauliOperator, y::PauliOperator) = x == y
 namemap(::Type{PauliOperator}) = Dict{UInt8, Symbol}(0x00 => :I, 0x01 => :X, 0x02 => :Y, 0x03 => :Z)

@@ -57,7 +57,7 @@ function opsum_vertex_operators(opsum::DawgDictionary)
     end
 end
 
-# opsum_vertex_operators(vertices, ex::GlobalOp) = opsum_vertex_operators(vertices, Trie(vertices, ex))
+opsum_vertex_operators(vertices, ex::GlobalOp) = opsum_vertex_operators(vertices, Trie(vertices, ex))
 
 function opsum_vertex_operators(vertices, opsum::Trie)
     dawgdict = DawgDictionary(opsum)

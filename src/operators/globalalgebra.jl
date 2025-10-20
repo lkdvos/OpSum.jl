@@ -228,10 +228,8 @@ end
 # Incorporating lattice information
 # ---------------------------------
 
-function Trie(vertices, ex::GlobalOp)
-    A = algebratype(ex)
-    V = scalartype(ex)
-    root = Trie{A, V}()
+function Trie(vertices, ex::GlobalOp{T, A, S}) where {T, A, S}
+    root = Trie{A, T}()
 
     coefficients, opstrings = operatorstrings(vertices, ex)
 
@@ -239,7 +237,7 @@ function Trie(vertices, ex::GlobalOp)
         trie = root
         for o in op
             child = get!(trie.children, o) do
-                Trie{A, V}()
+                Trie{A, T}()
             end
             trie = child
         end
@@ -248,4 +246,48 @@ function Trie(vertices, ex::GlobalOp)
     end
 
     return sortkeys!(root)
+end
+
+function operatorstrings(vertices, O::GlobalOp{T, A, S}) where {T, A, S}
+    coefficients = T[]
+    opstrings = typeof(similar(vertices, A))[]
+
+    o = variant(O)
+    if o isa SiteOp
+        @assert issorted(o.sites) && allunique(o.sites)
+        if length(o.sites) == 1
+            coeff, opstring = operatorstrings(o.op)
+            append!(coefficients, coeff)
+            for opstr in opstring
+                opstr′ = fill!(similar(vertices, A), one(A))
+                opstr′[only(o.sites)] = opstr
+                push!(opstrings, opstr′)
+            end
+        elseif length(vertices) == length(o.sites)
+            @assert variant(o.op) isa Kron
+            @show coeff, opstring = operatorstrings(o.op)
+            append!(coefficients, coeff)
+            append!(opstrings, opstring)
+        else
+            @assert variant(o.op) isa Kron && length(o.sites) == length(o.op.factors)
+            ops = mapfoldl(kron, eachindex(vertices)) do i
+                j = findfirst(==(i), o.sites)
+                if isnothing(j)
+                    return one(o.op)
+                else
+                    return o.op.factors[j]
+                end
+            end
+            return operatorstrings(vertices, GlobalOp(SiteOp(ops, collect(eachindex(vertices)))))
+        end
+    elseif o isa Sum
+        for (k, v) in pairs(o.terms)
+            coefficients′, opstrings′ = operatorstrings(vertices, k)
+            append!(opstrings, opstrings′)
+            append!(coefficients, coefficients′ .* v)
+        end
+    else
+        error("TBA")
+    end
+    return coefficients, opstrings
 end

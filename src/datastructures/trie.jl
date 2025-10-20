@@ -91,14 +91,14 @@ function Base.get(f::Base.Callable, trie::Trie, key)
     end
 end
 
-function Base.get!(trie::Trie, key, default)
+function Base.get!(trie::Trie{K}, key::Vector{K}, default) where {K}
     strie = subtrie!(trie, key)
     if isnothing(strie.value)
         strie.value = convert(valtype(trie), default)
     end
     return strie.value
 end
-function Base.get!(f::Base.Callable, trie::Trie, key)
+function Base.get!(f::Base.Callable, trie::Trie{K}, key::Vector{K}) where {K}
     strie = subtrie!(trie, key)
     if isnothing(strie.value)
         strie.value = convert(valtype(trie), f())
@@ -106,7 +106,7 @@ function Base.get!(f::Base.Callable, trie::Trie, key)
     return strie.value
 end
 
-function Base.setindex!(trie::Trie, v, key)
+function Base.setindex!(trie::Trie{K}, v, key::Vector{K}) where {K}
     strie = subtrie!(trie, key)
     strie.value = convert(valtype(trie), v)
     return trie

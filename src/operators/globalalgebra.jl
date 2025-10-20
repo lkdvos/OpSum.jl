@@ -20,8 +20,8 @@ The type perameter `T` is the scalar type, `A` denotes the algebra type, and `S`
 ) <: SymbolicAlgebra{T}
 
 # Syntax: O[inds...] means O applied to inds
-function Base.getindex(O::LocalOp, inds::S...) where {S}
-    indices = S[inds...]
+function Base.getindex(O::LocalOp, ind::S, inds::S...) where {S}
+    indices = S[ind, inds...]
     T = scalartype(O)
     A = algebratype(O)
     return GlobalOp{T, A, S}(SiteOp{T, A, S}(O, indices))

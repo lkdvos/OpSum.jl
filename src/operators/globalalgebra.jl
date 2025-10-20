@@ -27,6 +27,68 @@ function Base.getindex(O::LocalOp, inds::S...) where {S}
     return GlobalOp{T, A, S}(SiteOp{T, A, S}(O, indices))
 end
 
+# Properties
+# ----------
+algebratype(t) = algebratype(typeof(t))
+algebratype(::Type{GlobalOp{T, A, S}}) where {T, A, S} = A
+algebratype(::Type{T}) where {T} = throw(MethodError(algebratype, (T,)))
+
+sitetype(t) = sitetype(typeof(t))
+sitetype(::Type{GlobalOp{T, A, S}}) where {T, A, S} = S
+sitetype(::Type{T}) where {T} = throw(MethodError(sitetype, (T,)))
+
+# LinearAlgebra
+# -------------
+function VectorInterface.add(x::GlobalOp, y::GlobalOp, α::Number, β::Number)
+    (A = algebratype(x)) == algebratype(y) || throw(ArgumentError("incompatible algebra types."))
+    (S = sitetype(x)) == sitetype(y) || throw(ArgumentError("incompatible site types"))
+    T = VectorInterface.promote_add(x, y, α, β)
+    z = GlobalOp{T, A, S}(Sum{T, GlobalOp{T, A, S}}())
+    add!(z, x, β)
+    add!(z, y, α)
+    return z
+end
+
+function VectorInterface.add!(x::GlobalOp, y::GlobalOp, α::Number, β::Number)
+    xvar = variant(x)
+    @assert xvar isa Sum
+
+    scale!(x, β)
+
+    yvar = variant(y)
+    if yvar isa Sum
+        for (o, λ) in pairs(yvar.terms)
+            λα = λ * α
+            iszero(λα) || setwith!(+, xvar.terms, o, λα)
+        end
+    else
+        iszero(α) || setwith!(+, xvar.terms, y, α)
+    end
+
+    return x
+end
+
+function VectorInterface.add!!(x::GlobalOp, y::GlobalOp, α::Number, β::Number)
+    if variant(x) isa Sum
+        T = VectorInterface.promote_add(x, y, α, β)
+        T === scalartype(x) && return add!(x, y, α, β)
+    end
+    return add(x, y, α, β)
+end
+
+LinearAlgebra.norm(x::GlobalOp) = sqrt(abs(inner(x, x)))
+VectorInterface.inner(x::GlobalOp, y::GlobalOp) = inner(variant(x), variant(y))
+
+function VectorInterface.inner(x::SiteOp, y::SiteOp)
+    if x.sites == y.sites
+        return inner(x.op, y.op)
+    else
+        for s in union(x.sites, y.sites)
+
+        return zero(VectorInterface.promote_inner(scalartype(x), scalartype(y)))
+    end
+end
+
 # Incorporating lattice information
 # ---------------------------------
 

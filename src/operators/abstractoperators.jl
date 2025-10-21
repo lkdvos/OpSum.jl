@@ -122,6 +122,11 @@ function VectorInterface.inner(x::T, y::Sum{T, O}) where {T, O}
     return result
 end
 
+function Base.:(^)(x::SymbolicAlgebra, n::Integer)
+    n >= 1 || throw(DomainError(n, "n should be a positive integer"))
+    return Base.power_by_squaring(x, Int(n))
+end
+
 # Show
 # ----
 function show_scaled(io::IO, operator, scalar, precedence::Int)

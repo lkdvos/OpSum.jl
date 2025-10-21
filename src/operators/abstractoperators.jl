@@ -91,7 +91,7 @@ end
 function VectorInterface.inner(x::Sum{T, O}, y::O) where {T, O}
     Tres = VectorInterface.promote_inner(scalartype(x), scalartype(y))
     result = zero(Tres)
-    for (O₁, λ₁) in x.terms
+    for (O₁, λ₁) in pairs(x.terms)
         result += inner(O₁, y) * conj(λ₁)
     end
     return result
@@ -99,7 +99,7 @@ end
 function VectorInterface.inner(x::O, y::Sum{T, O}) where {T, O}
     Tres = VectorInterface.promote_inner(scalartype(x), scalartype(y))
     result = zero(Tres)
-    for (O₂, λ₂) in y.terms
+    for (O₂, λ₂) in pairs(y.terms)
         result += inner(x, O₂) * λ₂
     end
     return result
@@ -108,7 +108,7 @@ end
 function VectorInterface.inner(x::Sum{T, O}, y::T) where {T, O}
     Tres = VectorInterface.promote_inner(scalartype(x), scalartype(y))
     result = zero(Tres)
-    for (O₁, λ₁) in x.terms
+    for (O₁, λ₁) in pairs(x.terms)
         result += inner(O₁, one(O₁)) * conj(λ₁)
     end
     return result
@@ -191,6 +191,35 @@ function Base.show_unquoted(io::IO, operator::Sum, ::Int, precedence::Int)
     end
 
     if Base.operator_precedence(:+) ≤ precedence
+        print(io, "(")
+        show(io, operator)
+        print(io, ")")
+    else
+        show(io, operator)
+    end
+
+    return nothing
+end
+
+function Base.show(io::IO, operator::Kron)
+    if length(operator.factors) == 1
+        print(io, "⊗(")
+        show(io, only(operator.factors))
+        print(io, ")")
+    end
+
+    precedence = Base.operator_precedence(:⊗)
+    first = true
+    for op in operator.factors
+        first || print(io, " ⊗ ")
+        Base.show_unquoted(io, op, 0, precedence)
+        first = false
+    end
+    return nothing
+end
+
+function Base.show_unquoted(io::IO, operator::Kron, ::Int, precedence::Int)
+    if Base.operator_precedence(:⊗) ≤ precedence
         print(io, "(")
         show(io, operator)
         print(io, ")")

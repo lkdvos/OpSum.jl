@@ -73,6 +73,10 @@ end
 
 # LinearAlgebra
 # -------------
+
+Base.zero(x::GlobalOp) = zero(scalartype(x)) * one(x)
+Base.one(::GlobalOp{T, A, S}) where {T, A, S} = GlobalOp{T, A, S}(SiteOp(LocalOp{T, A}(one(T)), S[]))
+
 function VectorInterface.add(x::GlobalOp, y::GlobalOp, α::Number, β::Number)
     (A = algebratype(x)) == algebratype(y) || throw(ArgumentError("incompatible algebra types."))
     (S = sitetype(x)) == sitetype(y) || throw(ArgumentError("incompatible site types"))
@@ -153,22 +157,22 @@ function VectorInterface.inner(x::SiteOp, y::SiteOp)
     elseif isdisjoint(x.sites, y.sites)
         return inner(x.op, one(x.op)) * inner(one(y.op), y.op)
     else
-        @assert variant(x.op) isa Kron && length(x.sites) == length(variant(x).ops) "TBA"
-        @assert variant(y.op) isa Kron && length(y.sites) == length(variant(y).ops) "TBA"
+        @assert variant(x.op) isa Kron && length(x.sites) == length(variant(x.op).factors) || length(x.sites) == 1 "TBA: $x $y"
+        @assert variant(y.op) isa Kron && length(y.sites) == length(variant(y.op).factors) || length(y.sites) == 1 "TBA: $x $y"
         return prod(union(x.sites, y.sites)) do s
             i = findfirst(==(s), x.sites)
             j = findfirst(==(s), y.sites)
             if isnothing(i) && isnothing(j)
                 return inner(one(x), one(y))
             elseif isnothing(i)
-                O = variant(y.op).ops[j]
+                O = variant(y.op) isa Kron ? variant(y.op).factors[j] : y.op
                 return inner(one(O), O)
             elseif isnothing(j)
-                O = variant(x.op).ops[i]
+                O = variant(x.op) isa Kron ? variant(x.op).factors[i] : x.op
                 return inner(O, one(O))
             else
-                O₁ = variant(x.op).ops[i]
-                O₂ = variant(y.op).ops[j]
+                O₁ = variant(x.op) isa Kron ? variant(x.op).factors[i] : x.op
+                O₂ = variant(y.op) isa Kron ? variant(y.op).factors[j] : y.op
                 return inner(O₁, O₂)
             end
         end
@@ -225,6 +229,45 @@ function Base.:*(x::Sum{T, GlobalOp{T, A, S}}, y::SiteOp{T, A, S}) where {T, A, 
 end
 
 
+# Show
+# ----
+function Base.show(io::IO, operator::GlobalOp)
+    compact = get(io, :compact, false)
+    print_type = !(get(io, :typeinfo, Any) <: typeof(operator))
+    if print_type
+        print(io, typeof(operator))
+        if compact
+            print(io, "(")
+        else
+            println(io, ":")
+            print(io, " ")
+        end
+        io = IOContext(io, :typeinfo => typeof(operator))
+    end
+
+    show(io, variant(operator))
+
+    if print_type && compact
+        print(io, ")")
+    end
+    return nothing
+end
+
+function Base.show_unquoted(io::IO, operator::GlobalOp, ::Int, precedence::Int)
+    Base.show_unquoted(io, variant(operator), 0, precedence)
+    return nothing
+end
+
+function Base.show(io::IO, operator::SiteOp{T, A, S}) where {T, A, S}
+    print(io, "(")
+    ioc = IOContext(io, :typeinfo => typeof(operator.op))
+    print(ioc, operator.op)
+    print(io, ")[")
+    join(io, operator.sites, ", ")
+    print(io, "]")
+    return nothing
+end
+
 # Incorporating lattice information
 # ---------------------------------
 
@@ -265,7 +308,7 @@ function operatorstrings(vertices, O::GlobalOp{T, A, S}) where {T, A, S}
             end
         elseif length(vertices) == length(o.sites)
             @assert variant(o.op) isa Kron
-            @show coeff, opstring = operatorstrings(o.op)
+            coeff, opstring = operatorstrings(o.op)
             append!(coefficients, coeff)
             append!(opstrings, opstring)
         else

@@ -58,6 +58,10 @@ function instantiate(O::LocalOp{T, A}, sites) where {T, A}
     end
 end
 
+# Utility
+# -------
+Base.convert(::Type{LocalOp{T, A}}, b::A) where {T, A <: OperatorBasis} = LocalOp{T, A}(b)
+
 # LinearAlgebra
 # -------------
 
@@ -137,6 +141,43 @@ end
 VectorInterface.inner(x::LocalOp, y::LocalOp) = inner(variant(x), variant(y))
 LinearAlgebra.norm(x::LocalOp) = sqrt(abs(inner(x, x)))
 
+function VectorInterface.inner(x::LocalOp{T, A}, y::LocalOp{T, A}) where {T, A}
+    xvar = variant(x)
+    yvar = variant(y)
+    if xvar isa T
+        if yvar isa T
+            return inner(xvar, yvar)
+        elseif yvar isa A
+            return conj(xvar) * inner(one(yvar), yvar)
+        elseif yvar isa Sum
+            result = zero(T)
+            for (O, λ) in pairs(yvar.terms)
+                result += inner(one(O), O) * inner(xvar, λ)
+            end
+            return result
+        else
+            error("TBA")
+        end
+    elseif xvar isa A
+        if yvar isa T
+            return inner(xvar, one(xvar)) * yvar
+        elseif yvar isa A
+            return inner(xvar, yvar)
+        elseif yvar isa Sum
+            result = zero(T)
+            for (O, λ) in pairs(yvar.terms)
+                result += inner(x, O) * λ
+            end
+            return result
+        else
+            error("TBA")
+        end
+
+    else
+
+    end
+    error()
+end
 
 # Algebra
 # -------

@@ -284,20 +284,20 @@ function DawgIndices(trie::Trie{K}) where {K}
 
     return DawgIndices{K, Vector{K}}(registers)
 end
-function _dawgindices!(root, trie, registers)
+function _dawgindices!(root, trie, registers; hasstarted = false)
     for (op, child) in pairs(trie.children)
         # depth first search
         child_dawg = similar(root)
         child_dawg.descendants = 1
-        _dawgindices!(child_dawg, child, @view(registers[2:end]))
+        _dawgindices!(child_dawg, child, @view(registers[2:end]); hasstarted = hasstarted | !isone(op))
 
         # minimize
         i = findfirst(issameclass(child_dawg), first(registers))
         if isnothing(i)
-            if isbegin(op)
+            if !hasstarted && !isone(op)
                 pushfirst!(first(registers), child_dawg) # starting state should be first
-            elseif isend(op)
-                @assert isbegin(first(registers)[1]) "begin should be first"
+            elseif isone(op) && isend(child)
+                # @assert isbegin(first(registers)[1]) "begin should be first"
                 insert!(first(registers), 2, child_dawg) # starting state should already be there?
             else
                 push!(first(registers), child_dawg)
@@ -321,6 +321,14 @@ depth(inds::DawgIndices) = depth(root(inds))
 partial_getindex(inds::DawgIndices, prefix) = partial_getindex(root(inds), prefix)
 
 AbstractTrees.children(inds::DawgIndices) = children(root(inds))
+
+function isend(trie::Trie)
+    isempty(trie) && return true
+    length(trie.children) > 1 && return false
+    (op, child) = first(pairs(trie.children))
+    return isone(op) && isend(child)
+end
+
 
 # Token interaface
 # ----------------

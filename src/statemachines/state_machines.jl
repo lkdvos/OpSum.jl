@@ -63,10 +63,10 @@ function opsum_vertex_operators(vertices, opsum::Trie)
     dawgdict = DawgDictionary(opsum)
 
     T = valtype(opsum) # coefficient type
-    TW = eltype(keytype(opsum)) # single operator type
+    TW = LocalOp{T, eltype(keytype(opsum))} # single operator type
     vertex_operators = [
         Pair{CartesianIndex{2}, TW}[
-                CartesianIndex(1, 1) => begin_marker(TW), CartesianIndex(2, 2) => end_marker(TW),
+                CartesianIndex(1, 1) => one(TW), CartesianIndex(2, 2) => one(TW),
             ] for _ in vertices
     ]
     bond_coefficients = [
@@ -106,7 +106,7 @@ function opsum_vertex_operators(vertices, opsum::Trie)
         nrows, ncols = mapreduce(
             Tuple ∘ first, (x, y) -> max.(x, y), bond_coefficient; init = (3, 3)
         )
-        ncols = size(Ws[i + 1], 1)
+        # ncols = size(Ws[i + 1], 1)
         M = SparseMatrixDOK{T}(undef, (nrows, ncols))
         for (I, v) in bond_coefficient
             row = I[1] == 1 ? 1 : I[1] == 2 ? nrows : I[1] - 1
@@ -124,7 +124,7 @@ function _opsum_vertex_operators!(
     )
     lvl == 2 && return nothing # early bailout if interaction ended
 
-    nextlvl = if isbegin(op)
+    nextlvl = if lvl == 1 && isone(op)
         1
     elseif isend(child)
         2
@@ -146,7 +146,7 @@ function _opsum_vertex_operators!(
         register = state_registers(keys(dawgdict), length(prefix))
         col = state_offset(register, state)
         for suffix in state
-            (isbegin(first(suffix)) || interaction_ended(suffix)) && continue
+            interaction_ended(suffix) && continue
             key = vcat(prefix, suffix)
             coefficient = dawgdict[key]
             col += 1
@@ -228,11 +228,11 @@ function mpo_to_opsum(Ws::Vector{<:SparseMatrixDOK{<:LocalOp}})
     vertices = eachindex(Ws)
     globalops = map(vertices) do i
         return map(Array(Ws[i])) do W
-            w = (isend(W) || isbegin(W)) ? one(W) : W
-            return GlobalOp(SiteOp(w, [i]))
+            # w = (isend(W) || isbegin(W)) ? one(W) : W
+            return GlobalOp(SiteOp(W, [i]))
         end
     end
-    return simplify(reduce(*, globalops)[1, end])
+    return reduce(*, globalops)[1, end]
 end
 
 function opsum_bond_coefficients(opsum::DawgDictionary)
@@ -315,6 +315,7 @@ Determine if an operator string will no longer act non-trivially.
 See also [`isend`](@ref).
 """
 interaction_ended(suffix) = length(suffix) == 1 || isend(suffix[2])
+interaction_ended(suffix::Vector{<:OperatorBasis}) = all(isone, suffix)
 
 function _instantiate_matrix(W)
     nrows, ncols = mapreduce(Tuple, (x, y) -> max.(x, y), keys(W); init = (1, 1))

@@ -207,6 +207,12 @@ function Base.:*(x::SiteOp, y::SiteOp)
     if maximum(x.sites) < minimum(y.sites)
         sites = vcat(x.sites, y.sites)
         op = kron(x.op, y.op)
+        I = (!isone).(op.factors)
+        if !any(I)
+            I[1] = true
+        end
+        keepat!(op.factors, I)
+        keepat!(sites, I)
         return SiteOp(op, sites)
     elseif maximum(y.sites) < minimum(x.sites)
         # assume commutative if sites disjoint for now

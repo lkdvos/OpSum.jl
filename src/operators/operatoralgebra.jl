@@ -70,6 +70,14 @@ Base.one(::Type{LocalOp{T, A}}) where {T, A} = LocalOp{T, A}(one(T))
 Base.zero(x::LocalOp) = zero(typeof(x))
 Base.zero(::Type{LocalOp{T, A}}) where {T, A} = LocalOp{T, A}(zero(T))
 
+Base.isone(x::LocalOp{T, A}) where {T, A} = isone(variant(x))
+Base.isone(x::Union{Prod, Kron}) = all(isone, x.factors)
+function Base.isone(x::Sum)
+    length(x.terms) == 1 || return false
+    k, v = only(pairs(x.terms))
+    return isone(k) && isone(v)
+end
+
 function VectorInterface.add(x::LocalOp, y::LocalOp, α::Number, β::Number)
     @assert algebratype(x) == algebratype(y)
     A = algebratype(x)

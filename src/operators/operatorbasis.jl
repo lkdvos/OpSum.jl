@@ -63,6 +63,13 @@ Base.:*(x::OperatorBasis, y::Number) = LocalOp(x) * y
 Base.:*(x::Number, y::OperatorBasis) = x * LocalOp(y)
 
 Base.one(x::OperatorBasis) = one(typeof(x))
+Base.zero(x::OperatorBasis) = 0 * one(x)
 
 VectorInterface.inner(x::OperatorBasis, y::Number) = inner(x, one(x)) * y
 VectorInterface.inner(x::Number, y::OperatorBasis) = conj(x) * inner(one(y), y)
+
+Base.:+(x::O, y::O) where {O <: OperatorBasis} = LocalOp(x) + LocalOp(y)
+
+# Conversion
+# ----------
+Base.convert(::Type{LocalOp{T, A}}, x::A) where {T, A} = LocalOp{T, A}(x)

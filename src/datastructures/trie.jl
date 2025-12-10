@@ -1,6 +1,6 @@
 # equal word length trie
 mutable struct Trie{K, V} <: AbstractDictionary{Vector{K}, V}
-    const children::Dictionary{K, Trie{K}}
+    const children::Dictionary{K, Trie{K, V}}
     value::Union{V, Nothing}
 
     function Trie{K, V}(value::Union{V, Nothing} = nothing) where {K, V}
@@ -151,7 +151,8 @@ end
 
 # Iterators
 # ---------
-Base.IteratorSize(::Type{<:Trie}) = Base.SizeUnknown()
+Base.IteratorSize(trie::Trie) = Base.IteratorSize(typeof(trie))
+Base.IteratorSize(::Type{T}) where {T <: Trie} = Base.SizeUnknown()
 Base.eltype(::Type{T}) where {T <: Trie} = valtype(T)
 
 function Base.iterate(trie::Trie)
@@ -203,6 +204,20 @@ function Dictionaries.sortkeys(trie::Trie{K, V}) where {K, V}
     sortkeys!(trie_sorted.children)
     return trie_sorted
 end
+
+# Convert
+# -------
+
+function Base.convert(::Type{Trie{K, V}}, trie::Trie) where {K, V}
+    trie isa Trie{K, V} && return trie
+
+    result = Trie{K, V}(trie.value)
+    for (k, v) in pairs(trie.children)
+        insert!(result.children, k, v)
+    end
+    return result
+end
+
 
 # Printing
 # --------

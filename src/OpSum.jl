@@ -23,6 +23,8 @@ include("utility/linalg.jl")
 include("datastructures/trie.jl")
 include("datastructures/dawg.jl")
 include("datastructures/dawgdict.jl")
+include("datastructures/graphnode.jl")
+include("datastructures/bipartite.jl")
 
 # Operators
 # ---------

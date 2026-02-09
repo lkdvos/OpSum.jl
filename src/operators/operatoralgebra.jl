@@ -60,7 +60,7 @@ end
 
 # Utility
 # -------
-Base.convert(::Type{LocalOp{T, A}}, b::A) where {T, A <: OperatorBasis} = LocalOp{T, A}(b)
+Base.convert(::Type{LocalOp{T, A}}, b::A) where {T, A} = LocalOp{T, A}(b)
 
 # LinearAlgebra
 # -------------

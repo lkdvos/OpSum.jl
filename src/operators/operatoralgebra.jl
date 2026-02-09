@@ -180,11 +180,33 @@ function VectorInterface.inner(x::LocalOp{T, A}, y::LocalOp{T, A}) where {T, A}
         else
             error("TBA")
         end
+    elseif xvar isa Sum
+        if yvar isa T
+            result = zero(T)
+            for (O, λ) in pairs(xvar.terms)
+                result += inner(O, one(O)) * inner(λ, yvar)
+            end
+            return result
+        elseif yvar isa A
+            result = zero(T)
+            for (O, λ) in pairs(xvar.terms)
+                result += inner(O, y) * conj(λ)
+            end
+            return result
+        elseif yvar isa Sum
+            result = zero(T)
+            for (Ox, λx) in pairs(xvar.terms), (Oy, λy) in pairs(yvar.terms)
+                result += inner(Ox, Oy) * inner(λx, λy)
+            end
+            return result
+        else
+            error("TBA")
+        end
 
     else
 
     end
-    error()
+    error("cannot do $x and $y")
 end
 
 # Algebra

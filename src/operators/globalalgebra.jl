@@ -41,18 +41,35 @@ function instantiate(O::GlobalOp{T, A, S}, sites) where {T, A, S}
     o = variant(O)
     if o isa SiteOp
         @assert issorted(o.sites) && allunique(o.sites) "Sites must be sorted and unique."
-        if length(o.sites) == length(sites)
-            return instantiate(o.op, map(Base.Fix1(getindex, sites), o.sites))
-        else
+
+        # Identity operator (no site indices): embed as identity on all sites
+        if isempty(o.sites)
             return mapfoldl(kron, eachindex(sites)) do i
-                j = findfirst(==(i), o.sites)
-                if isnothing(j)
-                    return instantiate(one(o.op), sites[i])
-                else
-                    return instantiate(o.op, sites[i])
-                end
+                instantiate(one(o.op), sites[i])
             end
         end
+
+        # Operator covers exactly the given sites: instantiate directly
+        if length(o.sites) == length(sites)
+            return instantiate(o.op, map(Base.Fix1(getindex, sites), o.sites))
+        end
+
+        # Partial embedding: determine per-site local factors
+        op_var = variant(o.op)
+        local_factors = if op_var isa Kron
+            @assert length(op_var.factors) == length(o.sites)
+            op_var.factors
+        else
+            @assert length(o.sites) == 1 "Non-Kron LocalOp must act on exactly one site"
+            [o.op]
+        end
+
+        id_op = one(first(local_factors))
+        return mapfoldl(kron, eachindex(sites)) do i
+            j = findfirst(==(i), o.sites)
+            isnothing(j) ? instantiate(id_op, sites[i]) : instantiate(local_factors[j], sites[i])
+        end
+
     elseif o isa Sum
         return sum(pairs(o.terms)) do (k, v)
             return v * instantiate(k, sites)
@@ -68,7 +85,6 @@ function instantiate(O::GlobalOp{T, A, S}, sites) where {T, A, S}
     else
         error()
     end
-
 end
 
 # LinearAlgebra

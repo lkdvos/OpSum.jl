@@ -32,7 +32,7 @@ function instantiate(x::PauliOperator, ::Type{T}, axs) where {T}
     elseif x == PauliOperator(0x01)
         destination[2, 1] = destination[1, 2] = 1
     elseif x == PauliOperator(0x02)
-        destination[2, 1] = -(destination[1, 2] = im)
+        destination[1, 2] = -(destination[2, 1] = im)
     elseif x == PauliOperator(0x03)
         destination[2, 2] = -(destination[1, 1] = 1)
     else

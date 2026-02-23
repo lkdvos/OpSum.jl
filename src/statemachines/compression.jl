@@ -27,7 +27,7 @@ end
 
 function simplify_vertexoperator!(W′, W)
     for (k, v) in storedpairs(W)
-        v′ = QuantumOperatorAlgebra._simplify(v)
+        v′ = simplify(v)
         if !iszero(v′)
             W′[k] = v′
         end

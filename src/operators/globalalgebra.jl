@@ -251,6 +251,48 @@ function Base.:*(x::Sum{T, GlobalOp{T, A, S}}, y::SiteOp{T, A, S}) where {T, A, 
 end
 
 
+# Simplify
+# --------
+function simplify(x::GlobalOp{T, A, S}) where {T, A, S}
+    o = variant(x)
+    if o isa SiteOp
+        op′ = simplify(o.op)
+        iszero(op′) && return zero(x)
+        return GlobalOp{T, A, S}(SiteOp{T, A, S}(op′, o.sites))
+    elseif o isa Sum
+        result = GlobalOp{T, A, S}(Sum{T, GlobalOp{T, A, S}}())
+        result_terms = variant(result).terms
+        for (k, v) in pairs(o.terms)
+            iszero(v) && continue
+            k′ = simplify(k)
+            setwith!(+, result_terms, k′, v)
+        end
+        filter!(!iszero, result_terms)
+        isempty(result_terms) && return zero(x)
+        if length(result_terms) == 1
+            k, v = only(pairs(result_terms))
+            isone(v) && return k
+        end
+        return result
+    elseif o isa Prod
+        factors = GlobalOp{T, A, S}[]
+        for f in o.factors
+            push!(factors, simplify(f))
+        end
+        length(factors) == 1 && return only(factors)
+        return GlobalOp{T, A, S}(Prod{GlobalOp{T, A, S}}(factors))
+    elseif o isa Pow
+        base = simplify(o.base)
+        o.exponent == 1 && return base
+        return GlobalOp{T, A, S}(Pow{GlobalOp{T, A, S}}(base, o.exponent))
+    elseif o isa Fun
+        args = map(simplify, o.args)
+        return GlobalOp{T, A, S}(Fun{GlobalOp{T, A, S}}(o.f, args))
+    else
+        return x
+    end
+end
+
 # Show
 # ----
 function Base.show(io::IO, operator::GlobalOp)

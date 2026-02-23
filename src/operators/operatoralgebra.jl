@@ -254,6 +254,54 @@ function operatorstrings(x::LocalOp{T, A}) where {T, A}
     end
 end
 
+# Simplify
+# --------
+function simplify(x::LocalOp{T, A}) where {T, A}
+    o = variant(x)
+    if o isa T || o isa A
+        return x
+    elseif o isa Sum
+        # Build result using the same pattern as add/scale: empty Sum + setwith!
+        result = LocalOp{T, A}(Sum{T, LocalOp{T, A}}())
+        result_terms = variant(result).terms
+        for (k, v) in pairs(o.terms)
+            iszero(v) && continue
+            k′ = simplify(k)
+            setwith!(+, result_terms, k′, v)
+        end
+        filter!(!iszero, result_terms)
+        isempty(result_terms) && return zero(LocalOp{T, A})
+        if length(result_terms) == 1
+            k, v = only(pairs(result_terms))
+            isone(v) && return k
+        end
+        return result
+    elseif o isa Prod
+        factors = LocalOp{T, A}[]
+        for f in o.factors
+            f′ = simplify(f)
+            isone(f′) && continue
+            push!(factors, f′)
+        end
+        isempty(factors) && return one(LocalOp{T, A})
+        length(factors) == 1 && return only(factors)
+        return LocalOp{T, A}(Prod{LocalOp{T, A}}(factors))
+    elseif o isa Kron
+        factors = map(simplify, o.factors)
+        length(factors) == 1 && return only(factors)
+        return LocalOp{T, A}(Kron{LocalOp{T, A}}(factors))
+    elseif o isa Pow
+        base = simplify(o.base)
+        o.exponent == 1 && return base
+        return LocalOp{T, A}(Pow{LocalOp{T, A}}(base, o.exponent))
+    elseif o isa Fun
+        args = map(simplify, o.args)
+        return LocalOp{T, A}(Fun{LocalOp{T, A}}(o.f, args))
+    else
+        return x
+    end
+end
+
 # Show
 # ----
 function Base.show(io::IO, operator::LocalOp)

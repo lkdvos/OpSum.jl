@@ -86,8 +86,6 @@ function mpo_bond_optimizations(
         end
     end
 
-    @debug "debugging preprocessing" prefix_uids suffix_uids terms
-
     # -----------------------------------------------------------------------
     # Step 3: Initialise sweep state
     # -----------------------------------------------------------------------
@@ -112,11 +110,9 @@ function mpo_bond_optimizations(
         for o in 1:K
             adjacency[l_idx[term_carrier[o]], r_idx[suffix_uids[o, i]]] = true
         end
-        @debug "adjacency at site $i" adjacency left_uids right_uids term_carrier
 
         # 4b: minimum vertex cover
         coverU, coverV, _, _, _ = min_vertex_cover_bipartite(adjacency)
-        @debug "covers" coverU coverV
 
         # 4c: assign new carriers and build W[i] entries
         W_entries = Dict{Tuple{Int, Int}, LocalOp{T, Op}}()
@@ -180,7 +176,6 @@ function mpo_bond_optimizations(
         active_left = new_active
         right_uids_new = sort(collect(keys(new_active)))
         push!(Ws, _build_sparse_mpo(W_entries, left_uids, right_uids_new))
-        @debug "W at site $(length(Ws))" last(Ws)
     end
 
     # -----------------------------------------------------------------------

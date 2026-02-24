@@ -3,6 +3,8 @@ module OpSum
 export Trie, SDAWG, DAWGDictionary
 export @op_str, AbstractOperator, Operator, Scaled, Sum, Product
 export opsum_vertex_operators, compress_vertex_operators, simplify
+export TreeTopology, TTNOTerm, ttno_terms, ttno_bond_optimizations
+export mpo_bond_optimizations
 
 using Dictionaries
 using AbstractTrees
@@ -39,5 +41,7 @@ include("operators/paulioperators.jl")
 # --------------
 include("statemachines/state_machines.jl")
 include("statemachines/compression.jl")
+include("statemachines/ttno.jl")
+include("statemachines/graphbuilding.jl")
 
 end

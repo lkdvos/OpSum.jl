@@ -1,3 +1,73 @@
+# TODO: this is probably cleaner to implement through a CSR/CSC adjacency matrix
+
+# -------------------------------------------------------------------------
+# BFS: build layered graph of alternating paths, starting from all free U's.
+#
+# Returns true if there is at least one free vertex in V reachable
+# via an alternating path (i.e., there exists an augmenting path).
+# -------------------------------------------------------------------------
+function hopcroft_karp_bfs!(dist, adjU, pairU, pairV)
+    # Initialize distances:
+    # free vertices in U start at distance 0 and matched vertices start at INF
+    INF = typemax(eltype(dist))
+    fill!(dist, INF)
+    queue = findall(iszero, pairU)
+    dist[queue] .= 0
+
+    found_augmenting = false
+
+    # Standard BFS
+    while !isempty(queue)
+        u = popfirst!(queue)
+        dist[u] == INF && continue # Only proceed if vertex is in the layered graph
+
+        for v in adjU[u] # loop over all vertices in V connected to u
+            u2 = pairV[v] # if v is matched, u2 is its partner in U
+            if u2 == 0
+                # We reached a free vertex on V side:
+                # this means there is at least one augmenting path
+                found_augmenting = true
+            elseif dist[u2] == INF
+                # If u2 has not been assigned a layer yet, put it in the next layer.
+                dist[u2] = dist[u] + 1
+                push!(queue, u2)
+            end
+        end
+    end
+
+    return found_augmenting
+end
+
+# -------------------------------------------------------------------------
+# DFS: search for an augmenting path from vertex u in U,
+#      constrained to layered graph built by BFS.
+#
+# Returns true if an augmenting path was found and matching updated.
+# -------------------------------------------------------------------------
+function hopcroft_karp_dfs!(adjU, pairU, pairV, dist, u)::Bool
+    INF = typemax(eltype(dist))
+    for v in adjU[u]
+        u2 = pairV[v]
+        # Case 1: v is free → we can extend the alternating path
+        if u2 == 0
+            pairU[u] = v
+            pairV[v] = u
+            return true
+
+            # Case 2: v is matched, but we may be able to go further
+        elseif dist[u2] == dist[u] + 1 && hopcroft_karp_dfs!(adjU, pairU, pairV, dist, u2)
+            pairU[u] = v
+            pairV[v] = u
+            return true
+        end
+    end
+
+    # If we fail to find an augmenting path from u,
+    # remove u from the layered graph for this phase.
+    dist[u] = INF
+    return false
+end
+
 """
     hopcroft_karp(adjU, nU, nV)
 
@@ -26,94 +96,16 @@ function hopcroft_karp(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
     # dist[u] = distance label from BFS layering (only for U side)
     dist = fill(0, nU)
 
-    # "infinity" value for dist
-    INF = typemax(Int)
-
-    # -------------------------------------------------------------------------
-    # BFS: build layered graph of alternating paths, starting from all free U's.
-    #
-    # Returns true if there is at least one free vertex in V reachable
-    # via an alternating path (i.e., there exists an augmenting path).
-    # -------------------------------------------------------------------------
-    function bfs()::Bool
-        queue = Int[]
-
-        # Initialize distances:
-        #   free vertices in U start at distance 0
-        #   matched vertices start at INF
-        for u in 1:nU
-            if pairU[u] == 0
-                dist[u] = 0
-                push!(queue, u)
-            else
-                dist[u] = INF
-            end
-        end
-
-        found_augmenting = false
-
-        # Standard BFS
-        while !isempty(queue)
-            u = popfirst!(queue)
-            # Only proceed if this vertex is still in the layered graph
-            if dist[u] < INF
-                for v in adjU[u]
-                    u2 = pairV[v]  # if v is matched, u2 is its partner in U
-                    if u2 == 0
-                        # We reached a free vertex on V side:
-                        # this means there is at least one augmenting path
-                        found_augmenting = true
-                    elseif dist[u2] == INF
-                        # If u2 has not been assigned a layer yet,
-                        # put it in the next layer.
-                        dist[u2] = dist[u] + 1
-                        push!(queue, u2)
-                    end
-                end
-            end
-        end
-
-        return found_augmenting
-    end
-
-    # -------------------------------------------------------------------------
-    # DFS: search for an augmenting path from vertex u in U,
-    #      constrained to layered graph built by BFS.
-    #
-    # Returns true if an augmenting path was found and matching updated.
-    # -------------------------------------------------------------------------
-    function dfs(u::Int)::Bool
-        for v in adjU[u]
-            u2 = pairV[v]
-            # Case 1: v is free → we can extend the alternating path
-            if u2 == 0
-                pairU[u] = v
-                pairV[v] = u
-                return true
-
-                # Case 2: v is matched, but we may be able to go further
-            elseif dist[u2] == dist[u] + 1 && dfs(u2)
-                pairU[u] = v
-                pairV[v] = u
-                return true
-            end
-        end
-
-        # If we fail to find an augmenting path from u,
-        # remove u from the layered graph for this phase.
-        dist[u] = INF
-        return false
-    end
 
     # -------------------------------------------------------------------------
     # Main phase loop
     # -------------------------------------------------------------------------
     matching = 0
-    while bfs()
+    while hopcroft_karp_bfs!(dist, adjU, pairU, pairV)
         # Try to find augmenting paths from each free vertex in U
         for u in 1:nU
             if pairU[u] == 0
-                if dfs(u)
+                if hopcroft_karp_dfs!(adjU, pairU, pairV, dist, u)
                     matching += 1
                 end
             end

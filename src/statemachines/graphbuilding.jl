@@ -8,6 +8,21 @@ end
 
 const LeftNode = Union{NormalLeftNode, ComplementaryLeftNode}
 
+function trie_hash!(hashnode::Trie{K, UInt})::UInt where {K}
+    if isnothing(hashnode.value)
+        children_hash = map(trie_hash!, hashnode.children)
+        sortkeys!(children_hash)
+        hashnode.value = hash(children_hash)
+    end
+    return hashnode.value
+end
+
+mutable struct Counter <: Base.Function
+    current::Int
+end
+Counter() = Counter(0)
+(x::Counter)() = (x.current += 1; x.current)
+
 """
     mpo_bond_optimizations(vertices, terms) -> Vector{<:SparseMatrixDOK}
 
@@ -29,184 +44,141 @@ function mpo_bond_optimizations(
     K = length(terms)
     K == 0 && return SparseMatrixDOK{LocalOp{T, Op}}[]
 
-    # -----------------------------------------------------------------------
-    # Step 1: Build suffix trie
-    # suffix_uids[o, i] = UID of ops[o][(i+1):N]
-    # -----------------------------------------------------------------------
-    uid_counter = Ref(0)
-    next_uid!() = (uid_counter[] += 1; uid_counter[])
+    coefficients = map(x -> x.coeff, terms)
 
     # -----------------------------------------------------------------------
-    # Step 1: Build suffix trie (reversed suffixes for incremental traversal)
-    # suffix_uids[o, i] = UID of ops[o][(i+1):N]
-    #
-    # The suffix at bond i is obtained from bond i+1 by prepending ops[o][i+1].
-    # Storing reversed suffixes as trie paths lets each step simply follow (or
-    # create) one child edge, dropping allocation from O(N-i) to O(1) per step.
+    # Step 1: Build prefix trie
     # -----------------------------------------------------------------------
-    suffix_trie = Trie{Op, Int}()
-    suffix_uids = zeros(Int, K, N)
-
-    # Empty suffix (i=N): assign a single shared UID at the trie root.
-    suffix_trie.value = next_uid!()
-    fill!(@view(suffix_uids[:, N]), suffix_trie.value)
-
-    # Per-term pointer; all start at root and advance one edge per bond.
-    suffix_nodes = fill(suffix_trie, K)
-    for i in (N - 1):-1:1
-        for o in 1:K
-            node = get!(() -> Trie{Op, Int}(), suffix_nodes[o].children, terms[o].ops[i + 1])
-            if isnothing(node.value)
-                node.value = next_uid!()
-            end
-            suffix_nodes[o] = node
-            suffix_uids[o, i] = node.value
-        end
-    end
-
-    # -----------------------------------------------------------------------
-    # Step 2: Build prefix trie (standard left-to-right, also incremental)
-    # prefix_uids[o, i] = UID of ops[o][1:i]
-    #
-    # The prefix at bond i is obtained from bond i-1 by appending ops[o][i],
-    # which is the natural trie direction — no reversal needed.
-    # -----------------------------------------------------------------------
-    prefix_trie = Trie{Op, Int}()
-    prefix_uids = zeros(Int, K, N)
-
-    prefix_nodes = fill(prefix_trie, K)
-    for i in 1:N
-        for o in 1:K
-            node = get!(() -> Trie{Op, Int}(), prefix_nodes[o].children, terms[o].ops[i])
-            if isnothing(node.value)
-                node.value = next_uid!()
-            end
-            prefix_nodes[o] = node
-            prefix_uids[o, i] = node.value
-        end
-    end
-
-    # -----------------------------------------------------------------------
-    # Step 3: Initialise sweep state
-    # -----------------------------------------------------------------------
-    EMPTY_UID = next_uid!()
-    term_carrier = fill(EMPTY_UID, K)
-    active_left = Dict{Int, LeftNode}(EMPTY_UID => NormalLeftNode(EMPTY_UID))
-    Ws = SparseMatrixDOK{LocalOp{T, Op}}[]
-
-    # -----------------------------------------------------------------------
-    # Step 4: Main sweep — bonds i = 1 .. N-1
-    # At bond i we build W[i], mapping bond-(i-1) states → bond-i states.
-    # -----------------------------------------------------------------------
-    for i in 1:(N - 1)
-        left_uids = sort(unique(term_carrier))
-        right_uids = sort(unique(@view(suffix_uids[:, i])))
-
-        l_idx = Dict(u => j for (j, u) in enumerate(left_uids))
-        r_idx = Dict(v => j for (j, v) in enumerate(right_uids))
-
-        # 4a: binary adjacency matrix for bipartite matching
-        adjacency = falses(length(left_uids), length(right_uids))
-        for o in 1:K
-            adjacency[l_idx[term_carrier[o]], r_idx[suffix_uids[o, i]]] = true
-        end
-
-        # 4b: minimum vertex cover
-        coverU, coverV, _, _, _ = min_vertex_cover_bipartite(adjacency)
-
-        # 4c: assign new carriers and build W[i] entries
-        W_entries = Dict{Tuple{Int, Int}, LocalOp{T, Op}}()
-        new_active = Dict{Int, LeftNode}()
-        term_new_carrier = zeros(Int, K)
-        right_to_comp = Dict{Int, Int}()   # r_uid → complementary uid
-
-        for o in 1:K
-            l = term_carrier[o]
-            iu = l_idx[l]
-            op_i = LocalOp{T, Op}(terms[o].ops[i])
-
-            if coverU[iu]
-                # Normal pass-through: carrier advances to next prefix UID.
-                # All terms with the same (l, nc) share identical ops[i]
-                # (same prefix ⟹ same local op), so set once.
-                nc = prefix_uids[o, i]
-                term_new_carrier[o] = nc
-                if !haskey(new_active, nc)
-                    new_active[nc] = NormalLeftNode(nc)
-                end
-                key = (l, nc)
-                if !haskey(W_entries, key)
-                    W_entries[key] = op_i
-                end
-            else
-                # Complementary transition.
-                # If l is a NormalLeftNode, the coefficient is placed here (first entry for this term).
-                # If l is a ComplementaryLeftNode, the coefficient was already placed when l was
-                # created; use bare ops and set-once to avoid double-counting merged terms.
-                r = suffix_uids[o, i]
-                if !haskey(right_to_comp, r)
-                    c = next_uid!()
-                    right_to_comp[r] = c
-                    new_active[c] = ComplementaryLeftNode(c)
-                end
-                c = right_to_comp[r]
-                term_new_carrier[o] = c
-                key = (l, c)
-                if active_left[l] isa ComplementaryLeftNode
-                    # Coefficient already absorbed when l was created; bare ops, set-once.
-                    if !haskey(W_entries, key)
-                        W_entries[key] = op_i
-                    end
-                else
-                    # Normal l: place coefficient here, accumulate (handles different ops[i]).
-                    scaled_op = terms[o].coeff * op_i
-                    if haskey(W_entries, key)
-                        W_entries[key] = W_entries[key] + scaled_op
-                    else
-                        W_entries[key] = scaled_op
-                    end
-                end
-            end
-        end
-
-        # 4d: update carriers
-        term_carrier .= term_new_carrier
-
-        # 4e: store W[i]
-        active_left = new_active
-        right_uids_new = sort(collect(keys(new_active)))
-        push!(Ws, _build_sparse_mpo(W_entries, left_uids, right_uids_new))
-    end
-
-    # -----------------------------------------------------------------------
-    # Step 5: Final site W[N]
-    # Coefficient is placed here for any term still in a normal (prefix) state.
-    # -----------------------------------------------------------------------
-    final_left_uids = sort(collect(keys(active_left)))
-    W_final = Dict{Tuple{Int, Int}, LocalOp{T, Op}}()
+    prefix_trie = Trie{Op, T}()
     for o in 1:K
-        l = term_carrier[o]
-        key = (l, 1)
-        op_N = LocalOp{T, Op}(terms[o].ops[N])
-        if active_left[l] isa ComplementaryLeftNode
-            # Coefficient was placed when l was created; bare ops, set-once.
-            if !haskey(W_final, key)
-                W_final[key] = op_N
-            end
-        else
-            # Normal carrier: place coefficient here; accumulate (terms may share prefix
-            # but differ in ops[N], producing a Sum LocalOp).
-            scaled_op = terms[o].coeff * op_N
-            if haskey(W_final, key)
-                W_final[key] = W_final[key] + scaled_op
-            else
-                W_final[key] = scaled_op
+        node = prefix_trie
+        for op in terms[o].ops
+            node = get!(() -> typeof(node)(), node.children, op)
+        end
+        node.value = terms[o].coeff
+    end
+    # populate hash values
+    # trie_hash!(prefix_trie)
+
+    # -----------------------------------------------------------------------
+    # Step 2: Initialise sweep state
+    # -----------------------------------------------------------------------
+    Ws = []
+    W = []
+    left_nodes = [prefix_trie]
+    @debug "transition matrix" W
+    mpos = SparseMatrixDOK{LocalOp{T, Op}}[]
+
+    for i in 1:N
+        Us = []
+        parents = []
+        uidx_ = []
+        uidx__ = 0
+        mpo_terms = []
+        @debug "starting from" left_nodes
+        for node in left_nodes
+            uidx__ += 1
+            for (k, child) in pairs(node.children)
+                push!(Us, child)
+                push!(parents, node => k)
+                push!(uidx_, uidx__)
             end
         end
-    end
-    push!(Ws, _build_sparse_mpo(W_final, final_left_uids, [1]))
 
-    return Ws
+        uid! = Counter()
+        Vs = Dictionary()
+        nonzero_list = CartesianIndex{2}[]
+        for (iu, U) in enumerate(Us)
+            if isempty(U)
+                iv = get!(uid!, Vs, keytype(U)[])
+                push!(nonzero_list, CartesianIndex(iu, iv))
+            else
+                for operator in collect(keys(U))
+                    iv = get!(uid!, Vs, operator)
+                    push!(nonzero_list, CartesianIndex(iu, iv))
+                end
+            end
+        end
+
+        adjacency = falses(length(Us), uid!.current)
+        for I in nonzero_list
+            adjacency[Tuple(I)...] = true
+        end
+
+        coverU, coverV, _ = min_vertex_cover_bipartite(adjacency)
+
+        @debug "adjacency at site $i" Us Vs adjacency coverU coverV
+
+        # cover U nodes are simply passed through
+        W = Us[coverU]
+        push!(Ws, W)
+        adjacency[coverU, :] .= false
+        uidnext! = Counter()
+        Wnext_dict = Dictionary()
+
+        for iu in findall(coverU)
+            left_id = uidx_[iu]
+            @show (node, k) = parents[iu]
+            j = get!(uidnext!, Wnext_dict, Us[iu])
+            push!(mpo_terms, (left_id, j) => k)
+        end
+
+        # # but disconnect uncovered nodes
+        # for iu in findall(!, coverU)
+        #     node, k = parents[iu]
+        #     delete!(node.children, k)
+        # end
+
+        @debug "here W is" W mpo_terms
+
+        # cover V nodes need special handling since we need to create new nodes and correctly connect them
+        Vkeys = collect(keys(Vs))
+        for iv in findall(coverV)
+            suffix = Vkeys[iv]
+            newnode = typeof(prefix_trie)()
+            push!(W, newnode)
+            node = newnode
+            for s in suffix
+                newnode = typeof(prefix_trie)()
+                insert!(node.children, s, newnode)
+                node = newnode
+            end
+            node.value = one(T)
+
+            for iu in findall(adjacency[:, iv])
+                left_id = uidx_[iu]
+                node, k = parents[iu]
+                j = get!(uidnext!, Wnext_dict, Us[iu])
+                @show j Us[iu]
+                push!(mpo_terms, (left_id, j) => k)
+            end
+            adjacency[:, iv] .= false
+        end
+        @assert !any(adjacency)
+
+        @debug "terms" mpo_terms
+
+
+        # @assert length(Wnext_dict) == length(W)
+        elT = eltype(mpos)
+        mpo_site = eltype(mpos)(undef, length(left_nodes), length(Wnext_dict))
+        for ((i, j), k) in mpo_terms
+            if SparseArraysBase.isstored(mpo_site, i, j)
+                mpo_site[i, j] += convert(eltype(elT), k)
+            else
+                mpo_site[i, j] = k
+            end
+        end
+        push!(mpos, mpo_site)
+        @debug "transition at site $i" mpo_site
+
+        @assert i == 1 || size(mpo_site, 1) == size(mpos[end - 1], 2)
+
+
+        left_nodes = collect(keys(Wnext_dict))
+    end
+
+    return mpos
 end
 
 # Convenience overload accepting a GlobalOp directly.

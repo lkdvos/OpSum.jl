@@ -22,10 +22,26 @@ sites = fill(2, L)   # qubit (dim-2) per site
     @test H_mpo ≈ H_dense
 end
 
+@testset "mpo_bond_optimizations — single-site terms" begin
+    H = sum(Z[i] for i in 1:L)
+    Ws = mpo_bond_optimizations(vertices, H)
+    @test length(Ws) == L
+    @test maximum(x -> max(size(x)...), Ws) <= 2
+    @test mpo_to_dense(Ws, sites) ≈ instantiate(H, sites)
+end
+
+
 @testset "mpo_bond_optimizations — nearest-neighbour XX chain" begin
     H = sum(X[i] * X[i + 1] for i in 1:(L - 1))
     Ws = mpo_bond_optimizations(vertices, H)
     @test length(Ws) == L
+    @test maximum(x -> max(size(x)...), Ws) <= 3
+    @test mpo_to_dense(Ws, sites) ≈ instantiate(H, sites)
+
+    H += sum(Z[i] for i in 1:L)
+    Ws = mpo_bond_optimizations(vertices, H)
+    @test length(Ws) == L
+    @test maximum(x -> max(size(x)...), Ws) <= 3
     @test mpo_to_dense(Ws, sites) ≈ instantiate(H, sites)
 end
 
@@ -37,7 +53,7 @@ end
 end
 
 @testset "mpo_bond_optimizations — all-to-all XX (long-range)" begin
-    H = sum(X[i] * X[j] for i in 1:4 for j in (i + 1):5)
+    H = sum(X[i] * X[j] for i in 1:(L - 1) for j in (i + 1):L)
     Ws = mpo_bond_optimizations(vertices, H)
     @test length(Ws) == L
     @test mpo_to_dense(Ws, sites) ≈ instantiate(H, sites)
@@ -48,11 +64,4 @@ end
     Ws = mpo_bond_optimizations(1:3, H)
     @test length(Ws) == 3
     @test mpo_to_dense(Ws, sites[1:3]) ≈ instantiate(H, sites[1:3])
-end
-
-@testset "mpo_bond_optimizations — single-site terms" begin
-    H = sum(Z[i] for i in 1:L)
-    Ws = mpo_bond_optimizations(vertices, H)
-    @test length(Ws) == L
-    @test mpo_to_dense(Ws, sites) ≈ instantiate(H, sites)
 end

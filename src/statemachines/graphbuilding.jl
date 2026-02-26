@@ -66,7 +66,6 @@ function mpo_bond_optimizations(
     Ws = []
     W = []
     left_nodes = [prefix_trie]
-    @debug "transition matrix" W
     mpos = SparseMatrixDOK{LocalOp{T, Op}}[]
 
     for i in 1:N
@@ -87,40 +86,48 @@ function mpo_bond_optimizations(
 
         uid! = Counter()
         Vs = Dictionary()
-        nonzero_list = CartesianIndex{2}[]
+        nonzero_list = Pair{CartesianIndex{2}, T}[]
         for (iu, U) in enumerate(Us)
             if isempty(U)
                 iv = get!(uid!, Vs, keytype(U)[])
-                push!(nonzero_list, CartesianIndex(iu, iv))
+                push!(nonzero_list, CartesianIndex(iu, iv) => U.value)
             else
-                for operator in collect(keys(U))
+                for (operator, coeff) in pairs(U)
                     iv = get!(uid!, Vs, operator)
-                    push!(nonzero_list, CartesianIndex(iu, iv))
+                    push!(nonzero_list, CartesianIndex(iu, iv) => coeff)
                 end
             end
         end
 
-        adjacency = falses(length(Us), uid!.current)
-        for I in nonzero_list
-            adjacency[Tuple(I)...] = true
+        coefficients = zeros(T, length(Us), uid!.current)
+        for (I, c) in nonzero_list
+            @assert iszero(coefficients[Tuple(I)...])
+            coefficients[Tuple(I)...] = c
         end
+        adjacency = (!iszero).(coefficients)
+        @debug "adjacency at site $i" Us Vs coefficients
 
         coverU, coverV, _ = min_vertex_cover_bipartite(adjacency)
 
-        @debug "adjacency at site $i" Us Vs adjacency coverU coverV
+        @debug "covering at site $i" adjacency coverU coverV
 
         # cover U nodes are simply passed through
         W = Us[coverU]
         push!(Ws, W)
         adjacency[coverU, :] .= false
         uidnext! = Counter()
-        Wnext_dict = Dictionary()
+        Wnext_dict = IdDict()
 
         for iu in findall(coverU)
             left_id = uidx_[iu]
-            @show (node, k) = parents[iu]
+            (node, k) = parents[iu]
             j = get!(uidnext!, Wnext_dict, Us[iu])
-            push!(mpo_terms, (left_id, j) => k)
+            if i == N
+                c = coefficients[iu, 1]
+                push!(mpo_terms, (left_id, j) => k * c)
+            else
+                push!(mpo_terms, (left_id, j) => k)
+            end
         end
 
         # # but disconnect uncovered nodes
@@ -145,12 +152,13 @@ function mpo_bond_optimizations(
             end
             node.value = one(T)
 
+            j = uidnext!()
             for iu in findall(adjacency[:, iv])
                 left_id = uidx_[iu]
                 node, k = parents[iu]
-                j = get!(uidnext!, Wnext_dict, Us[iu])
-                @show j Us[iu]
-                push!(mpo_terms, (left_id, j) => k)
+                c = coefficients[iu, iv]
+                # j = get!(uidnext!, Wnext_dict, Us[iu])
+                push!(mpo_terms, (left_id, j) => k * c)
             end
             adjacency[:, iv] .= false
         end
@@ -161,7 +169,7 @@ function mpo_bond_optimizations(
 
         # @assert length(Wnext_dict) == length(W)
         elT = eltype(mpos)
-        mpo_site = eltype(mpos)(undef, length(left_nodes), length(Wnext_dict))
+        mpo_site = eltype(mpos)(undef, length(left_nodes), length(W))
         for ((i, j), k) in mpo_terms
             if SparseArraysBase.isstored(mpo_site, i, j)
                 mpo_site[i, j] += convert(eltype(elT), k)
@@ -175,7 +183,8 @@ function mpo_bond_optimizations(
         @assert i == 1 || size(mpo_site, 1) == size(mpos[end - 1], 2)
 
 
-        left_nodes = collect(keys(Wnext_dict))
+        # left_nodes = collect(keys(Wnext_dict))
+        left_nodes = W
     end
 
     return mpos

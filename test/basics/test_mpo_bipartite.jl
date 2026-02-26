@@ -28,6 +28,12 @@ end
     @test length(Ws) == L
     @test maximum(x -> max(size(x)...), Ws) <= 2
     @test mpo_to_dense(Ws, sites) ≈ instantiate(H, sites)
+
+    H = sum(rand() * Z[i] for i in 1:L)
+    Ws = mpo_bond_optimizations(vertices, H)
+    @test length(Ws) == L
+    @test maximum(x -> max(size(x)...), Ws) <= 2
+    @test mpo_to_dense(Ws, sites) ≈ instantiate(H, sites)
 end
 
 

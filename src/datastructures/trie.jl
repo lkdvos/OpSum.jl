@@ -106,6 +106,11 @@ function Base.get!(f::Base.Callable, trie::Trie{K}, key::Vector{K}) where {K}
     return strie.value
 end
 
+function Base.setindex!(trie::Trie{K, V}, v::V, key::Vector{K}) where {K, V}
+    strie = subtrie!(trie, key)
+    strie.value = v
+    return trie
+end
 function Base.setindex!(trie::Trie{K}, v, key::Vector{K}) where {K}
     strie = subtrie!(trie, key)
     strie.value = convert(valtype(trie), v)
@@ -119,6 +124,10 @@ function Base.length(trie::Trie)
     end
     return n
 end
+
+Base.:(==)(trie1::Trie, trie2::Trie) = (trie1.value == trie2.value && trie1.children == trie2.children)
+Base.isequal(trie1::Trie, trie2::Trie) = isequal(trie1.value, trie2.value) && isequal(trie1.children, trie2.children)
+
 
 # TODO: iterator
 function Base.keys(trie::Trie)

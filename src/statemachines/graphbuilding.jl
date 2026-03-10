@@ -72,7 +72,7 @@ function mpo_bond_optimizations(
         for (iu, U) in enumerate(Us)
             if isempty(U)
                 iv = get!(uid!, Vs, keytype(U)[])
-                push!(nonzero_list, CartesianIndex(iu, iv) => U.value)
+                push!(nonzero_list, CartesianIndex(iu, iv) => something(U.value))
             else
                 for (operator, coeff) in pairs(U)
                     iv = get!(uid!, Vs, operator)
@@ -168,7 +168,7 @@ function mpo_bond_optimizations(
     for term in terms
         node = prefix_trie
         for op in term.ops
-            node = get!(() -> typeof(node)(), node.children, op)
+            node = get!(() -> Trie{Op, T}(), node.children, op)
         end
         node.value = isnothing(node.value) ? term.coeff : node.value + term.coeff
     end

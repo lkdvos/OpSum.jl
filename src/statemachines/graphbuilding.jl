@@ -44,8 +44,6 @@ function mpo_bond_optimizations(
     K = length(terms)
     K == 0 && return SparseMatrixDOK{LocalOp{T, Op}}[]
 
-    coefficients = map(x -> x.coeff, terms)
-
     # -----------------------------------------------------------------------
     # Step 1: Build prefix trie
     # -----------------------------------------------------------------------
@@ -63,17 +61,16 @@ function mpo_bond_optimizations(
     # -----------------------------------------------------------------------
     # Step 2: Initialise sweep state
     # -----------------------------------------------------------------------
-    Ws = []
-    W = []
-    left_nodes = [prefix_trie]
+    W = Trie{Op, T}[]
+    left_nodes = Trie{Op, T}[prefix_trie]
     mpos = SparseMatrixDOK{LocalOp{T, Op}}[]
 
     for i in 1:N
-        Us = []
-        parents = []
-        uidx_ = []
+        Us = Trie{Op, T}[]
+        parents = Pair{Trie{Op, T}, Op}[]
+        uidx_ = Int[]
         uidx__ = 0
-        mpo_terms = []
+        mpo_terms = Pair{Tuple{Int, Int}, LocalOp{T, Op}}[]
         @debug "starting from" left_nodes
         for node in left_nodes
             uidx__ += 1
@@ -85,7 +82,7 @@ function mpo_bond_optimizations(
         end
 
         uid! = Counter()
-        Vs = Dictionary()
+        Vs = Dictionary{Vector{Op}, Int}()
         nonzero_list = Pair{CartesianIndex{2}, T}[]
         for (iu, U) in enumerate(Us)
             if isempty(U)
@@ -112,10 +109,9 @@ function mpo_bond_optimizations(
 
         # cover U nodes are simply passed through
         W = Us[coverU]
-        push!(Ws, W)
         adjacency[coverU, :] .= false
         uidnext! = Counter()
-        Wnext_dict = IdDict()
+        Wnext_dict = IdDict{Trie{Op, T}, Int}()
 
         for iu in findall(coverU)
             left_id = uidx_[iu]
@@ -125,7 +121,7 @@ function mpo_bond_optimizations(
                 c = coefficients[iu, 1]
                 push!(mpo_terms, (left_id, j) => k * c)
             else
-                push!(mpo_terms, (left_id, j) => k)
+                push!(mpo_terms, (left_id, j) => convert(LocalOp{T, Op}, k))
             end
         end
 
@@ -154,11 +150,10 @@ function mpo_bond_optimizations(
         end
         @assert !any(adjacency)
 
-        elT = eltype(mpos)
-        mpo_site = eltype(mpos)(undef, length(left_nodes), length(W))
+        mpo_site = SparseMatrixDOK{LocalOp{T, Op}}(undef, length(left_nodes), length(W))
         for ((i, j), k) in mpo_terms
             if SparseArraysBase.isstored(mpo_site, i, j)
-                mpo_site[i, j] += convert(eltype(elT), k)
+                mpo_site[i, j] += k
             else
                 mpo_site[i, j] = k
             end

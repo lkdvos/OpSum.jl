@@ -1,0 +1,7 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+OpSum = "ad22a312-ed53-41dd-b1d0-052652c9fe0a"
+
+[compat]
+BenchmarkTools = "1"
+julia = "1.10"

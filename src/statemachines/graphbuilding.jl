@@ -17,6 +17,16 @@ function trie_hash!(hashnode::Trie{K, UInt})::UInt where {K}
     return hashnode.value
 end
 
+function increaseindex!(d::Dictionary, k, v)
+    (found, token) = gettoken(d, k)
+    if found
+        settokenvalue!(d, token, gettokenvalue(d, token) + v)
+    else
+        insert!(d, k, v)
+    end
+    return d
+end
+
 mutable struct Counter <: Base.Function
     current::Int
 end
@@ -48,14 +58,15 @@ function mpo_bond_optimizations(
     # -----------------------------------------------------------------------
     W = Trie{Op, T}[]
     left_nodes = Trie{Op, T}[prefix_trie]
-    mpos = SparseMatrixDOK{LocalOp{T, Op}}[]
+    sizes = Tuple{Int, Int}[]
+    dicts = Dictionary{CartesianIndex{2}, LocalOp{T, Op}}[]
 
     for i in 1:N
         Us = Trie{Op, T}[]
         parents = Pair{Trie{Op, T}, Op}[]
         uidx_ = Int[]
         uidx__ = 0
-        mpo_terms = Pair{Tuple{Int, Int}, LocalOp{T, Op}}[]
+        mpo_terms = Pair{CartesianIndex{2}, LocalOp{T, Op}}[]
         @debug "starting from" left_nodes
         for node in left_nodes
             uidx__ += 1
@@ -104,9 +115,9 @@ function mpo_bond_optimizations(
             j = get!(uidnext!, Wnext_dict, Us[iu])
             if i == N
                 c = coefficients[iu, 1]
-                push!(mpo_terms, (left_id, j) => k * c)
+                push!(mpo_terms, CartesianIndex(left_id, j) => k * c)
             else
-                push!(mpo_terms, (left_id, j) => convert(LocalOp{T, Op}, k))
+                push!(mpo_terms, CartesianIndex(left_id, j) => convert(LocalOp{T, Op}, k))
             end
         end
 
@@ -129,29 +140,25 @@ function mpo_bond_optimizations(
                 left_id = uidx_[iu]
                 node, k = parents[iu]
                 c = coefficients[iu, iv]
-                push!(mpo_terms, (left_id, j) => k * c)
+                push!(mpo_terms, CartesianIndex(left_id, j) => k * c)
             end
             adjacency[:, iv] .= false
         end
         @assert !any(adjacency)
 
-        mpo_site = SparseMatrixDOK{LocalOp{T, Op}}(undef, length(left_nodes), length(W))
-        for ((i, j), k) in mpo_terms
-            if SparseArraysBase.isstored(mpo_site, i, j)
-                mpo_site[i, j] += k
-            else
-                mpo_site[i, j] = k
-            end
+        site_dict = Dictionary{CartesianIndex{2}, LocalOp{T, Op}}()
+        for (ij, k) in mpo_terms
+            increaseindex!(site_dict, ij, k)
         end
-        push!(mpos, mpo_site)
-        @debug "transition at site $i" mpo_site
+        push!(sizes, (length(left_nodes), length(W)))
+        push!(dicts, site_dict)
 
-        @assert i == 1 || size(mpo_site, 1) == size(mpos[end - 1], 2)
+        @assert i == 1 || sizes[end][1] == sizes[end - 1][2]
 
         left_nodes = W
     end
 
-    return mpos
+    return map(SparseArraysBase.sparse, dicts, sizes)
 end
 
 """

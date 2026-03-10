@@ -90,7 +90,8 @@ end
 # LinearAlgebra
 # -------------
 
-Base.zero(x::GlobalOp) = zero(scalartype(x)) * one(x)
+Base.zero(x::GlobalOp) = zero(typeof(x))
+Base.zero(::Type{GlobalOp{T, A, S}}) where {T, A, S} = GlobalOp{T, A, S}(Sum{T, GlobalOp{T, A, S}}())
 Base.one(::GlobalOp{T, A, S}) where {T, A, S} = GlobalOp{T, A, S}(SiteOp(LocalOp{T, A}(one(T)), S[]))
 
 function VectorInterface.add(x::GlobalOp, y::GlobalOp, α::Number, β::Number)
@@ -353,6 +354,80 @@ function Trie(vertices, ex::GlobalOp{T, A, S}) where {T, A, S}
     end
 
     return sortkeys!(root)
+end
+
+function GraphNode(vertices::AbstractVector{Int}, ex::GlobalOp)
+    @assert vertices == 1:length(vertices)
+    A = algebratype(ex)
+    T = scalartype(ex)
+
+    root = GraphNode{A, T}()
+    for (c, op) in zip(operatorstrings(vertices, ex)...)
+        node = root
+        for site in 1:length(vertices)
+            child = typeof(root)(site == 1 ? c : nothing)
+            push!(node.children, op[site] => [child])
+            push!(child.parents, op[site] => node)
+            node = child
+        end
+    end
+
+    return root
+end
+
+function _emit_leaf!(node::Trie{A, T}, site_factors, coeff::T) where {A, T}
+    for op in site_factors
+        node = get!(() -> Trie{A, T}(), node.children, op)
+    end
+    node.value = isnothing(node.value) ? coeff : node.value + coeff
+    return nothing
+end
+
+function build_trie!(
+        trie::Trie{A, T}, vertices, ex::GlobalOp{T, A, S}, coeff::T
+    ) where {T, A, S}
+    iszero(coeff) && return trie
+    o = variant(ex)
+
+    if o isa Sum
+        for (k, v) in pairs(o.terms)
+            build_trie!(trie, vertices, k, coeff * v)
+        end
+
+    elseif o isa SiteOp
+        @assert issorted(o.sites) && allunique(o.sites)
+
+        if length(o.sites) == 1
+            local_coeffs, local_ops = operatorstrings(o.op)
+            site_pos = only(o.sites)
+            site_factors = fill!(similar(vertices, A), one(A))
+            for (lc, lop) in zip(local_coeffs, local_ops)
+                iszero(lc) && continue
+                site_factors[site_pos] = lop
+                _emit_leaf!(trie, site_factors, coeff * lc)
+            end
+
+        elseif length(o.sites) == length(vertices)
+            @assert variant(o.op) isa Kron
+            local_coeffs, local_ops = operatorstrings(o.op)
+            for (lc, lop) in zip(local_coeffs, local_ops)
+                iszero(lc) && continue
+                _emit_leaf!(trie, lop, coeff * lc)
+            end
+
+        else
+            @assert variant(o.op) isa Kron && length(o.sites) == length(o.op.factors)
+            ops = mapfoldl(kron, eachindex(vertices)) do i
+                j = findfirst(==(i), o.sites)
+                isnothing(j) ? one(o.op) : o.op.factors[j]
+            end
+            build_trie!(trie, vertices, GlobalOp(SiteOp(ops, collect(eachindex(vertices)))), coeff)
+        end
+
+    else
+        error("build_trie!: unsupported GlobalOp variant $(typeof(o))")
+    end
+    return trie
 end
 
 function operatorstrings(vertices, O::GlobalOp{T, A, S}) where {T, A, S}

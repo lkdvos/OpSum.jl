@@ -183,6 +183,15 @@ function mpo_bond_optimizations(
 end
 
 # Convenience overload accepting a GlobalOp directly.
-function mpo_bond_optimizations(vertices::AbstractVector{Int}, ex::GlobalOp)
-    return mpo_bond_optimizations(vertices, ttno_terms(vertices, ex))
+function mpo_bond_optimizations(vertices::AbstractVector{Int}, ex::GlobalOp{T, A}) where {T, A}
+    coeffs, opstrings = operatorstrings(vertices, ex)
+    prefix_trie = Trie{A, T}()
+    for (coeff, opstring) in zip(coeffs, opstrings)
+        node = prefix_trie
+        for op in opstring
+            node = get!(() -> Trie{A, T}(), node.children, op)
+        end
+        node.value = isnothing(node.value) ? coeff : node.value + coeff
+    end
+    return mpo_bond_optimizations(vertices, prefix_trie)
 end

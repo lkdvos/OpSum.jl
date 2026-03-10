@@ -105,10 +105,9 @@ function mpo_bond_optimizations(
             coefficients[Tuple(I)...] = c
         end
         adjacency = (!iszero).(coefficients)
-        @debug "adjacency at site $i" Us Vs coefficients
-
         coverU, coverV, _ = min_vertex_cover_bipartite(adjacency)
 
+        @debug "adjacency at site $i" Us Vs coefficients
         @debug "covering at site $i" adjacency coverU coverV
 
         # cover U nodes are simply passed through
@@ -130,14 +129,6 @@ function mpo_bond_optimizations(
             end
         end
 
-        # # but disconnect uncovered nodes
-        # for iu in findall(!, coverU)
-        #     node, k = parents[iu]
-        #     delete!(node.children, k)
-        # end
-
-        @debug "here W is" W mpo_terms
-
         # cover V nodes need special handling since we need to create new nodes and correctly connect them
         Vkeys = collect(keys(Vs))
         for iv in findall(coverV)
@@ -157,17 +148,12 @@ function mpo_bond_optimizations(
                 left_id = uidx_[iu]
                 node, k = parents[iu]
                 c = coefficients[iu, iv]
-                # j = get!(uidnext!, Wnext_dict, Us[iu])
                 push!(mpo_terms, (left_id, j) => k * c)
             end
             adjacency[:, iv] .= false
         end
         @assert !any(adjacency)
 
-        @debug "terms" mpo_terms
-
-
-        # @assert length(Wnext_dict) == length(W)
         elT = eltype(mpos)
         mpo_site = eltype(mpos)(undef, length(left_nodes), length(W))
         for ((i, j), k) in mpo_terms
@@ -182,8 +168,6 @@ function mpo_bond_optimizations(
 
         @assert i == 1 || size(mpo_site, 1) == size(mpos[end - 1], 2)
 
-
-        # left_nodes = collect(keys(Wnext_dict))
         left_nodes = W
     end
 

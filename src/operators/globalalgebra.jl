@@ -430,6 +430,24 @@ function build_trie!(
     return trie
 end
 
+"""
+    opsum(f, itr)
+    opsum(itr)
+
+Like `sum`, but accumulates `GlobalOp` elements using `add!!` to enable in-place mutation
+of the running total when the scalar type permits it.
+"""
+function opsum(f, itr)
+    x, rest = Iterators.peel(itr)
+    y = f(x)
+    result = add(zero(y), y)  # first: allocate a fresh Sum
+    for x in rest
+        result = add!!(result, f(x))
+    end
+    return result
+end
+opsum(itr) = opsum(identity, itr)
+
 function operatorstrings(vertices, O::GlobalOp{T, A, S}) where {T, A, S}
     coefficients = T[]
     opstrings = typeof(similar(vertices, A))[]

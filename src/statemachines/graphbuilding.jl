@@ -24,9 +24,9 @@ Counter() = Counter(0)
 (x::Counter)() = (x.current += 1; x.current)
 
 """
-    mpo_bond_optimizations(vertices, terms) -> Vector{<:SparseMatrixDOK}
+    mpo_bond_optimizations(vertices, prefix_trie) -> Vector{<:SparseMatrixDOK}
 
-Construct MPO tensors from a list of `TTNOTerm`s using bipartite graph / minimum
+Construct MPO tensors from a prefix `Trie{Op, T}` using bipartite graph / minimum
 vertex cover compression.
 
 Each returned matrix `Ws[i]` is a `SparseMatrixDOK{LocalOp}` representing the
@@ -38,28 +38,13 @@ created.  For terms that remain in a normal (prefix-trie) state until the last
 site, the coefficient is placed at the final site.
 """
 function mpo_bond_optimizations(
-        vertices::AbstractVector{Int}, terms::Vector{TTNOTerm{T, Op}}
+        vertices::AbstractVector{Int}, prefix_trie::Trie{Op, T}
     ) where {T, Op}
     N = length(vertices)
-    K = length(terms)
-    K == 0 && return SparseMatrixDOK{LocalOp{T, Op}}[]
+    isempty(prefix_trie) && return SparseMatrixDOK{LocalOp{T, Op}}[]
 
     # -----------------------------------------------------------------------
-    # Step 1: Build prefix trie
-    # -----------------------------------------------------------------------
-    prefix_trie = Trie{Op, T}()
-    for o in 1:K
-        node = prefix_trie
-        for op in terms[o].ops
-            node = get!(() -> typeof(node)(), node.children, op)
-        end
-        node.value = terms[o].coeff
-    end
-    # populate hash values
-    # trie_hash!(prefix_trie)
-
-    # -----------------------------------------------------------------------
-    # Step 2: Initialise sweep state
+    # Initialise sweep state
     # -----------------------------------------------------------------------
     W = Trie{Op, T}[]
     left_nodes = Trie{Op, T}[prefix_trie]
@@ -167,6 +152,27 @@ function mpo_bond_optimizations(
     end
 
     return mpos
+end
+
+"""
+    mpo_bond_optimizations(vertices, terms) -> Vector{<:SparseMatrixDOK}
+
+Convenience overload: builds the prefix trie from `terms` then delegates to the
+trie-based method.
+"""
+function mpo_bond_optimizations(
+        vertices::AbstractVector{Int}, terms::Vector{TTNOTerm{T, Op}}
+    ) where {T, Op}
+    isempty(terms) && return SparseMatrixDOK{LocalOp{T, Op}}[]
+    prefix_trie = Trie{Op, T}()
+    for term in terms
+        node = prefix_trie
+        for op in term.ops
+            node = get!(() -> typeof(node)(), node.children, op)
+        end
+        node.value = isnothing(node.value) ? term.coeff : node.value + term.coeff
+    end
+    return mpo_bond_optimizations(vertices, prefix_trie)
 end
 
 # Convenience overload accepting a GlobalOp directly.

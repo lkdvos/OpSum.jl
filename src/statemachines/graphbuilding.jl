@@ -178,22 +178,3 @@ end
 function mpo_bond_optimizations(vertices::AbstractVector{Int}, ex::GlobalOp)
     return mpo_bond_optimizations(vertices, ttno_terms(vertices, ex))
 end
-
-# -----------------------------------------------------------------------
-# Internal helper: build a SparseMatrixDOK from a (l_uid, r_uid) → Op dict.
-# -----------------------------------------------------------------------
-function _build_sparse_mpo(
-        entries::Dict{Tuple{Int, Int}, LocalOp{T, Op}},
-        left_uids::Vector{Int},
-        right_uids::Vector{Int},
-    ) where {T, Op}
-    l_to_row = Dict(u => i for (i, u) in enumerate(left_uids))
-    r_to_col = Dict(u => i for (i, u) in enumerate(right_uids))
-    nrows = length(left_uids)
-    ncols = length(right_uids)
-    W = SparseArrayDOK{LocalOp{T, Op}}(undef, (nrows, ncols))
-    for ((l, r), v) in entries
-        W[l_to_row[l], r_to_col[r]] = v
-    end
-    return W
-end

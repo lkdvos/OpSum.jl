@@ -13,7 +13,7 @@ end
 
 function build_j1j2(L; J1 = 1.0, J2 = 0.5)
     return J1 * sum(X[i] * X[i + 1] for i in 1:(L - 1)) +
-           J2 * sum(X[i] * X[i + 2] for i in 1:(L - 2))
+        J2 * sum(X[i] * X[i + 2] for i in 1:(L - 2))
 end
 
 function build_all_to_all_xx(L)
@@ -24,17 +24,17 @@ function build_haldane_shastry(N; J = 1.0)
     prefactor = J * π^2 / N^2
     return sum(
         prefactor / sin(π * (m - n) / N)^2 * (X[n] * X[m] + Y[n] * Y[m] + Z[n] * Z[m])
-        for n in 1:N for m in (n + 1):N
+            for n in 1:N for m in (n + 1):N
     )
 end
 
 # ── Benchmark registration ─────────────────────────────────────────────────────
 
 let g = addgroup!(SUITE, "haldane_shastry"),
-    g_c = addgroup!(g, "construction"),
-    g_o = addgroup!(g, "optimization")
+        g_c = addgroup!(g, "construction"),
+        g_o = addgroup!(g, "optimization")
 
-    for N in (10, 20, 40)
+    for N in vcat(10:10:40, 50:25:200)
         H = build_haldane_shastry(N)
         g_c["N=$N"] = @benchmarkable build_haldane_shastry($N)
         g_o["N=$N"] = @benchmarkable mpo_bond_optimizations($(1:N), $H)
@@ -42,10 +42,10 @@ let g = addgroup!(SUITE, "haldane_shastry"),
 end
 
 let g = addgroup!(SUITE, "all_to_all_xx"),
-    g_c = addgroup!(g, "construction"),
-    g_o = addgroup!(g, "optimization")
+        g_c = addgroup!(g, "construction"),
+        g_o = addgroup!(g, "optimization")
 
-    for L in (20, 50, 100)
+    for L in vcat(10:10:40, 50:25:200)
         H = build_all_to_all_xx(L)
         g_c["L=$L"] = @benchmarkable build_all_to_all_xx($L)
         g_o["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H)
@@ -53,10 +53,10 @@ let g = addgroup!(SUITE, "all_to_all_xx"),
 end
 
 let g = addgroup!(SUITE, "heisenberg"),
-    g_c = addgroup!(g, "construction"),
-    g_o = addgroup!(g, "optimization")
+        g_c = addgroup!(g, "construction"),
+        g_o = addgroup!(g, "optimization")
 
-    for L in (50, 100, 200)
+    for L in vcat(10:10:40, 50:25:200)
         H = build_heisenberg(L)
         g_c["L=$L"] = @benchmarkable build_heisenberg($L)
         g_o["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H)
@@ -64,10 +64,10 @@ let g = addgroup!(SUITE, "heisenberg"),
 end
 
 let g = addgroup!(SUITE, "j1j2"),
-    g_c = addgroup!(g, "construction"),
-    g_o = addgroup!(g, "optimization")
+        g_c = addgroup!(g, "construction"),
+        g_o = addgroup!(g, "optimization")
 
-    for L in (50, 100, 200)
+    for L in vcat(10:10:40, 50:25:200)
         H = build_j1j2(L)
         g_c["L=$L"] = @benchmarkable build_j1j2($L)
         g_o["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H)

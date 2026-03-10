@@ -255,21 +255,61 @@ end
 
 # Printing
 # --------
-# function Base.show(io::IO, ::MIME"text/plain", trie::Trie)
-#     show(io, typeof(trie))
-#     println(io, ":")
-#     iob = IOContext(io, :typeinfo => keytype(trie))
-#     return show_trie(iob, trie)
-# end
+function Base.show(io::IO, ::MIME"text/plain", trie::Trie)
+    n = length(trie)
+    print(io, typeof(trie), " (", n, n == 1 ? " entry" : " entries", ")")
+    isempty(trie) && return
+    # Root value corresponds to the empty key []
+    has_root_val = !isnothing(trie.value)
+    if has_root_val
+        has_ch = !isempty(trie.children)
+        print(io, '\n', has_ch ? "├─ " : "└─ ", "[] => ")
+        show(io, trie.value)
+        has_ch || return
+    end
+    _trie_show_children(io, trie.children, Bool[])
+    return nothing
+end
 
-show_trie(io, trie::Trie) = AbstractTrees.print_tree(io, trie)
+# Print the children of a trie node. Each entry is preceded by a newline so
+# that the output never ends with a trailing newline (Julia show convention).
+# ancestors_last[i] is true if ancestor i was the last child of its parent
+# (used to decide whether to print "│  " or "   " for the indent).
+function _trie_show_children(io::IO, children, ancestors_last::Vector{Bool})
+    n = length(children)
+    for (i, (k, node)) in enumerate(Dictionaries.pairs(children))
+        is_last = i == n
+        print(io, '\n')
+        for anc_last in ancestors_last
+            print(io, anc_last ? "   " : "│  ")
+        end
+        print(io, is_last ? "└─ " : "├─ ")
+        # Path compression: follow single-child, no-value chains into one edge label
+        edge = [k]
+        cur = node
+        while isnothing(cur.value) && length(cur.children) == 1
+            next_k, next_node = only(Dictionaries.pairs(cur.children))
+            push!(edge, next_k)
+            cur = next_node
+        end
+        _trie_show_edge(io, edge)
+        if !isnothing(cur.value)
+            print(io, " => ")
+            show(io, cur.value)
+        end
+        isempty(cur.children) || _trie_show_children(io, cur.children, [ancestors_last; is_last])
+    end
+    return nothing
+end
 
-# function show_trie(io, trie, prefix=keytype(trie)[])
-#     if !isnothing(trie.value)
-#         println(io, prefix, " => ", trie.value)
-#     end
-#     for (k, v) in pairs(trie.children)
-#         show_trie(io, v, vcat(prefix, k))
-#     end
-#     return nothing
-# end
+# Print an edge label: Char sequences always as strings, other sequences as
+# a single element or a vector.
+function _trie_show_edge(io::IO, edge::Vector{K}) where {K}
+    if K === Char
+        print(io, '"', join(edge), '"')
+    elseif length(edge) == 1
+        show(io, edge[1])
+    else
+        show(io, edge)
+    end
+end

@@ -71,7 +71,7 @@ end
 function Base.getindex(trie::Trie{K}, key::Vector{K}) where {K}
     strie = subtrie(trie, key)
     (isnothing(strie) || isnothing(strie.value)) && throw(KeyError("$key not in trie"))
-    return strie.value
+    return something(strie.value)
 end
 
 function Base.get(trie::Trie, key, default)
@@ -96,21 +96,21 @@ function Base.get!(trie::Trie{K, V}, key::Vector{K}, default::V) where {K, V}
     if isnothing(strie.value)
         strie.value = default
     end
-    return strie.value
+    return something(strie.value)
 end
 function Base.get!(trie::Trie{K}, key::Vector{K}, default) where {K}
     strie = subtrie!(trie, key)
     if isnothing(strie.value)
         strie.value = convert(valtype(trie), default)
     end
-    return strie.value
+    return something(strie.value)
 end
 function Base.get!(f::Base.Callable, trie::Trie{K}, key::Vector{K}) where {K}
     strie = subtrie!(trie, key)
     if isnothing(strie.value)
         strie.value = convert(valtype(trie), f())
     end
-    return strie.value
+    return something(strie.value)
 end
 
 function Base.setindex!(trie::Trie{K, V}, v::V, key::Vector{K}) where {K, V}
@@ -202,7 +202,7 @@ function _trie_iterate(keystack, nodestack, statestack)
             # First visit to this node: emit value if present, then set up child iteration
             push!(statestack, 0)
             if !isnothing(node.value)
-                return node.value, (keystack, nodestack, statestack)
+                return something(node.value), (keystack, nodestack, statestack)
             end
         end
 

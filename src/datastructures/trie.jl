@@ -18,7 +18,7 @@ function Trie(ks, vs)
     return Trie{K, V}(ks, vs)
 end
 function Trie{K, V}(ks, vs) where {K, V}
-    trie = Trie{K, V}(begin_marker(V))
+    trie = Trie{K, V}()
     for (k, v) in zip(ks, vs)
         trie[k] = v
     end
@@ -91,6 +91,13 @@ function Base.get(f::Base.Callable, trie::Trie, key)
     end
 end
 
+function Base.get!(trie::Trie{K, V}, key::Vector{K}, default::V) where {K, V}
+    strie = subtrie!(trie, key)
+    if isnothing(strie.value)
+        strie.value = default
+    end
+    return strie.value
+end
 function Base.get!(trie::Trie{K}, key::Vector{K}, default) where {K}
     strie = subtrie!(trie, key)
     if isnothing(strie.value)
@@ -128,29 +135,47 @@ end
 Base.:(==)(trie1::Trie, trie2::Trie) = (trie1.value == trie2.value && trie1.children == trie2.children)
 Base.isequal(trie1::Trie, trie2::Trie) = isequal(trie1.value, trie2.value) && isequal(trie1.children, trie2.children)
 
+Base.isempty(trie::Trie) = isempty(trie.children) && isnothing(trie.value)
 
-# TODO: iterator
-function Base.keys(trie::Trie)
-    found = keytype(trie)[]
-    next = iterate(trie)
-    while !isnothing(next)
-        _, (keystack, statestack) = next
-        push!(found, copy(keystack)) # copy required because memory reused!
-        next = iterate(trie, (keystack, statestack))
-    end
-    return found
+struct TrieKeyIterator{K, V}
+    trie::Trie{K, V}
+end
+struct TriePairIterator{K, V}
+    trie::Trie{K, V}
 end
 
-# TODO: iterator
-function Base.pairs(trie::Trie)
-    found = Vector{Pair{keytype(trie), valtype(trie)}}(undef, 0)
-    next = iterate(trie)
-    while !isnothing(next)
-        val, (keystack, statestack) = next
-        push!(found, copy(keystack) => val) # copy required because memory reused!
-        next = iterate(trie, (keystack, statestack))
-    end
-    return found
+Base.keys(trie::Trie) = TrieKeyIterator(trie)
+Base.pairs(trie::Trie) = TriePairIterator(trie)
+
+Base.IteratorSize(::Type{<:TrieKeyIterator}) = Base.SizeUnknown()
+Base.IteratorSize(::Type{<:TriePairIterator}) = Base.SizeUnknown()
+Base.eltype(::Type{TrieKeyIterator{K, V}}) where {K, V} = Vector{K}
+Base.eltype(::Type{TriePairIterator{K, V}}) where {K, V} = Pair{Vector{K}, V}
+
+function Base.iterate(ki::TrieKeyIterator)
+    next = iterate(ki.trie)
+    isnothing(next) && return nothing
+    _, state = next
+    return copy(state[1]), state
+end
+function Base.iterate(ki::TrieKeyIterator, state)
+    next = iterate(ki.trie, state)
+    isnothing(next) && return nothing
+    _, state = next
+    return copy(state[1]), state
+end
+
+function Base.iterate(pi::TriePairIterator)
+    next = iterate(pi.trie)
+    isnothing(next) && return nothing
+    val, state = next
+    return copy(state[1]) => val, state
+end
+function Base.iterate(pi::TriePairIterator, state)
+    next = iterate(pi.trie, state)
+    isnothing(next) && return nothing
+    val, state = next
+    return copy(state[1]) => val, state
 end
 
 function Base.isassigned(trie::Trie{K}, key::Vector{K}) where {K}
@@ -158,44 +183,44 @@ function Base.isassigned(trie::Trie{K}, key::Vector{K}) where {K}
     return !isnothing(strie) && !isnothing(strie.value)
 end
 
-# Iterators
-# ---------
-Base.IteratorSize(trie::Trie) = Base.IteratorSize(typeof(trie))
-Base.IteratorSize(::Type{T}) where {T <: Trie} = Base.SizeUnknown()
-Base.eltype(::Type{T}) where {T <: Trie} = valtype(T)
-
-function Base.iterate(trie::Trie)
-    keystack = keytype(trie)()
-    statestack = Int[0]
-    return iterate(trie, (keystack, statestack))
+function Base.iterate(trie::Trie{K, V}) where {K, V}
+    keystack = K[]
+    nodestack = Trie{K, V}[trie]
+    statestack = Int[]
+    return _trie_iterate(keystack, nodestack, statestack)
 end
 
-function Base.iterate(trie::Trie, (keystack, statestack))
-    strie = subtrie(trie, keystack)
+function Base.iterate(::Trie, (keystack, nodestack, statestack))
+    return _trie_iterate(keystack, nodestack, statestack)
+end
 
-    # check if need to go deeper
-    if length(statestack) == length(keystack)
-        push!(statestack, 0)
-        if isnothing(strie.value) || !isempty(strie.children)
-            return iterate(trie, (keystack, statestack))
+function _trie_iterate(keystack, nodestack, statestack)
+    while !isempty(nodestack)
+        node = last(nodestack)
+
+        if length(statestack) == length(keystack)
+            # First visit to this node: emit value if present, then set up child iteration
+            push!(statestack, 0)
+            if !isnothing(node.value)
+                return node.value, (keystack, nodestack, statestack)
+            end
+        end
+
+        # Iterate children
+        next = iterate(pairs(node.children), pop!(statestack))
+        if !isnothing(next)
+            (k, child), nstate = next
+            push!(keystack, k)
+            push!(nodestack, child)
+            push!(statestack, nstate)
         else
-            return strie.value, (keystack, statestack)
+            # Backtrack
+            pop!(nodestack)
+            isempty(keystack) && return nothing
+            pop!(keystack)
         end
     end
-
-    # check at current level
-    next = iterate(pairs(strie.children), pop!(statestack))
-    if !isnothing(next)
-        (k, child), nstate = next
-        push!(keystack, k)
-        push!(statestack, nstate)
-        return iterate(trie, (keystack, statestack))
-    end
-
-    # check if need to backtrack
-    isempty(keystack) && return nothing
-    pop!(keystack)
-    return iterate(trie, (keystack, statestack))
+    return nothing
 end
 
 # Utility

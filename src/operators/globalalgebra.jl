@@ -56,6 +56,12 @@ function instantiate(O::GlobalOp{T, A, S}, sites) where {T, A, S}
 
         # Partial embedding: determine per-site local factors
         op_var = variant(o.op)
+        if op_var isa Sum
+            # Distribute: sum over each term, each acted on the same sites
+            return sum(pairs(op_var.terms)) do (k, v)
+                v * instantiate(GlobalOp{T, A, S}(SiteOp{T, A, S}(k, o.sites)), sites)
+            end
+        end
         local_factors = if op_var isa Kron
             @assert length(op_var.factors) == length(o.sites)
             op_var.factors
@@ -408,7 +414,6 @@ function build_trie!(
             end
 
         elseif length(o.sites) == length(vertices)
-            @assert variant(o.op) isa Kron
             local_coeffs, local_ops = operatorstrings(o.op)
             for (lc, lop) in zip(local_coeffs, local_ops)
                 iszero(lc) && continue
@@ -416,12 +421,15 @@ function build_trie!(
             end
 
         else
-            @assert variant(o.op) isa Kron && length(o.sites) == length(o.op.factors)
-            ops = mapfoldl(kron, eachindex(vertices)) do i
-                j = findfirst(==(i), o.sites)
-                isnothing(j) ? one(o.op) : o.op.factors[j]
+            local_coeffs, local_ops = operatorstrings(o.op)
+            for (lc, lop) in zip(local_coeffs, local_ops)
+                iszero(lc) && continue
+                site_factors = fill!(similar(vertices, A), one(A))
+                for (site, op) in zip(o.sites, lop)
+                    site_factors[site] = op
+                end
+                _emit_leaf!(trie, site_factors, coeff * lc)
             end
-            build_trie!(trie, vertices, GlobalOp(SiteOp(ops, collect(eachindex(vertices)))), coeff)
         end
 
     else
@@ -464,21 +472,20 @@ function operatorstrings(vertices, O::GlobalOp{T, A, S}) where {T, A, S}
                 push!(opstrings, opstr′)
             end
         elseif length(vertices) == length(o.sites)
-            @assert variant(o.op) isa Kron
             coeff, opstring = operatorstrings(o.op)
             append!(coefficients, coeff)
             append!(opstrings, opstring)
         else
-            @assert variant(o.op) isa Kron && length(o.sites) == length(o.op.factors)
-            ops = mapfoldl(kron, eachindex(vertices)) do i
-                j = findfirst(==(i), o.sites)
-                if isnothing(j)
-                    return one(o.op)
-                else
-                    return o.op.factors[j]
+            local_coeffs, local_ops = operatorstrings(o.op)
+            for (lc, lop) in zip(local_coeffs, local_ops)
+                iszero(lc) && continue
+                opstr = fill!(similar(vertices, A), one(A))
+                for (site, op) in zip(o.sites, lop)
+                    opstr[site] = op
                 end
+                push!(coefficients, lc)
+                push!(opstrings, opstr)
             end
-            return operatorstrings(vertices, GlobalOp(SiteOp(ops, collect(eachindex(vertices)))))
         end
     elseif o isa Sum
         for (k, v) in pairs(o.terms)

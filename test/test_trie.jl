@@ -340,12 +340,12 @@ chars(s) = collect(s)
 
         # Empty trie
         t = Trie{Char, Int}()
-        @test showstr(t) == "Trie{Char, Int64} (0 entries)"
+        @test showstr(t) == "$Trie{Char, Int64} (0 entries)"
 
         # Single entry — full chain compressed into one edge, singular "entry"
         t[chars("hello")] = 42
         @test showstr(t) == """
-            Trie{Char, Int64} (1 entry)
+            $Trie{Char, Int64} (1 entry)
             └─ "hello" => 42"""
 
         # Two entries with shared prefix: split visible, trailing chains compressed
@@ -353,7 +353,7 @@ chars(s) = collect(s)
         t2[chars("rob")]   = 27
         t2[chars("roger")] = 52
         @test showstr(t2) == """
-            Trie{Char, Int64} (2 entries)
+            $Trie{Char, Int64} (2 entries)
             └─ "ro"
                ├─ "b" => 27
                └─ "ger" => 52"""
@@ -364,7 +364,7 @@ chars(s) = collect(s)
         t3[chars("rob")]   = 2
         t3[chars("roger")] = 3
         @test showstr(t3) == """
-            Trie{Char, Int64} (3 entries)
+            $Trie{Char, Int64} (3 entries)
             └─ "ro" => 1
                ├─ "b" => 2
                └─ "ger" => 3"""
@@ -374,7 +374,7 @@ chars(s) = collect(s)
         t4[Char[]]    = 0
         t4[chars("a")] = 1
         @test showstr(t4) == """
-            Trie{Char, Int64} (2 entries)
+            $Trie{Char, Int64} (2 entries)
             ├─ [] => 0
             └─ "a" => 1"""
 
@@ -384,7 +384,7 @@ chars(s) = collect(s)
         t5[chars("bob")] = 2
         t5[chars("cat")] = 3
         out = showstr(t5)
-        @test startswith(out, "Trie{Char, Int64} (3 entries)")
+        @test startswith(out, "$Trie{Char, Int64} (3 entries)")
         @test contains(out, "├─")  # at least one non-last branch
         @test contains(out, "└─")  # last branch
         @test contains(out, "=> 1")
@@ -396,7 +396,7 @@ chars(s) = collect(s)
         t6[[1, 2, 3]] = "abc"
         t6[[1, 2, 4]] = "abd"
         @test showstr(t6) == """
-            Trie{Int64, String} (2 entries)
+            $Trie{Int64, String} (2 entries)
             └─ [1, 2]
                ├─ 3 => "abc"
                └─ 4 => "abd\""""

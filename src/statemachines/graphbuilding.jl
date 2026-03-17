@@ -1,19 +1,3 @@
-function increaseindex!(d::Dictionary, k, v)
-    (found, token) = gettoken(d, k)
-    if found
-        settokenvalue!(d, token, gettokenvalue(d, token) + v)
-    else
-        insert!(d, k, v)
-    end
-    return d
-end
-
-mutable struct Counter <: Base.Function
-    current::Int
-end
-Counter() = Counter(0)
-(x::Counter)() = (x.current += 1; x.current)
-
 """
     mpo_bond_optimizations(vertices, prefix_trie) -> Vector{<:SparseMatrixDOK}
 

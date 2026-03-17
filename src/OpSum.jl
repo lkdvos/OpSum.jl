@@ -19,6 +19,7 @@ using LightSumTypes
 # Utility
 # -------
 include("utility/linalg.jl")
+include("utility/utility.jl")
 
 # Data structures
 # ---------------

@@ -17,6 +17,15 @@ function Base.show(io::IO, x::OperatorBasis)
     return show(io, maps[Integer(x)])
 end
 
+# (anti-) commutation
+# -------------------
+abstract type CommutationType end
+CommutationType(x) = CommutationType(typeof(x))
+CommutationType(T::Type) = throw(MethodError(CommutationType, (T,)))
+
+struct Commuting end
+struct Anticommuting end
+
 # Instantiation
 # -------------
 """

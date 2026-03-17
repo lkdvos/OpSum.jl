@@ -3,7 +3,7 @@ module PauliOperators
 export I, X, Y, Z
 
 using OpSum: OperatorBasis, LocalOp
-import OpSum: namemap, instantiate
+import OpSum: namemap, instantiate, CommutationType, Commuting
 using VectorInterface
 
 primitive type PauliOperator <: OperatorBasis 8 end
@@ -42,6 +42,7 @@ function instantiate(x::PauliOperator, ::Type{T}, axs) where {T}
 end
 
 Base.one(::Type{PauliOperator}) = PauliOperator(0x00)
+CommutationType(::Type{PauliOperator}) = Commuting()
 
 const I = LocalOp(PauliOperator(0x00))
 const X = LocalOp(PauliOperator(0x01))

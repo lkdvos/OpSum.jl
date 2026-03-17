@@ -1,35 +1,37 @@
-struct GraphNode{K, V}
-    parents::Vector{Pair{K, GraphNode{K, V}}}
-    children::Vector{Pair{K, GraphNode{K, V}}}
-    value::Union{Nothing, V}
+mutable struct GraphNode{EdgeType, ValType}
+    const parents::Vector{Pair{EdgeType, GraphNode{EdgeType, ValType}}}
+    const children::Vector{Pair{EdgeType, Vector{GraphNode{EdgeType, ValType}}}}
+    value::Union{Nothing, ValType}
 
-    function GraphNode{K, V}(value::Union{V, Nothing} = nothing) where {K, V}
-        parents = Vector{Pair{K, GraphNode{K, V}}}()
-        children = Vector{Pair{K, GraphNode{K, V}}}()
-        return new{K, V}(parents, children, value)
+    function GraphNode{E, T}(value::Union{T, Nothing} = nothing) where {E, T}
+        GT = GraphNode{E, T}
+        return new{E, T}(Vector{Pair{E, GT}}(), Vector{Pair{E, Vector{GT}}}(), value)
     end
-end
-
-GraphNode(trie::Trie{K, V}) where {K, V} = GraphNode{K, V}(trie)
-function GraphNode{K, V}(trie::Trie) where {K, V}
-    root = GraphNode{K, V}(trie.value)
-    for (k, v) in pairs(trie.children)
-        v′ = GraphNode{K, V}(v)
-        push!(root.children, k => v′)
-        push!(v′.parents, k => root)
-    end
-    return root
 end
 
 edgetype(x::GraphNode) = edgetype(typeof(x))
-edgetype(::Type{GraphNode{K, V}}) where {K, V} = K
+edgetype(::Type{GraphNode{E, T}}) where {E, T} = E
 
-function _operators(x::GraphNode)
+Base.valtype(x::GraphNode) = valtype(typeof(x))
+Base.valtype(::Type{GraphNode{E, T}}) where {E, T} = T
+
+# add_neighbour!(x::GraphNode, id) = (insert!(x.neighbours, id, Vector{Pair{edgetype(x), typeof(x)}}()); x)
+# get_neighbour!(x::GraphNode, id) = get!(x.neighbours, id, Vector{Pair{edgetype(x), typeof(x)}}())
+
+
+function _operators(x::GraphNode, parent_id = 1)
+    ops = Vector{typeof(x)}()
+
     ops = Vector{edgetype(x)}[]
-    if isempty(x.children) # leaf
+    if length(x.neighbours) <= 1 # single node or leaf
         push!(ops, edgetype(x)[])
         return ops
     end
+
+    # for (vertex, node) in x.neighbours
+    #     vertex == parent_id && continue
+
+
     for (k, v) in x.children
         subops = _operators(v)
         for subop in subops
@@ -39,22 +41,27 @@ function _operators(x::GraphNode)
     return ops
 end
 
-function Base.show(io::IO, x::GraphNode)
-    print(io, "GraphNode(")
-    ops = _operators(x)
-    show(IOContext(IOContext(io, :compact => true), :typeinfo => typeof(ops)), ops)
+# function Base.show(io::IO, x::GraphNode)
+#     print(io, "GraphNode(")
+#     ops = _operators(x)
+#     show(IOContext(IOContext(io, :compact => true), :typeinfo => typeof(ops)), ops)
 
-    # show(io, x.children)
-    # print(io, ", ")
-    # show(io, x.value)
-    return print(io, ")")
-end
+#     # show(io, x.children)
+#     # print(io, ", ")
+#     # show(io, x.value)
+#     return print(io, ")")
+# end
 
-function Base.show(io::IO, mime::MIME"text/plain", x::GraphNode)
-    return show(io, x)
-    print(io, "GraphNode(...,")
-    show(io, mime, x.children)
-    print(io, ", ")
-    show(io, mime, x.value)
-    return print(io, ")")
+function Base.show(io::IO, ::MIME"text/plain", x::GraphNode)
+    println(io, "GraphNode with value ", x.value)
+    println(io, "parents: ")
+    for (o, _) in x.parents
+        println(io, '\t', o, " => …")
+    end
+    println(io, "children: ")
+    for (o, _) in x.children
+        println(io, '\t', o, " => …")
+    end
+
+    return nothing
 end

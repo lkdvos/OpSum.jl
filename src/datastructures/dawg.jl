@@ -120,7 +120,6 @@ function common_prefix(dawg::DawgNode, word)
         haskey(sdawg.children, subkey) || return @view(word[1:(i - 1)])
         sdawg = sdawg.children[subkey]
     end
-    @assert false
     return @view(word[1:end])
 end
 
@@ -148,7 +147,8 @@ function replace_or_register!(registers, state::DawgNode)
         # state.descendants = length(state) + length(register[i])
         # state.descendants = max(1, length(state) + 0length(register[i]))
         # @info "found" i register child
-        state.children[end] = register[i]
+        last_key = last(keys(state.children))
+        state.children[last_key] = register[i]
         state.descendants = length(state)
     else # state is new, register it
         push!(register, child)
@@ -409,6 +409,56 @@ function _create_key(::DawgIndices{K, Tuple{Vararg{K}}}, keystack::Vector{K}) wh
 end
 
 empty_prefix(inds::DawgIndices) = Vector{eltype(keytype(inds))}(undef, 0)
+
+"""
+    DawgIndices(sorted_words)
+
+Construct a `DawgIndices` directly from a sorted collection of equal-length words.
+Words must be sorted in lexicographic order and all have the same length.
+"""
+function DawgIndices(sorted_words)
+    K = eltype(eltype(sorted_words))
+    word_length = length(first(sorted_words))
+    root_node = DawgNode{K}()
+    root_node.descendants = 1
+    registers = [DawgNode{K}[] for _ in 1:(word_length + 1)]
+
+    for word in sorted_words
+        prefix = common_prefix(root_node, word)
+        state = subdawg(root_node, prefix)
+        suffix = @view(word[(length(prefix) + 1):end])
+        replace_or_register!(@view(registers[(length(prefix) + 2):end]), state)
+        add_suffix!(state, suffix)
+    end
+    replace_or_register!(@view(registers[2:end]), root_node)
+    registers[1] = [root_node]
+    return DawgIndices{K, Vector{K}}(registers)
+end
+
+const SDAWG = DawgIndices
+
+function _collect_prefixes!(results, node::DawgNode, current, remaining_depth)
+    if remaining_depth == 0
+        push!(results, copy(current))
+        return
+    end
+    for (k, child) in pairs(node.children)
+        push!(current, k)
+        _collect_prefixes!(results, child, current, remaining_depth - 1)
+        pop!(current)
+    end
+end
+
+"""
+    prefixes_at_depth(inds::DawgIndices, d)
+
+Return all unique prefixes of length `d` present in `inds`.
+"""
+function prefixes_at_depth(inds::DawgIndices{K}, d) where {K}
+    results = Vector{Vector{K}}()
+    _collect_prefixes!(results, root(inds), Vector{K}(), d)
+    return results
+end
 
 function _num_unique_nodes(indices::DawgIndices)
     s = Set(objectid(indices))

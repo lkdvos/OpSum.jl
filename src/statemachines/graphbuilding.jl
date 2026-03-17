@@ -1,22 +1,3 @@
-struct NormalLeftNode
-    uid::Int
-end
-
-struct ComplementaryLeftNode
-    uid::Int
-end
-
-const LeftNode = Union{NormalLeftNode, ComplementaryLeftNode}
-
-function trie_hash!(hashnode::Trie{K, UInt})::UInt where {K}
-    if isnothing(hashnode.value)
-        children_hash = map(trie_hash!, hashnode.children)
-        sortkeys!(children_hash)
-        hashnode.value = hash(children_hash)
-    end
-    return hashnode.value
-end
-
 function increaseindex!(d::Dictionary, k, v)
     (found, token) = gettoken(d, k)
     if found

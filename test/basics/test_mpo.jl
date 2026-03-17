@@ -44,7 +44,7 @@ end
 
 @testset "simplify — GlobalOp" begin
     @test simplify(0 * X[1] + Z[2]) ≈ Z[2]
-    @test norm(simplify(0 * X[1] + 0 * Z[2])) ≈ 0 atol = 1e-15
+    @test norm(simplify(0 * X[1] + 0 * Z[2])) ≈ 0 atol = 1.0e-15
 
     # Non-trivial sum preserved
     s = simplify(X[1] + Z[2])
@@ -123,7 +123,7 @@ end
     @test H_mpo ≈ H_dense
 end
 
-# @testset "Mixed XYZ terms (unit coeff)" begin
+@testset "Mixed XYZ terms (unit coeff)" begin
     N = 3
     vertices = 1:N
     sites = fill(2, N)
@@ -159,7 +159,7 @@ end
     end
 
     Ws, Ms = opsum_vertex_operators(vertices, H)
-    Ws_c = compress_vertex_operators(Ws, Ms; trunc=trunctol(1e-14))
+    Ws_c = compress_vertex_operators(Ws, Ms; trunc = trunctol(; atol = 1.0e-14))
 
     H_dense = ComplexF64.(instantiate(H, sites))
     H_compressed = mpo_to_dense(Ws_c, sites)
@@ -185,7 +185,7 @@ end
     end
 
     Ws, Ms = opsum_vertex_operators(vertices, H)
-    Ws_c = compress_vertex_operators(Ws, Ms; trunc=trunctol(1e-14))
+    Ws_c = compress_vertex_operators(Ws, Ms; trunc = trunctol(1.0e-14))
 
     H_dense = ComplexF64.(instantiate(H, sites))
     H_compressed = mpo_to_dense(Ws_c, sites)
@@ -205,9 +205,10 @@ end
     end
 
     Ws, Ms = opsum_vertex_operators(vertices, H)
-    Ws_c = compress_vertex_operators(Ws, Ms; trunc=trunctol(1e-14))
+    Ws_c = compress_vertex_operators(Ws, Ms; trunc = trunctol(1.0e-14))
 
     H_dense = ComplexF64.(instantiate(H, sites))
     H_compressed = mpo_to_dense(Ws_c, sites)
     @test H_compressed ≈ H_dense
 end
+

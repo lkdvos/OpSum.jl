@@ -208,25 +208,52 @@ function mpo_bond_optimizations(
     isempty(prefix_trie) && return SparseMatrixDOK{LocalOp{T, Op}}[]
 
     # -----------------------------------------------------------------------
-    # 1. Enumerate unique prefixes and suffixes at every bond
+    # 0. Collect all terms
     # -----------------------------------------------------------------------
-    bond_pre_maps = [Dictionary{Vector{Op}, Int}() for _ in 1:(N - 1)]
-    bond_suf_maps = [Dictionary{Vector{Op}, Int}() for _ in 1:(N - 1)]
+    all_ops = [ops for (ops, _) in pairs(prefix_trie)]
+    all_coeffs = [coeff for (_, coeff) in pairs(prefix_trie)]
+    M = length(all_ops)
 
-    for (ops, _) in pairs(prefix_trie)
+    # -----------------------------------------------------------------------
+    # 1. Build integer ID matrices for prefixes and suffixes at every bond.
+    #    pre_ids[t, b] = unique ID for prefix ops[1:b] of term t
+    #    suf_ids[t, b] = unique ID for suffix ops[b+1:N] of term t
+    #
+    #    IDs are assigned via (prev_id, local_op) transitions so no Vector
+    #    slices need to be allocated or hashed.
+    # -----------------------------------------------------------------------
+    pre_ids = zeros(Int, M, N - 1)
+    suf_ids = zeros(Int, M, N - 1)
+
+    pre_trans = [Dictionary{Tuple{Int, Op}, Int}() for _ in 1:(N - 1)]
+    pre_counters = [Counter() for _ in 1:(N - 1)]
+    for t in 1:M
+        prev_id = 1   # sentinel for empty prefix
         for b in 1:(N - 1)
-            get!(bond_pre_maps[b], ops[1:b], length(bond_pre_maps[b]) + 1)
-            get!(bond_suf_maps[b], ops[(b + 1):end], length(bond_suf_maps[b]) + 1)
+            id = get!(pre_counters[b], pre_trans[b], (prev_id, all_ops[t][b]))
+            pre_ids[t, b] = id
+            prev_id = id
+        end
+    end
+
+    suf_trans = [Dictionary{Tuple{Int, Op}, Int}() for _ in 1:(N - 1)]
+    suf_counters = [Counter() for _ in 1:(N - 1)]
+    for t in 1:M
+        prev_id = 1   # sentinel for empty suffix
+        for b in (N - 1):-1:1
+            id = get!(suf_counters[b], suf_trans[b], (prev_id, all_ops[t][b + 1]))
+            suf_ids[t, b] = id
+            prev_id = id
         end
     end
 
     # -----------------------------------------------------------------------
     # 2. Assemble coefficient matrices C[b] (n_pre × n_suf)
     # -----------------------------------------------------------------------
-    Cs = [zeros(T, length(bond_pre_maps[b]), length(bond_suf_maps[b])) for b in 1:(N - 1)]
-    for (ops, coeff) in pairs(prefix_trie)
+    Cs = [zeros(T, pre_counters[b].current, suf_counters[b].current) for b in 1:(N - 1)]
+    for t in 1:M
         for b in 1:(N - 1)
-            Cs[b][bond_pre_maps[b][ops[1:b]], bond_suf_maps[b][ops[(b + 1):end]]] += coeff
+            Cs[b][pre_ids[t, b], suf_ids[t, b]] += all_coeffs[t]
         end
     end
 
@@ -253,23 +280,19 @@ function mpo_bond_optimizations(
     for i in 1:N
         U_left = i > 1 ? bond_Us[i - 1] : ones(T, 1, 1)
         U_right = i < N ? bond_Us[i] : ones(T, 1, 1)
-        pre_left_map = i > 1 ? bond_pre_maps[i - 1] : Dictionary([Op[]], [1])
-        pre_right_map = i < N ? bond_pre_maps[i] : Dictionary([Op[]], [1])
         n_pre_left = size(U_left, 1)
         n_pre_right = size(U_right, 1)
 
         op_coeffs = Dictionary{Op, Matrix{T}}()
-        for (ops, coeff) in pairs(prefix_trie)
-            op = ops[i]
-            pre_left = i > 1 ? ops[1:(i - 1)] : Op[]
-            pre_right = i < N ? ops[1:i] : Op[]
-            j = pre_left_map[pre_left]
-            l = pre_right_map[pre_right]
+        for t in 1:M
+            op = all_ops[t][i]
+            j = i > 1 ? pre_ids[t, i - 1] : 1
+            l = i < N ? pre_ids[t, i] : 1
             C = get!(() -> zeros(T, n_pre_left, n_pre_right), op_coeffs, op)
             if i == N
-                C[j, l] += coeff    # accumulate: multiple terms can share the same prefix
+                C[j, l] += all_coeffs[t]   # accumulate: multiple terms can share the same prefix
             else
-                C[j, l] = one(T)    # deterministic: same (j,l) implies same op
+                C[j, l] = one(T)            # deterministic: same (j,l) implies same op
             end
         end
 

@@ -1,19 +1,32 @@
+"""Algorithm selector: bipartite graph / minimum vertex cover (current default)."""
+struct BipartiteAlgorithm end
+
+"""Algorithm selector: SVD-based bond subspace selection."""
+struct SVDBondAlgorithm
+    trunc  # TruncationStrategy or nothing
+end
+SVDBondAlgorithm() = SVDBondAlgorithm(nothing)
+
 """
     mpo_bond_optimizations(vertices, prefix_trie) -> Vector{<:SparseMatrixDOK}
+    mpo_bond_optimizations(vertices, prefix_trie, alg) -> Vector{<:SparseMatrixDOK}
 
-Construct MPO tensors from a prefix `Trie{Op, T}` using bipartite graph / minimum
-vertex cover compression.
+Construct MPO tensors from a prefix `Trie{Op, T}`. The optional third argument
+selects the algorithm:
+
+- `BipartiteAlgorithm()` (default): bipartite graph / minimum vertex cover.
+- `SVDBondAlgorithm()`: SVD-based bond subspace selection.
 
 Each returned matrix `Ws[i]` is a `SparseMatrixDOK{LocalOp}` representing the
 operator content at site `vertices[i]`.  The full Hamiltonian is recovered by the
 matrix product `Ws[1] ⊗ Ws[2] ⊗ … ⊗ Ws[N]` (contracting the bond indices).
-
-Coefficients are placed at the bond where the complementary operator is first
-created.  For terms that remain in a normal (prefix-trie) state until the last
-site, the coefficient is placed at the final site.
 """
+function mpo_bond_optimizations(vertices, prefix_trie::Trie{Op, T}) where {T, Op}
+    return mpo_bond_optimizations(vertices, prefix_trie, BipartiteAlgorithm())
+end
+
 function mpo_bond_optimizations(
-        vertices::AbstractVector{Int}, prefix_trie::Trie{Op, T}
+        vertices::AbstractVector{Int}, prefix_trie::Trie{Op, T}, ::BipartiteAlgorithm
     ) where {T, Op}
     N = length(vertices)
     isempty(prefix_trie) && return SparseMatrixDOK{LocalOp{T, Op}}[]
@@ -126,16 +139,37 @@ function mpo_bond_optimizations(
     return map(SparseArraysBase.sparse, dicts, sizes)
 end
 
+function mpo_bond_optimizations(vertices, terms::Vector{TTNOTerm{T, Op}}) where {T, Op}
+    return mpo_bond_optimizations(vertices, terms, BipartiteAlgorithm())
+end
+
+function mpo_bond_optimizations(vertices, ex::GlobalOp{T, A}) where {T, A}
+    return mpo_bond_optimizations(vertices, ex, BipartiteAlgorithm())
+end
+
 """
-    mpo_bond_optimizations(vertices, terms) -> Vector{<:SparseMatrixDOK}
+    mpo_bond_optimizations(vertices, terms, alg) -> Vector{<:SparseMatrixDOK}
 
 Convenience overload: builds the prefix trie from `terms` then delegates to the
-trie-based method.
+trie-based method with the given algorithm.
 """
 function mpo_bond_optimizations(
-        vertices::AbstractVector{Int}, terms::Vector{TTNOTerm{T, Op}}
+        vertices::AbstractVector{Int}, terms::Vector{TTNOTerm{T, Op}}, alg
     ) where {T, Op}
     isempty(terms) && return SparseMatrixDOK{LocalOp{T, Op}}[]
+    return mpo_bond_optimizations(vertices, _build_prefix_trie(terms), alg)
+end
+
+# Convenience overload accepting a GlobalOp directly.
+function mpo_bond_optimizations(
+        vertices::AbstractVector{Int}, ex::GlobalOp{T, A}, alg
+    ) where {T, A}
+    prefix_trie = Trie{A, T}()
+    build_trie!(prefix_trie, vertices, ex, one(T))
+    return mpo_bond_optimizations(vertices, prefix_trie, alg)
+end
+
+function _build_prefix_trie(terms::Vector{TTNOTerm{T, Op}}) where {T, Op}
     prefix_trie = Trie{Op, T}()
     for term in terms
         node = prefix_trie
@@ -144,12 +178,123 @@ function mpo_bond_optimizations(
         end
         node.value = something(node.value, zero(term.coeff)) + term.coeff
     end
-    return mpo_bond_optimizations(vertices, prefix_trie)
+    return prefix_trie
 end
 
-# Convenience overload accepting a GlobalOp directly.
-function mpo_bond_optimizations(vertices::AbstractVector{Int}, ex::GlobalOp{T, A}) where {T, A}
-    prefix_trie = Trie{A, T}()
-    build_trie!(prefix_trie, vertices, ex, one(T))
-    return mpo_bond_optimizations(vertices, prefix_trie)
+# ===========================================================================
+# SVDBondAlgorithm
+# ===========================================================================
+
+"""
+    mpo_bond_optimizations(vertices, prefix_trie, alg::SVDBondAlgorithm)
+
+SVD-based MPO construction.
+
+At each bond `b` (between sites `b` and `b+1`), all operator terms are split
+into a prefix (sites 1..b) and a suffix (sites b+1..N).  The coefficient matrix
+`C[prefix, suffix]` is assembled and SVD-decomposed via `svd_trunc!`; the
+rank-`r` truncation (controlled by `alg.trunc`) determines the bond dimension.
+
+Left singular vectors `U` (shape `n_pre × r`) project incoming prefix paths;
+right singular vectors `Vᴴ` (shape `r × n_suf`) project outgoing suffix paths.
+MPO tensors are assembled site-by-site as `W_op = U' * C_op * Vᴴ'` for each
+unique local operator `op`.
+"""
+function mpo_bond_optimizations(
+        vertices::AbstractVector{Int}, prefix_trie::Trie{Op, T}, alg::SVDBondAlgorithm
+    ) where {T, Op}
+    N = length(vertices)
+    isempty(prefix_trie) && return SparseMatrixDOK{LocalOp{T, Op}}[]
+
+    # -----------------------------------------------------------------------
+    # 1. Enumerate unique prefixes/suffixes at every bond
+    # -----------------------------------------------------------------------
+    # bond_pre_maps[b] : Dictionary{Vector{Op}, Int}  (prefix → row index)
+    # bond_suf_maps[b] : Dictionary{Vector{Op}, Int}  (suffix → col index)
+    # -----------------------------------------------------------------------
+    bond_pre_maps = [Dictionary{Vector{Op}, Int}() for _ in 1:(N - 1)]
+    bond_suf_maps = [Dictionary{Vector{Op}, Int}() for _ in 1:(N - 1)]
+
+    for (ops, _) in pairs(prefix_trie)
+        for b in 1:(N - 1)
+            pre = ops[1:b]
+            suf = ops[(b + 1):end]
+            get!(bond_pre_maps[b], pre, length(bond_pre_maps[b]) + 1)
+            get!(bond_suf_maps[b], suf, length(bond_suf_maps[b]) + 1)
+        end
+    end
+
+    # -----------------------------------------------------------------------
+    # 2. Assemble coefficient matrices and SVD each bond
+    # -----------------------------------------------------------------------
+    # C[b] has shape (n_pre, n_suf).
+    # After svd_trunc!:
+    #   bond_Us[b]  : Matrix{T}  shape (n_pre × r)   — left  projector
+    #   bond_Vts[b] : Matrix{T}  shape (r × n_suf)   — right projector (Vᴴ)
+    # -----------------------------------------------------------------------
+    Cs = [zeros(T, length(bond_pre_maps[b]), length(bond_suf_maps[b])) for b in 1:(N - 1)]
+    for (ops, coeff) in pairs(prefix_trie)
+        for b in 1:(N - 1)
+            Cs[b][bond_pre_maps[b][ops[1:b]], bond_suf_maps[b][ops[(b + 1):end]]] += coeff
+        end
+    end
+
+    # Default: drop numerically zero singular values via a relative tolerance.
+    # When alg.trunc is set explicitly, that strategy takes precedence.
+    default_trunc = trunctol(rtol = eps(real(T)))
+    trunc = something(alg.trunc, default_trunc)
+
+    bond_Us = Vector{Matrix{T}}(undef, N - 1)
+    bond_Vts = Vector{Matrix{T}}(undef, N - 1)
+    for b in 1:(N - 1)
+        U, _, Vᴴ = svd_trunc!(Cs[b]; trunc)
+        bond_Us[b] = U    # (n_pre × r)
+        bond_Vts[b] = Vᴴ   # (r × n_suf)
+    end
+
+    # -----------------------------------------------------------------------
+    # 3. Assemble MPO tensors via matrix multiplications
+    # -----------------------------------------------------------------------
+    # Bond dimensions: r[b] = size(bond_Us[b], 2) for b in 1..N-1.
+    # W[1]  has shape (1,      r[1])
+    # W[i]  has shape (r[i-1], r[i])   for 1 < i < N
+    # W[N]  has shape (r[N-1], 1)
+    #
+    # For each unique local operator op at site i, build the operator-slice
+    # coefficient matrix C_op[pre_idx, suf_idx] then project:
+    #   W_op = U' * C_op * Vᴴ'   shape (r_left × r_right)
+    # Boundary sites use 1×1 identity so the formula applies uniformly.
+    # -----------------------------------------------------------------------
+    r = [size(bond_Us[b], 2) for b in 1:(N - 1)]
+    sizes = [(b == 1 ? 1 : r[b - 1], b == N ? 1 : r[b]) for b in 1:N]
+    dicts = [Dictionary{CartesianIndex{2}, LocalOp{T, Op}}() for _ in 1:N]
+
+    for i in 1:N
+        U = i > 1 ? bond_Us[i - 1] : ones(T, 1, 1)
+        Vt = i < N ? bond_Vts[i] : ones(T, 1, 1)
+        pre_map = i > 1 ? bond_pre_maps[i - 1] : Dictionary([Op[]], [1])
+        suf_map = i < N ? bond_suf_maps[i] : Dictionary([Op[]], [1])
+        n_pre, r_left = size(U)
+        r_right, n_suf = size(Vt)
+
+        op_coeffs = Dictionary{Op, Matrix{T}}()
+        for (ops, coeff) in pairs(prefix_trie)
+            op = ops[i]
+            pre = i > 1 ? ops[1:(i - 1)] : Op[]
+            suf = i < N ? ops[(i + 1):end] : Op[]
+            C = get!(() -> zeros(T, n_pre, n_suf), op_coeffs, op)
+            C[pre_map[pre], suf_map[suf]] += i == N ? coeff : one(T)
+        end
+
+        for (op, C_op) in pairs(op_coeffs)
+            W_op = U' * C_op * Vt'   # (r_left × r_right)
+            local_op = convert(LocalOp{T, Op}, op)
+            for col in 1:r_right, row in 1:r_left
+                iszero(W_op[row, col]) && continue
+                increaseindex!(dicts[i], CartesianIndex(row, col), local_op * W_op[row, col])
+            end
+        end
+    end
+
+    return map(SparseArraysBase.sparse, dicts, sizes)
 end

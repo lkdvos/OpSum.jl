@@ -4,7 +4,7 @@ export Trie, SDAWG, DAWGDictionary
 export @op_str, AbstractOperator, Operator, Scaled, Sum, Product
 export opsum_vertex_operators, compress_vertex_operators, simplify, opsum
 export TreeTopology, TTNOTerm, ttno_terms, ttno_bond_optimizations
-export mpo_bond_optimizations
+export mpo_bond_optimizations, BipartiteAlgorithm, SVDBondAlgorithm
 
 using Dictionaries
 using AbstractTrees

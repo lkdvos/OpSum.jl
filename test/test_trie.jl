@@ -2,7 +2,7 @@ using Test
 using Dictionaries: sortkeys, sortkeys!
 
 using OpSum
-using OpSum: Trie, subtrie, depth
+using OpSum: Trie, subtrie, depth, parent_key, isroot, rootpath
 
 # Helper: convert strings to Vector{Char} keys
 chars(s) = collect(s)
@@ -400,6 +400,41 @@ chars(s) = collect(s)
             └─ [1, 2]
                ├─ 3 => "abc"
                └─ 4 => "abd\""""
+    end
+
+    @testset "Parent links" begin
+        function check_invariant(node)
+            for (k, child) in pairs(node.children)
+                @test parent(child) === node
+                @test parent_key(child) === k
+                @test !isroot(child)
+                check_invariant(child)
+            end
+        end
+
+        t = Trie{Char, Int}()
+        t[chars("amy")] = 1
+        t[chars("ann")] = 2
+        t[chars("bob")] = 3
+
+        @test isroot(t)
+        @test parent(t) === nothing
+        @test parent_key(t) === nothing
+        check_invariant(t)
+
+        # rootpath round-trips an inserted key
+        leaf = subtrie(t, chars("ann"))
+        @test rootpath(leaf) == chars("ann")
+
+        # sortkeys (copy) reattaches children to the new root
+        ts = sortkeys(t)
+        @test isroot(ts)
+        check_invariant(ts)
+
+        # convert reattaches children to the new typed root
+        tc = convert(Trie{Char, Float64}, t)
+        @test isroot(tc)
+        check_invariant(tc)
     end
 
     @testset "Integer key trie" begin

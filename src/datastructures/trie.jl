@@ -1,12 +1,24 @@
 # equal word length trie
 mutable struct Trie{K, V} <: AbstractDictionary{Vector{K}, V}
+    parent::Union{Pair{K, Trie{K, V}}, Nothing}
     const children::Dictionary{K, Trie{K, V}}
     value::Union{V, Nothing}
 
-    function Trie{K, V}(value::Union{V, Nothing} = nothing) where {K, V}
+    function Trie{K, V}(
+            value::Union{V, Nothing} = nothing,
+            parent::Union{Pair{K, Trie{K, V}}, Nothing} = nothing,
+        ) where {K, V}
         children = Dictionary{K, Trie{K, V}}()
-        return new{K, V}(children, value)
+        return new{K, V}(parent, children, value)
     end
+end
+
+# Internal: create a new child node attached to `parent` under `key`, maintaining
+# the invariant that `child.parent === (key => parent)`.
+function _add_child!(parent::Trie{K, V}, key::K) where {K, V}
+    child = Trie{K, V}(nothing, key => parent)
+    insert!(parent.children, key, child)
+    return child
 end
 
 # Constructors
@@ -41,6 +53,24 @@ function depth(trie::Trie)
     return isempty(trie.children) ? 0 : maximum(depth, trie.children; init = 0) + 1
 end
 
+# Parent / root navigation
+# ------------------------
+Base.parent(trie::Trie) = isnothing(trie.parent) ? nothing : last(trie.parent)
+parent_key(trie::Trie) = isnothing(trie.parent) ? nothing : first(trie.parent)
+isroot(trie::Trie) = isnothing(trie.parent)
+
+function rootpath(trie::Trie{K}) where {K}
+    path = K[]
+    node = trie
+    while !isnothing(node.parent)
+        k, p = node.parent
+        push!(path, k)
+        node = p
+    end
+    reverse!(path)
+    return path
+end
+
 # Accessors
 # ---------
 function Base.haskey(trie, key)
@@ -63,7 +93,7 @@ end
 function subtrie!(trie, prefix)
     strie = trie
     for subkey in prefix
-        strie = get!(() -> similar(trie), strie.children, subkey)
+        strie = haskey(strie.children, subkey) ? strie.children[subkey] : _add_child!(strie, subkey)
     end
     return strie
 end
@@ -232,11 +262,18 @@ function Dictionaries.sortkeys!(trie::Trie)
 end
 function Dictionaries.sortkeys(trie::Trie{K, V}) where {K, V}
     trie_sorted = Trie{K, V}(trie.value)
-    for (k, v) in pairs(trie.children)
-        insert!(trie_sorted.children, k, sortkeys(v))
-    end
-    sortkeys!(trie_sorted.children)
+    _sortkeys_copy_children!(trie_sorted, trie)
     return trie_sorted
+end
+
+function _sortkeys_copy_children!(dst::Trie{K, V}, src::Trie{K, V}) where {K, V}
+    for (k, v) in pairs(src.children)
+        child = Trie{K, V}(v.value, k => dst)
+        insert!(dst.children, k, child)
+        _sortkeys_copy_children!(child, v)
+    end
+    sortkeys!(dst.children)
+    return dst
 end
 
 # Convert
@@ -246,10 +283,19 @@ function Base.convert(::Type{Trie{K, V}}, trie::Trie) where {K, V}
     trie isa Trie{K, V} && return trie
 
     result = Trie{K, V}(trie.value)
-    for (k, v) in pairs(trie.children)
-        insert!(result.children, k, v)
-    end
+    _convert_copy_children!(result, trie)
     return result
+end
+
+function _convert_copy_children!(dst::Trie{K, V}, src::Trie) where {K, V}
+    for (k, v) in pairs(src.children)
+        kK = convert(K, k)
+        vV = isnothing(v.value) ? nothing : convert(V, v.value)
+        child = Trie{K, V}(vV, kK => dst)
+        insert!(dst.children, kK, child)
+        _convert_copy_children!(child, v)
+    end
+    return dst
 end
 
 

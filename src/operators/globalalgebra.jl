@@ -350,10 +350,7 @@ function Trie(vertices, ex::GlobalOp{T, A, S}) where {T, A, S}
     for (c, op) in zip(coefficients, opstrings)
         trie = root
         for o in op
-            child = get!(trie.children, o) do
-                Trie{A, T}()
-            end
-            trie = child
+            trie = haskey(trie.children, o) ? trie.children[o] : _add_child!(trie, o)
         end
         @assert isnothing(trie.value) "Duplicate values?"
         trie.value = c
@@ -383,7 +380,7 @@ end
 
 function _emit_leaf!(node::Trie{A, T}, site_factors, coeff::T) where {A, T}
     for op in site_factors
-        node = get!(() -> Trie{A, T}(), node.children, op)
+        node = haskey(node.children, op) ? node.children[op] : _add_child!(node, op)
     end
     node.value = isnothing(node.value) ? coeff : node.value + coeff
     return nothing

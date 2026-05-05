@@ -107,9 +107,7 @@ function mpo_bond_optimizations(
             push!(W, newnode)
             node = newnode
             for s in suffix
-                newnode = typeof(prefix_trie)()
-                insert!(node.children, s, newnode)
-                node = newnode
+                node = _add_child!(node, s)
             end
             node.value = one(T)
 
@@ -174,7 +172,7 @@ function _build_prefix_trie(terms::Vector{TTNOTerm{T, Op}}) where {T, Op}
     for term in terms
         node = prefix_trie
         for op in term.ops
-            node = get!(() -> Trie{Op, T}(), node.children, op)
+            node = haskey(node.children, op) ? node.children[op] : _add_child!(node, op)
         end
         node.value = something(node.value, zero(term.coeff)) + term.coeff
     end

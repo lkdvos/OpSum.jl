@@ -359,6 +359,32 @@ function Trie(vertices, ex::GlobalOp{T, A, S}) where {T, A, S}
     return sortkeys!(root)
 end
 
+function prefix_suffix_tries(vertices, ex::GlobalOp{T, A, S}) where {T, A, S}
+    prefix_root = Trie{A, T}()
+    suffix_root = Trie{A, T}()
+
+    coefficients, opstrings = operatorstrings(vertices, ex)
+
+    for (c, op) in zip(coefficients, opstrings)
+        pnode = prefix_root
+        for o in op
+            pnode = haskey(pnode.children, o) ? pnode.children[o] : _add_child!(pnode, o)
+        end
+        @assert isnothing(pnode.value) "Duplicate values?"
+        pnode.value = c
+
+        snode = suffix_root
+        for o in Iterators.reverse(op)
+            snode = haskey(snode.children, o) ? snode.children[o] : _add_child!(snode, o)
+        end
+    end
+
+    sortkeys!(prefix_root)
+    sortkeys!(suffix_root)
+
+    return prefix_root, suffix_root
+end
+
 function GraphNode(vertices::AbstractVector{Int}, ex::GlobalOp)
     @assert vertices == 1:length(vertices)
     A = algebratype(ex)

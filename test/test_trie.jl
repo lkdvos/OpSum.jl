@@ -2,7 +2,8 @@ using Test
 using Dictionaries: sortkeys, sortkeys!
 
 using OpSum
-using OpSum: Trie, subtrie, depth, parent_key, isroot, rootpath
+using OpSum: Trie, subtrie, depth, parent_key, isroot, rootpath, prefix_suffix_tries, leaves
+using OpSum.PauliOperators: X, Y, Z
 
 # Helper: convert strings to Vector{Char} keys
 chars(s) = collect(s)
@@ -449,6 +450,44 @@ chars(s) = collect(s)
         @test length(t) == 3
         @test !haskey(t, [1, 2])
         @test haskey(t, [1, 2, 3])
+    end
+
+    @testset "prefix_suffix_tries" begin
+        # Two terms with distinct prefixes that meet only at the leaf level.
+        ex = X[1] * Z[2] + Y[1] * Z[2]
+        vertices = [1, 2]
+        prefix_root, suffix_root = prefix_suffix_tries(vertices, ex)
+
+        @test length(prefix_root) == 2
+        @test prefix_root == Trie(vertices, ex)  # cross-check existing constructor
+
+        # Each reversed opstring should appear exactly once as a suffix-leaf
+        # rootpath. Build the expected set from the prefix trie's own keys
+        # (whose element type matches the trie's algebra parameter).
+        prefix_keys = collect(keys(prefix_root))
+        expected_reversed = Set(reverse(k) for k in prefix_keys)
+        suffix_leaves = leaves(suffix_root)
+        leafpaths = Set(rootpath(l) for l in suffix_leaves)
+        @test leafpaths == expected_reversed
+
+        @test length(suffix_leaves) == 2
+        @test all(isempty(l.children) for l in suffix_leaves)
+        # The depth-1 child of the suffix root is shared between both terms.
+        @test length(suffix_root.children) == 1
+        z_node = only(suffix_root.children)
+        @test length(z_node.children) == 2
+
+        # Three terms; two share a longer reversed prefix.
+        ex2 = X[1] * X[2] * Z[3] + Y[1] * X[2] * Z[3] + Z[1] * Z[2] * Z[3]
+        vertices2 = [1, 2, 3]
+        proot, sroot = prefix_suffix_tries(vertices2, ex2)
+        @test length(proot) == 3
+        @test length(leaves(sroot)) == 3
+        # The Z-rooted suffix subtree splits into two depth-1 children
+        # ({X, Z} reversed from sites 2 of the three terms).
+        @test length(sroot.children) == 1
+        depth1 = only(sroot.children)
+        @test length(depth1.children) == 2
     end
 
 end

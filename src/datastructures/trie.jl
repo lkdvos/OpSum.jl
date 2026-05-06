@@ -276,6 +276,23 @@ function _sortkeys_copy_children!(dst::Trie{K, V}, src::Trie{K, V}) where {K, V}
     return dst
 end
 
+function leaves(trie::Trie{K, V}) where {K, V}
+    out = Trie{K, V}[]
+    _leaves!(out, trie)
+    return out
+end
+
+function _leaves!(out::Vector{Trie{K, V}}, node::Trie{K, V}) where {K, V}
+    if isempty(node.children)
+        push!(out, node)
+    else
+        for child in node.children
+            _leaves!(out, child)
+        end
+    end
+    return out
+end
+
 # Convert
 # -------
 
@@ -351,7 +368,7 @@ end
 # Print an edge label: Char sequences always as strings, other sequences as
 # a single element or a vector.
 function _trie_show_edge(io::IO, edge::Vector{K}) where {K}
-    if K === Char
+    return if K === Char
         print(io, '"', join(edge), '"')
     elseif length(edge) == 1
         show(io, edge[1])

@@ -142,47 +142,60 @@ const COLOR_CYCLE = Makie.wong_colors()
 # ── Plotting ──────────────────────────────────────────────────────────────────
 
 function plot_results(suite, output_path)
-    phases = ("construction", "optimization")
-    phase_labels = ["Construction", "Optimization"]
+    # Rows: construction, bipartite optimization, SVD optimization
+    phases = [
+        ("construction", "Construction"),
+        ("optimization_bipartite", "Optimization (Bipartite)"),
+        ("optimization_svd", "Optimization (SVD)"),
+    ]
 
     # ── Extract all data ───────────────────────────────────────────────────────
-    # data[row][col] = (sizes, times_ns, lo_ns, hi_ns)
+    # data[row][col] = (sizes, times_ns, lo_ns, hi_ns) or nothing if group absent
     data = [
-        [extract_series(suite[mk][ph]) for (mk, _) in MODELS]
-            for ph in phases
+        [
+            haskey(suite[mk], ph) ? extract_series(suite[mk][ph]) : nothing
+                for (mk, _) in MODELS
+        ]
+            for (ph, _) in phases
     ]
 
     # Single unit per row based on global maximum across all models
     unit_scale = Dict("ns" => 1.0, "μs" => 1.0e-3, "ms" => 1.0e-6, "s" => 1.0e-9)
     row_units = map(data) do row_data
-        global_max = maximum(maximum(d[2]) for d in row_data)
+        present = filter(!isnothing, row_data)
+        isempty(present) && return "s"
+        global_max = maximum(maximum(d[2]) for d in present)
         _, unit = auto_unit([global_max])
         unit
     end
 
-    # ── Plot: 2 stacked axes, all models overlaid on each ─────────────────────
-    fig = Figure(; size = (600, 700))
+    # ── Plot: 3 stacked axes, all models overlaid on each ─────────────────────
+    nrows = length(phases)
+    fig = Figure(; size = (600, 950))
     axs = [
         Axis(
                 fig[row, 1];
-                title = phase_labels[row],
-                xlabel = row == length(phases) ? "System size" : "",
+                title = phases[row][2],
+                xlabel = row == nrows ? "System size" : "",
                 ylabel = "Time [$(row_units[row])]",
                 yscale = log10,
                 xscale = log10,
                 yminorticksvisible = true,
                 yminorgridvisible = true,
-                xticklabelsvisible = row == length(phases),
+                xticklabelsvisible = row == nrows,
             )
-            for row in eachindex(phases)
+            for row in 1:nrows
     ]
 
     for (col, (_, model_name)) in enumerate(MODELS)
         for (row, _) in enumerate(phases)
+            d = data[row][col]
+            isnothing(d) && continue
+
             ax = axs[row]
             scale = unit_scale[row_units[row]]
 
-            sizes, times_ns, lo_ns, hi_ns = data[row][col]
+            sizes, times_ns, lo_ns, hi_ns = d
             times = times_ns .* scale
             lo = lo_ns .* scale
             hi = hi_ns .* scale
@@ -214,8 +227,6 @@ function plot_results(suite, output_path)
     for ax in axs
         axislegend(ax; position = :lt, framevisible = false, fontsize = 9, nbanks = 2)
     end
-
-    linkyaxes!(axs...)
 
     rowgap!(fig.layout, 8)
 

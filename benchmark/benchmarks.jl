@@ -1,6 +1,6 @@
 using BenchmarkTools
 using OpSum
-using OpSum: mpo_bond_optimizations
+using OpSum: mpo_bond_optimizations, BipartiteAlgorithm, SVDBondAlgorithm
 using OpSum.PauliOperators: X, Y, Z
 
 SUITE = BenchmarkGroup()
@@ -30,46 +30,62 @@ end
 
 # ── Benchmark registration ─────────────────────────────────────────────────────
 
+# Dense all-to-all models: SVD has large bond matrices, so use smaller sizes.
 let g = addgroup!(SUITE, "haldane_shastry"),
         g_c = addgroup!(g, "construction"),
-        g_o = addgroup!(g, "optimization")
+        g_o = addgroup!(g, "optimization_bipartite"),
+        g_s = addgroup!(g, "optimization_svd")
 
     for N in vcat(10:10:40, 50:25:300)
         H = build_haldane_shastry(N)
         g_c["N=$N"] = @benchmarkable build_haldane_shastry($N)
-        g_o["N=$N"] = @benchmarkable mpo_bond_optimizations($(1:N), $H)
+        g_o["N=$N"] = @benchmarkable mpo_bond_optimizations($(1:N), $H, $(BipartiteAlgorithm()))
+    end
+    for N in vcat(10:10:40, 50:25:100)
+        H = build_haldane_shastry(N)
+        g_s["N=$N"] = @benchmarkable mpo_bond_optimizations($(1:N), $H, $(SVDBondAlgorithm()))
     end
 end
 
 let g = addgroup!(SUITE, "all_to_all_xx"),
         g_c = addgroup!(g, "construction"),
-        g_o = addgroup!(g, "optimization")
+        g_o = addgroup!(g, "optimization_bipartite"),
+        g_s = addgroup!(g, "optimization_svd")
 
     for L in vcat(10:10:40, 50:25:300)
         H = build_all_to_all_xx(L)
         g_c["L=$L"] = @benchmarkable build_all_to_all_xx($L)
-        g_o["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H)
+        g_o["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H, $(BipartiteAlgorithm()))
+    end
+    for L in vcat(10:10:40, 50:25:100)
+        H = build_all_to_all_xx(L)
+        g_s["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H, $(SVDBondAlgorithm()))
     end
 end
 
+# Short-range models: SVD stays cheap, use same sizes as bipartite.
 let g = addgroup!(SUITE, "heisenberg"),
         g_c = addgroup!(g, "construction"),
-        g_o = addgroup!(g, "optimization")
+        g_o = addgroup!(g, "optimization_bipartite"),
+        g_s = addgroup!(g, "optimization_svd")
 
     for L in vcat(10:10:40, 50:25:500)
         H = build_heisenberg(L)
         g_c["L=$L"] = @benchmarkable build_heisenberg($L)
-        g_o["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H)
+        g_o["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H, $(BipartiteAlgorithm()))
+        g_s["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H, $(SVDBondAlgorithm()))
     end
 end
 
 let g = addgroup!(SUITE, "j1j2"),
         g_c = addgroup!(g, "construction"),
-        g_o = addgroup!(g, "optimization")
+        g_o = addgroup!(g, "optimization_bipartite"),
+        g_s = addgroup!(g, "optimization_svd")
 
     for L in vcat(10:10:40, 50:25:500)
         H = build_j1j2(L)
         g_c["L=$L"] = @benchmarkable build_j1j2($L)
-        g_o["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H)
+        g_o["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H, $(BipartiteAlgorithm()))
+        g_s["L=$L"] = @benchmarkable mpo_bond_optimizations($(1:L), $H, $(SVDBondAlgorithm()))
     end
 end

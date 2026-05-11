@@ -357,8 +357,6 @@ end
     interaction_ended(state)
 
 Determine if an operator string will no longer act non-trivially.
-
-See also [`isend`](@ref).
 """
 interaction_ended(suffix) = length(suffix) == 1 || isend(suffix[2])
 interaction_ended(suffix::Vector{<:OperatorBasis}) = all(isone, suffix)

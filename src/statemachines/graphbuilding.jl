@@ -137,25 +137,8 @@ function mpo_bond_optimizations(
     return map(SparseArraysBase.sparse, dicts, sizes)
 end
 
-function mpo_bond_optimizations(vertices, terms::Vector{TTNOTerm{T, Op}}) where {T, Op}
-    return mpo_bond_optimizations(vertices, terms, BipartiteAlgorithm())
-end
-
 function mpo_bond_optimizations(vertices, ex::GlobalOp{T, A}) where {T, A}
     return mpo_bond_optimizations(vertices, ex, BipartiteAlgorithm())
-end
-
-"""
-    mpo_bond_optimizations(vertices, terms, alg) -> Vector{<:SparseMatrixDOK}
-
-Convenience overload: builds the prefix trie from `terms` then delegates to the
-trie-based method with the given algorithm.
-"""
-function mpo_bond_optimizations(
-        vertices::AbstractVector{Int}, terms::Vector{TTNOTerm{T, Op}}, alg
-    ) where {T, Op}
-    isempty(terms) && return SparseMatrixDOK{LocalOp{T, Op}}[]
-    return mpo_bond_optimizations(vertices, _build_prefix_trie(terms), alg)
 end
 
 # Convenience overload accepting a GlobalOp directly.
@@ -165,18 +148,6 @@ function mpo_bond_optimizations(
     prefix_trie = Trie{A, T}()
     build_trie!(prefix_trie, vertices, ex, one(T))
     return mpo_bond_optimizations(vertices, prefix_trie, alg)
-end
-
-function _build_prefix_trie(terms::Vector{TTNOTerm{T, Op}}) where {T, Op}
-    prefix_trie = Trie{Op, T}()
-    for term in terms
-        node = prefix_trie
-        for op in term.ops
-            node = haskey(node.children, op) ? node.children[op] : _add_child!(node, op)
-        end
-        node.value = something(node.value, zero(term.coeff)) + term.coeff
-    end
-    return prefix_trie
 end
 
 # ===========================================================================

@@ -385,25 +385,6 @@ function prefix_suffix_tries(vertices, ex::GlobalOp{T, A, S}) where {T, A, S}
     return prefix_root, suffix_root
 end
 
-function GraphNode(vertices::AbstractVector{Int}, ex::GlobalOp)
-    @assert vertices == 1:length(vertices)
-    A = algebratype(ex)
-    T = scalartype(ex)
-
-    root = GraphNode{A, T}()
-    for (c, op) in zip(operatorstrings(vertices, ex)...)
-        node = root
-        for site in 1:length(vertices)
-            child = typeof(root)(site == 1 ? c : nothing)
-            push!(node.children, op[site] => [child])
-            push!(child.parents, op[site] => node)
-            node = child
-        end
-    end
-
-    return root
-end
-
 function _emit_leaf!(node::Trie{A, T}, site_factors, coeff::T) where {A, T}
     for op in site_factors
         node = haskey(node.children, op) ? node.children[op] : _add_child!(node, op)

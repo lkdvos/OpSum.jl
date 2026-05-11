@@ -1,9 +1,7 @@
 module OpSum
 
-export Trie, SDAWG, DAWGDictionary
-export @op_str, AbstractOperator, Operator, Scaled, Sum, Product
-export opsum_vertex_operators, compress_vertex_operators, simplify, opsum
-export TreeTopology, TTNOTerm, ttno_terms, ttno_bond_optimizations
+export Trie, Sum
+export opsum, simplify
 export mpo_bond_optimizations, BipartiteAlgorithm, SVDBondAlgorithm
 
 using Dictionaries
@@ -24,9 +22,6 @@ include("utility/utility.jl")
 # Data structures
 # ---------------
 include("datastructures/trie.jl")
-include("datastructures/dawg.jl")
-include("datastructures/dawgdict.jl")
-include("datastructures/graphnode.jl")
 include("datastructures/bipartite.jl")
 
 # Operators
@@ -41,8 +36,6 @@ include("operators/paulioperators.jl")
 # State machines
 # --------------
 include("statemachines/state_machines.jl")
-include("statemachines/compression.jl")
-include("statemachines/ttno.jl")
 include("statemachines/graphbuilding.jl")
 
 end

@@ -33,6 +33,8 @@ include("operators/globalalgebra.jl")
 
 include("operators/paulioperators.jl")
 include("operators/irreptensoroperators.jl")
+using .IrrepTensorOperators: IrrepOperator
+include("operators/irrepalgebra.jl")
 
 # State machines
 # --------------

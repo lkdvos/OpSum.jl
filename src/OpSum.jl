@@ -32,6 +32,7 @@ include("operators/operatoralgebra.jl")
 include("operators/globalalgebra.jl")
 
 include("operators/paulioperators.jl")
+include("operators/irreptensoroperators.jl")
 
 # State machines
 # --------------

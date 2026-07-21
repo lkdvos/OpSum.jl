@@ -161,6 +161,14 @@ independently of any MPO machinery. This is the prototype requested as the start
 **Done when:** the trie for an SU(2) Heisenberg chain is charge-block-diagonal and round-trips
 (reconstructing the term list from trie paths).
 
+**Status: implemented** — `src/operators/irreptrie.jl` + `test/test_irrep_trie.jl` (full suite
+794 green). `FusedTerm` normal form, `ITOKey = (op, bond, vertex)` trie key, pass-through
+identity sentinel (`IrrepOperator(unit(I), 0)`), channel enumeration via TensorKit `fusiontrees`.
+**Caveat:** validation is *structural only* (block-diagonality + trie↔term round-trip); that a
+`FusedTerm` re-materializes to the correct dense operator is deferred to Phase 5's oracle, so the
+reduced-coefficient convention is not yet independently verified end-to-end. Deferred within
+Phase 3: GenericFusion vertex multiplicity > 1 and multi-body (>2-operator) coupling.
+
 ---
 
 ## Phase 4 — Per-sector bond optimization + compression

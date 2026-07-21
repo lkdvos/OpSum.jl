@@ -22,6 +22,10 @@ Materializes (via [`instantiate`](@ref)) to a TensorKit `TensorMap`
     O_{c,n} :  V  ←  V ⊗ Vect[I](c => 1)
 
 i.e. an operator `V←V` carrying a dangling charge-`c` leg of degeneracy 1.
+
+The sentinel index `n = 0` (with `c = unit(I)`) is reserved for the Phase-3 pass-through
+identity (see `passthrough`): it is not an enumerated alphabet letter (`instances` yields
+`n ≥ 1`) and instantiates to the structural identity `id(V)`.
 """
 struct IrrepOperator{I <: Sector} <: OperatorBasis
     c::I     # operator charge (the coupled leg)
@@ -79,6 +83,8 @@ to be orthonormal under TensorKit's qdim-weighted `inner` (so `inner(O, O) = dim
 function instantiate(op::IrrepOperator{I}, V::TensorKit.ElementarySpace) where {I <: Sector}
     sectortype(V) === I ||
         throw(ArgumentError("ITO sector $I incompatible with space sector $(sectortype(V))"))
+    # pass-through identity sentinel (Phase 3): trivial charge, n == 0, acts as id(V)
+    op.n == 0 && op.c == unit(I) && return id(V)
     table = _channels(IrrepOperator, op.c, V)
     1 <= op.n <= length(table) ||
         throw(ArgumentError("index n=$(op.n) out of range 1:$(length(table)) for charge $(op.c)"))

@@ -1,19 +1,23 @@
 using Test
 using OpSum
-using OpSum: instantiate, fusion_resolve, irrep_trie, trie_terms, FusedTerm, ITOKey,
-    passthrough, ispassthrough, bondcharges, vertexlabels, trie_key, caterpillar_trees,
+using OpSum: instantiate, irrep_trie, trie_terms, TermSum, TermKey, ITOKey,
+    passthrough, ispassthrough, bondcharges, vertexlabels, caterpillar_trees,
     spin, scalarop, couple
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
-using LinearAlgebra: dot, norm, I as Id
+using LinearAlgebra: dot, I as Id
 
 LO(x) = OpSum.LocalOp(x)
 
-# canonical fingerprint of a fused term for set comparison (ordering/coefficient tolerant)
-function fingerprint(ft)
-    ops = Tuple((o.c, o.n) for o in ft.opstring)
-    bonds = Tuple(bondcharges(ft.tree))
-    return (ops, bonds)
+# the single (TermKey, coeff) of a one-term TermSum
+onlyterm(ts::TermSum) = only(pairs(ts.terms))
+# charges of a term's active operators
+charges(tk::TermKey) = [o.c for o in tk.ops]
+# per-active-position bond charges of a term (derived caterpillar tree)
+function termbonds(tk::TermKey)
+    isempty(tk.ops) && return typeof(tk.total)[]
+    cs = ntuple(i -> tk.ops[i].c, length(tk.ops))
+    return bondcharges(only(caterpillar_trees(cs, tk.total)))
 end
 
 @testset "pass-through identity symbol" begin
@@ -22,64 +26,50 @@ end
     @test ispassthrough(pt)
     @test pt.c == unit(I)
     @test pt.n == 0
-    # enumerated letters are never pass-through
     V = SU2Space(1 // 2 => 1)
     @test all(!ispassthrough, instances(IrrepOperator, V))
-    # pass-through instantiates to the structural identity id(V)
     @test convert(Array, instantiate(pt, V)) ≈ Matrix{ComplexF64}(Id, 2, 2)
 end
 
-@testset "SU(2) Sᵢ·Sⱼ fusion resolution" begin
+@testset "SU(2) Sᵢ·Sⱼ term normal form" begin
     V = SU2Space(1 // 2 => 1)
-    sites = [V, V, V]
-    res = fusion_resolve(dot(spin(V)[1], spin(V)[2]), sites)
+    ts = dot(spin(V)[1], spin(V)[2])
+    @test length(ts.terms) == 1
+    tk, coeff = onlyterm(ts)
 
-    # a singlet coupling of two spin-1 (rank-1) operators has exactly one channel
-    @test length(res) == 1
-    ft = only(res)
+    @test tk.sites == [1, 2]
+    @test charges(tk) == [SU2Irrep(1), SU2Irrep(1)]
+    @test tk.total == unit(SU2Irrep)                    # singlet
+    @test termbonds(tk) == [SU2Irrep(1), SU2Irrep(0)]   # bond 1 across the pair, 0 at the total
+    @test coeff ≈ (3 / 2) * (-sqrt(3))                  # ⟨½‖S‖½⟩² · (−√dim(1))
 
-    # operator string: spin-1 letters on sites 1,2, pass-through on the idle site
-    @test [o.c for o in ft.opstring] == [SU2Irrep(1), SU2Irrep(1), unit(SU2Irrep)]
-    @test ispassthrough(ft.opstring[3])
-
-    # bond charges of the caterpillar: 1 across the coupled region, 0 outside / at the total
-    @test bondcharges(ft.tree) == [SU2Irrep(1), SU2Irrep(0), SU2Irrep(0)]
-    @test ft.tree.coupled == unit(SU2Irrep)   # total charge is the singlet
-
-    # reduced coefficient = ⟨½‖S‖½⟩² · (−√dim(1)) = (3/2)·(−√3)
-    @test ft.coeff ≈ (3 / 2) * (-sqrt(3))
-
-    # non-singlet target uses unit Clebsch–Gordan (no −√dim factor)
-    res2 = fusion_resolve(couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(1)), [V, V])
-    @test only(res2).coeff ≈ (3 / 2)          # (√(3/2))² · 1
-    @test bondcharges(only(res2).tree) == [SU2Irrep(1), SU2Irrep(1)]
+    # non-singlet target: unit Clebsch–Gordan (no −√dim factor)
+    ts2 = couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(1))
+    tk2, c2 = onlyterm(ts2)
+    @test c2 ≈ (3 / 2)
+    @test termbonds(tk2) == [SU2Irrep(1), SU2Irrep(1)]
 end
 
 @testset "caterpillar channel enumeration is bounded/canonical" begin
     I = SU2Irrep
     c = SU2Irrep(1)
-    u = unit(I)
-    # pairwise coupling with idle sites: unique channel
-    @test length(caterpillar_trees((u, c, u, c, u), SU2Irrep(0))) == 1
-    # three spin-1 to a singlet: also a single caterpillar channel (1⊗1→1→0)
+    @test length(caterpillar_trees((c, c), SU2Irrep(0))) == 1
     @test length(caterpillar_trees((c, c, c), SU2Irrep(0))) == 1
-    # three spin-1 to a triplet: multiple intermediate channels
-    @test length(caterpillar_trees((c, c, c), SU2Irrep(1))) > 1
+    @test length(caterpillar_trees((c, c, c), SU2Irrep(1))) > 1   # 3-body branches → deferred
 end
 
-@testset "SU(2) Heisenberg trie is charge-block-diagonal" begin
+@testset "SU(2) trie is charge-block-diagonal" begin
     V = SU2Space(1 // 2 => 1)
 
-    # prefix sharing: S₁·S₂ and S₁·S₃ agree on site-1 operator AND bond charge → shared node
+    # prefix sharing: S₁·S₂ and S₁·S₃ agree on the site-1 (op, bond) → shared node
     tr = irrep_trie([dot(spin(V)[1], spin(V)[2]), dot(spin(V)[1], spin(V)[3])], [V, V, V])
-    @test length(tr.children) == 1                    # single shared site-1 node
+    @test length(tr.children) == 1
     site1_key = only(keys(tr.children))
     @test site1_key.op == IrrepOperator{SU2Irrep}(SU2Irrep(1), 1)
     @test site1_key.bond == SU2Irrep(1)
-    shared = only(tr.children)
-    @test length(shared.children) == 2                # diverge at site 2
+    @test length(only(tr.children).children) == 2      # diverge at site 2
 
-    # distinct couplings on the same operator string are distinct paths (block-diagonal in bond)
+    # distinct couplings on the same string → distinct paths (block-diagonal in bond)
     tr2 = irrep_trie(
         [
             couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0)),
@@ -87,27 +77,21 @@ end
         ],
         [V, V],
     )
-    @test length(tr2.children) == 1                   # shared site-1 (op S, bond 1)
+    @test length(tr2.children) == 1
     node = only(tr2.children)
     site2_bonds = sort!([k.bond.j for k in keys(node.children)])
-    @test site2_bonds == [0 // 1, 1 // 1]             # two distinct total-charge sectors
+    @test site2_bonds == [0 // 1, 1 // 1]
 end
 
-@testset "round-trip: trie ↔ fused-term list" begin
+@testset "round-trip: trie ↔ term-sum" begin
     V = SU2Space(1 // 2 => 1)
     sites = [V, V, V, V]
-    terms = [dot(spin(V)[i], spin(V)[i + 1]) for i in 1:3]
+    H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:3)
+    back = trie_terms(irrep_trie(H, sites))
 
-    resolved = reduce(vcat, fusion_resolve(t, sites) for t in terms)
-    tr = irrep_trie(terms, sites)
-    back = trie_terms(tr)
-
-    @test length(back) == length(resolved)
-    @test Set(fingerprint.(back)) == Set(fingerprint.(resolved))
-    # coefficients round-trip (keyed by fingerprint, no collisions on this chain)
-    in_by = Dict(fingerprint(ft) => ft.coeff for ft in resolved)
-    for ft in back
-        @test ft.coeff ≈ in_by[fingerprint(ft)]
+    @test Set(keys(back.terms)) == Set(keys(H.terms))
+    for k in keys(H.terms)
+        @test back.terms[k] ≈ H.terms[k]
     end
 end
 
@@ -116,40 +100,38 @@ end
     raise = LO(IrrepOperator(U1Irrep(1), 1))
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
 
-    # number-conserving hop: total charge 0, bonds +1 across the hop, 0 outside
-    res = fusion_resolve(dot(raise[1], lower[2]), [V, V, V])
-    ft = only(res)
-    @test [o.c for o in ft.opstring] == [U1Irrep(1), U1Irrep(-1), unit(U1Irrep)]
-    @test bondcharges(ft.tree) == [U1Irrep(1), U1Irrep(0), U1Irrep(0)]
-    @test ft.coeff ≈ -1.0                              # abelian: dim = 1
+    ts = dot(raise[1], lower[2])
+    tk, coeff = onlyterm(ts)
+    @test charges(tk) == [U1Irrep(1), U1Irrep(-1)]
+    @test tk.total == unit(U1Irrep)
+    @test termbonds(tk) == [U1Irrep(1), U1Irrep(0)]
+    @test coeff ≈ -1.0                                  # abelian: dim = 1
 
-    # coupling two +1 operators to total charge +2
-    res2 = fusion_resolve(couple(raise[1], raise[2]; to = U1Irrep(2)), [V, V])
-    @test bondcharges(only(res2).tree) == [U1Irrep(1), U1Irrep(2)]
+    ts2 = couple(raise[1], raise[2]; to = U1Irrep(2))
+    @test termbonds(onlyterm(ts2)[1]) == [U1Irrep(1), U1Irrep(2)]
 
-    # trie is block-diagonal in U(1) charge
     tr = irrep_trie([dot(raise[1], lower[2]), dot(raise[2], lower[3])], [V, V, V])
-    @test length(trie_terms(tr)) == 2
+    @test length(trie_terms(tr).terms) == 2
 end
 
-@testset "trivial-sector regression bridge (ℂ²)" begin
+@testset "trivial-sector bridge (ℂ²)" begin
     V = ℂ^2
     ops = instances(IrrepOperator, V)
-    # couple two nontrivial trivial-sector letters to the (trivial) singlet
     term = couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial))
-    res = fusion_resolve(term, [V, V])
-    ft = only(res)
-    @test bondcharges(ft.tree) == [unit(Trivial), unit(Trivial)]
-    @test ft.coeff ≈ -1.0                              # −√dim(trivial) = −1
-    @test !ispassthrough(ft.opstring[1]) && !ispassthrough(ft.opstring[2])
+    tk, coeff = onlyterm(term)
+    @test termbonds(tk) == [unit(Trivial), unit(Trivial)]
+    @test coeff ≈ -1.0                                  # −√dim(trivial) = −1
+    @test !ispassthrough(tk.ops[1]) && !ispassthrough(tk.ops[2])
 
-    # a scalar (identity) field resolves to an all-pass-through string
-    resid = fusion_resolve(scalarop(2.0, V)[1], [V, V])
-    ft0 = only(resid)
-    @test all(ispassthrough, ft0.opstring)
-    @test ft0.coeff ≈ 2.0
+    # a scalar (identity) field is an all-pass-through path (K = 0 term)
+    idterm = scalarop(2.0, V)[1]
+    tk0, c0 = onlyterm(idterm)
+    @test isempty(tk0.sites)
+    @test c0 ≈ 2.0
+    path = only(keys(irrep_trie(idterm, [V, V]).children)).op
+    @test ispassthrough(path)
 
     # round-trip on a trivial-sector chain
-    tr = irrep_trie([term], [V, V])
-    @test Set(fingerprint.(trie_terms(tr))) == Set(fingerprint.(res))
+    back = trie_terms(irrep_trie(term, [V, V]))
+    @test Set(keys(back.terms)) == Set(keys(term.terms))
 end

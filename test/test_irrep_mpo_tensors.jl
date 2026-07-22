@@ -25,7 +25,7 @@ end
     H2 = dot(spin(V)[1], spin(V)[2])
     Ws, secs = irrep_mpo(H2, [V, V])
     T = irrep_mpo_tensors(Ws, secs, [V, V])
-    @tensor Op2[o1 o2 bL; bR i1 i2] := T[1][o1 bL; bm i1] * T[2][o2 bm; bR i2]
+    @tensor Op2[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
 
     M_mpo = physmatrix(Op2, 2, d)
     M_ref = physmatrix(instantiate(H2, [V, V]), 2, d)
@@ -40,7 +40,7 @@ end
     Ws3, secs3 = irrep_mpo(H3, fill(V, 3))
     T3 = irrep_mpo_tensors(Ws3, secs3, fill(V, 3))
     @tensor Op3[o1 o2 o3 bL; bR i1 i2 i3] :=
-        T3[1][o1 bL; b1 i1] * T3[2][o2 b1; b2 i2] * T3[3][o3 b2; bR i3]
+        T3[1][bL o1; i1 b1] * T3[2][b1 o2; i2 b2] * T3[3][b2 o3; i3 bR]
 
     @test physmatrix(Op3, 3, d) ≈ physmatrix(instantiate(H3, fill(V, 3)), 3, d)
 end
@@ -54,7 +54,7 @@ end
     Ws, secs = irrep_mpo(H, fill(V, 3))
     T = irrep_mpo_tensors(Ws, secs, fill(V, 3))
     @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
-        T[1][o1 bL; b1 i1] * T[2][o2 b1; b2 i2] * T[3][o3 b2; bR i3]
+        T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
     @test physmatrix(Op, 3, d) ≈ physmatrix(instantiate(H, fill(V, 3)), 3, d)
 end
 
@@ -66,7 +66,7 @@ end
     H = dot(raise[1], lower[2]) + dot(lower[1], raise[2])
     Ws, secs = irrep_mpo(H, fill(V, 2))
     T = irrep_mpo_tensors(Ws, secs, fill(V, 2))
-    @tensor Op[o1 o2 bL; bR i1 i2] := T[1][o1 bL; bm i1] * T[2][o2 bm; bR i2]
+    @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
     @test physmatrix(Op, 2, d) ≈ physmatrix(instantiate(H, fill(V, 2)), 2, d)
 end
 
@@ -79,7 +79,7 @@ end
     Ws, secs = irrep_mpo(H, fill(V, 3))
     T = irrep_mpo_tensors(Ws, secs, fill(V, 3))
     @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
-        T[1][o1 bL; b1 i1] * T[2][o2 b1; b2 i2] * T[3][o3 b2; bR i3]
+        T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
     @test physmatrix(Op, 3, d) ≈ physmatrix(instantiate(H, fill(V, 3)), 3, d)
 end
 

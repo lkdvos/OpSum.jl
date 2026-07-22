@@ -77,9 +77,10 @@ end
 
 # Phase 5: assemble symmetric MPO TensorMaps from the reduced bond data
 # =====================================================================
-# Each site tensor is `W_i : V_i ⊗ B_i ← B_{i-1} ⊗ V_i`, a symmetric `TensorMap` whose virtual
-# legs `B` are `GradedSpace`s built from the per-sector bond multiplicities. Contracting the chain
-# (trivial boundary bonds) recovers the operator.
+# Each site tensor is `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit convention: left virtual ⊗ physical
+# out ← physical in ⊗ right virtual), a symmetric `TensorMap` whose virtual legs `B` are
+# `GradedSpace`s built from the per-sector bond multiplicities. Contracting the chain (trivial
+# boundary bonds) recovers the operator.
 
 # GradedSpace on a bond with the given per-index charges (multiplicity = count per sector).
 function _bond_space(sec::Vector{I}) where {I}
@@ -105,7 +106,8 @@ end
     irrep_mpo_tensors(Ws, bondsectors, sites) -> Vector{<:AbstractTensorMap}
 
 Assemble the symmetric MPO from the reduced bond matrices + bond sectors (from `irrep_mpo`). Site
-tensor `W_i : V_i ⊗ B_{i-1} ← B_i ⊗ V_i`; the boundary bonds `B_0`, `B_N` are one-dimensional.
+tensor `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit convention); the boundary bonds `B_0`, `B_N` are
+one-dimensional.
 Each reduced entry `(l, r, letter, coeff)` places the ITO letter's tensor into the `(l → r)` bond
 transition weighted by `coeff`, coupling the operator charge into the bond via the (forward)
 fusion `b_L ⊗ c → b_R`.
@@ -116,7 +118,7 @@ function irrep_mpo_tensors(
     ) where {I}
     N = length(Ws)
     # `map` infers a concrete `Vector{<:AbstractTensorMap}` element type (all site tensors share
-    # the same `V ⊗ B ← B ⊗ V` space *type*), unlike an untyped preallocated buffer.
+    # the same `B ⊗ V ← V ⊗ B` space *type*), unlike an untyped preallocated buffer.
     return map(1:N) do i
         V = sites[i]
         secL = i == 1 ? I[unit(I)] : bondsectors[i - 1]
@@ -126,7 +128,7 @@ function irrep_mpo_tensors(
         degL = i == 1 ? Int[1] : _deg_indices(bondsectors[i - 1])
         degR = _deg_indices(secR)
 
-        W = zeros(ComplexF64, V ⊗ Bleft ← Bright ⊗ V)
+        W = zeros(ComplexF64, Bleft ⊗ V ← V ⊗ Bright)
         for (idx, localop) in storedpairs(Ws[i])
             l, r = Tuple(idx)
             bL, dL = secL[l], degL[l]
@@ -147,7 +149,7 @@ function irrep_mpo_tensors(
                 f1 = only(fusiontrees((bL, c), bR, (false, false)))
                 f2 = only(fusiontrees((bR,), bR, (false,)))
                 κ[f1, f2][dL, 1, dR] = coeff
-                @tensor Wentry[o bl; br ii] := O[o; ii cc] * κ[bl cc; br]
+                @tensor Wentry[bl o; ii br] := O[o; ii cc] * κ[bl cc; br]
                 W = W + Wentry
             end
         end

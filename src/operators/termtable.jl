@@ -2,9 +2,8 @@
     TermTable{Op,T}
 
 Flat, sparse-per-term storage of a sum of operator strings on an `N`-vertex
-chain. This is the flat replacement for the pointer-based [`Trie`](@ref) as the
-term list feeding MPO bond optimization, mirroring the sparse `(site, op)`-pair
-encoding of ITensorMPOConstruction's `OpIDSum`.
+chain. It is the term list feeding MPO bond optimization, mirroring the sparse
+`(site, op)`-pair encoding of ITensorMPOConstruction's `OpIDSum`.
 
 Each term is a product of local operators. Only its **non-identity**
 `(site, op)` factors are stored (identities are implicit), sorted by `site` and
@@ -20,8 +19,8 @@ Fields:
 - `nvertices::Int`: number of chain vertices `N`.
 
 The columns are canonical: two terms with the same set of non-identity factors
-occupy a single column with their coefficients summed, matching the
-insertion-time duplicate summation of `build_trie!`.
+occupy a single column with their coefficients summed (insertion-time duplicate
+summation).
 """ TermTable
 
 struct TermTable{Op, T}
@@ -51,11 +50,10 @@ Base.eltype(::Type{TermTable{Op, T}}) where {Op, T} = Pair{Vector{Pair{Int, Op}}
 
 Build a [`TermTable`](@ref) directly from a `GlobalOp` expression on the chain
 `vertices`, expanding `Sum`/`SiteOp` terms into canonical sparse operator
-strings. This replaces `build_trie!`'s role: no `Trie` is ever materialised.
+strings (no intermediate pointer structure).
 
 Exact-duplicate terms (identical sets of non-identity `(site, op)` factors) are
-merged and their coefficients summed at construction time, matching the
-insertion-time summation performed by `build_trie!`/`_emit_leaf!`.
+merged and their coefficients summed at construction time.
 """
 function TermTable(vertices, ex::GlobalOp{T, A, S}) where {T, A, S}
     N = length(vertices)
@@ -83,9 +81,8 @@ function TermTable(vertices, ex::GlobalOp{T, A, S}) where {T, A, S}
     return TermTable{A, T}(sites, ops, coeffs, N)
 end
 
-# Recursively walk the expression tree, mirroring `build_trie!`
-# (globalalgebra.jl), but emitting sparse `(site, op)` rows instead of dense
-# length-`N` trie keys.
+# Recursively walk the GlobalOp expression tree, emitting each term as sparse
+# `(site, op)` rows (identities dropped).
 function _collect_terms!(
         index, keys_, coeffs, vertices, ex::GlobalOp{T, A, S}, coeff::T
     ) where {T, A, S}

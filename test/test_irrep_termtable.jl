@@ -1,107 +1,68 @@
 using Test
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_flat, irrep_trie, _irrep_bipartite, mpo_terms, ITOTermTable,
-    arity, nterms, nvertices, TermSum, spin, scalarop, couple, storedpairs, _local_terms
+using OpSum: ITOTermTable, _op_at_ito, arity, nterms, nvertices, ispassthrough,
+    TermSum, spin, scalarop, couple
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot
 
 LO(x) = OpSum.LocalOp(x)
 
-# Explicit trie reference (irrep_mpo now defaults to the flat path).
-irrep_mpo_trie(H, sites) = _irrep_bipartite(irrep_trie(H, sites), length(sites))
-
-# Robust multiset of reduced entries: (site, l, r, letter charge, letter index, coeff). Avoids
-# relying on LocalOp `==`/hash (which fall back to identity for the sum type).
-function reduced_entries(Ws)
-    out = Set{Any}()
-    for (i, W) in enumerate(Ws)
-        for (idx, lop) in storedpairs(W)
-            l, r = Tuple(idx)
-            for (letter, c) in _local_terms(lop)
-                letter === nothing && continue
-                push!(out, (i, l, r, letter.c, letter.n, round(c; digits = 10)))
-            end
-        end
-    end
-    return out
-end
-
-# lossless: the flat-storage MPO reconstructs the original term-sum exactly
-function flat_lossless(H::TermSum, sites)
-    Ws, secs = irrep_mpo_flat(H, sites)
-    back = mpo_terms(Ws, secs)
-    Set(keys(back.terms)) == Set(keys(H.terms)) || return false
-    return all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
-end
-
-# flat path matches the trie path bond-for-bond (sizes, bond sectors, and stored entries)
-function flat_matches_trie(H::TermSum, sites)
-    Wf, sf = irrep_mpo_flat(H, sites)
-    Wt, st = irrep_mpo_trie(H, sites)
-    sf == st || return false
-    size.(Wf) == size.(Wt) || return false
-    return reduced_entries(Wf) == reduced_entries(Wt)
-end
-
 su2 = SU2Space(1 // 2 => 1)
 u1 = Rep[U₁](0 => 1, 1 => 1)
 
-@testset "ITOTermTable — flat storage + bipartite sweep" begin
+@testset "ITOTermTable — flat ITO storage" begin
 
     @testset "construction sanity" begin
         H = reduce(+, dot(spin(su2)[i], spin(su2)[i + 1]) for i in 1:3)
         tt = ITOTermTable(H, fill(su2, 4))
         @test nvertices(tt) == 4
         @test nterms(tt) == length(H.terms)
-        # two-body terms => arity 2, sites sorted/zero-padded
-        @test arity(tt) == 2
+        @test arity(tt) == 2                      # two-body terms
         for t in 1:nterms(tt)
             occ = filter(!=(0), tt.sites[:, t])
             @test issorted(occ) && allunique(occ)
         end
     end
 
-    @testset "lossless — SU(2) Heisenberg" begin
-        for N in (3, 4, 5)
-            H = reduce(+, dot(spin(su2)[i], spin(su2)[i + 1]) for i in 1:(N - 1))
-            @test flat_lossless(H, fill(su2, N))
-        end
+    @testset "_op_at_ito reconstructs the running-bond pass-through path" begin
+        # a single two-body term on sites (1,3) of a 4-site chain, coupled to a singlet
+        H = dot(spin(su2)[1], spin(su2)[3])
+        tt = ITOTermTable(H, fill(su2, 4))
+        @test nterms(tt) == 1
+        path = [_op_at_ito(tt, 1, s) for s in 1:4]
+
+        # active sites carry the ITO letter and the outgoing (running) bond charge
+        @test !ispassthrough(path[1].op)
+        @test path[1].op.c == SU2Irrep(1)
+        @test path[1].bond == SU2Irrep(1)          # bond out of site 1 (the coupled pair line)
+        @test !ispassthrough(path[3].op)
+        @test path[3].bond == SU2Irrep(0)          # total (singlet) out of site 3
+
+        # idle sites are pass-through, carrying the running bond charge to their left
+        @test ispassthrough(path[2].op) && path[2].bond == SU2Irrep(1)
+        @test ispassthrough(path[4].op) && path[4].bond == SU2Irrep(0)
     end
 
-    @testset "lossless — U(1) hopping" begin
+    @testset "K=0 identity term is all pass-through (trivial running charge)" begin
+        H = scalarop(2.0, su2)[1]
+        tt = ITOTermTable(H, fill(su2, 3))
+        @test nterms(tt) == 1
+        @test all(==(0), tt.sites)                 # no active factors
+        path = [_op_at_ito(tt, 1, s) for s in 1:3]
+        @test all(k -> ispassthrough(k.op) && k.bond == unit(SU2Irrep), path)
+    end
+
+    @testset "U(1) charge threads through idle sites" begin
         raise = LO(IrrepOperator(U1Irrep(1), 1))
         lower = LO(IrrepOperator(U1Irrep(-1), 1))
-        N = 4
-        H = reduce(+, dot(raise[i], lower[i + 1]) for i in 1:(N - 1)) +
-            reduce(+, dot(lower[i], raise[i + 1]) for i in 1:(N - 1))
-        @test flat_lossless(H, fill(u1, N))
-    end
-
-    @testset "lossless — K=3 three-body" begin
-        S = spin(su2)
-        H = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
-        @test flat_lossless(H, fill(su2, 3))
-    end
-
-    @testset "matches trie path bond-for-bond" begin
-        cases = [
-            (reduce(+, dot(spin(su2)[i], spin(su2)[i + 1]) for i in 1:2), fill(su2, 3)),
-            (reduce(+, dot(spin(su2)[i], spin(su2)[i + 1]) for i in 1:4), fill(su2, 5)),
-            (reduce(+, dot(spin(su2)[i], spin(su2)[i + 1]) for i in 1:5), fill(su2, 6)),
-            (spin(su2)[1] + spin(su2)[2] + spin(su2)[3], fill(su2, 3)),
-            (scalarop(2.5, su2)[1] + dot(spin(su2)[1], spin(su2)[2]), fill(su2, 3)),
-        ]
-        for (H, sites) in cases
-            @test flat_matches_trie(H, sites)
-        end
-
-        raise = LO(IrrepOperator(U1Irrep(1), 1))
-        lower = LO(IrrepOperator(U1Irrep(-1), 1))
-        N = 4
-        Hu1 = reduce(+, dot(raise[i], lower[i + 1]) for i in 1:(N - 1)) +
-            reduce(+, dot(lower[i], raise[i + 1]) for i in 1:(N - 1))
-        @test flat_matches_trie(Hu1, fill(u1, N))
+        H = dot(raise[1], lower[4])                # sites 1,4 on a 5-site chain
+        tt = ITOTermTable(H, fill(u1, 5))
+        path = [_op_at_ito(tt, 1, s) for s in 1:5]
+        # after the +1 at site 1, the running bond charge is +1 until the -1 at site 4 closes it
+        @test all(s -> path[s].bond == U1Irrep(1), 2:3)
+        @test path[4].bond == U1Irrep(0)
+        @test path[5].bond == U1Irrep(0)
     end
 
 end

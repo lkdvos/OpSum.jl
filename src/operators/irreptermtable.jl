@@ -1,18 +1,17 @@
-# Flat term-list storage for the ITO automaton (Phase 4)
-# ======================================================
-# The flat-storage analogue of `irrep_trie`/`_irrep_bipartite`: store each term's active
-# `(site, ITOKey)` factors in flat matrices (mirroring the dense `TermTable`), then run the
-# per-bond-sector bipartite sweep directly off them without ever materialising the pointer trie.
+# Flat term-list storage + per-bond-sector bipartite sweep for the ITO automaton
+# ==============================================================================
+# `ITOTermTable` stores each term's active `(site, ITOKey)` factors in flat matrices (the ITO
+# counterpart of the dense `TermTable`); `_irrep_bipartite` runs the per-bond-sector min-vertex-
+# cover sweep directly off it. `irrep_mpo` (irrepmpo.jl) is the public entry.
 #
-# The one ITO-specific subtlety vs the dense `TermTable`: idle sites are NOT a constant identity.
-# The trie fills them with a pass-through symbol carrying the *running* bond charge (`_ito_path`).
-# The flat store keeps only active factors; `_op_at_ito` reconstructs the pass-through key at any
-# idle position from the last active bond charge to its left — so the per-bond transition key is
-# effectively `(prev_id, op, bond, vertex)`, preserving block-diagonality exactly.
+# The one ITO-specific subtlety vs the dense `TermTable`: idle sites are NOT a constant identity —
+# they carry a pass-through symbol with the *running* bond charge. The flat store keeps only active
+# factors; `_op_at_ito` reconstructs the pass-through key at any idle position from the last active
+# bond charge to its left, so the per-bond transition key is effectively `(prev_id, op, bond,
+# vertex)`, preserving block-diagonality exactly.
 #
-# The sweep mirrors `_irrep_bipartite` bond-for-bond (sorted `Us`, materialised-suffix `Vs`) so it
-# feeds `min_vertex_cover_bipartite` an identical bipartite graph and reproduces the same reduced
-# MPO — including the per-sector bond dimensions the ITO tests pin down.
+# The sweep uses sorted `Us` and materialised-suffix `Vs` keys, feeding `min_vertex_cover_bipartite`
+# a canonical bipartite graph and yielding the per-sector bond dimensions the ITO tests pin down.
 
 using TensorKit: Sector, unit
 
@@ -21,7 +20,7 @@ using TensorKit: Sector, unit
 
 Flat, sparse-per-term storage of an ITO term-sum on an `N`-vertex chain: each term's active
 `(site, ITOKey)` factors in `K×M` matrices (`sites` zero-padded, ascending) plus a parallel
-`coeffs` vector. The flat-storage counterpart of the charge-augmented [`irrep_trie`](@ref).
+`coeffs` vector. The ITO counterpart of the dense [`TermTable`](@ref).
 """
 struct ITOTermTable{I <: Sector}
     sites::Matrix{Int}
@@ -48,7 +47,7 @@ end
     ITOTermTable(terms, sites)      # iterable of TermSums, summed first
 
 Build the flat ITO term table for a term-sum over `N = length(sites)` lattice sites. Coincident
-paths (identical active `(site, ITOKey)` content) accumulate coefficients, matching `irrep_trie`.
+paths (identical active `(site, ITOKey)` content) accumulate coefficients.
 """
 function ITOTermTable(ts::TermSum{I, S, Tc}, sites) where {I, S, Tc}
     N = length(sites)
@@ -101,28 +100,17 @@ function _op_at_ito(tt::ITOTermTable{I}, t::Int, s::Int) where {I}
     return ITOKey{I}(passthrough(I), lastbond, 1)
 end
 
-# Materialised suffix path o_t[i+1 .. N] of term `t` (the `Vs` grouping key, mirroring the trie's
-# `Dictionary{Vector{ITOKey}, Int}`).
+# Materialised suffix path o_t[i+1 .. N] of term `t` (the `Vs` grouping key).
 function _suffix_path(tt::ITOTermTable{I}, t::Int, i::Int, N::Int) where {I}
     return ITOKey{I}[_op_at_ito(tt, t, s) for s in (i + 1):N]
 end
 
-"""
-    irrep_mpo_flat(H::TermSum, sites) -> (Ws, bondsectors)
-
-Flat-storage counterpart of [`irrep_mpo`](@ref): build an [`ITOTermTable`](@ref) and run the
-per-bond-sector bipartite sweep off it, with no pointer trie. Produces the same reduced MPO and
-`bondsectors` as `irrep_mpo` (the sweep mirrors `_irrep_bipartite` bond-for-bond).
-"""
-function irrep_mpo_flat(H::TermSum{I, S, Tc}, sites) where {I, S, Tc}
-    return _irrep_bipartite_flat(ITOTermTable(H, sites), length(sites))
-end
-
-# Strand-based reproduction of `_irrep_bipartite` (irrepmpo.jl). Each frontier state is a list of
-# strands `(representative_term, coeff)`; `Us` are the per-state groups by local ITOKey (sorted),
-# `Vs` are grouped by materialised suffix path. Kept structurally in lockstep with the trie sweep
-# so the two produce identical reduced MPOs; keep them in sync if either changes.
-function _irrep_bipartite_flat(tt::ITOTermTable{I}, N::Int) where {I}
+# Per-bond-sector bipartite min-vertex-cover sweep over the flat `ITOTermTable`. Each frontier state
+# is a list of strands `(representative_term, coeff)`; `Us` are the per-state groups by local ITOKey
+# (sorted), `Vs` are grouped by materialised suffix path. Emits ITO letters (`ITOKey.op`) times
+# reduced coefficients and tracks each retained bond's charge (`ITOKey.bond`), asserting sector
+# purity. `irrep_mpo` (irrepmpo.jl) is the public entry.
+function _irrep_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
     Op = ITOKey{I}
     T = ComplexF64
     LOp = LocalOp{ComplexF64, IrrepOperator{I}}
@@ -137,7 +125,7 @@ function _irrep_bipartite_flat(tt::ITOTermTable{I}, N::Int) where {I}
     bondsectors = Vector{I}[]
 
     for i in 1:N
-        # --- Us: per-state groups by local ITOKey, sorted (mirrors sorted trie children) -------
+        # --- Us: per-state groups by local ITOKey, sorted -------------------------------------
         Uop = Op[]
         Uleft = Int[]
         Ustrands = Vector{Strand}[]
@@ -155,7 +143,7 @@ function _irrep_bipartite_flat(tt::ITOTermTable{I}, N::Int) where {I}
         end
         nU = length(Uop)
 
-        # --- Vs: grouped by materialised suffix path (mirrors trie `pairs(U)`) -----------------
+        # --- Vs: grouped by materialised suffix path ------------------------------------------
         uid! = Counter()
         Vs = Dictionary{Vector{Op}, Int}()
         Vrepr = Int[]

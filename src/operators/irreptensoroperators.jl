@@ -130,8 +130,8 @@ function Base.one(::Type{<:IrrepOperator}, V::TensorKit.ElementarySpace)
     return IrrepOperator{I}(unit(I), 1)
 end
 
-# Ordering / hashing (Trie / Dictionary keys)
-# -------------------------------------------
+# Ordering / hashing (sorting Us, Dictionary keys)
+# ------------------------------------------------
 # Order by TensorKit's canonical sector `isless` first, tie-broken by the canonical index `n`.
 function Base.isless(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I <: Sector}
     return x.c == y.c ? isless(x.n, y.n) : isless(x.c, y.c)

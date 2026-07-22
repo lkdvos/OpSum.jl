@@ -1,11 +1,10 @@
 module OpSum
 
-export Trie, Sum
+export Sum
 export opsum, simplify
 export mpo_bond_optimizations, BipartiteAlgorithm, SVDBondAlgorithm
 
 using Dictionaries
-using AbstractTrees
 using SparseArraysBase: SparseArraysBase
 using SparseArraysBase: SparseArrayDOK, SparseMatrixDOK, storedpairs
 using VectorInterface
@@ -21,7 +20,6 @@ include("utility/utility.jl")
 
 # Data structures
 # ---------------
-include("datastructures/trie.jl")
 include("datastructures/bipartite.jl")
 
 # Operators
@@ -36,7 +34,7 @@ include("operators/paulioperators.jl")
 include("operators/irreptensoroperators.jl")
 using .IrrepTensorOperators: IrrepOperator
 include("operators/irrepalgebra.jl")
-include("operators/irreptrie.jl")
+include("operators/irrepkey.jl")
 include("operators/irreptermtable.jl")
 include("operators/irrepmpo.jl")
 

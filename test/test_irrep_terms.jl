@@ -1,8 +1,7 @@
 using Test
 using OpSum
-using OpSum: instantiate, irrep_trie, trie_terms, TermSum, TermKey, ITOKey, total,
-    passthrough, ispassthrough, bondcharges, vertexlabels, caterpillar_trees,
-    spin, scalarop, couple
+using OpSum: instantiate, TermSum, TermKey, total, passthrough, ispassthrough,
+    bondcharges, caterpillar_trees, spin, scalarop, couple
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, I as Id
@@ -51,47 +50,10 @@ end
     c = SU2Irrep(1)
     @test length(caterpillar_trees((c, c), SU2Irrep(0))) == 1
     @test length(caterpillar_trees((c, c, c), SU2Irrep(0))) == 1
-    @test length(caterpillar_trees((c, c, c), SU2Irrep(1))) > 1   # 3-body: multiple channels (pick via nested couple)
+    @test length(caterpillar_trees((c, c, c), SU2Irrep(1))) > 1   # 3-body: multiple channels
 end
 
-@testset "SU(2) trie is charge-block-diagonal" begin
-    V = SU2Space(1 // 2 => 1)
-
-    # prefix sharing: S₁·S₂ and S₁·S₃ agree on the site-1 (op, bond) → shared node
-    tr = irrep_trie([dot(spin(V)[1], spin(V)[2]), dot(spin(V)[1], spin(V)[3])], [V, V, V])
-    @test length(tr.children) == 1
-    site1_key = only(keys(tr.children))
-    @test site1_key.op == IrrepOperator{SU2Irrep}(SU2Irrep(1), 1)
-    @test site1_key.bond == SU2Irrep(1)
-    @test length(only(tr.children).children) == 2      # diverge at site 2
-
-    # distinct couplings on the same string → distinct paths (block-diagonal in bond)
-    tr2 = irrep_trie(
-        [
-            couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0)),
-            couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(1)),
-        ],
-        [V, V],
-    )
-    @test length(tr2.children) == 1
-    node = only(tr2.children)
-    site2_bonds = sort!([k.bond.j for k in keys(node.children)])
-    @test site2_bonds == [0 // 1, 1 // 1]
-end
-
-@testset "round-trip: trie ↔ term-sum" begin
-    V = SU2Space(1 // 2 => 1)
-    sites = [V, V, V, V]
-    H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:3)
-    back = trie_terms(irrep_trie(H, sites))
-
-    @test Set(keys(back.terms)) == Set(keys(H.terms))
-    for k in keys(H.terms)
-        @test back.terms[k] ≈ H.terms[k]
-    end
-end
-
-@testset "U(1) hopping term" begin
+@testset "U(1) hopping term normal form" begin
     V = Rep[U₁](0 => 1, 1 => 1)
     raise = LO(IrrepOperator(U1Irrep(1), 1))
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
@@ -105,9 +67,6 @@ end
 
     ts2 = couple(raise[1], raise[2]; to = U1Irrep(2))
     @test termbonds(onlyterm(ts2)[1]) == [U1Irrep(1), U1Irrep(2)]
-
-    tr = irrep_trie([dot(raise[1], lower[2]), dot(raise[2], lower[3])], [V, V, V])
-    @test length(trie_terms(tr).terms) == 2
 end
 
 @testset "trivial-sector bridge (ℂ²)" begin
@@ -116,25 +75,18 @@ end
     term = couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial))
     tk, coeff = onlyterm(term)
     @test termbonds(tk) == [unit(Trivial), unit(Trivial)]
-    @test coeff ≈ 1.0                                   # bare `couple` carries no factor (dot would give -1)
+    @test coeff ≈ 1.0                                   # bare `couple` carries no factor
     @test !ispassthrough(tk.ops[1]) && !ispassthrough(tk.ops[2])
 
-    # a scalar (identity) field is an all-pass-through path (K = 0 term)
+    # a scalar (identity) field is a K = 0 term
     idterm = scalarop(2.0, V)[1]
     tk0, c0 = onlyterm(idterm)
     @test isempty(tk0.sites)
     @test c0 ≈ 2.0
-    path = only(keys(irrep_trie(idterm, [V, V]).children)).op
-    @test ispassthrough(path)
-
-    # round-trip on a trivial-sector chain
-    back = trie_terms(irrep_trie(term, [V, V]))
-    @test Set(keys(back.terms)) == Set(keys(term.terms))
 end
 
-# Closes the Phase-3 semantic caveat: the *reduced* representation (reduced coefficients + fusion
-# structure), routed through the trie and back, must re-materialize to the correct dense operator
-# — verified end-to-end against an explicit Heisenberg chain (multi-term, multi-site).
+# The reduced representation (reduced coefficients + fusion structure) must re-materialize to the
+# correct dense operator — verified end-to-end against an explicit Heisenberg chain.
 @testset "end-to-end: reduced representation reconstructs the dense operator" begin
     V = SU2Space(1 // 2 => 1)
     Sx = ComplexF64[0 1; 1 0] / 2
@@ -143,7 +95,6 @@ end
     Svec = (Sx, Sy, Sz)
     I2 = Matrix{ComplexF64}(Id, 2, 2)
 
-    # explicit dense Heisenberg chain  Σ_i Σ_a Sᵃ_i Sᵃ_{i+1}
     function heis_ref(N)
         H = zeros(ComplexF64, 2^N, 2^N)
         for i in 1:(N - 1), Sa in Svec
@@ -164,10 +115,6 @@ end
         sites = fill(V, N)
         H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
         direct = instantiate(H, sites)
-        viatrie = instantiate(trie_terms(irrep_trie(H, sites)), sites)
-        # trie round-trip re-materializes to the same operator
-        @test convert(Array, viatrie) ≈ convert(Array, direct)
-        # and that operator is the physical Heisenberg chain (end-to-end, multi-term)
         @test to_matrix(direct, N) ≈ heis_ref(N)
     end
 end
@@ -177,7 +124,7 @@ end
 @testset "K=3 SU(2): distinct coupling channels" begin
     V = SU2Space(1 // 2 => 1)
     Sop = spin(V)
-    channels = (SU2Irrep(0), SU2Irrep(1), SU2Irrep(2))     # (S₁⊗S₂) → b₂, all fuse with S₃ to a singlet? use total 1
+    channels = (SU2Irrep(0), SU2Irrep(1), SU2Irrep(2))     # (S₁⊗S₂) → b₂, fuse with S₃ to total 1
     terms = [couple(couple(Sop[1], Sop[2]; to = b2), Sop[3]; to = SU2Irrep(1)) for b2 in channels]
     ks = [onlyterm(t)[1] for t in terms]
 
@@ -195,10 +142,4 @@ end
     @test !(mats[1] ≈ mats[2])
     @test !(mats[1] ≈ mats[3])
     @test !(mats[2] ≈ mats[3])
-
-    # round-trip through the trie preserves the (tree-resolved) term identity for each channel
-    for t in terms
-        back = trie_terms(irrep_trie(t, fill(V, 3)))
-        @test Set(keys(back.terms)) == Set(keys(t.terms))
-    end
 end

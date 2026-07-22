@@ -22,37 +22,32 @@ julia --project -e 'using Runic; Runic.format_file("src/file.jl"; check=true)'
 
 ## Architecture
 
-OpSum.jl converts sums of quantum operators (e.g. Hamiltonians) into efficient tensor network representations (MPOs, TTNOs). The pipeline flows through four layers:
+OpSum.jl converts sums of quantum operators (e.g. Hamiltonians) into efficient matrix-product-operator (MPO) representations. There are two parallel pipelines — a dense/Pauli one and a symmetric/irrep (ITO) one — sharing the same shape: symbolic algebra → flat term list → per-bond bipartite compression → MPO.
 
 1. **Symbolic operator algebra** — `src/operators/`
-   - `LocalOp{T,A}`: A sum type (via `LightSumTypes.@sumtype`) representing operators on a single local Hilbert space. Variants include scalars, basis elements, `Sum`, `Prod`, `Pow`, `Kron`, `Fun`.
-   - `GlobalOp{T,A,S}`: Wraps `LocalOp` with explicit site indices. Syntax: `op[site1, site2, ...]`.
-   - `OperatorBasis`: Abstract supertype for concrete operator sets (e.g. `PauliOperator`, `FermionOperator`).
-   - Arithmetic (`+`, `-`, `*`, `/`) on these types builds symbolic expression trees.
+   - `LocalOp{T,A}`: a sum type (via `LightSumTypes.@sumtype`) for operators on one local Hilbert space; variants are scalars, basis elements, `Sum`, `Prod`, `Pow`, `Kron`, `Fun`.
+   - `GlobalOp{T,A,S}`: wraps `LocalOp` with explicit site indices — `op[site1, site2, ...]`. Arithmetic (`+`, `-`, `*`) builds symbolic expression trees.
+   - `OperatorBasis`: supertype for concrete operator sets; `PauliOperator` (`paulioperators.jl`) is the dense basis.
+   - Symmetric track: `IrrepOperator` (`irreptensoroperators.jl`) plus the fusion-resolved term algebra `TermSum`/`TermKey` (`irrepalgebra.jl`), built with `couple`/`dot`.
 
-2. **State machine construction** — `src/statemachines/state_machines.jl`
-   - `opsum_vertex_operators(terms, topology)`: converts a list of `GlobalOp` terms into per-site "vertex operator" matrices `W[site]` via finite automaton encoding over Tries/DAWGs.
-   - `compress_vertex_operators`: SVD-based compression of vertex operators using `MatrixAlgebraKit`.
+2. **Flat term storage** — `src/operators/`
+   - `TermTable{Op,T}` (`termtable.jl`): flat, sparse-per-term storage — each term's non-identity `(site, op)` factors in `K×M` matrices plus a `coeffs` vector, built directly from a `GlobalOp`. Mirrors ITensorMPOConstruction's `OpIDSum`.
+   - `ITOTermTable{I}` (`irreptermtable.jl`): the symmetric counterpart, storing each term's active `(site, ITOKey)` factors; idle sites reconstruct the pass-through symbol's running bond charge via `_op_at_ito`. The `ITOKey` alphabet and caterpillar fusion helpers live in `irrepkey.jl`.
 
-3. **Data structures** — `src/datastructures/`
-   - `TermTable{Op,T}` (`src/operators/termtable.jl`): flat, sparse-per-term storage — each term's non-identity `(site, op)` factors in `K×M` matrices plus a `coeffs` vector. Built directly from a `GlobalOp` and is the default term source feeding `mpo_bond_optimizations` (both `BipartiteAlgorithm` and `SVDBondAlgorithm`).
-   - `ITOTermTable{I}` (`src/operators/irreptermtable.jl`): the ITO-track counterpart, storing each term's active `(site, ITOKey)` factors. Default term source for `irrep_mpo` (via `irrep_mpo_flat`); idle sites reconstruct the pass-through's running bond charge (`_op_at_ito`). The trie path (`irrep_trie` + `_irrep_bipartite`) remains as reference.
-   - `Trie{K,V}`: Prefix tree over fixed-length sequences; used to group operator terms sharing common prefixes/suffixes. No longer the mandatory intermediate for MPO bond optimization — `build_trie!` is retained as a utility/test oracle and the `Trie`-accepting `mpo_bond_optimizations` methods remain valid entry points.
-   - `SDAWG` / `DAWGDictionary`: Directed Acyclic Word Graph for suffix-compressed storage; enables sharing common tails of operator strings.
-   - `BipartiteGraph`: Used for matching/decomposing tensor network bonds.
-   - Tree variants (`TreeTrie`, `TreeDAWG`) for TTNOs on non-linear topologies.
+3. **Compression primitive** — `src/datastructures/bipartite.jl`
+   - `min_vertex_cover_bipartite` (Hopcroft–Karp maximum matching + König): chooses each bond's basis. Both pipelines feed it a bipartite (prefix, suffix) graph per bond.
 
-4. **Tensor network representations** — `src/statemachines/ttno.jl`
-   - `TreeTopology`: BFS-rooted tree structure describing tensor network geometry.
-   - `ttno_terms` / `mpo_bond_optimizations`: Build TTNO/MPO bond tensors from vertex operators.
-   - `opsum(terms, sites)`: Convenience entry point for the full MPO construction pipeline.
+4. **MPO construction** — `src/statemachines/graphbuilding.jl`, `src/operators/irrepmpo.jl`
+   - `mpo_bond_optimizations(vertices, ex::GlobalOp[, alg])`: dense MPO from a `GlobalOp`. `alg` is `BipartiteAlgorithm()` (default, min-vertex-cover) or `SVDBondAlgorithm()`. Runs a per-bond sweep over a `TermTable`; returns `Vector{SparseMatrixDOK{LocalOp}}`.
+   - `irrep_mpo(H::TermSum, sites)`: symmetric reduced MPO from a `TermSum` via the per-bond-*sector* bipartite sweep (`_irrep_bipartite`) over an `ITOTermTable`; returns reduced bond matrices + per-bond charge sectors. `mpo_terms` reconstructs the `TermSum` (faithfulness check) and `irrep_mpo_tensors` assembles the symmetric `TensorMap`s.
+   - `mpo_to_dense` (`state_machines.jl`): contracts the bond matrices into a dense operator for validation.
 
 ### Key design patterns
 
-- **Sum types via `LightSumTypes`**: `LocalOp` and `GlobalOp` use `@sumtype` for algebraic variants. Pattern match with `@cases`.
-- **`VectorInterface` integration**: All symbolic algebra types implement `VectorInterface` norms/inner products for truncation/compression.
-- **Instantiation**: `instantiate(op, sites)` materializes symbolic expressions into dense arrays; used in tests to validate tensor network construction.
-- **`SparseMatrixDOK`**: Vertex operator matrices are stored as dict-of-keys sparse matrices before compression.
+- **Sum types via `LightSumTypes`**: `LocalOp` and `GlobalOp` use `@sumtype`; pattern-match with `@cases`.
+- **`VectorInterface` integration**: symbolic algebra types implement `VectorInterface` norms/inner products for truncation/compression.
+- **Instantiation**: `instantiate(op, sites)` materializes symbolic expressions into dense arrays / `TensorMap`s; used as the correctness oracle in tests.
+- **`SparseMatrixDOK`**: bond matrices are dict-of-keys sparse matrices, finalized to sparse form at the end of each sweep.
 
 ### Test structure
 

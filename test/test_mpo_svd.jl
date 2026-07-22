@@ -91,7 +91,7 @@ end
     @test maximum(x -> max(size(x)...), Ws_trunc) == 1
 
     # Exact result is correct; truncated is an approximation (different Hamiltonian)
-    H_ref   = instantiate(H, sites[1:4])
+    H_ref = instantiate(H, sites[1:4])
     H_exact = mpo_to_dense(Ws_exact, sites[1:4])
     H_trunc = mpo_to_dense(Ws_trunc, sites[1:4])
     @test H_exact ≈ H_ref

@@ -135,3 +135,43 @@ end
     back = trie_terms(irrep_trie(term, [V, V]))
     @test Set(keys(back.terms)) == Set(keys(term.terms))
 end
+
+# Closes the Phase-3 semantic caveat: the *reduced* representation (reduced coefficients + fusion
+# structure), routed through the trie and back, must re-materialize to the correct dense operator
+# — verified end-to-end against an explicit Heisenberg chain (multi-term, multi-site).
+@testset "end-to-end: reduced representation reconstructs the dense operator" begin
+    V = SU2Space(1 // 2 => 1)
+    Sx = ComplexF64[0 1; 1 0] / 2
+    Sy = ComplexF64[0 -im; im 0] / 2
+    Sz = ComplexF64[1 0; 0 -1] / 2
+    Svec = (Sx, Sy, Sz)
+    I2 = Matrix{ComplexF64}(Id, 2, 2)
+
+    # explicit dense Heisenberg chain  Σ_i Σ_a Sᵃ_i Sᵃ_{i+1}
+    function heis_ref(N)
+        H = zeros(ComplexF64, 2^N, 2^N)
+        for i in 1:(N - 1), Sa in Svec
+            ops = [(k == i || k == i + 1) ? Sa : I2 for k in 1:N]
+            H += foldl(kron, ops)
+        end
+        return H
+    end
+    # TensorMap operator → matrix: drop the dim-1 total-charge leg, reorder to kron index order
+    function to_matrix(t, N)
+        A = convert(Array, t)
+        ndims(A) == 2N + 1 && (A = dropdims(A; dims = 2N + 1))
+        perm = (reverse(1:N)..., reverse((N + 1):(2N))...)
+        return reshape(permutedims(A, perm), 2^N, 2^N)
+    end
+
+    for N in (2, 3)
+        sites = fill(V, N)
+        H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+        direct = instantiate(H, sites)
+        viatrie = instantiate(trie_terms(irrep_trie(H, sites)), sites)
+        # trie round-trip re-materializes to the same operator
+        @test convert(Array, viatrie) ≈ convert(Array, direct)
+        # and that operator is the physical Heisenberg chain (end-to-end, multi-term)
+        @test to_matrix(direct, N) ≈ heis_ref(N)
+    end
+end

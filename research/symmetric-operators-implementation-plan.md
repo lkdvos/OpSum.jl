@@ -164,10 +164,12 @@ independently of any MPO machinery. This is the prototype requested as the start
 **Status: implemented** — `src/operators/irreptrie.jl` + `test/test_irrep_trie.jl` (full suite
 794 green). `FusedTerm` normal form, `ITOKey = (op, bond, vertex)` trie key, pass-through
 identity sentinel (`IrrepOperator(unit(I), 0)`), channel enumeration via TensorKit `fusiontrees`.
-**Caveat:** validation is *structural only* (block-diagonality + trie↔term round-trip); that a
-`FusedTerm` re-materializes to the correct dense operator is deferred to Phase 5's oracle, so the
-reduced-coefficient convention is not yet independently verified end-to-end. Deferred within
-Phase 3: GenericFusion vertex multiplicity > 1 and multi-body (>2-operator) coupling.
+**Caveat (CLOSED):** originally validation was *structural only* (block-diagonality + trie↔term
+round-trip). After the term-list redesign, the reduced representation is verified end-to-end: the
+term-sum, routed through the trie and back (`trie_terms ∘ irrep_trie`) and materialized, matches
+both the direct dense oracle `instantiate(::TermSum)` and an explicit dense Heisenberg chain
+(`test_irrep_trie.jl`, N = 2, 3). Still deferred: GenericFusion vertex multiplicity > 1 and
+multi-body (>2-operator) coupling.
 
 ---
 

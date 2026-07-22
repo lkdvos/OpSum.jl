@@ -293,8 +293,8 @@ function mpo_bond_optimizations(vertices, ex::GlobalOp{T, A}) where {T, A}
     return mpo_bond_optimizations(vertices, ex, BipartiteAlgorithm())
 end
 
-# BipartiteAlgorithm now defaults to the flat TermTable front end, which is
-# faster and lighter than building a Trie up front (see research/bench_termtable.jl)
+# Both algorithms now default to the flat TermTable front end, which is faster
+# and lighter than building a Trie up front (see research/bench_termtable.jl)
 # while producing an equivalent MPO.
 function mpo_bond_optimizations(
         vertices::AbstractVector{Int}, ex::GlobalOp, alg::BipartiteAlgorithm
@@ -302,49 +302,22 @@ function mpo_bond_optimizations(
     return mpo_bond_optimizations(vertices, TermTable(vertices, ex), alg)
 end
 
-# Convenience overload accepting a GlobalOp directly (used by SVDBondAlgorithm,
-# which still consumes a Trie).
 function mpo_bond_optimizations(
-        vertices::AbstractVector{Int}, ex::GlobalOp{T, A}, alg
-    ) where {T, A}
-    prefix_trie = Trie{A, T}()
-    build_trie!(prefix_trie, vertices, ex, one(T))
-    return mpo_bond_optimizations(vertices, prefix_trie, alg)
+        vertices::AbstractVector{Int}, ex::GlobalOp, alg::SVDBondAlgorithm
+    )
+    return mpo_bond_optimizations(vertices, TermTable(vertices, ex), alg)
 end
 
 # ===========================================================================
 # SVDBondAlgorithm
 # ===========================================================================
 
-"""
-    mpo_bond_optimizations(vertices, prefix_trie, alg::SVDBondAlgorithm)
-
-SVD-based MPO construction.
-
-At each bond b, assemble the coefficient matrix C[b][pre, suf] (shape n_pre × n_suf)
-from all operator terms.  The left singular vectors U[b] (n_pre × r) define the
-compressed bond basis of rank r.
-
-Vertex operators are first assembled in the uncompressed (pre_{i-1}, pre_i) basis,
-then projected:
-
-    W_compressed[i] = U[i-1]ᵀ · W_uncompressed[i] · U[i]
-
-where U[0] = U[N] = I₁ at the chain boundaries.
-"""
-function mpo_bond_optimizations(
-        vertices::AbstractVector{Int}, prefix_trie::Trie{Op, T}, alg::SVDBondAlgorithm
+# Shared SVD core, parameterised by accessors so both the Trie- and
+# TermTable-backed methods use one implementation. `opat(t, b)` returns the
+# operator at site `b` of term `t`; `coeff(t)` returns term `t`'s coefficient.
+function _svd_bond_optimizations(
+        ::Type{T}, ::Type{Op}, N::Int, M::Int, opat, coeff, alg::SVDBondAlgorithm
     ) where {T, Op}
-    N = length(vertices)
-    isempty(prefix_trie) && return SparseMatrixDOK{LocalOp{T, Op}}[]
-
-    # -----------------------------------------------------------------------
-    # 0. Collect all terms
-    # -----------------------------------------------------------------------
-    all_ops = [ops for (ops, _) in pairs(prefix_trie)]
-    all_coeffs = [coeff for (_, coeff) in pairs(prefix_trie)]
-    M = length(all_ops)
-
     # -----------------------------------------------------------------------
     # 1. Build integer ID matrices for prefixes and suffixes at every bond.
     #    pre_ids[t, b] = unique ID for prefix ops[1:b] of term t
@@ -361,7 +334,7 @@ function mpo_bond_optimizations(
     for t in 1:M
         prev_id = 1   # sentinel for empty prefix
         for b in 1:(N - 1)
-            id = get!(pre_counters[b], pre_trans[b], (prev_id, all_ops[t][b]))
+            id = get!(pre_counters[b], pre_trans[b], (prev_id, opat(t, b)))
             pre_ids[t, b] = id
             prev_id = id
         end
@@ -372,7 +345,7 @@ function mpo_bond_optimizations(
     for t in 1:M
         prev_id = 1   # sentinel for empty suffix
         for b in (N - 1):-1:1
-            id = get!(suf_counters[b], suf_trans[b], (prev_id, all_ops[t][b + 1]))
+            id = get!(suf_counters[b], suf_trans[b], (prev_id, opat(t, b + 1)))
             suf_ids[t, b] = id
             prev_id = id
         end
@@ -384,7 +357,7 @@ function mpo_bond_optimizations(
     Cs = [zeros(T, pre_counters[b].current, suf_counters[b].current) for b in 1:(N - 1)]
     for t in 1:M
         for b in 1:(N - 1)
-            Cs[b][pre_ids[t, b], suf_ids[t, b]] += all_coeffs[t]
+            Cs[b][pre_ids[t, b], suf_ids[t, b]] += coeff(t)
         end
     end
 
@@ -416,12 +389,12 @@ function mpo_bond_optimizations(
 
         op_coeffs = Dictionary{Op, Matrix{T}}()
         for t in 1:M
-            op = all_ops[t][i]
+            op = opat(t, i)
             j = i > 1 ? pre_ids[t, i - 1] : 1
             l = i < N ? pre_ids[t, i] : 1
             C = get!(() -> zeros(T, n_pre_left, n_pre_right), op_coeffs, op)
             if i == N
-                C[j, l] += all_coeffs[t]   # accumulate: multiple terms can share the same prefix
+                C[j, l] += coeff(t)         # accumulate: multiple terms can share the same prefix
             else
                 C[j, l] = one(T)            # deterministic: same (j,l) implies same op
             end
@@ -438,4 +411,49 @@ function mpo_bond_optimizations(
     end
 
     return map(SparseArraysBase.sparse, dicts, sizes)
+end
+
+"""
+    mpo_bond_optimizations(vertices, prefix_trie, alg::SVDBondAlgorithm)
+    mpo_bond_optimizations(vertices, tt::TermTable, alg::SVDBondAlgorithm)
+
+SVD-based MPO construction.
+
+At each bond b, assemble the coefficient matrix C[b][pre, suf] (shape n_pre × n_suf)
+from all operator terms.  The left singular vectors U[b] (n_pre × r) define the
+compressed bond basis of rank r.
+
+Vertex operators are first assembled in the uncompressed (pre_{i-1}, pre_i) basis,
+then projected:
+
+    W_compressed[i] = U[i-1]ᵀ · W_uncompressed[i] · U[i]
+
+where U[0] = U[N] = I₁ at the chain boundaries.
+
+Both a pointer-based `Trie` and a flat [`TermTable`](@ref) are accepted as the
+term source; the transition-ID / SVD core is shared between them.
+"""
+function mpo_bond_optimizations(
+        vertices::AbstractVector{Int}, prefix_trie::Trie{Op, T}, alg::SVDBondAlgorithm
+    ) where {T, Op}
+    N = length(vertices)
+    isempty(prefix_trie) && return SparseMatrixDOK{LocalOp{T, Op}}[]
+
+    all_ops = [ops for (ops, _) in pairs(prefix_trie)]
+    all_coeffs = [coeff for (_, coeff) in pairs(prefix_trie)]
+    return _svd_bond_optimizations(
+        T, Op, N, length(all_ops), (t, b) -> all_ops[t][b], t -> all_coeffs[t], alg
+    )
+end
+
+function mpo_bond_optimizations(
+        vertices::AbstractVector{Int}, tt::TermTable{Op, T}, alg::SVDBondAlgorithm
+    ) where {T, Op}
+    N = length(vertices)
+    M = nterms(tt)
+    M == 0 && return SparseMatrixDOK{LocalOp{T, Op}}[]
+    @assert nvertices(tt) == N "TermTable built for $(nvertices(tt)) vertices, got $N"
+    return _svd_bond_optimizations(
+        T, Op, N, M, (t, b) -> _op_at(tt, t, b), t -> tt.coeffs[t], alg
+    )
 end

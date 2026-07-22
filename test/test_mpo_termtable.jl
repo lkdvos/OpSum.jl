@@ -1,8 +1,19 @@
 using Test
 using OpSum
-using OpSum: mpo_to_dense, instantiate, TermTable, BipartiteAlgorithm
+using OpSum: mpo_to_dense, instantiate, TermTable, BipartiteAlgorithm, SVDBondAlgorithm,
+    Trie, build_trie!, algebratype
 using OpSum.PauliOperators: X, Y, Z
+using VectorInterface: scalartype
 using LinearAlgebra: norm
+
+# Explicit Trie-based reference (the default now routes GlobalOp through TermTable).
+function trie_optimize(vertices, ex, alg)
+    T = scalartype(ex)
+    A = algebratype(typeof(ex))
+    trie = Trie{A, T}()
+    build_trie!(trie, vertices, ex, one(T))
+    return mpo_bond_optimizations(vertices, trie, alg)
+end
 
 # Reconstructed dense operator via the flat TermTable bond-optimization path.
 function termtable_dense(vertices, ex, sites)
@@ -28,8 +39,8 @@ end
         ]
         for H in hamiltonians
             H_ref = instantiate(H, sites)
-            # old (Trie) path
-            Ws_old = mpo_bond_optimizations(vertices, H)
+            # genuine Trie path (built explicitly; the GlobalOp default now uses TermTable)
+            Ws_old = trie_optimize(vertices, H, BipartiteAlgorithm())
             @test mpo_to_dense(Ws_old, sites) ≈ H_ref
             # new (TermTable) path
             H_new, Ws_new = termtable_dense(vertices, H, sites)
@@ -66,6 +77,29 @@ end
         dmax_old = maximum(x -> max(size(x)...), Ws_old)
         dmax_new = maximum(x -> max(size(x)...), Ws_new)
         @test dmax_new <= dmax_old
+    end
+
+    @testset "SVD path: TermTable matches Trie SVD and dense operator" begin
+        L = 5
+        vertices = 1:L
+        sites = fill(2, L)
+        hamiltonians = [
+            2.0 * X[1] * X[2],
+            sum(X[i] * X[i + 1] for i in 1:(L - 1)),
+            sum(X[i] * X[i + 1] + Y[i] * Y[i + 1] + Z[i] * Z[i + 1] for i in 1:(L - 1)),
+            sum(X[i] * X[j] for i in 1:(L - 1) for j in (i + 1):L),
+            1.5 * X[1] * X[3] + 0.7 * X[2] * X[3],
+        ]
+        for H in hamiltonians
+            H_ref = instantiate(H, sites)
+            Ws_trie = trie_optimize(vertices, H, SVDBondAlgorithm())
+            tt = TermTable(vertices, H)
+            Ws_tt = mpo_bond_optimizations(vertices, tt, SVDBondAlgorithm())
+            @test mpo_to_dense(Ws_trie, sites) ≈ H_ref
+            @test mpo_to_dense(Ws_tt, sites) ≈ H_ref
+            # same bond dimensions as the Trie SVD (identical algorithm, flat source)
+            @test size.(Ws_tt) == size.(Ws_trie)
+        end
     end
 
     @testset "fuzz equivalence vs Trie path (dense operator)" begin

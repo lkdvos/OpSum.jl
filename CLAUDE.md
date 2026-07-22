@@ -35,7 +35,8 @@ OpSum.jl converts sums of quantum operators (e.g. Hamiltonians) into efficient t
    - `compress_vertex_operators`: SVD-based compression of vertex operators using `MatrixAlgebraKit`.
 
 3. **Data structures** — `src/datastructures/`
-   - `Trie{K,V}`: Prefix tree over fixed-length sequences; used to group operator terms sharing common prefixes/suffixes.
+   - `TermTable{Op,T}` (`src/operators/termtable.jl`): flat, sparse-per-term storage — each term's non-identity `(site, op)` factors in `K×M` matrices plus a `coeffs` vector. Built directly from a `GlobalOp` and is the default term source feeding `mpo_bond_optimizations` (both `BipartiteAlgorithm` and `SVDBondAlgorithm`).
+   - `Trie{K,V}`: Prefix tree over fixed-length sequences; used to group operator terms sharing common prefixes/suffixes. No longer the mandatory intermediate for MPO bond optimization — `build_trie!` is retained as a utility/test oracle and the `Trie`-accepting `mpo_bond_optimizations` methods remain valid entry points.
    - `SDAWG` / `DAWGDictionary`: Directed Acyclic Word Graph for suffix-compressed storage; enables sharing common tails of operator strings.
    - `BipartiteGraph`: Used for matching/decomposing tensor network bonds.
    - Tree variants (`TreeTrie`, `TreeDAWG`) for TTNOs on non-linear topologies.

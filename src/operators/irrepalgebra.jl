@@ -15,8 +15,8 @@
 # * The dense/Pauli `GlobalOp`/`LocalOp` pipeline is untouched; dense migrates to this later.
 
 using TensorKit
-using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, sectortype, unit, dim, id,
-    Vect, @tensor, domain, numin, permute, sectors
+using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id,
+    Vect, @tensor, domain, permute, sectors
 import TensorKit: sectortype
 using LinearAlgebra: LinearAlgebra
 using .IrrepTensorOperators: IrrepOperator

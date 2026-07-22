@@ -33,6 +33,11 @@ function irrep_mpo(H::TermSum{I, S, Tc}, sites) where {I, S, Tc}
     return _irrep_bipartite(irrep_trie(H, sites), length(sites))
 end
 
+# NOTE: this sweep deliberately mirrors `mpo_bond_optimizations(..., ::BipartiteAlgorithm)` in
+# `statemachines/graphbuilding.jl`; it is kept separate (rather than sharing code) so the
+# dense/Pauli path stays byte-for-byte untouched. The only ITO-specific additions are: emitting the
+# `ITOKey.op` letter (not the whole key) and tracking each retained bond's charge (`secW`). Keep the
+# two in sync if the bipartite sweep changes.
 function _irrep_bipartite(prefix_trie::Trie{ITOKey{I}, T}, N::Int) where {I, T}
     Op = ITOKey{I}
     LOp = LocalOp{ComplexF64, IrrepOperator{I}}
@@ -230,8 +235,9 @@ function irrep_mpo_tensors(
         bondsectors::Vector{Vector{I}}, sites
     ) where {I}
     N = length(Ws)
-    tensors = Vector{Any}(undef, N)
-    for i in 1:N
+    # `map` infers a concrete `Vector{<:AbstractTensorMap}` element type (all site tensors share
+    # the same `V ⊗ B ← B ⊗ V` space *type*), unlike an untyped preallocated buffer.
+    return map(1:N) do i
         V = sites[i]
         secL = i == 1 ? I[unit(I)] : bondsectors[i - 1]
         secR = bondsectors[i]
@@ -263,7 +269,6 @@ function irrep_mpo_tensors(
                 W = W + Wentry
             end
         end
-        tensors[i] = W
+        return W
     end
-    return tensors
 end

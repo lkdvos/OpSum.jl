@@ -36,6 +36,7 @@ include("operators/irreptensoroperators.jl")
 using .IrrepTensorOperators: IrrepOperator
 include("operators/irrepalgebra.jl")
 include("operators/irreptrie.jl")
+include("operators/irrepmpo.jl")
 
 # State machines
 # --------------

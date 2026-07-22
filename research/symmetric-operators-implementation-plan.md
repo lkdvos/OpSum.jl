@@ -185,6 +185,16 @@ multi-body (>2-operator) coupling.
 **Done when:** per-sector bond dimensions match hand-computed values on small SU(2)/U(1) models, and
 compression is a faithful (validated) truncation.
 
+**Status: implemented** — `src/operators/irrepmpo.jl` + `test/test_irrep_mpo.jl`. `irrep_mpo(::TermSum,
+sites)` runs the dense bipartite min-vertex-cover sweep on the charge-augmented trie, emitting the
+ITO letter (`ITOKey.op`) into `SparseMatrixDOK{LocalOp{…,IrrepOperator}}` reduced bond matrices and
+labelling each bond index with its charge (`bondsectors`). The automaton is block-diagonal in the
+bond charge (asserted), so per-sector bond dimensions fall out directly: the bulk SU(2) Heisenberg
+bond is sector-0 dim 2 + sector-1 dim 1 (dense-equivalent 5, the canonical value). Faithfulness is
+validated losslessly via `mpo_terms` (path expansion back to a `TermSum`, matching the original
+exactly) on SU(2)/U(1)/trivial models. Deferred: SVD-based truncation (only the exact/lossless
+bipartite path is implemented) and the multi-total-charge boundary (single total charge assumed).
+
 ---
 
 ## Phase 5 — Symmetric MPO assembly + end-to-end validation

@@ -293,7 +293,17 @@ function mpo_bond_optimizations(vertices, ex::GlobalOp{T, A}) where {T, A}
     return mpo_bond_optimizations(vertices, ex, BipartiteAlgorithm())
 end
 
-# Convenience overload accepting a GlobalOp directly.
+# BipartiteAlgorithm now defaults to the flat TermTable front end, which is
+# faster and lighter than building a Trie up front (see research/bench_termtable.jl)
+# while producing an equivalent MPO.
+function mpo_bond_optimizations(
+        vertices::AbstractVector{Int}, ex::GlobalOp, alg::BipartiteAlgorithm
+    )
+    return mpo_bond_optimizations(vertices, TermTable(vertices, ex), alg)
+end
+
+# Convenience overload accepting a GlobalOp directly (used by SVDBondAlgorithm,
+# which still consumes a Trie).
 function mpo_bond_optimizations(
         vertices::AbstractVector{Int}, ex::GlobalOp{T, A}, alg
     ) where {T, A}

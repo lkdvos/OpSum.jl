@@ -30,6 +30,7 @@ include("operators/abstractoperators.jl")
 include("operators/operatorbasis.jl")
 include("operators/operatoralgebra.jl")
 include("operators/globalalgebra.jl")
+include("operators/termtable.jl")
 
 include("operators/paulioperators.jl")
 include("operators/irreptensoroperators.jl")

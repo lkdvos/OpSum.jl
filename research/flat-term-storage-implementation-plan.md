@@ -2,8 +2,12 @@
 
 ## Status
 
-Proposal / not started. Written up for handoff to an implementing agent. No code
-changes accompany this document.
+Implemented. All phases (0–5) landed for the dense/Pauli pipeline, the flat
+front end is the default for both `BipartiteAlgorithm` and `SVDBondAlgorithm`,
+and the follow-up ITO-track port (`ITOTermTable` + `irrep_mpo`) also landed and
+is the default there. The superseded `Trie` machinery has since been removed
+entirely (the plan's "keep `Trie`" note was overridden by a later cleanup
+request). The text below is preserved as the original proposal for reference.
 
 ## Context
 

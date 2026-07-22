@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate, irrep_trie, trie_terms, TermSum, TermKey, ITOKey,
+using OpSum: instantiate, irrep_trie, trie_terms, TermSum, TermKey, ITOKey, total,
     passthrough, ispassthrough, bondcharges, vertexlabels, caterpillar_trees,
     spin, scalarop, couple
 using OpSum.IrrepTensorOperators: IrrepOperator
@@ -13,12 +13,8 @@ LO(x) = OpSum.LocalOp(x)
 onlyterm(ts::TermSum) = only(pairs(ts.terms))
 # charges of a term's active operators
 charges(tk::TermKey) = [o.c for o in tk.ops]
-# per-active-position bond charges of a term (derived caterpillar tree)
-function termbonds(tk::TermKey)
-    isempty(tk.ops) && return typeof(tk.total)[]
-    cs = ntuple(i -> tk.ops[i].c, length(tk.ops))
-    return bondcharges(only(caterpillar_trees(cs, tk.total)))
-end
+# per-active-position bond charges of a term (from its stored caterpillar tree)
+termbonds(tk::TermKey) = bondcharges(tk.tree)
 
 @testset "pass-through identity symbol" begin
     I = SU2Irrep
@@ -39,7 +35,7 @@ end
 
     @test tk.sites == [1, 2]
     @test charges(tk) == [SU2Irrep(1), SU2Irrep(1)]
-    @test tk.total == unit(SU2Irrep)                    # singlet
+    @test total(tk) == unit(SU2Irrep)                   # singlet
     @test termbonds(tk) == [SU2Irrep(1), SU2Irrep(0)]   # bond 1 across the pair, 0 at the total
     @test coeff ≈ (3 / 2) * (-sqrt(3))                  # ⟨½‖S‖½⟩² · (−√dim(1))
 
@@ -55,7 +51,7 @@ end
     c = SU2Irrep(1)
     @test length(caterpillar_trees((c, c), SU2Irrep(0))) == 1
     @test length(caterpillar_trees((c, c, c), SU2Irrep(0))) == 1
-    @test length(caterpillar_trees((c, c, c), SU2Irrep(1))) > 1   # 3-body branches → deferred
+    @test length(caterpillar_trees((c, c, c), SU2Irrep(1))) > 1   # 3-body: multiple channels (pick via nested couple)
 end
 
 @testset "SU(2) trie is charge-block-diagonal" begin
@@ -103,9 +99,9 @@ end
     ts = dot(raise[1], lower[2])
     tk, coeff = onlyterm(ts)
     @test charges(tk) == [U1Irrep(1), U1Irrep(-1)]
-    @test tk.total == unit(U1Irrep)
+    @test total(tk) == unit(U1Irrep)
     @test termbonds(tk) == [U1Irrep(1), U1Irrep(0)]
-    @test coeff ≈ -1.0                                  # abelian: dim = 1
+    @test coeff ≈ -1.0                                  # dot: -√dim(1) · (1·1) = -1
 
     ts2 = couple(raise[1], raise[2]; to = U1Irrep(2))
     @test termbonds(onlyterm(ts2)[1]) == [U1Irrep(1), U1Irrep(2)]
@@ -120,7 +116,7 @@ end
     term = couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial))
     tk, coeff = onlyterm(term)
     @test termbonds(tk) == [unit(Trivial), unit(Trivial)]
-    @test coeff ≈ -1.0                                  # −√dim(trivial) = −1
+    @test coeff ≈ 1.0                                   # bare `couple` carries no factor (dot would give -1)
     @test !ispassthrough(tk.ops[1]) && !ispassthrough(tk.ops[2])
 
     # a scalar (identity) field is an all-pass-through path (K = 0 term)
@@ -173,5 +169,36 @@ end
         @test convert(Array, viatrie) ≈ convert(Array, direct)
         # and that operator is the physical Heisenberg chain (end-to-end, multi-term)
         @test to_matrix(direct, N) ≈ heis_ref(N)
+    end
+end
+
+# K ≥ 3: the intermediate ("inner line") charge is a genuine degree of freedom that `(charges,
+# total)` cannot capture — the stored caterpillar tree keeps the channels distinct.
+@testset "K=3 SU(2): distinct coupling channels" begin
+    V = SU2Space(1 // 2 => 1)
+    Sop = spin(V)
+    channels = (SU2Irrep(0), SU2Irrep(1), SU2Irrep(2))     # (S₁⊗S₂) → b₂, all fuse with S₃ to a singlet? use total 1
+    terms = [couple(couple(Sop[1], Sop[2]; to = b2), Sop[3]; to = SU2Irrep(1)) for b2 in channels]
+    ks = [onlyterm(t)[1] for t in terms]
+
+    # same sites, ops, and total — distinguished ONLY by the inner-line charge in the tree
+    @test length(unique(ks)) == 3
+    @test all(k -> k.sites == [1, 2, 3] && total(k) == SU2Irrep(1), ks)
+    @test [termbonds(k) for k in ks] == [
+        [SU2Irrep(1), SU2Irrep(0), SU2Irrep(1)],
+        [SU2Irrep(1), SU2Irrep(1), SU2Irrep(1)],
+        [SU2Irrep(1), SU2Irrep(2), SU2Irrep(1)],
+    ]
+
+    # and they materialize to genuinely different operators
+    mats = [convert(Array, instantiate(t, fill(V, 3))) for t in terms]
+    @test !(mats[1] ≈ mats[2])
+    @test !(mats[1] ≈ mats[3])
+    @test !(mats[2] ≈ mats[3])
+
+    # round-trip through the trie preserves the (tree-resolved) term identity for each channel
+    for t in terms
+        back = trie_terms(irrep_trie(t, fill(V, 3)))
+        @test Set(keys(back.terms)) == Set(keys(t.terms))
     end
 end

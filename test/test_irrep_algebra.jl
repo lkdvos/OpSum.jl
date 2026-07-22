@@ -96,9 +96,9 @@ end
     ops = instances(IrrepOperator, V)
     E2 = convert(Array, instantiate(ops[2], V))[:, :, 1]
     E3 = convert(Array, instantiate(ops[3], V))[:, :, 1]
-    # singlet coupling carries the Cartesian −√dim(c) = −1 factor (dim(triv)=1)
+    # bare `couple` carries no factor (the Cartesian −√dim lives in `·`/`dot`, not here)
     Cd = dropdims(convert(Array, instantiate(couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial)), [V, V])); dims = 5)
-    orc = [-E2[o1, i1] * E3[o2, i2] for o1 in 1:2, o2 in 1:2, i1 in 1:2, i2 in 1:2]
+    orc = [E2[o1, i1] * E3[o2, i2] for o1 in 1:2, o2 in 1:2, i1 in 1:2, i2 in 1:2]
     @test Cd ≈ orc
 end
 

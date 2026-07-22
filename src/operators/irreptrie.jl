@@ -113,12 +113,8 @@ function _ito_path(tk::TermKey{I, S}, N::Integer) where {I, S}
         end
         return path
     end
-    charges = ntuple(i -> tk.ops[i].c, K)
-    trees = caterpillar_trees(charges, tk.total)
-    @assert length(trees) == 1 "expected a unique coupling channel (multi-channel deferred), got $(length(trees))"
-    tree = only(trees)
-    bonds = bondcharges(tree)      # K values (per active position)
-    verts = vertexlabels(tree)     # K values
+    bonds = bondcharges(tk.tree)   # K values (per active position); read from the stored tree
+    verts = vertexlabels(tk.tree)  # K values — no re-derivation, so K ≥ 3 is unambiguous
     ai = 1                          # next active index
     seen = 0                        # active sites seen so far
     for k in 1:N
@@ -168,21 +164,26 @@ irrep_trie(terms::AbstractVector{<:TermSum}, sites) = irrep_trie(reduce(+, terms
 
 Reconstruct the (sparse) term-sum from the paths of a charge-augmented `trie` (inverse of
 `irrep_trie` up to ordering and coefficient accumulation). Active sites are the non-pass-through
-positions; the total charge is the bond out of the last site.
+positions; the caterpillar tree is rebuilt from the per-active-position bond charges and vertex
+labels carried in the path (`_tree_from_bonds`).
 """
 function trie_terms(trie::Trie{ITOKey{I}, T}) where {I, T}
     d = Dictionary{TermKey{I, Int}, T}()
     for (path, coeff) in pairs(trie)
         sites = Int[]
         ops = IrrepOperator{I}[]
+        bonds = I[]
+        verts = Int[]
         for (k, key) in enumerate(path)
             if !ispassthrough(key.op)
                 push!(sites, k)
                 push!(ops, key.op)
+                push!(bonds, key.bond)
+                push!(verts, key.vertex)
             end
         end
-        total = last(path).bond
-        setwith!(+, d, TermKey{I, Int}(sites, ops, total), coeff)
+        tree = _tree_from_bonds([o.c for o in ops], bonds, verts)
+        setwith!(+, d, TermKey{I, Int}(sites, ops, tree), coeff)
     end
     return TermSum{I, Int, T}(d)
 end

@@ -94,3 +94,28 @@ end
     _, secs = irrep_mpo(H, sites)
     @test secs[N] == [SU2Irrep(1)]
 end
+
+@testset "K=3 SU(2) three-body scalar — lossless" begin
+    V = SU2Space(1 // 2 => 1)
+    S = spin(V)
+    sites = fill(V, 3)
+    H = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
+    @test islossless(H, sites)
+    _, secs = irrep_mpo(H, sites)
+    @test secs[3] == [SU2Irrep(0)]
+    # the internal bonds carry the caterpillar inner line (spin-1 after the first pair)
+    @test SU2Irrep(1) in secs[2]
+end
+
+@testset "K=3 U(1) three-body term — lossless + charge-resolved" begin
+    V = Rep[U₁](0 => 1, 1 => 1)
+    raise = LO(IrrepOperator(U1Irrep(1), 1))
+    lower = LO(IrrepOperator(U1Irrep(-1), 1))
+    sites = fill(V, 3)
+    # charges (1, 1, -1) fusing through inner line 2 to a net charge 1
+    H = couple(couple(raise[1], raise[2]; to = U1Irrep(2)), lower[3]; to = U1Irrep(1))
+    @test islossless(H, sites)
+    _, secs = irrep_mpo(H, sites)
+    @test secs[3] == [U1Irrep(1)]
+    @test U1Irrep(2) in secs[2]           # inner-line charge on the bond after site 2
+end

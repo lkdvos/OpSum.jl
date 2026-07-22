@@ -7,16 +7,18 @@
 # `irreptrie.jl`) is a derived index over the term list.
 #
 # Design notes:
-# * Supported term arities: K = length(active sites) ∈ {0, 1, 2} — identity, single-site field,
-#   pairwise coupling. Multi-body (>2) coupling and on-site products/powers are deferred.
-# * The coupling channel is stored implicitly as the `total` charge; the caterpillar tree is
-#   re-derived from `(charges, total)` (unique in the multiplicity-free pairwise setting).
+# * Supported term arities: K = length(active sites) ∈ {0, 1, 2, …} — identity, single-site field,
+#   and left-nested (caterpillar) coupling of arbitrarily many sites. On-site products/powers are
+#   deferred; genuine multiplicity (`GenericFusion`, vertices > 1) is deferred.
+# * Each term stores its caterpillar `FusionTree` explicitly (`TermKey.tree`): for K ≥ 3 the
+#   intermediate ("inner line") charges are NOT determined by `(charges, total)`, so the tree is the
+#   single source of truth. `total` is an accessor (`= tree.coupled`).
 # * The scalar identity is materialized structurally as `c * id(V)`, never via `one(::Type{A})`.
 # * The dense/Pauli `GlobalOp`/`LocalOp` pipeline is untouched; dense migrates to this later.
 
 using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id,
-    Vect, @tensor, domain, permute, sectors
+    Vect, domain, permute, sectors
 import TensorKit: sectortype
 using LinearAlgebra: LinearAlgebra
 using .IrrepTensorOperators: IrrepOperator
@@ -103,34 +105,76 @@ function _local_terms(op::LocalOp{T, A}) where {T, A <: IrrepOperator}
     end
 end
 
+# Caterpillar-tree constructors
+# ------------------------------
+# The 4-arg `FusionTree{I}(uncoupled, coupled, isdual, innerlines)` form is used everywhere (the
+# 3-arg form is an abelian-only shortcut that throws for `MultipleFusion`); vertices default to `1`.
+
+# K = 0 identity (empty) tree.
+_idtree(::Type{I}) where {I <: Sector} = FusionTree{I}((), unit(I), (), ())
+
+# K = 1 single-leg tree (uncoupled == coupled == c).
+_leaftree(c::I) where {I <: Sector} = FusionTree{I}((c,), c, (false,), ())
+
+# Rebuild a caterpillar tree from its per-active-position running bond charges `bonds`
+# (`[c₁, innerlines…, total]`, length K) and vertex labels `verts` (`[1, μ₂…μ_K]`, length K) — the
+# inverse of `bondcharges`/`vertexlabels`. Used by the trie/MPO round-trips.
+function _tree_from_bonds(charges::AbstractVector{I}, bonds::AbstractVector{I}, verts::AbstractVector{Int}) where {I <: Sector}
+    K = length(charges)
+    K == 0 && return _idtree(I)
+    unc = ntuple(i -> charges[i], K)
+    isd = ntuple(_ -> false, K)
+    inner = ntuple(i -> bonds[i + 1], max(0, K - 2))   # innerlines = bonds[2 : K-1]
+    vtx = ntuple(i -> verts[i + 1], max(0, K - 1))     # vertices   = verts[2 : K]
+    return FusionTree{I}(unc, bonds[K], isd, inner, vtx)
+end
+
 # Term normal form
 # ----------------
 """
     TermKey{I<:Sector, S}
 
-A fusion-resolved term (hashable key): `sites` (sorted, unique active sites), `ops` (one ITO
-letter per active site, aligned with `sites`), and `total::I` (the charge the active charges fuse
-to). The caterpillar coupling tree is derived from `(charges, total)` on demand.
-`K = length(sites) ∈ {0,1,2}`: identity, field, or pairwise coupling.
+A fusion-resolved term (hashable key): `sites` (sorted, unique active sites), `ops` (one ITO letter
+per active site, aligned with `sites`), and `tree::FusionTree{I}` — the left-nested (caterpillar)
+coupling tree over the operator charges, whose `coupled` sector is the term's total charge
+(accessor [`total`](@ref)). Storing the tree (rather than just `total`) is required for `K ≥ 3`
+non-abelian terms, where the intermediate inner-line charges are not fixed by `(charges, total)`.
+`K = length(sites)`: 0 = identity, 1 = field, ≥ 2 = caterpillar coupling. Restricted to
+multiplicity-free fusion (all tree vertices `== 1`); `GenericFusion` is deferred.
 """
 struct TermKey{I <: Sector, S}
     sites::Vector{S}
     ops::Vector{IrrepOperator{I}}
-    total::I
+    tree::FusionTree{I}
+    function TermKey{I, S}(
+            sites::Vector{S}, ops::Vector{IrrepOperator{I}}, tree::FusionTree{I}
+        ) where {I, S}
+        @assert length(sites) == length(ops) == length(tree.uncoupled) "sites/ops/tree arity mismatch"
+        @assert all(i -> ops[i].c == tree.uncoupled[i], eachindex(ops)) "tree uncoupled charges must match op charges"
+        @assert all(isone, tree.vertices) "GenericFusion (multiplicity > 1) coupling is deferred"
+        return new{I, S}(sites, ops, tree)
+    end
 end
 
+"""
+    total(k::TermKey)
+
+The total (coupled) charge of a term: `k.tree.coupled`.
+"""
+total(k::TermKey) = k.tree.coupled
+
 function Base.:(==)(x::TermKey{I, S}, y::TermKey{I, S}) where {I, S}
-    return x.total == y.total && x.sites == y.sites && x.ops == y.ops
+    return x.tree == y.tree && x.sites == y.sites && x.ops == y.ops
 end
 function Base.hash(x::TermKey, h::UInt)
-    h = hash(:TermKey, hash(x.total, h))
+    h = hash(:TermKey, hash(x.tree, h))
     for (s, o) in zip(x.sites, x.ops)
         h = hash(o, hash(s, h))
     end
     return h
 end
 function Base.show(io::IO, k::TermKey)
-    return print(io, "TermKey(sites=", k.sites, ", ops=", k.ops, ", total=", k.total, ")")
+    return print(io, "TermKey(sites=", k.sites, ", ops=", k.ops, ", total=", total(k), ")")
 end
 
 """
@@ -175,7 +219,7 @@ Base.:-(a::TermSum, b::TermSum) = a + (-b)
 
 function Base.one(::TermSum{I, S, T}) where {I, S, T}
     d = Dictionary{TermKey{I, S}, T}()
-    insert!(d, TermKey{I, S}(S[], IrrepOperator{I}[], unit(I)), one(T))
+    insert!(d, TermKey{I, S}(S[], IrrepOperator{I}[], _idtree(I)), one(T))
     return TermSum{I, S, T}(d)
 end
 
@@ -194,8 +238,8 @@ function Base.getindex(O::LocalOp{T, A}, ind::S, inds::S...) where {T, A <: Irre
     d = Dictionary{TermKey{I, S}, ComplexF64}()
     for (letter, coeff) in _local_terms(O)
         key = letter === nothing ?
-            TermKey{I, S}(S[], IrrepOperator{I}[], unit(I)) :
-            TermKey{I, S}(S[ind], IrrepOperator{I}[letter], letter.c)
+            TermKey{I, S}(S[], IrrepOperator{I}[], _idtree(I)) :
+            TermKey{I, S}(S[ind], IrrepOperator{I}[letter], _leaftree(letter.c))
         setwith!(+, d, key, ComplexF64(coeff))
     end
     return TermSum{I, S, ComplexF64}(d)
@@ -203,9 +247,19 @@ end
 
 # Coupling
 # --------
-function _single_charged_term(a::TermSum{I, S, T}, ctx) where {I, S, T}
+# First operand of `couple`: any single-*term* TermSum with ≥ 1 active site (a caterpillar composite);
+# returns its `(TermKey, coeff)`.
+function _composite_term(a::TermSum{I, S, T}, ctx) where {I, S, T}
     length(a.terms) == 1 || throw(ArgumentError("$ctx must be a single-term operator"))
     k, v = only(pairs(a.terms))
+    isempty(k.sites) && throw(ArgumentError("$ctx must carry at least one charged operator"))
+    return k, v
+end
+
+# Second operand of `couple`: a single-site charged term; returns `(site, op, coeff)`.
+function _single_site_term(b::TermSum{I, S, T}, ctx) where {I, S, T}
+    length(b.terms) == 1 || throw(ArgumentError("$ctx must be a single-term operator"))
+    k, v = only(pairs(b.terms))
     (length(k.sites) == 1 && length(k.ops) == 1) ||
         throw(ArgumentError("$ctx must be a single-site charged operator"))
     return only(k.sites), only(k.ops), v
@@ -213,45 +267,72 @@ end
 
 """
     couple(a::TermSum, b::TermSum; to)
-    a · b   (== couple(a, b; to = unit(I)))
 
-Pairwise irrep coupling of two single-site ITO terms, fusing their operator charges to total `to`.
-Singlet (`to == unit(I)`) applies the Cartesian normalization factor `-√dim(c)`; other targets use
-unit Clebsch–Gordan. Multi-body / tree-structured coupling (`via`) is deferred.
+Left-nested (caterpillar) irrep coupling: extend the composite `a` (any K ≥ 1 sites, with its stored
+coupling tree) by one single-site operator `b`, fusing the running total `total(a)` with `b`'s charge
+to `to` at a new vertex. `b` must act to the **right** of every site of `a` (out-of-order coupling
+needs F-moves and is deferred). Chain to build K ≥ 3 terms, choosing each intermediate channel:
+`couple(couple(x, y; to = b₂), z; to = t)`.
+
+This is the bare fusion coupler — it carries **no** normalization factor (reduced coeff `= va·vb`).
+The Cartesian scalar-product convention lives in [`·`/`dot`](@ref), not here. Multi-channel
+(`GenericFusion`) coupling and tree-structured (`via`) coupling are deferred.
 """
 function couple(a::TermSum{I, S}, b::TermSum{I, S}; to, via = nothing) where {I, S}
     via === nothing ||
         throw(ArgumentError("tree-structured / multi-body coupling (`via`) is deferred"))
-    sa, opa, va = _single_charged_term(a, "couple: first operand")
-    sb, opb, vb = _single_charged_term(b, "couple: second operand")
-    sa == sb && throw(ArgumentError("couple: operators must act on distinct sites"))
-    total = to::I
+    ka, va = _composite_term(a, "couple: first operand")
+    sb, opb, vb = _single_site_term(b, "couple: second operand")
+    sb in ka.sites && throw(ArgumentError("couple: operators must act on distinct sites"))
+    maximum(ka.sites) < sb || throw(
+        ArgumentError(
+            "couple: the second operand must act to the right of the first " *
+                "(left-nested caterpillar; out-of-order coupling is deferred)"
+        )
+    )
+    tot = to::I
 
-    # site order
-    sites, ops = sa < sb ? (S[sa, sb], IrrepOperator{I}[opa, opb]) :
-        (S[sb, sa], IrrepOperator{I}[opb, opa])
+    # extend the caterpillar by one leg:  (total(a), opb.c) → tot, at a new vertex
+    f2s = collect(fusiontrees((total(ka), opb.c), tot, (false, false)))
+    @assert !isempty(f2s) "charges $(total(ka)),$(opb.c) do not fuse to $tot"
+    @assert length(f2s) == 1 "expected a unique coupling channel; multi-channel (GenericFusion) coupling is deferred"
+    tree = TensorKit.join(ka.tree, only(f2s))
 
-    # coupling channel must exist and be unique (pairwise, multiplicity-free)
-    trees = collect(fusiontrees((ops[1].c, ops[2].c), total, (false, false)))
-    @assert !isempty(trees) "charges $(ops[1].c),$(ops[2].c) do not fuse to $total"
-    @assert length(trees) == 1 "expected a unique coupling channel; multi-channel (GenericFusion) coupling is deferred"
-
-    coupfactor = total == unit(I) ? -sqrt(dim(ops[1].c)) : one(ComplexF64)
-    coeff = ComplexF64(va) * ComplexF64(vb) * coupfactor
+    sites = S[ka.sites..., sb]
+    ops = IrrepOperator{I}[ka.ops..., opb]
+    coeff = ComplexF64(va) * ComplexF64(vb)
 
     d = Dictionary{TermKey{I, S}, ComplexF64}()
-    insert!(d, TermKey{I, S}(sites, ops, total), coeff)
+    insert!(d, TermKey{I, S}(sites, ops, tree), coeff)
     return TermSum{I, S, ComplexF64}(d)
 end
 
 function couple(a::TermSum, b::TermSum, c::TermSum, rest::TermSum...; kwargs...)
-    throw(ArgumentError("multi-body coupling (>2 operators) is deferred"))
+    throw(
+        ArgumentError(
+            "variadic coupling is not supported; nest `couple` to specify each intermediate " *
+                "channel, e.g. couple(couple(a, b; to = b₂), c; to = t)"
+        )
+    )
 end
 
-# `·` / dot on term-sums == singlet coupling.
-# NOTE: distinct from `LinearAlgebra.dot(::OperatorBasis, ::AbstractArray)` (basis projection).
+"""
+    dot(a::TermSum, b::TermSum)
+    a · b
+
+The Cartesian two-body scalar product of two single-site ITO operators: singlet coupling
+`couple(a, b; to = unit(I))` times the Cartesian factor `-√dim(c)` (the identity
+`Sᵢ·Sⱼ = -√3 [S⊗S]⁽⁰⁾` with `-√3 = -√dim(spin-1)`). Order-independent in the two sites. Distinct
+from bare `couple(…; to = unit(I))`, which carries no such factor.
+
+NOTE: distinct from `LinearAlgebra.dot(::OperatorBasis, ::AbstractArray)` (basis projection).
+"""
 function LinearAlgebra.dot(a::TermSum{I}, b::TermSum{I}) where {I}
-    return couple(a, b; to = unit(I))
+    sa, opa, _ = _single_site_term(a, "·: first operand")
+    sb, _, _ = _single_site_term(b, "·: second operand")
+    sa == sb && throw(ArgumentError("·: operators must act on distinct sites"))
+    lo, hi = sa < sb ? (a, b) : (b, a)
+    return scale(couple(lo, hi; to = unit(I)), -sqrt(dim(opa.c)))
 end
 
 # Dense-oracle materialization
@@ -260,7 +341,8 @@ end
     instantiate(ts::TermSum, sites::AbstractVector{<:ElementarySpace})
 
 Materialize the term-sum into a TensorKit `TensorMap` over the lattice `sites` (the dense oracle),
-summing each term. Supports identity (K=0), single-site field (K=1), and pairwise coupling (K=2).
+summing each term. Supports identity (K=0), single-site field (K=1), and left-nested (caterpillar)
+coupling of any K ≥ 2 sites.
 """
 function instantiate(ts::TermSum{I, S, T}, sites::AbstractVector{<:ElementarySpace}) where {I, S, T}
     isempty(ts.terms) && throw(ArgumentError("cannot instantiate an empty TermSum"))
@@ -276,10 +358,8 @@ function _instantiate_term(k::TermKey{I, S}, sites) where {I, S}
         return foldl(⊗, (id(sites[j]) for j in 1:N))
     elseif K == 1
         return _embed_field(only(k.ops), only(k.sites), sites)
-    elseif K == 2
-        return _embed_coupled(k.ops[1], k.sites[1], k.ops[2], k.sites[2], k.total, sites)
     else
-        throw(ArgumentError("instantiation of $(K)-site terms is deferred"))
+        return _embed_caterpillar(k.ops, k.sites, k.tree, sites)
     end
 end
 
@@ -295,37 +375,47 @@ function _embed_field(op::IrrepOperator, p, sites)
     return permute(full, (cod, dom))
 end
 
-# pairwise-coupled two-site block (structural coupler; the reduced/-√dim factor is in the coeff)
-function _embed_coupled(opa::IrrepOperator, pa, opb::IrrepOperator, pb, total, sites)
-    Oa = instantiate(opa, sites[pa])               # V_pa ← V_pa ⊗ V_ca
-    Ob = instantiate(opb, sites[pb])               # V_pb ← V_pb ⊗ V_cb
-    Vca = domain(Oa)[2]
-    Vcb = domain(Ob)[2]
-    I = typeof(total)
-    X = zeros(ComplexF64, Vca ⊗ Vcb ← Vect[I](total => 1))
-    trees = collect(fusiontrees(X))
-    isempty(trees) && throw(ArgumentError("charges do not fuse to $total"))
-    for (f1, f2) in trees
-        X[f1, f2] .= 1
-    end
-    @tensor Wab[o1 o2; i1 i2 t] := Oa[o1; i1 c1] * Ob[o2; i2 c2] * X[c1 c2; t]
-    return _embed_block(Wab, pa, pb, sites)
+# Caterpillar-coupled K-site block (structural coupler; any reduced factor is in the coeff). The
+# coupler `X` selects the *specific* fusion channel `tree` (setting its single reduced entry to 1 is
+# a normalized isometry). Contraction of the K charge legs uses `permute` + morphism composition
+# (bending the physical in-legs out and back), which generalizes to arbitrary K without a static
+# `@tensor` expression.
+function _embed_caterpillar(ops, positions, tree, sites)
+    K = length(ops)
+    I = typeof(tree.coupled)
+    Os = [instantiate(ops[k], sites[positions[k]]) for k in 1:K]   # V ← V ⊗ Vc_k
+    Vcs = [domain(Os[k])[2] for k in 1:K]
+    tot = tree.coupled
+    X = zeros(ComplexF64, foldl(⊗, Vcs) ← Vect[I](tot => 1))       # (Vc_1⊗…⊗Vc_K) ← Vect[tot]
+    fcouple = FusionTree{I}((tot,), tot, (false,), ())
+    X[tree, fcouple] .= 1
+
+    P = foldl(⊗, Os)                                               # (o_1..o_K) ← (i_1,c_1,…,i_K,c_K)
+    # bend physical in-legs into the codomain, leaving only the charge legs in the domain
+    codP = (ntuple(k -> k, K)..., ntuple(k -> K + 2k - 1, K)...)   # o_1..o_K, i_1..i_K
+    domP = ntuple(k -> K + 2k, K)                                  # c_1..c_K
+    PX = permute(P, (codP, domP)) * X                              # (o.., i..) ← (tot)
+    # split back into codomain (o_1..o_K) and domain (i_1..i_K, tot)
+    Wblock = permute(PX, (ntuple(k -> k, K), (ntuple(k -> K + k, K)..., 2K + 1)))
+    return _embed_block(Wblock, positions, sites)
 end
 
-# embed a two-site block on sites (pa, pb) into the full lattice, reordering to site order with
-# the total-charge leg last in the domain.
-function _embed_block(Wab, pa, pb, sites)
+# embed a K-site block on `positions` into the full lattice, reordering to site order with the
+# total-charge leg last in the domain. `Wblock` codomain = (o over positions), domain = (i over
+# positions, total-charge).
+function _embed_block(Wblock, positions, sites)
     N = length(sites)
-    idle = [k for k in 1:N if k != pa && k != pb]
-    full = isempty(idle) ? Wab : Wab ⊗ foldl(⊗, (id(sites[k]) for k in idle))
+    K = length(positions)
+    idle = [k for k in 1:N if !(k in positions)]
+    full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(sites[k]) for k in idle))
 
-    cod_src = (pa, pb, idle...)
+    cod_src = (positions..., idle...)
     p_cod = ntuple(j -> findfirst(==(j), cod_src), N)
 
-    dom_src = (pa, pb, idle...)
-    charge_global = N + 3
+    dom_src = (positions..., idle...)
+    charge_global = N + (K + 1)                    # charge leg sits after the K active in-legs
     site_global(j) = let pos = findfirst(==(j), dom_src)
-        pos <= 2 ? N + pos : N + pos + 1
+        pos <= K ? N + pos : N + pos + 1           # idle in-legs shift by 1 past the charge leg
     end
     p_dom = (ntuple(j -> site_global(j), N)..., charge_global)
     return permute(full, (p_cod, p_dom))

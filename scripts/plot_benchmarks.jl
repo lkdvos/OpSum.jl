@@ -153,9 +153,9 @@ function plot_results(suite, output_path)
     # data[row][col] = (sizes, times_ns, lo_ns, hi_ns) or nothing if group absent
     data = [
         [
-            haskey(suite[mk], ph) ? extract_series(suite[mk][ph]) : nothing
+                haskey(suite[mk], ph) ? extract_series(suite[mk][ph]) : nothing
                 for (mk, _) in MODELS
-        ]
+            ]
             for (ph, _) in phases
     ]
 

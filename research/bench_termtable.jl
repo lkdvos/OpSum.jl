@@ -34,10 +34,10 @@ function timeit(f, args...; reps = 3)
     for _ in 1:reps
         t0 = time_ns()
         f(args...)
-        dt = (time_ns() - t0) / 1e9
+        dt = (time_ns() - t0) / 1.0e9
         best = min(best, dt)
     end
-    allocs = (@allocated f(args...)) / 1e6       # MB
+    allocs = (@allocated f(args...)) / 1.0e6       # MB
     return best, allocs
 end
 
@@ -45,8 +45,10 @@ function bench_case(name, vertices, H)
     N = length(vertices)
     to, ao = timeit(run_trie, vertices, H)
     tn, an = timeit(run_termtable, vertices, H)
-    @printf("%-28s N=%-4d  Trie: %8.4f s / %8.2f MB   TermTable: %8.4f s / %8.2f MB   speedup %5.2fx\n",
-        name, N, to, ao, tn, an, to / tn)
+    @printf(
+        "%-28s N=%-4d  Trie: %8.4f s / %8.2f MB   TermTable: %8.4f s / %8.2f MB   speedup %5.2fx\n",
+        name, N, to, ao, tn, an, to / tn
+    )
     return nothing
 end
 

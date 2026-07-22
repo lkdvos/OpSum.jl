@@ -15,6 +15,7 @@
 # `mpo_bond_optimizations` pipeline is untouched.
 
 using SparseArraysBase: SparseMatrixDOK, storedpairs
+using TensorKit: Vect, ElementarySpace, fusiontrees, permute, dim, unit, isomorphism, @tensor
 using .IrrepTensorOperators: IrrepOperator
 
 """
@@ -187,4 +188,82 @@ function mpo_terms(
     end
     walk(1, 1, ComplexF64(1), IrrepOperator{I}[])
     return TermSum{I, Int, ComplexF64}(d)
+end
+
+# Phase 5: assemble symmetric MPO TensorMaps from the reduced bond data
+# =====================================================================
+# Each site tensor is `W_i : V_i ⊗ B_i ← B_{i-1} ⊗ V_i`, a symmetric `TensorMap` whose virtual
+# legs `B` are `GradedSpace`s built from the per-sector bond multiplicities. Contracting the chain
+# (trivial boundary bonds) recovers the operator.
+
+# GradedSpace on a bond with the given per-index charges (multiplicity = count per sector).
+function _bond_space(sec::Vector{I}) where {I}
+    counts = Dict{I, Int}()
+    for c in sec
+        counts[c] = get(counts, c, 0) + 1
+    end
+    return Vect[I](counts)
+end
+
+# degeneracy index (within its charge sector) of each bond index
+function _deg_indices(sec::Vector{I}) where {I}
+    counts = Dict{I, Int}()
+    out = Vector{Int}(undef, length(sec))
+    for (j, c) in enumerate(sec)
+        counts[c] = get(counts, c, 0) + 1
+        out[j] = counts[c]
+    end
+    return out
+end
+
+"""
+    irrep_mpo_tensors(Ws, bondsectors, sites) -> Vector{<:AbstractTensorMap}
+
+Assemble the symmetric MPO from the reduced bond matrices + bond sectors (from `irrep_mpo`). Site
+tensor `W_i : V_i ⊗ B_{i-1} ← B_i ⊗ V_i`; the boundary bonds `B_0`, `B_N` are one-dimensional.
+Each reduced entry `(l, r, letter, coeff)` places the ITO letter's tensor into the `(l → r)` bond
+transition weighted by `coeff`, coupling the operator charge into the bond via the (forward)
+fusion `b_L ⊗ c → b_R`.
+"""
+function irrep_mpo_tensors(
+        Ws::Vector{<:SparseMatrixDOK{LocalOp{ComplexF64, IrrepOperator{I}}}},
+        bondsectors::Vector{Vector{I}}, sites
+    ) where {I}
+    N = length(Ws)
+    tensors = Vector{Any}(undef, N)
+    for i in 1:N
+        V = sites[i]
+        secL = i == 1 ? I[unit(I)] : bondsectors[i - 1]
+        secR = bondsectors[i]
+        Bleft = _bond_space(secL)
+        Bright = _bond_space(secR)
+        degL = i == 1 ? Int[1] : _deg_indices(bondsectors[i - 1])
+        degR = _deg_indices(secR)
+
+        W = zeros(ComplexF64, V ⊗ Bleft ← Bright ⊗ V)
+        for (idx, localop) in storedpairs(Ws[i])
+            l, r = Tuple(idx)
+            bL, dL = secL[l], degL[l]
+            bR, dR = secR[r], degR[r]
+            for (letter, coeff) in _local_terms(localop)
+                letter === nothing && continue
+                c = letter.c
+                Vc = Vect[I](c => 1)
+                # V ← V ⊗ Vect[c]; pass-through (c = unit) carries a trivial charge leg so the
+                # bond contraction is uniform (instantiate would drop it, returning bare id(V)).
+                O = ispassthrough(letter) ? isomorphism(ComplexF64, V ← V ⊗ Vc) :
+                    instantiate(letter, V)
+                # bond coupler κ : Vc ⊗ Bleft ← Bright, forward fusion (c, bL) → bR (always valid),
+                # amplitude at bond degeneracies (dL, dR)
+                κ = zeros(ComplexF64, Vc ⊗ Bleft ← Bright)
+                f1 = only(fusiontrees((c, bL), bR, (false, false)))
+                f2 = only(fusiontrees((bR,), bR, (false,)))
+                κ[f1, f2][1, dL, dR] = coeff
+                @tensor Wentry[o bl; br ii] := O[o; ii cc] * κ[cc bl; br]
+                W = W + Wentry
+            end
+        end
+        tensors[i] = W
+    end
+    return tensors
 end

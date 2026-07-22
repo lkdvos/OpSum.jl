@@ -209,6 +209,17 @@ bipartite path is implemented) and the multi-total-charge boundary (single total
 **Done when:** symmetric MPOs validate against dense oracles for SU(2)/U(1), and the trivial-sector
 path reproduces the current `test_mpo_bipartite.jl`/`test_mpo_svd.jl` results.
 
+**Status: implemented** — `irrep_mpo_tensors(Ws, bondsectors, sites)` in `src/operators/irrepmpo.jl`
+(+ `test/test_irrep_mpo_tensors.jl`). Assembles per-site symmetric `TensorMap`s
+`W_i : V_i ⊗ B_{i-1} ← B_i ⊗ V_i`, bond legs `GradedSpace`s built from the per-sector
+multiplicities; each reduced entry couples the ITO letter's charge into the bond via the forward
+fusion `b_L ⊗ c → b_R` (a small `κ` coupler contracted with the Phase-1 ITO tensor; pass-through
+gets a trivial charge leg via `isomorphism`). Validated by contracting the chain and comparing the
+densified operator to the `instantiate(::TermSum)` oracle for **SU(2)** (N=2,3; also matches
+`¼σ⃗·σ⃗`), **U(1)** hopping, and the **trivial sector** — non-abelian, abelian, and dense all
+reconstruct exactly. Deferred: SVD truncation (Phase 4), multi-total-charge boundary, on-site
+products, multi-body coupling, dense-track migration.
+
 ---
 
 ## Cross-cutting

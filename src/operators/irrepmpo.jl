@@ -30,7 +30,10 @@ Vector{I}}` where `bondsectors[i]` gives the bond charge of each bond index to t
 trivial-charge index.
 """
 function irrep_mpo(H::TermSum{I, S, Tc}, sites) where {I, S, Tc}
-    return _irrep_bipartite(irrep_trie(H, sites), length(sites))
+    # Defaults to the flat TermTable front end: faster and ~half the memory of building the
+    # pointer trie (see research/bench_irrep_termtable.jl), producing an identical reduced MPO.
+    # The trie path remains available via `_irrep_bipartite(irrep_trie(H, sites), N)`.
+    return irrep_mpo_flat(H, sites)
 end
 
 # NOTE: this sweep deliberately mirrors `mpo_bond_optimizations(..., ::BipartiteAlgorithm)` in

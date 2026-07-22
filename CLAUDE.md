@@ -36,6 +36,7 @@ OpSum.jl converts sums of quantum operators (e.g. Hamiltonians) into efficient t
 
 3. **Data structures** — `src/datastructures/`
    - `TermTable{Op,T}` (`src/operators/termtable.jl`): flat, sparse-per-term storage — each term's non-identity `(site, op)` factors in `K×M` matrices plus a `coeffs` vector. Built directly from a `GlobalOp` and is the default term source feeding `mpo_bond_optimizations` (both `BipartiteAlgorithm` and `SVDBondAlgorithm`).
+   - `ITOTermTable{I}` (`src/operators/irreptermtable.jl`): the ITO-track counterpart, storing each term's active `(site, ITOKey)` factors. Default term source for `irrep_mpo` (via `irrep_mpo_flat`); idle sites reconstruct the pass-through's running bond charge (`_op_at_ito`). The trie path (`irrep_trie` + `_irrep_bipartite`) remains as reference.
    - `Trie{K,V}`: Prefix tree over fixed-length sequences; used to group operator terms sharing common prefixes/suffixes. No longer the mandatory intermediate for MPO bond optimization — `build_trie!` is retained as a utility/test oracle and the `Trie`-accepting `mpo_bond_optimizations` methods remain valid entry points.
    - `SDAWG` / `DAWGDictionary`: Directed Acyclic Word Graph for suffix-compressed storage; enables sharing common tails of operator strings.
    - `BipartiteGraph`: Used for matching/decomposing tensor network bonds.

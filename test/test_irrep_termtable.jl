@@ -1,12 +1,15 @@
 using Test
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_flat, mpo_terms, ITOTermTable, arity, nterms, nvertices,
-    TermSum, spin, scalarop, couple, storedpairs, _local_terms
+using OpSum: irrep_mpo, irrep_mpo_flat, irrep_trie, _irrep_bipartite, mpo_terms, ITOTermTable,
+    arity, nterms, nvertices, TermSum, spin, scalarop, couple, storedpairs, _local_terms
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot
 
 LO(x) = OpSum.LocalOp(x)
+
+# Explicit trie reference (irrep_mpo now defaults to the flat path).
+irrep_mpo_trie(H, sites) = _irrep_bipartite(irrep_trie(H, sites), length(sites))
 
 # Robust multiset of reduced entries: (site, l, r, letter charge, letter index, coeff). Avoids
 # relying on LocalOp `==`/hash (which fall back to identity for the sum type).
@@ -35,7 +38,7 @@ end
 # flat path matches the trie path bond-for-bond (sizes, bond sectors, and stored entries)
 function flat_matches_trie(H::TermSum, sites)
     Wf, sf = irrep_mpo_flat(H, sites)
-    Wt, st = irrep_mpo(H, sites)
+    Wt, st = irrep_mpo_trie(H, sites)
     sf == st || return false
     size.(Wf) == size.(Wt) || return false
     return reduced_entries(Wf) == reduced_entries(Wt)

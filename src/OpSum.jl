@@ -1,8 +1,8 @@
 module OpSum
 
 export Sum
-export opsum, simplify
-export mpo_bond_optimizations, BipartiteAlgorithm, SVDBondAlgorithm
+export simplify
+export BipartiteAlgorithm, SVDBondAlgorithm
 
 using Dictionaries
 using SparseArraysBase: SparseArraysBase
@@ -31,20 +31,12 @@ include("datastructures/bipartite.jl")
 include("operators/abstractoperators.jl")
 include("operators/operatorbasis.jl")
 include("operators/operatoralgebra.jl")
-include("operators/globalalgebra.jl")
-include("operators/termtable.jl")
 
-include("operators/paulioperators.jl")
 include("operators/irreptensoroperators.jl")
 using .IrrepTensorOperators: IrrepOperator
 include("operators/irrepalgebra.jl")
 include("operators/irrepkey.jl")
 include("operators/irreptermtable.jl")
 include("operators/irrepmpo.jl")
-
-# State machines
-# --------------
-include("statemachines/state_machines.jl")
-include("statemachines/graphbuilding.jl")
 
 end

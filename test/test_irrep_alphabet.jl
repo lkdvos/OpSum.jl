@@ -19,9 +19,8 @@ const σZ = ComplexF64[1 0; 0 -1]
     @test ops == [IrrepOperator(SU2Irrep(0), 1), IrrepOperator(SU2Irrep(1), 1)]
     @test length(ops) == 2
 
-    # identity element (c = 0): normalized identity
-    id_op = one(IrrepOperator, V)
-    @test id_op == IrrepOperator(SU2Irrep(0), 1)
+    # trivial-charge element (c = 0): normalized identity for this single-sector space
+    id_op = IrrepOperator(SU2Irrep(0), 1)
     A = convert(Array, instantiate(id_op, V))
     @test size(A) == (2, 2, 1)
     @test A[:, :, 1] ≈ σI ./ sqrt(2)

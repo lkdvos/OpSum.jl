@@ -34,40 +34,12 @@ end
 
 # Canonical (c)-channel enumeration
 # ---------------------------------
-# Single source of truth shared by `instantiate` and `instances`.
-#
-# For a fixed charge `c` and physical space `V`, the operators of charge `c` are enumerated
-# deterministically as `(f₁, f₂, row, col)` tuples, ordered over:
-#   1. the coupled/block sector `j′ ∈ sectors(V)` (sorted),
-#   2. the domain fusion tree `f₂` of `(j, c) → j′` for `j ∈ sectors(V)` (sorted, inner tree
-#      iteration deterministic),
-#   3. the codomain degeneracy index `row ∈ 1:dim(V, j′)` (outer),
-#   4. the domain degeneracy index `col ∈ 1:dim(V, j)` (inner).
-# `n` is the flat 1-based index into that ordered list. `f₁` is the (unique) codomain splitting
-# tree of the single leg `j′`.
-function _channels(::Type{<:IrrepOperator}, c::I, V::TensorKit.ElementarySpace) where {I <: Sector}
-    sectortype(V) === I ||
-        throw(ArgumentError("charge sector $I incompatible with space sector $(sectortype(V))"))
-    table = Tuple{FusionTree, FusionTree, Int, Int}[]
-    for jp in sectors(V)
-        f1 = only(fusiontrees((jp,), jp, (false,)))
-        for j in sectors(V)
-            for f2 in fusiontrees((j, c), jp, (false, false))
-                for row in 1:dim(V, jp), col in 1:dim(V, j)
-                    push!(table, (f1, f2, row, col))
-                end
-            end
-        end
-    end
-    return table
-end
-
-# all charges `c` appearing in `End(V) ≅ V ⊗ V*`, i.e. `c ∈ dual(j) ⊗ j′` for `j, j′ ∈ V`.
-function _charges(V::TensorKit.ElementarySpace)
-    I = sectortype(V)
-    cs = I[c for j in sectors(V) for jp in sectors(V) for c in (dual(j) ⊗ jp)]
-    return sort!(unique!(cs))
-end
+# The operators of charge `c` on `V` are the reduced coefficients of a tensor `O : V ← V ⊗ Cc`
+# with `Cc = Vect[I](c => 1)`. There is exactly one such coefficient per scalar entry of the
+# block matrices of `O`, so the number of charge-`c` operators equals `dim(fuse(V ⊗ V'), c)` (and
+# the total over all charges is `dim(V ⊗ V')`). `n` is the flat 1-based index into those entries,
+# in TensorKit's canonical block order (blocks by coupled sector, column-major within each block);
+# `instantiate` and `instances` are the two sides of that single enumeration.
 
 # Materialization
 # ---------------
@@ -76,25 +48,30 @@ end
 
 Materialize the canonical ITO `TensorMap` `O_{c,n} : V ← V ⊗ Vect[I](c => 1)`.
 
-The single nonzero reduced entry (selected by the canonical `n`-ordering, see `_channels`) is
-set to `1 / sqrt(dim(j′))`, where `j′` is the coupled/block sector. This normalizes the alphabet
-to be orthonormal under TensorKit's qdim-weighted `inner` (so `inner(O, O) = dim(j′)·|entry|² = 1`).
+The single nonzero reduced entry (selected by the canonical `n`-ordering: the `n`-th scalar over
+`blocks(O)`) is set to `1 / sqrt(dim(s))`, where `s` is that entry's coupled/block sector. This
+normalizes the alphabet to be orthonormal under TensorKit's qdim-weighted `inner` (so
+`inner(O, O) = dim(s)·|entry|² = 1`).
 """
 function instantiate(op::IrrepOperator{I}, V::TensorKit.ElementarySpace) where {I <: Sector}
     sectortype(V) === I ||
         throw(ArgumentError("ITO sector $I incompatible with space sector $(sectortype(V))"))
     # pass-through identity sentinel (Phase 3): trivial charge, n == 0, acts as id(V)
-    op.n == 0 && op.c == unit(I) && return id(V)
-    table = _channels(IrrepOperator, op.c, V)
-    1 <= op.n <= length(table) ||
-        throw(ArgumentError("index n=$(op.n) out of range 1:$(length(table)) for charge $(op.c)"))
-    f1, f2, row, col = table[op.n]
+    T = scalartype(IrrepOperator{I})
 
-    T = scalartype(IrrepOperator)
-    Cc = Vect[I](op.c => 1)
-    t = zeros(T, V ← V ⊗ Cc)
-    t[f1, f2][row, col, 1] = one(T) / sqrt(dim(f1.coupled))
-    return t
+    op.n == 0 && op.c == unit(I) && return id(T, V)
+    op.n >= 1 || throw(ArgumentError("index n=$(op.n) must be ≥ 1 for charge $(op.c)"))
+
+    t = zeros(T, V ← V ⊗ Vect[I](op.c => 1))
+    idx = op.n
+    for (s, b) in blocks(t)
+        if idx <= length(b)
+            b[idx] = one(T) / sqrt(dim(s))
+            return t
+        end
+        idx -= length(b)
+    end
+    throw(ArgumentError("index n=$(op.n) out of range for charge $(op.c) on space $V"))
 end
 
 # Space-aware interface
@@ -103,53 +80,37 @@ end
     instances(::Type{<:IrrepOperator}, V::ElementarySpace)
 
 Return the full ITO alphabet spanning `End(V)`: all `(c, n)` for every charge `c` appearing in
-`dual(V) ⊗ V`, with their complete `n` ranges (canonical `_channels` ordering).
+`fuse(V ⊗ V')`, with the complete `n` range `1:dim(fuse(V ⊗ V'), c)` (canonical block ordering).
 """
 function Base.instances(::Type{<:IrrepOperator}, V::TensorKit.ElementarySpace)
     I = sectortype(V)
-    ops = IrrepOperator{I}[]
-    for c in _charges(V)
-        for n in 1:length(_channels(IrrepOperator, c, V))
-            push!(ops, IrrepOperator{I}(c, n))
-        end
-    end
-    return ops
-end
-
-"""
-    one(::Type{<:IrrepOperator}, V::ElementarySpace)
-
-The `c = unit(I)` (trivial-charge) identity ITO. Its dense form is the normalized identity
-`id(V) / sqrt(dim(j′))` **only when the trivial-charge sector of `End(V)` is one-dimensional**
-(e.g. a single SU(2) spin). For spaces with degeneracy or multiple sectors (e.g. `ℂ^2`, U(1))
-the true identity is a linear combination of trivial-charge ITOs; this accessor then returns the
-first trivial-charge matrix-unit ITO. A robust composite-identity accessor is deferred to Phase 2.
-"""
-function Base.one(::Type{<:IrrepOperator}, V::TensorKit.ElementarySpace)
-    I = sectortype(V)
-    return IrrepOperator{I}(unit(I), 1)
+    W = fuse(V ⊗ V')
+    return IrrepOperator{I}[IrrepOperator{I}(c, n) for c in sectors(W) for n in 1:dim(W, c) ]
 end
 
 # Ordering / hashing (sorting Us, Dictionary keys)
 # ------------------------------------------------
-# Order by TensorKit's canonical sector `isless` first, tie-broken by the canonical index `n`.
-function Base.isless(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I <: Sector}
-    return x.c == y.c ? isless(x.n, y.n) : isless(x.c, y.c)
-end
-Base.:(==)(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} = x.c == y.c && x.n == y.n
-Base.hash(x::IrrepOperator, h::UInt) = hash(x.n, hash(x.c, hash(:IrrepOperator, h)))
+# The `(c, n)` pair is the identity of the letter: order, equality and hashing all reduce to it.
+# Tuple `isless` orders by TensorKit's canonical sector `isless` first, tie-broken by `n`.
+_key(x::IrrepOperator) = (x.c, x.n)
+Base.isless(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I <: Sector} = isless(_key(x), _key(y))
+Base.:(==)(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} = _key(x) == _key(y)
+Base.hash(x::IrrepOperator, h::UInt) = hash(_key(x), hash(:IrrepOperator, h))
 
 # Scalars / reality
 # -----------------
-# Reality decision: default to `ComplexF64`/`isreal = false` for now (safest given CG/F-symbol
-# phases). A real convention for SU(2) can be revisited later.
+# The scalar field follows the sector's topological data via `sectorscalartype(I)`, promoted to a
+# *complex* floating field: real/integer topological data (e.g. SU(2), U(1), trivial) gives
+# `ComplexF64`, matching the coefficient type the rest of the term algebra / MPO pipeline works in;
+# genuinely anyonic (complex F-symbol) sectors keep their complex field. Staying complex avoids
+# `LocalOp{Float64}`/`LocalOp{ComplexF64}` mismatches in the symbolic algebra. The bare
+# (sector-free) type falls back to `ComplexF64`.
+VectorInterface.scalartype(::Type{IrrepOperator{I}}) where {I <: Sector} = complex(float(sectorscalartype(I)))
 VectorInterface.scalartype(::Type{<:IrrepOperator}) = ComplexF64
 Base.isreal(::Type{<:IrrepOperator}) = false
 
-# Since the alphabet is orthonormal by construction, the symbolic inner product collapses to
-# equality. Validated in the tests against `inner(instantiate(x, V), instantiate(y, V))`.
-function VectorInterface.inner(x::IrrepOperator, y::IrrepOperator)
-    T = scalartype(IrrepOperator)
+function VectorInterface.inner(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I <: Sector}
+    T = scalartype(IrrepOperator{I})
     return x == y ? one(T) : zero(T)
 end
 

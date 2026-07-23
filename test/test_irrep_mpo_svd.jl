@@ -22,7 +22,7 @@ end
 
 contract2(T) = @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
 function contract3(T)
-    @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
+    return @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
         T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
 end
 

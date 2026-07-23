@@ -25,9 +25,8 @@ using .IrrepTensorOperators: IrrepOperator
 
 export spin, scalarop, couple, TermSum
 
-# sector type of the ITO alphabet + the letter's charge (overrides the trivial-sector default)
+# sector type of the ITO alphabet
 sectortype(::Type{IrrepOperator{I}}) where {I} = I
-charge(x::IrrepOperator) = x.c
 
 # LocalOp instantiation over ITOs (single-site materialization)
 # -------------------------------------------------------------

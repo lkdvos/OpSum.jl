@@ -1,3 +1,6 @@
+using TensorKit: Trivial
+import TensorKit: sectortype
+
 """
     abstract type OperatorBasis
 
@@ -6,6 +9,29 @@ Abstract supertype for all operator basis elements.
 abstract type OperatorBasis end
 
 function namemap end
+
+# Symmetry / letter interface
+# ---------------------------
+# Generic hooks (step 1 of the dense→term migration, see research/dense-term-migration.md) that let
+# term construction treat any letter uniformly. Symmetric alphabets override with their real charge;
+# dense (non-symmetric) letters are the trivial-sector special case.
+
+"""
+    charge(op::OperatorBasis) -> Sector
+
+The symmetry charge (coupled-leg sector) carried by a basis-element letter. Symmetric letters carry
+their irrep charge; dense letters live in the trivial sector `Trivial()`. Term construction reads
+this to build the per-term caterpillar fusion tree.
+"""
+charge(::OperatorBasis) = Trivial()
+
+"""
+    sectortype(::Type{<:OperatorBasis}) -> Type{<:Sector}
+
+The sector type a letter is graded over. Defaults to `Trivial` (dense, non-symmetric); symmetric
+alphabets override (e.g. `IrrepOperator{I}` → `I`).
+"""
+sectortype(::Type{<:OperatorBasis}) = Trivial
 
 function Base.instances(::Type{O}) where {O <: OperatorBasis}
     maps = namemap(O)

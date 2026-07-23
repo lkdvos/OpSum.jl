@@ -324,8 +324,6 @@ The Cartesian two-body scalar product of two single-site ITO operators: singlet 
 `couple(a, b; to = unit(I))` times the Cartesian factor `-√dim(c)` (the identity
 `Sᵢ·Sⱼ = -√3 [S⊗S]⁽⁰⁾` with `-√3 = -√dim(spin-1)`). Order-independent in the two sites. Distinct
 from bare `couple(…; to = unit(I))`, which carries no such factor.
-
-NOTE: distinct from `LinearAlgebra.dot(::OperatorBasis, ::AbstractArray)` (basis projection).
 """
 function LinearAlgebra.dot(a::TermSum{I}, b::TermSum{I}) where {I}
     sa, opa, _ = _single_site_term(a, "·: first operand")

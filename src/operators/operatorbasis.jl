@@ -1,80 +1,23 @@
 """
     abstract type OperatorBasis
 
-Abstract supertype for all operator basis elements.
+Abstract supertype for all operator basis elements (the on-site alphabet letters wrapped by
+`LocalOp`).
 """
 abstract type OperatorBasis end
-
-function namemap end
-
-function Base.instances(::Type{O}) where {O <: OperatorBasis}
-    maps = namemap(O)
-    return O.(keys(maps))
-end
-
-function Base.show(io::IO, x::OperatorBasis)
-    maps = namemap(typeof(x))
-    return show(io, maps[Integer(x)])
-end
-
-# (anti-) commutation
-# -------------------
-abstract type CommutationType end
-CommutationType(x) = CommutationType(typeof(x))
-CommutationType(T::Type) = throw(MethodError(CommutationType, (T,)))
-
-struct Commuting end
-struct Anticommuting end
 
 # Instantiation
 # -------------
 """
-    instantiate(b::OperatorBasis, ::Type{T}, axes) where {T <: Number}
+    instantiate(op, V)
 
-Instantiate an `AbstractArray{T}` instance for the given basis element.
+Materialize a basis element / symbolic operator into its concrete form on the physical space `V`
+(a TensorKit `TensorMap` for the ITO alphabet). Implemented per alphabet; see
+`instantiate(::IrrepOperator, ::ElementarySpace)`.
 """
 function instantiate end
 
-# Expansion
-# ---------
-function LinearAlgebra.dot(x::OperatorBasis, y::AbstractArray)
-    N = ndims(y)
-    @assert iseven(N) "operators have an equal number of in and out legs"
-    for i in 1:(N ÷ 2)
-        @assert axes(y, i) == axes(y, i + (N ÷ 2)) "operators must have equal in and out legs"
-    end
-
-    yax = map(Base.Fix1(axes, y), 1:(N ÷ 2))
-    T = VectorInterface.promote_inner(x, y)
-    x′ = instantiate(x, T, yax)
-    return LinearAlgebra.dot(x′, y)
-end
-
-"""
-    project(::Type{T}, operator) where {T<:OperatorBasis}
-
-Rewrite the given operator by expanding it into the given basis set.
-"""
-function project(::Type{T}, operator) where {T <: OperatorBasis}
-    expanded_operator = sum(instances(T)) do basis_element
-        c = LinearAlgebra.dot(basis_element, operator)
-        return c * basis_element
-    end
-    # norm(expanded_operator) ≈ norm(operator) ||
-    #     @warn "Expansion did not succeed, basis might not be complete"
-    return expanded_operator
-end
-
-# LinearAlgebra
-# -------------
-
+# Scalar scaling: a bare letter times a scalar promotes to a `LocalOp`. Used by the per-bond sweep
+# when weighting a letter by its reduced coefficient (`k.op * coeff`).
 Base.:*(x::OperatorBasis, y::Number) = LocalOp(x) * y
 Base.:*(x::Number, y::OperatorBasis) = x * LocalOp(y)
-
-Base.one(x::OperatorBasis) = one(typeof(x))
-Base.zero(x::OperatorBasis) = 0 * one(x)
-
-VectorInterface.inner(x::OperatorBasis, y::Number) = inner(x, one(x)) * y
-VectorInterface.inner(x::Number, y::OperatorBasis) = conj(x) * inner(one(y), y)
-
-Base.:+(x::O, y::O) where {O <: OperatorBasis} = LocalOp(x) + LocalOp(y)

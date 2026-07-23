@@ -24,7 +24,7 @@ julia --project -e 'using Runic; Runic.format_file("src/file.jl"; check=true)'
 
 OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into efficient, symmetry-reduced matrix-product-operator (MPO) representations. The pipeline is: symbolic term algebra → flat term list → per-bond-sector bipartite/SVD compression → reduced MPO tensors.
 
-(A dense/Pauli pipeline based on a `GlobalOp` expression tree previously ran in parallel; it has been removed — see `research/dense-term-migration.md` for the historical scoping.)
+(A dense/Pauli pipeline based on a `GlobalOp` expression tree previously ran in parallel; it has been removed — only the symmetric ITO track remains.)
 
 1. **Symbolic operator algebra** — `src/operators/`
    - `LocalOp{T,A}`: a sum type (via `LightSumTypes.@sumtype`) for operators on one local Hilbert space; variants are scalars, basis elements, `Sum`, `Prod`, `Pow`, `Kron`, `Fun`. `A` is the on-site alphabet.

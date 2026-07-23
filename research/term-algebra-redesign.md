@@ -1,5 +1,11 @@
 # Redesign: term-list global algebra
 
+> **Status — superseded (historical record).** The ITO term-list redesign below was implemented
+> (`TermSum`/`TermKey`). Two premises no longer hold: the dense/Pauli pipeline referenced as
+> "untouched / migrates later" was **removed** rather than migrated, and the Phase-3 pointer trie was
+> replaced by the flat `ITOTermTable`. `TermKey`/`TermSum` stay hardcoded to `IrrepOperator{I}` — the
+> letter-type generalization proposed here was **not** adopted. Kept for design rationale only.
+
 Companion to [`symmetric-operators-ito-design.md`](./symmetric-operators-ito-design.md) and
 [`symmetric-operators-implementation-plan.md`](./symmetric-operators-implementation-plan.md).
 

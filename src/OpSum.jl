@@ -25,6 +25,7 @@ include("utility/utility.jl")
 # Data structures
 # ---------------
 include("datastructures/bipartite.jl")
+include("datastructures/connectedcomponents.jl")
 
 # Operators
 # ---------

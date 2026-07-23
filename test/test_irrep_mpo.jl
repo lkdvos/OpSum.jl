@@ -107,6 +107,24 @@ end
     @test SU2Irrep(1) in secs[2]
 end
 
+@testset "decoupled singlet pairs — multiple same-charge disconnected states at a bond" begin
+    # three independent nearest-neighbour singlet pairs on a 6-site chain: at bulk bonds, several
+    # mutually-disconnected trivial-charge states coexist ("nothing started yet" vs "already closed
+    # a pair to a singlet"), exercising the per-connected-component vertex-cover split within a
+    # single bond-charge sector (not just across sectors).
+    V = SU2Space(1 // 2 => 1)
+    N = 6
+    sites = fill(V, N)
+    H = dot(spin(V)[1], spin(V)[2]) + dot(spin(V)[3], spin(V)[4]) + dot(spin(V)[5], spin(V)[6])
+    @test islossless(H, sites)
+
+    _, secs = irrep_mpo(H, sites)
+    @test secs[N] == [SU2Irrep(0)]
+    @test count(==(SU2Irrep(0)), secs[2]) == 2      # "identity so far" + "first pair already closed"
+    @test count(==(SU2Irrep(0)), secs[3]) == 2
+    @test count(==(SU2Irrep(1)), secs[3]) == 1      # the second pair's open coupling
+end
+
 @testset "K=3 U(1) three-body term — lossless + charge-resolved" begin
     V = Rep[U₁](0 => 1, 1 => 1)
     raise = LO(IrrepOperator(U1Irrep(1), 1))

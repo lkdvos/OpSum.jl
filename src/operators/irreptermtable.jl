@@ -166,12 +166,28 @@ function _irrep_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
         nV = uid!.current
 
         coefficients = zeros(T, nU, nV)
+        adjU = [Int[] for _ in 1:nU]
         for (Idx, c) in nonzero_list
-            @assert iszero(coefficients[Tuple(Idx)...])
-            coefficients[Tuple(Idx)...] = c
+            iu, iv = Tuple(Idx)
+            @assert iszero(coefficients[iu, iv])
+            coefficients[iu, iv] = c
+            push!(adjU[iu], iv)
         end
         adjacency = (!iszero).(coefficients)
-        coverU, coverV, _ = min_vertex_cover_bipartite(adjacency)
+
+        # Split into connected components and run the min-vertex-cover per component instead of
+        # once over the whole (block-diagonal-by-bond-charge) site graph. A minimum vertex cover of
+        # a disjoint union of graphs is exactly the union of the components' minimum vertex covers
+        # (König's theorem applies per-component), so this is a pure decomposition: same cover, same
+        # bond dimension, just smaller independent matching problems.
+        coverU = falses(nU)
+        coverV = falses(nV)
+        us_of_component, vs_of_component = bipartite_connected_components(adjU, nV)
+        for (us, vs) in zip(us_of_component, vs_of_component)
+            cU, cV, _ = min_vertex_cover_bipartite(adjacency[us, vs])
+            coverU[us[cU]] .= true
+            coverV[vs[cV]] .= true
+        end
 
         ubond = I[Uop[iu].bond for iu in 1:nU]
 
@@ -196,6 +212,9 @@ function _irrep_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
             push!(next_frontier, Strand[(Vrepr[iv], one(T))])
             j = length(next_frontier)
 
+            # Now implied by connectivity (all of `conn` shares iv's connected component, and the
+            # automaton is block-diagonal in the bond charge — irrepkey.jl:6), kept as a cheap
+            # per-component safety net rather than removed.
             conn = findall(!iszero, coefficients[:, iv])
             charge = ubond[first(conn)]
             @assert all(ubond[iu] == charge for iu in conn) "bond index not sector-pure (block-diagonality violated)"

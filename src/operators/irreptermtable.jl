@@ -13,7 +13,8 @@
 # The sweep uses sorted `Us` and materialised-suffix `Vs` keys, feeding `min_vertex_cover_bipartite`
 # a canonical bipartite graph and yielding the per-sector bond dimensions the ITO tests pin down.
 
-using TensorKit: Sector, unit
+using TensorKit: Sector, unit, Vect, block, sectors, space, dim
+using MatrixAlgebraKit: svd_trunc, trunctol
 
 """
     ITOTermTable{I<:Sector}
@@ -220,5 +221,157 @@ function _irrep_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
         frontier = next_frontier
     end
 
+    return (map(SparseArraysBase.sparse, dicts, sizes), bondsectors)
+end
+
+# Per-bond-sector SVD sweep over the flat `ITOTermTable` — the ITO counterpart of the dense
+# `_svd_bond_optimizations` (graphbuilding.jl). Same skeleton (prefix/suffix transition IDs, one
+# coefficient matrix per bond, keep the left singular vectors as the compressed bond basis, then
+# project the vertex operators), with one ITO-specific change: each bond coefficient matrix is built
+# as a *charge-graded* `TensorMap C_b : Ppre ← Psuf` — both spaces graded by the running bond charge
+# `_op_at_ito(tt,t,b).bond`. That makes `C_b` block-diagonal in the bond charge, so `svd_trunc`
+# does the per-sector SVD *and* the global-across-sectors truncation automatically (respecting the
+# quantum dimensions), and the retained bond space directly gives `bondsectors`. The compression is
+# on the symbolic bond coefficients only — entries stay ITO letters times scalars — so the output
+# `(Ws, bondsectors)` feeds `irrep_mpo_tensors` unchanged. `trunc === nothing` ⇒ lossless default.
+function _irrep_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
+    Op = ITOKey{I}
+    T = ComplexF64
+    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    M = nterms(tt)
+    M == 0 && return (SparseMatrixDOK{LOp}[], Vector{I}[])
+
+    _bondcharge(t, b) = _op_at_ito(tt, t, b).bond
+
+    # --- 1. Prefix / suffix transition IDs at every internal bond -----------------------------
+    #   pre_ids[t, b] = class of prefix o_t[1:b];  suf_ids[t, b] = class of suffix o_t[b+1:N].
+    #   Assigned via (prev_id, ITOKey) transitions (the ITOKey carries op+bond+vertex, so classes
+    #   are automatically sector-pure). Mirrors graphbuilding.jl but reads keys via `_op_at_ito`.
+    pre_ids = zeros(Int, M, max(N - 1, 0))
+    suf_ids = zeros(Int, M, max(N - 1, 0))
+    pre_trans = [Dictionary{Tuple{Int, Op}, Int}() for _ in 1:(N - 1)]
+    pre_cnt = [Counter() for _ in 1:(N - 1)]
+    for t in 1:M
+        prev = 1
+        for b in 1:(N - 1)
+            id = get!(pre_cnt[b], pre_trans[b], (prev, _op_at_ito(tt, t, b)))
+            pre_ids[t, b] = id
+            prev = id
+        end
+    end
+    suf_trans = [Dictionary{Tuple{Int, Op}, Int}() for _ in 1:(N - 1)]
+    suf_cnt = [Counter() for _ in 1:(N - 1)]
+    for t in 1:M
+        prev = 1
+        for b in (N - 1):-1:1
+            id = get!(suf_cnt[b], suf_trans[b], (prev, _op_at_ito(tt, t, b + 1)))
+            suf_ids[t, b] = id
+            prev = id
+        end
+    end
+
+    # --- 2. Per bond: build the charge-graded coefficient TensorMap, SVD-truncate, keep U -----
+    #   `bond_Us[b]` is the (n_pre × r_b) left-isometry as a plain matrix (block-diagonal in charge,
+    #   columns grouped per sector); `bond_secs[b]` is the retained bond's charge per column.
+    bond_Us = Vector{Matrix{T}}(undef, N - 1)
+    bond_secs = Vector{Vector{I}}(undef, N - 1)
+    truncstrat = something(trunc, trunctol(rtol = eps(Float64)))
+    for b in 1:(N - 1)
+        npre = pre_cnt[b].current
+        nsuf = suf_cnt[b].current
+        # charge of each prefix / suffix class (the shared bond charge); set-once, assert-consistent
+        preQ = Vector{Union{Nothing, I}}(nothing, npre)
+        sufQ = Vector{Union{Nothing, I}}(nothing, nsuf)
+        for t in 1:M
+            q = _bondcharge(t, b)
+            p, s = pre_ids[t, b], suf_ids[t, b]
+            @assert preQ[p] === nothing || preQ[p] == q "prefix class not sector-pure"
+            @assert sufQ[s] === nothing || sufQ[s] == q "suffix class not sector-pure"
+            preQ[p] = q
+            sufQ[s] = q
+        end
+        # degeneracy of each class within its charge sector + per-sector multiplicities
+        pre_mult = Dict{I, Int}()
+        pre_deg = zeros(Int, npre)
+        for p in 1:npre
+            q = something(preQ[p])
+            pre_deg[p] = pre_mult[q] = get(pre_mult, q, 0) + 1
+        end
+        suf_mult = Dict{I, Int}()
+        suf_deg = zeros(Int, nsuf)
+        for s in 1:nsuf
+            q = something(sufQ[s])
+            suf_deg[s] = suf_mult[q] = get(suf_mult, q, 0) + 1
+        end
+
+        Ppre = Vect[I](pre_mult)
+        Psuf = Vect[I](suf_mult)
+        C = zeros(T, Ppre ← Psuf)
+        for t in 1:M
+            q = _bondcharge(t, b)
+            block(C, q)[pre_deg[pre_ids[t, b]], suf_deg[suf_ids[t, b]]] += tt.coeffs[t]
+        end
+
+        U, S, _ = svd_trunc(C; trunc = truncstrat)
+        Wb = space(S, 1)   # retained bond space (⊕ charge sectors with truncated multiplicities)
+
+        # flatten U into an (npre × r_b) block-diagonal matrix, columns grouped per sector
+        r_b = sum(q -> dim(Wb, q), sectors(Wb); init = 0)
+        Umat = zeros(T, npre, r_b)
+        secs = I[]
+        col = 0
+        for q in sectors(Wb)
+            Ub = block(U, q)              # (pre_mult[q] × Wb_mult[q])
+            for dcol in 1:size(Ub, 2)
+                col += 1
+                push!(secs, q)
+                for p in 1:npre
+                    something(preQ[p]) == q || continue
+                    Umat[p, col] = Ub[pre_deg[p], dcol]
+                end
+            end
+        end
+        @assert col == r_b
+        bond_Us[b] = Umat
+        bond_secs[b] = secs
+    end
+
+    # --- 3. Project each vertex operator into the compressed bond bases -----------------------
+    #   W_op = U_{i-1}' · C_op · U_i, per ITO letter, in the uncompressed (pre_{i-1}, pre_i) basis
+    #   (boundary bonds are the 1×1 identity). Emits the letter times the compressed coefficient.
+    r = [size(bond_Us[b], 2) for b in 1:(N - 1)]
+    sizes = Tuple{Int, Int}[(b == 1 ? 1 : r[b - 1], b == N ? 1 : r[b]) for b in 1:N]
+    dicts = [Dictionary{CartesianIndex{2}, LOp}() for _ in 1:N]
+    for i in 1:N
+        U_left = i > 1 ? bond_Us[i - 1] : ones(T, 1, 1)
+        U_right = i < N ? bond_Us[i] : ones(T, 1, 1)
+        nL = size(U_left, 1)
+        nR = size(U_right, 1)
+
+        op_coeffs = Dictionary{Op, Matrix{T}}()
+        for t in 1:M
+            key = _op_at_ito(tt, t, i)
+            j = i > 1 ? pre_ids[t, i - 1] : 1
+            l = i < N ? pre_ids[t, i] : 1
+            Cmat = get!(() -> zeros(T, nL, nR), op_coeffs, key)
+            if i == N
+                Cmat[j, l] += tt.coeffs[t]   # accumulate: many terms can share the same prefix
+            else
+                Cmat[j, l] = one(T)          # deterministic: same (j,l,key) ⇒ same successor
+            end
+        end
+
+        for (key, C_op) in pairs(op_coeffs)
+            W_op = U_left' * C_op * U_right
+            lop = convert(LOp, key.op)
+            for col in 1:size(W_op, 2), row in 1:size(W_op, 1)
+                iszero(W_op[row, col]) && continue
+                increaseindex!(dicts[i], CartesianIndex(row, col), lop * W_op[row, col])
+            end
+        end
+    end
+
+    # bond to the right of site i: internal bonds from the SVD, the right boundary is trivial
+    bondsectors = Vector{I}[i < N ? bond_secs[i] : I[unit(I)] for i in 1:N]
     return (map(SparseArraysBase.sparse, dicts, sizes), bondsectors)
 end

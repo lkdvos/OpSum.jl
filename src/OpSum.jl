@@ -13,6 +13,10 @@ using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
 using LinearAlgebra: LinearAlgebra, kron
 using LightSumTypes
 
+# Algorithm selectors (shared by the dense and irrep pipelines)
+# -------------------------------------------------------------
+include("algorithms.jl")
+
 # Utility
 # -------
 include("utility/linalg.jl")

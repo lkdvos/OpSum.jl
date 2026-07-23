@@ -1,15 +1,7 @@
-"""Algorithm selector: bipartite graph / minimum vertex cover (current default)."""
-struct BipartiteAlgorithm end
-
-"""Algorithm selector: SVD-based bond subspace selection."""
-struct SVDBondAlgorithm
-    trunc  # TruncationStrategy or nothing
-end
-SVDBondAlgorithm() = SVDBondAlgorithm(nothing)
-
 # ===========================================================================
 # BipartiteAlgorithm on a flat TermTable
 # ===========================================================================
+# (`BipartiteAlgorithm` / `SVDBondAlgorithm` selectors live in src/algorithms.jl.)
 
 # Operator at site `s` of term `t`, or identity if the term does not touch `s`.
 # Relies on the columns of `tt.sites` being sorted ascending and zero-padded.

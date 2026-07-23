@@ -26,7 +26,25 @@ Vector{I}}` where `bondsectors[i]` gives the bond charge of each bond index to t
 trivial-charge index.
 """
 function irrep_mpo(H::TermSum{I, S, Tc}, sites) where {I, S, Tc}
+    return irrep_mpo(H, sites, BipartiteAlgorithm())
+end
+
+function irrep_mpo(H::TermSum{I, S, Tc}, sites, ::BipartiteAlgorithm) where {I, S, Tc}
     return _irrep_bipartite(ITOTermTable(H, sites), length(sites))
+end
+
+"""
+    irrep_mpo(H::TermSum, sites, alg::SVDBondAlgorithm) -> (Ws, bondsectors)
+
+SVD-based reduced MPO: same `(Ws, bondsectors)` contract as the default bipartite construction, but
+each bond's compressed basis is chosen by an SVD of the (charge-graded) bond coefficient matrix
+rather than a minimum vertex cover. Truncation is set by `alg.trunc` (a `MatrixAlgebraKit`
+truncation strategy such as `truncrank`/`trunctol`, applied globally across charge sectors);
+`SVDBondAlgorithm()` keeps the lossless default. The compression acts on the symbolic bond
+coefficients, so the output still feeds `irrep_mpo_tensors` unchanged.
+"""
+function irrep_mpo(H::TermSum{I, S, Tc}, sites, alg::SVDBondAlgorithm) where {I, S, Tc}
+    return _irrep_svd(ITOTermTable(H, sites), length(sites), alg.trunc)
 end
 
 """

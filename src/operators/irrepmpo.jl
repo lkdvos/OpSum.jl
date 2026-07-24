@@ -30,7 +30,7 @@ function irrep_mpo(H::TermSum{I, S, Tc}, sites) where {I, S, Tc}
 end
 
 function irrep_mpo(H::TermSum{I, S, Tc}, sites, ::BipartiteAlgorithm) where {I, S, Tc}
-    return _irrep_bipartite(ITOTermTable(H, sites), length(sites))
+    return _irrep_graph_bipartite(ITOTermTable(H, sites), length(sites))
 end
 
 """

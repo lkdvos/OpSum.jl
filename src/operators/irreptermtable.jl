@@ -116,7 +116,7 @@ function _irrep_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
     T = ComplexF64
     LOp = LocalOp{ComplexF64, IrrepOperator{I}}
     M = nterms(tt)
-    M == 0 && return (SparseMatrixDOK{LOp}[], Vector{I}[])
+    M == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
     Strand = Tuple{Int, T}                # (representative term, coeff)
     frontier = [Tuple{Int, T}[(t, tt.coeffs[t]) for t in 1:M]]
@@ -240,7 +240,7 @@ function _irrep_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
         frontier = next_frontier
     end
 
-    return (map(SparseArraysBase.sparse, dicts, sizes), bondsectors)
+    return (map(sparse_from_dict, dicts, sizes), bondsectors)
 end
 
 # Per-bond-sector SVD sweep over the flat `ITOTermTable` — the ITO counterpart of the dense
@@ -258,7 +258,7 @@ function _irrep_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
     T = ComplexF64
     LOp = LocalOp{ComplexF64, IrrepOperator{I}}
     M = nterms(tt)
-    M == 0 && return (SparseMatrixDOK{LOp}[], Vector{I}[])
+    M == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
     _bondcharge(t, b) = _op_at_ito(tt, t, b).bond
 
@@ -392,5 +392,5 @@ function _irrep_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
 
     # bond to the right of site i: internal bonds from the SVD, the right boundary is trivial
     bondsectors = Vector{I}[i < N ? bond_secs[i] : I[unit(I)] for i in 1:N]
-    return (map(SparseArraysBase.sparse, dicts, sizes), bondsectors)
+    return (map(sparse_from_dict, dicts, sizes), bondsectors)
 end

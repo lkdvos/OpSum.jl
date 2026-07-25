@@ -5,8 +5,7 @@ export simplify
 export BipartiteAlgorithm, SVDBondAlgorithm
 
 using Dictionaries
-using SparseArraysBase: SparseArraysBase
-using SparseArraysBase: SparseArrayDOK, SparseMatrixDOK, storedpairs
+using SparseArrays: SparseMatrixCSC, sparse, nonzeros, nzrange, rowvals
 using VectorInterface
 using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation

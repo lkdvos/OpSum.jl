@@ -44,7 +44,7 @@ end
     ITOGraph{I}
 
 The persistent bipartite graph over an [`ITOTermTable`](@ref), handed from one site step to the next
-by [`_at_site!`](@ref). Right vertices are terms (identified by a representative term id); they
+by `_at_site!`. Right vertices are terms (identified by a representative term id); they
 persist and only shrink via the incremental suffix-merge. The current bipartite graph (for the bond
 `i-1 → i` about to be processed) is `lefts` ↔ right vertices, with per-left-vertex adjacency lists
 `radj`/`wadj` (right-vertex id, scalar weight).
@@ -323,7 +323,7 @@ end
 
 Persistent-graph, minimum-vertex-cover reduced-MPO sweep — the ITensor `at_site!` port. Produces the
 same `(Ws::Vector{SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}, Int}}, bondsectors::Vector{
-Vector{I}})` contract as [`_irrep_bipartite`](@ref), so `mpo_terms` / `irrep_mpo_tensors` consume it
+Vector{I}})` contract as `_irrep_bipartite`, so `mpo_terms` / `irrep_mpo_tensors` consume it
 unchanged.
 """
 function _irrep_graph_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
@@ -445,11 +445,11 @@ end
     _irrep_graph_svd(tt::ITOTermTable{I}, N, trunc) -> (Ws, bondsectors)
 
 Persistent-graph SVD reduced-MPO sweep — the ITensor QR-backend port. Same `(Ws, bondsectors)`
-contract as [`_irrep_graph_bipartite`](@ref) / [`_irrep_svd`](@ref); each bond's compressed basis is
+contract as `_irrep_graph_bipartite` / `_irrep_svd`; each bond's compressed basis is
 the left singular vectors of the charge-graded bond coefficient matrix, truncated globally across
 sectors by `trunc` (a `MatrixAlgebraKit.TruncationStrategy`, or `nothing` for the lossless default).
 
-**Lossless (`trunc === nothing`) this is at parity with [`_irrep_svd`](@ref)** — same per-sector bond
+**Lossless (`trunc === nothing`) this is at parity with `_irrep_svd`** — same per-sector bond
 dimensions and same represented operator. Under **truncation the two diverge by design**: this is a
 *sequential* left-to-right sweep (each bond is compressed in the basis left over from the bond before
 it, à la ITensor's QR sweep), whereas `_irrep_svd` compresses every bond *independently* on the raw

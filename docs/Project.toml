@@ -1,7 +1,14 @@
 [deps]
-OpSum = "ad22a312-ed53-41dd-b1d0-052652c9fe0a"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+MatrixAlgebraKit = "6c742aac-3347-4629-af66-fc926824e5e4"
+OpSum = "ad22a312-ed53-41dd-b1d0-052652c9fe0a"
+TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
+
+[compat]
+MatrixAlgebraKit = "0.6"
+TensorKit = "0.17"
 
 [sources]
 OpSum = {path = ".."}

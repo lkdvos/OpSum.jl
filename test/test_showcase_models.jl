@@ -108,9 +108,11 @@ end
     N, t = 6, 1.0
     H, sites = ShowcaseModels.free_fermions(N; t)
     ε = [-2t * cos(k * π / (N + 1)) for k in 1:N]
-    exact = sort([
-        sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0) for m in 0:(2^N - 1)
-    ])
+    exact = sort(
+        [
+            sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0) for m in 0:(2^N - 1)
+        ]
+    )
     @test spectrum(H, sites) ≈ exact
 end
 
@@ -120,10 +122,12 @@ end
     H0, s0 = ShowcaseModels.hubbard(2Nsites; U = 0.0)
     ε1 = [-2 * cos(k * π / (Nsites + 1)) for k in 1:Nsites]
     ε = vcat(ε1, ε1)
-    exact = sort([
-        sum(ε[k] for k in 1:(2Nsites) if (m >> (k - 1)) & 1 == 1; init = 0.0)
-            for m in 0:(2^(2Nsites) - 1)
-    ])
+    exact = sort(
+        [
+            sum(ε[k] for k in 1:(2Nsites) if (m >> (k - 1)) & 1 == 1; init = 0.0)
+                for m in 0:(2^(2Nsites) - 1)
+        ]
+    )
     @test spectrum(H0, s0) ≈ exact
 
     # t = 0: the energy counts doubly occupied sites in units of U.

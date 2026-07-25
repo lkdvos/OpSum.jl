@@ -71,10 +71,12 @@ H = hopping(N)
 
 function free_fermion_spectrum(N; t = 1.0)
     ε = [-2t * cos(k * π / (N + 1)) for k in 1:N]
-    return sort([
-        sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0)
-            for m in 0:(2^N - 1)
-    ])
+    return sort(
+        [
+            sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0)
+                for m in 0:(2^N - 1)
+        ]
+    )
 end
 
 spectrum(H, sites) ≈ free_fermion_spectrum(N)
@@ -125,8 +127,10 @@ orbital(i, σ) = 2 * (i - 1) + σ    # σ = 1 for ↑, 2 for ↓
 function hubbard(Nsites; t = 1.0, U = 4.0)
     u = unit(FermionNumber)
     hop = [
-        -t * (bondterm(cd, orbital(i, σ), c, orbital(i + 1, σ); to = u) -
-            bondterm(c, orbital(i, σ), cd, orbital(i + 1, σ); to = u))
+        -t * (
+                bondterm(cd, orbital(i, σ), c, orbital(i + 1, σ); to = u) -
+                bondterm(c, orbital(i, σ), cd, orbital(i + 1, σ); to = u)
+            )
             for i in 1:(Nsites - 1) for σ in 1:2
     ]
     int = [
@@ -152,10 +156,12 @@ let Ns = 3
         [-2 * cos(k * π / (Ns + 1)) for k in 1:Ns],
         [-2 * cos(k * π / (Ns + 1)) for k in 1:Ns],
     )
-    exact = sort([
-        sum(ε[k] for k in 1:(2Ns) if (m >> (k - 1)) & 1 == 1; init = 0.0)
-            for m in 0:(2^(2Ns) - 1)
-    ])
+    exact = sort(
+        [
+            sum(ε[k] for k in 1:(2Ns) if (m >> (k - 1)) & 1 == 1; init = 0.0)
+                for m in 0:(2^(2Ns) - 1)
+        ]
+    )
     spectrum(H0, s0) ≈ exact
 end
 
@@ -197,8 +203,10 @@ function hubbard_cylinder(Lx, Ly; t = 1.0, U = 4.0)
     u = unit(FermionNumber)
     Nsites = Lx * Ly
     hop = [
-        -t * (bondterm(cd, orbital(i, σ), c, orbital(j, σ); to = u) -
-            bondterm(c, orbital(i, σ), cd, orbital(j, σ); to = u))
+        -t * (
+                bondterm(cd, orbital(i, σ), c, orbital(j, σ); to = u) -
+                bondterm(c, orbital(i, σ), cd, orbital(j, σ); to = u)
+            )
             for (i, j) in cylinder_bonds(Lx, Ly) for σ in 1:2
     ]
     int = [U * bondterm(nh, orbital(i, 1), nh, orbital(i, 2); to = u) for i in 1:Nsites]

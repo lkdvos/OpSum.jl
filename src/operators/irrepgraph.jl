@@ -25,7 +25,7 @@
 # out of scope (the `LeftVertex` fermion/JW slot from ITensor is intentionally omitted).
 
 using TensorKit: Sector
-using SparseArraysBase: SparseArraysBase, SparseMatrixDOK
+using SparseArrays: SparseMatrixCSC
 
 """
     LeftVertex{I}
@@ -313,7 +313,7 @@ function _at_site!(g::ITOGraph{I}, i::Int) where {I}
     end
     nout = offset
 
-    Ws_i = SparseArraysBase.sparse(site_dict, (g.nlinks, nout))
+    Ws_i = sparse_from_dict(site_dict, (g.nlinks, nout))
     i < g.N && _build_next_graph!(g, i, nout, nextedges_global)
     return Ws_i, secW
 end
@@ -322,16 +322,16 @@ end
     _irrep_graph_bipartite(tt::ITOTermTable{I}, N) -> (Ws, bondsectors)
 
 Persistent-graph, minimum-vertex-cover reduced-MPO sweep — the ITensor `at_site!` port. Produces the
-same `(Ws::Vector{SparseMatrixDOK{LocalOp{ComplexF64, IrrepOperator{I}}}}, bondsectors::Vector{
+same `(Ws::Vector{SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}, Int}}, bondsectors::Vector{
 Vector{I}})` contract as [`_irrep_bipartite`](@ref), so `mpo_terms` / `irrep_mpo_tensors` consume it
 unchanged.
 """
 function _irrep_graph_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
     LOp = LocalOp{ComplexF64, IrrepOperator{I}}
-    nterms(tt) == 0 && return (SparseMatrixDOK{LOp}[], Vector{I}[])
+    nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
     g = ITOGraph(tt, N)
-    Ws = Vector{SparseMatrixDOK{LOp}}(undef, N)
+    Ws = Vector{SparseMatrixCSC{LOp, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)
     for i in 1:N
         Ws[i], bondsectors[i] = _at_site!(g, i)
@@ -436,7 +436,7 @@ function _svd_at_site!(g::ITOGraph{I}, i::Int, truncstrat) where {I}
         end
     end
 
-    Ws_i = SparseArraysBase.sparse(site_dict, (g.nlinks, r))
+    Ws_i = sparse_from_dict(site_dict, (g.nlinks, r))
     i < N && _build_next_graph!(g, i, r, nextedges_global)
     return Ws_i, secW
 end
@@ -460,11 +460,11 @@ selector (and choosing between the two truncation semantics) is a documented fol
 """
 function _irrep_graph_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
     LOp = LocalOp{ComplexF64, IrrepOperator{I}}
-    nterms(tt) == 0 && return (SparseMatrixDOK{LOp}[], Vector{I}[])
+    nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
     truncstrat = something(trunc, trunctol(rtol = eps(Float64)))
     g = ITOGraph(tt, N)
-    Ws = Vector{SparseMatrixDOK{LOp}}(undef, N)
+    Ws = Vector{SparseMatrixCSC{LOp, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)
     for i in 1:N
         Ws[i], bondsectors[i] = _svd_at_site!(g, i, truncstrat)

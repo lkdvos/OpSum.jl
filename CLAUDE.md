@@ -46,7 +46,7 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
 - **Sum types via `LightSumTypes`**: `LocalOp` uses `@sumtype`; pattern-match with `@cases`.
 - **`VectorInterface` integration**: symbolic algebra types implement `VectorInterface` norms/inner products for truncation/compression.
 - **Instantiation**: `instantiate(op, V)` materializes symbolic ITOs into `TensorMap`s; `instantiate(ts::TermSum, sites)` is the correctness oracle in tests.
-- **`SparseMatrixDOK`**: bond matrices are dict-of-keys sparse matrices, finalized to sparse form at the end of each sweep.
+- **Sparse bond matrices**: each sweep accumulates bond entries into a dict-of-keys `Dictionary{CartesianIndex{2}, LocalOp}` and finalizes it to a stdlib `SparseArrays.SparseMatrixCSC` at the end (`sparse_from_dict`/`storedpairs` in `src/utility/linalg.jl`).
 
 ### Test structure
 

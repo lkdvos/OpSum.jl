@@ -10,7 +10,7 @@
 # * `mpo_terms`         — reconstruct the original `TermSum` by enumerating MPO paths (faithfulness);
 # * `irrep_mpo_tensors` — assemble the symmetric MPO `TensorMap`s.
 
-using SparseArraysBase: SparseMatrixDOK, storedpairs
+using SparseArrays: SparseMatrixCSC
 using TensorKit: Vect, ElementarySpace, fusiontrees, permute, dim, unit, isomorphism, @tensor
 using .IrrepTensorOperators: IrrepOperator
 
@@ -19,7 +19,7 @@ using .IrrepTensorOperators: IrrepOperator
 
 Compress the ITO Hamiltonian `H` over `N = length(sites)` lattice sites into a reduced MPO.
 
-Returns `Ws::Vector{SparseMatrixDOK{LocalOp{ComplexF64, IrrepOperator{I}}}}` (one reduced bond
+Returns `Ws::Vector{SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}, Int}}` (one reduced bond
 matrix per site; entries are ITO letters times reduced coefficients) and `bondsectors::Vector{
 Vector{I}}` where `bondsectors[i]` gives the bond charge of each bond index to the right of site
 `i` (so `size(Ws[i], 2) == length(bondsectors[i])`). The left boundary (bond 0) is a single
@@ -58,7 +58,7 @@ For the lossless bipartite compression this recovers the original `TermSum` exac
 faithfulness check.
 """
 function mpo_terms(
-        Ws::Vector{<:SparseMatrixDOK{LocalOp{ComplexF64, IrrepOperator{I}}}},
+        Ws::Vector{<:SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}}},
         bondsectors::Vector{Vector{I}}
     ) where {I}
     N = length(Ws)
@@ -131,7 +131,7 @@ transition weighted by `coeff`, coupling the operator charge into the bond via t
 fusion `b_L ⊗ c → b_R`.
 """
 function irrep_mpo_tensors(
-        Ws::Vector{<:SparseMatrixDOK{LocalOp{ComplexF64, IrrepOperator{I}}}},
+        Ws::Vector{<:SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}}},
         bondsectors::Vector{Vector{I}}, sites
     ) where {I}
     N = length(Ws)

@@ -1,265 +1,405 @@
 #!/usr/bin/env julia
-# Run benchmarks and/or plot results.
+# Plot OpSum.jl benchmark results: maximum bond dimension and construction time versus system size.
 #
 # Usage:
-#   julia scripts/plot_benchmarks.jl [--run] [--results PATH] [--output PATH]
+#   julia --project=benchmark scripts/plot_benchmarks.jl [options]
 #
-# Flags:
-#   --run              Run the benchmark suite and save results before plotting.
-#   --results PATH     Path to load/save results JSON.  [default: benchmark_results.json]
-#   --output  PATH     Path for the output plot file.   [default: benchmark_results.pdf]
+#   --run                Run the benchmark suite (as a subprocess) before plotting.
+#   --sweep NAME         smoke | ci | full                      [default: ci]
+#   --models a,b         Restrict to these model keys.
+#   --results PATH       Timings JSON to load/save.             [default: benchmark/results.json]
+#   --metrics PATH       Bond-dimension JSON.                   [default: <results stem>.metrics.json]
+#   --output  PATH       Output image path.                     [default: benchmark/scaling.png]
+#   --figure  NAME       scaling | phases | profile | all       [default: scaling]
+#   --dims-only          With --run: collect metrics only, skip timings.
 #
 # Examples:
-#   # Run benchmarks, save JSON, and produce a PDF:
-#   julia scripts/plot_benchmarks.jl --run
+#   # Full sweep, then the headline figure:
+#   julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full
 #
-#   # Plot previously saved results:
-#   julia scripts/plot_benchmarks.jl --results my_results.json --output my_plot.pdf
-#
-#   # Run and save to a custom location:
-#   julia scripts/plot_benchmarks.jl --run --results v2.json --output v2.pdf
+#   # Re-plot previously saved results:
+#   julia --project=benchmark scripts/plot_benchmarks.jl --figure all
 
 using BenchmarkTools
 using CairoMakie
+using JSON3
 using LaTeXStrings
 using Printf
 using Statistics
 
-const BENCHMARK_FILE = joinpath(@__DIR__, "..", "benchmark", "benchmarks.jl")
+const BENCH_DIR = joinpath(@__DIR__, "..", "benchmark")
+const RUN_SCRIPT = joinpath(BENCH_DIR, "run.jl")
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
 
 function parse_args(args)
     run_benchmarks = false
-    results_path = "benchmark_results.json"
-    output_path = "benchmark_results.png"
+    sweep = "ci"
+    models = nothing
+    results_path = joinpath(BENCH_DIR, "results.json")
+    metrics_path = nothing
+    output_path = joinpath(BENCH_DIR, "scaling.png")
+    figure = "scaling"
+    dims_only = false
 
     i = 1
     while i <= length(args)
-        if args[i] == "--run"
+        a = args[i]
+        if a == "--run"
             run_benchmarks = true
-        elseif args[i] == "--results" && i + 1 <= length(args)
-            i += 1
-            results_path = args[i]
-        elseif args[i] == "--output" && i + 1 <= length(args)
-            i += 1
-            output_path = args[i]
+        elseif a == "--dims-only"
+            dims_only = true
+        elseif a == "--sweep"
+            sweep = args[i += 1]
+        elseif a == "--models"
+            models = String.(split(args[i += 1], ','))
+        elseif a == "--results"
+            results_path = args[i += 1]
+        elseif a == "--metrics"
+            metrics_path = args[i += 1]
+        elseif a == "--output"
+            output_path = args[i += 1]
+        elseif a == "--figure"
+            figure = args[i += 1]
         else
-            error("Unknown argument: $(args[i])\nRun with no args to see usage.")
+            error("Unknown argument: $a\nRun with no args to see usage.")
         end
         i += 1
     end
 
-    if !run_benchmarks && !isfile(results_path)
-        error(
-            """
-            Results file not found: $results_path
-            Run with --run to generate it first, or pass --results PATH to an existing file.
-            """
-        )
-    end
+    figure in ("scaling", "phases", "profile", "all") ||
+        error("--figure must be scaling, phases, profile or all (got $figure)")
+    metrics_path === nothing &&
+        (metrics_path = replace(results_path, r"\.json$" => "") * ".metrics.json")
 
-    return (; run_benchmarks, results_path, output_path)
+    return (; run_benchmarks, sweep, models, results_path, metrics_path, output_path, figure, dims_only)
 end
 
-# ── Benchmark execution ───────────────────────────────────────────────────────
+# ── Running the suite ─────────────────────────────────────────────────────────
+# Spawned as a subprocess so that timings are never measured in a process that has loaded Makie,
+# and so the plot script needs no world-age gymnastics around `include`.
 
-function run_and_save(results_path)
-    println("Loading benchmark definitions...")
-    include(BENCHMARK_FILE)   # defines Main.SUITE in a newer world age
-
-    println("Running benchmarks (this may take a while)...")
-    # invokelatest is required because SUITE was defined after this function
-    # was compiled, so it lives in a newer world age.
-    results = Base.invokelatest() do
-        run(Main.SUITE; verbose = true)
-    end
-
-    BenchmarkTools.save(results_path, results)
-    println("Results saved to: $results_path")
-
-    return results
+function run_benchmarks!(opts)
+    cmd = `$(Base.julia_cmd()) --project=$(BENCH_DIR) $(RUN_SCRIPT)
+        --sweep $(opts.sweep) --timings $(opts.results_path) --metrics $(opts.metrics_path)`
+    opts.models === nothing || (cmd = `$cmd --models $(join(opts.models, ','))`)
+    opts.dims_only && (cmd = `$cmd --dims-only`)
+    println("Running: ", cmd)
+    return run(cmd)
 end
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Series extraction ─────────────────────────────────────────────────────────
 
-"""Parse the integer after '=' in keys like "N=10" or "L=200"."""
-parse_size(key::String) = parse(Int, match(r"\d+$", key).match)
+"""Parse the integer after '=' in keys like "N=10"."""
+parse_size(key::AbstractString) = parse(Int, match(r"\d+$", key).match)
 
 """
-Extract (sizes, median_times_ns, lo_err_ns, hi_err_ns) from a BenchmarkGroup
-whose keys are of the form "N=k" or "L=k".
+Extract `(sizes, median_times_ns, lo_err, hi_err)` from a `BenchmarkGroup` whose keys look like
+`"N=k"`.
 """
 function extract_series(group::BenchmarkGroup)
-    triples = map(collect(group)) do (key, trial)
+    rows = map(collect(group)) do (key, trial)
         med = median(trial)
         lo = med.time - Statistics.quantile(trial.times, 0.25)
         hi = Statistics.quantile(trial.times, 0.75) - med.time
         (parse_size(key), med.time, max(lo, 0.0), max(hi, 0.0))
     end
-    sort!(triples; by = first)
+    sort!(rows; by = first)
+    return ([r[1] for r in rows], [r[2] for r in rows], [r[3] for r in rows], [r[4] for r in rows])
+end
+
+"""Same 4-tuple shape, for a deterministic metric (no error bars)."""
+function extract_metric_series(entry, field::Symbol)
+    es = sort(collect(entry.entries); by = e -> e.size)
+    sizes = Int[e.size for e in es]
+    vals = Float64[getproperty(e, field) for e in es]
+    z = zeros(length(vals))
+    return (sizes, vals, z, z)
+end
+
+"""Elementwise sum of two series, restricted to the sizes they share."""
+function add_series(a, b)
+    common = sort!(collect(intersect(Set(a[1]), Set(b[1]))))
+    ia = Dict(s => i for (i, s) in enumerate(a[1]))
+    ib = Dict(s => i for (i, s) in enumerate(b[1]))
     return (
-        [t[1] for t in triples],
-        [t[2] for t in triples],
-        [t[3] for t in triples],
-        [t[4] for t in triples],
+        common,
+        [a[2][ia[s]] + b[2][ib[s]] for s in common],
+        [a[3][ia[s]] + b[3][ib[s]] for s in common],
+        [a[4][ia[s]] + b[4][ib[s]] for s in common],
     )
 end
 
 """
-Fit a power law t = a * N^b in log-log space via OLS.
-Returns (a, b, fitted_times) where fitted_times is evaluated at `sizes`.
+Fit `y = a * N^b` by ordinary least squares in log-log space.
+Returns `(a, b, fitted)`; `b` is `NaN` when there are too few points to fit.
 """
-function fit_power_law(sizes, times)
+function fit_power_law(sizes, vals)
+    length(sizes) < 3 && return (NaN, NaN, fill(NaN, length(sizes)))
     x = log.(Float64.(sizes))
-    y = log.(times)
+    y = log.(max.(vals, eps()))
+    var(x) ≈ 0 && return (NaN, NaN, fill(NaN, length(sizes)))
     b = cov(x, y) / var(x)
     a = exp(mean(y) - b * mean(x))
     return a, b, a .* Float64.(sizes) .^ b
 end
 
-"""Convert a nanosecond vector to (scaled_values, unit_string)."""
+"""Convert nanoseconds to a human-scaled unit."""
 function auto_unit(times_ns)
     maxval = maximum(times_ns)
-    maxval < 1.0e3 && return times_ns, "ns"
-    maxval < 1.0e6 && return times_ns ./ 1.0e3, "μs"
-    maxval < 1.0e9 && return times_ns ./ 1.0e6, "ms"
-    return times_ns ./ 1.0e9, "s"
+    maxval < 1.0e3 && return "ns", 1.0
+    maxval < 1.0e6 && return "μs", 1.0e-3
+    maxval < 1.0e9 && return "ms", 1.0e-6
+    return "s", 1.0e-9
 end
 
-# ── Layout constants ──────────────────────────────────────────────────────────
+# ── Layout ────────────────────────────────────────────────────────────────────
 
-const MODELS = [
-    ("haldane_shastry", "Haldane-Shastry"),
-    ("all_to_all_xx", "All-to-all XX"),
-    ("heisenberg", "Heisenberg"),
-    ("j1j2", "J₁-J₂"),
+const ROWS = [
+    ("1D and long-range", ["heisenberg_su2", "j1j2_su2", "haldane_shastry", "powerlaw_a3"]),
+    ("Quasi-2D", ["ladder_su2", "cylinder_ly3", "cylinder_ly4", "cylinder_ly6"]),
+    ("Fermionic", ["free_fermions", "tv_chain", "hubbard_1d", "hubbard_ly4"]),
 ]
 
-const MARKER_CYCLE = [:circle, :rect, :diamond, :utriangle]
+const MARKER_CYCLE = [:circle, :rect, :diamond, :utriangle, :dtriangle, :cross, :star5]
 const COLOR_CYCLE = Makie.wong_colors()
 
-# ── Plotting ──────────────────────────────────────────────────────────────────
-
-function plot_results(suite, output_path)
-    # Rows: construction, bipartite optimization, SVD optimization
-    phases = [
-        ("construction", "Construction"),
-        ("optimization_bipartite", "Optimization (Bipartite)"),
-        ("optimization_svd", "Optimization (SVD)"),
-    ]
-
-    # ── Extract all data ───────────────────────────────────────────────────────
-    # data[row][col] = (sizes, times_ns, lo_ns, hi_ns) or nothing if group absent
-    data = [
-        [
-                haskey(suite[mk], ph) ? extract_series(suite[mk][ph]) : nothing
-                for (mk, _) in MODELS
-            ]
-            for (ph, _) in phases
-    ]
-
-    # Single unit per row based on global maximum across all models
-    unit_scale = Dict("ns" => 1.0, "μs" => 1.0e-3, "ms" => 1.0e-6, "s" => 1.0e-9)
-    row_units = map(data) do row_data
-        present = filter(!isnothing, row_data)
-        isempty(present) && return "s"
-        global_max = maximum(maximum(d[2]) for d in present)
-        _, unit = auto_unit([global_max])
-        unit
+"""
+Ticks for a log-scaled axis holding small integers (bond dimensions). Makie's default would label
+such a narrow range as `10^0.75`, which is unreadable; these are plain integers spanning the data.
+"""
+function integer_log_ticks(vals)
+    isempty(vals) && return Makie.automatic
+    lo, hi = minimum(vals), maximum(vals)
+    (lo <= 0 || !isfinite(lo) || !isfinite(hi)) && return Makie.automatic
+    cands = if hi / lo < 1.5
+        unique(round.(Int, [lo, (lo + hi) / 2, hi]))
+    else
+        unique(round.(Int, exp10.(range(log10(lo), log10(hi); length = 5))))
     end
+    filter!(>(0), cands)
+    isempty(cands) && return Makie.automatic
+    return (Float64.(cands), string.(cands))
+end
 
-    # ── Plot: 3 stacked axes, all models overlaid on each ─────────────────────
-    nrows = length(phases)
-    fig = Figure(; size = (600, 950))
-    axs = [
-        Axis(
-                fig[row, 1];
-                title = phases[row][2],
-                xlabel = row == nrows ? "System size" : "",
-                ylabel = "Time [$(row_units[row])]",
-                yscale = log10,
-                xscale = log10,
-                yminorticksvisible = true,
-                yminorgridvisible = true,
-                xticklabelsvisible = row == nrows,
-            )
-            for row in 1:nrows
-    ]
+"`axislegend` throws when nothing on the axis carries a label; skip those panels."
+function safe_legend!(ax; kwargs...)
+    any(p -> haskey(p.attributes, :label) && !isempty(String(to_value(p.label))), ax.scene.plots) ||
+        return nothing
+    try
+        axislegend(ax; kwargs...)
+    catch err
+        @warn "could not draw legend" err
+    end
+    return nothing
+end
 
-    for (col, (_, model_name)) in enumerate(MODELS)
-        for (row, _) in enumerate(phases)
-            d = data[row][col]
-            isnothing(d) && continue
+function draw_series!(ax, d, idx, label; scale = 1.0, fitvar = "N", showfit = true)
+    color = COLOR_CYCLE[mod1(idx, length(COLOR_CYCLE))]
+    marker = MARKER_CYCLE[mod1(idx, length(MARKER_CYCLE))]
+    sizes, vals, lo, hi = d
+    isempty(sizes) && return NaN
+    y = vals .* scale
+    scatter!(ax, Float64.(sizes), y; marker, color, markersize = 9, label)
+    if any(>(0), lo) || any(>(0), hi)
+        errorbars!(
+            ax, Float64.(sizes), y, lo .* scale, hi .* scale;
+            color = (color, 0.5), whiskerwidth = 6
+        )
+    end
+    _, b, fit = fit_power_law(sizes, y)
+    if showfit && !isnan(b)
+        lines!(
+            ax, Float64.(sizes), fit;
+            color = (color, 0.6), linestyle = :dash,
+            label = latexstring(@sprintf("\\sim %s^{%.2f}", fitvar, b))
+        )
+    end
+    return b
+end
 
-            ax = axs[row]
-            scale = unit_scale[row_units[row]]
+label_of(metrics, key) = haskey(metrics.models, key) ? metrics.models[key].label : key
 
-            sizes, times_ns, lo_ns, hi_ns = d
-            times = times_ns .* scale
-            lo = lo_ns .* scale
-            hi = hi_ns .* scale
+"""Total construction time = term-sum assembly + MPO compression."""
+function total_time_series(suite, key)
+    haskey(suite, key) || return nothing
+    g = suite[key]
+    (haskey(g, "termsum") && haskey(g, "mpo_bipartite")) || return nothing
+    return add_series(extract_series(g["termsum"]), extract_series(g["mpo_bipartite"]))
+end
 
-            scatter!(
-                ax, Float64.(sizes), times;
-                marker = MARKER_CYCLE[col],
-                color = COLOR_CYCLE[col],
-                markersize = 10,
-                label = model_name,
-            )
-            errorbars!(
-                ax, Float64.(sizes), times, lo, hi;
-                color = (COLOR_CYCLE[col], 0.5),
-                whiskerwidth = 6,
-            )
+# ── Headline figure: bond dimension | construction time ───────────────────────
 
-            fit_a, fit_b, fit_times = fit_power_law(sizes, times)
-            lines!(
-                ax, Float64.(sizes), fit_times;
-                color = (COLOR_CYCLE[col], 0.6),
-                linestyle = :dash,
-                label = latexstring(@sprintf("\\sim N^{%.2f}", fit_b)),
-            )
+function plot_scaling(metrics, suite, output_path)
+    fig = Figure(; size = (980, 940))
+
+    for (row, (rowname, keys)) in enumerate(ROWS)
+        present = [k for k in keys if haskey(metrics.models, k)]
+        isempty(present) && continue
+
+        ax_d = Axis(
+            fig[row, 1];
+            title = row == 1 ? "Maximum bond dimension" : "",
+            ylabel = "$rowname\nmax dense bond dim",
+            xscale = log10, yscale = log10,
+            xlabel = row == length(ROWS) ? "Number of sites N" : "",
+            xticklabelsvisible = row == length(ROWS),
+        )
+        ax_t = Axis(
+            fig[row, 2];
+            title = row == 1 ? "Construction time" : "",
+            xscale = log10, yscale = log10,
+            xlabel = row == length(ROWS) ? "Number of sites N" : "",
+            xticklabelsvisible = row == length(ROWS),
+        )
+
+        # One time unit per panel, from that panel's global maximum.
+        tseries = Dict(k => total_time_series(suite, k) for k in present)
+        allt = [s[2] for s in values(tseries) if s !== nothing && !isempty(s[2])]
+        unit, scale = isempty(allt) ? ("s", 1.0e-9) : auto_unit(reduce(vcat, allt))
+        ax_t.ylabel = "Time [$unit]"
+
+        dseries = Dict(k => extract_metric_series(metrics.models[k], :maxdensedim) for k in present)
+        alld = reduce(vcat, [s[2] for s in values(dseries) if !isempty(s[2])]; init = Float64[])
+        ax_d.yticks = integer_log_ticks(alld)
+
+        for (i, key) in enumerate(present)
+            lbl = label_of(metrics, key)
+            draw_series!(ax_d, dseries[key], i, lbl)
+            s = tseries[key]
+            s === nothing || draw_series!(ax_t, s, i, lbl; scale)
+        end
+
+        for ax in (ax_d, ax_t)
+            safe_legend!(ax; position = :lt, framevisible = false, labelsize = 9, nbanks = 2)
         end
     end
 
-    # One legend per axis: data entries first, then fit entries
-    for ax in axs
-        axislegend(ax; position = :lt, framevisible = false, fontsize = 9, nbanks = 2)
-    end
-
-    rowgap!(fig.layout, 8)
+    Label(
+        fig[0, 1:2],
+        "OpSum.jl: exact symmetry-reduced MPO construction";
+        fontsize = 15, font = :bold
+    )
+    rowgap!(fig.layout, 6)
+    colgap!(fig.layout, 12)
 
     save(output_path, fig)
-    return println("Plot saved to: $output_path")
+    return println("Wrote $output_path")
+end
+
+# ── Supplementary: time split by phase ────────────────────────────────────────
+
+function plot_phases(metrics, suite, output_path)
+    phases = [("termsum", "Term-sum assembly"), ("mpo_bipartite", "MPO compression")]
+    keys_all = reduce(vcat, [ks for (_, ks) in ROWS])
+    present = [k for k in keys_all if haskey(suite, k)]
+    isempty(present) && (println("No timing data; skipping phases figure."); return nothing)
+
+    fig = Figure(; size = (660, 900))
+    for (row, (ph, phname)) in enumerate(phases)
+        ax = Axis(
+            fig[row, 1];
+            title = phname, xscale = log10, yscale = log10,
+            xlabel = "", xticklabelsvisible = false,
+        )
+        series = Dict(
+            k => (haskey(suite[k], ph) ? extract_series(suite[k][ph]) : nothing) for k in present
+        )
+        allv = [s[2] for s in values(series) if s !== nothing && !isempty(s[2])]
+        unit, scale = isempty(allv) ? ("s", 1.0e-9) : auto_unit(reduce(vcat, allv))
+        ax.ylabel = "Time [$unit]"
+        for (i, k) in enumerate(present)
+            s = series[k]
+            s === nothing || draw_series!(ax, s, i, label_of(metrics, k); scale)
+        end
+        safe_legend!(ax; position = :lt, framevisible = false, labelsize = 8, nbanks = 2)
+    end
+
+    ax = Axis(
+        fig[3, 1];
+        title = "Total", xscale = log10, yscale = log10,
+        xlabel = "Number of sites N", ylabel = "Time",
+    )
+    totals = Dict(k => total_time_series(suite, k) for k in present)
+    allv = [s[2] for s in values(totals) if s !== nothing && !isempty(s[2])]
+    unit, scale = isempty(allv) ? ("s", 1.0e-9) : auto_unit(reduce(vcat, allv))
+    ax.ylabel = "Time [$unit]"
+    for (i, k) in enumerate(present)
+        s = totals[k]
+        s === nothing || draw_series!(ax, s, i, label_of(metrics, k); scale)
+    end
+    safe_legend!(ax; position = :lt, framevisible = false, labelsize = 8, nbanks = 2)
+
+    rowgap!(fig.layout, 8)
+    save(output_path, fig)
+    return println("Wrote $output_path")
+end
+
+# ── Supplementary: per-bond profile ───────────────────────────────────────────
+# Free from data already collected: shows *where* along the chain the bond dimension sits, which
+# distinguishes a cylinder's plateau from a long-range model's triangle.
+
+function plot_profile(metrics, output_path)
+    fig = Figure(; size = (760, 420))
+    ax = Axis(
+        fig[1, 1];
+        xlabel = "Bond index", ylabel = L"D_\mathrm{dense}",
+        title = "Bond-dimension profile (largest available system)",
+    )
+    reps = ["heisenberg_su2", "cylinder_ly4", "haldane_shastry", "hubbard_1d"]
+    i = 0
+    for key in reps
+        haskey(metrics.models, key) || continue
+        i += 1
+        e = argmax(x -> x.size, collect(metrics.models[key].entries))
+        prof = Float64.(e.densedims)
+        lines!(
+            ax, 1:length(prof), prof;
+            color = COLOR_CYCLE[mod1(i, length(COLOR_CYCLE))], linewidth = 2,
+            label = "$(label_of(metrics, key)) (N=$(e.size))"
+        )
+    end
+    i == 0 && (println("No metric data; skipping profile figure."); return nothing)
+    safe_legend!(ax; position = :rt, framevisible = false, labelsize = 9)
+    save(output_path, fig)
+    return println("Wrote $output_path")
 end
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 function main(args)
-    if isempty(args)
-        println(
-            """
-            Usage: julia scripts/plot_benchmarks.jl [--run] [--results PATH] [--output PATH]
-
-              --run              Run benchmarks before plotting (saves results to --results path).
-              --results PATH     Results JSON path  [default: benchmark_results.json]
-              --output  PATH     Plot output path   [default: benchmark_results.pdf]
-            """
-        )
-        return
-    end
-
     opts = parse_args(args)
+    opts.run_benchmarks && run_benchmarks!(opts)
 
-    suite = if opts.run_benchmarks
-        run_and_save(opts.results_path)
-    else
-        println("Loading results from: $(opts.results_path)")
+    isfile(opts.metrics_path) || error(
+        """
+        Metrics file not found: $(opts.metrics_path)
+        Run with --run to generate it first, or pass --metrics PATH.
+        """
+    )
+    metrics = JSON3.read(read(opts.metrics_path, String))
+    println("Loaded metrics for $(length(metrics.models)) models (sweep=$(metrics.sweep))")
+
+    suite = if isfile(opts.results_path)
         BenchmarkTools.load(opts.results_path)[1]
+    else
+        @warn "No timings found at $(opts.results_path); plotting bond dimensions only."
+        BenchmarkGroup()
     end
 
-    return plot_results(suite, opts.output_path)
+    stem, ext = splitext(opts.output_path)
+    if opts.figure == "all"
+        plot_scaling(metrics, suite, stem * "_scaling" * ext)
+        plot_phases(metrics, suite, stem * "_phases" * ext)
+        plot_profile(metrics, stem * "_profile" * ext)
+    elseif opts.figure == "scaling"
+        plot_scaling(metrics, suite, opts.output_path)
+    elseif opts.figure == "phases"
+        plot_phases(metrics, suite, opts.output_path)
+    else
+        plot_profile(metrics, opts.output_path)
+    end
+    return nothing
 end
 
 main(ARGS)

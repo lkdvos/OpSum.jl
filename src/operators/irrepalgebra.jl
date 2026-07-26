@@ -275,7 +275,7 @@ needs F-moves and is deferred). Chain to build K ≥ 3 terms, choosing each inte
 `couple(couple(x, y; to = b₂), z; to = t)`.
 
 This is the bare fusion coupler — it carries **no** normalization factor (reduced coeff `= va·vb`).
-The Cartesian scalar-product convention lives in [`·`/`dot`](@ref), not here. Multi-channel
+The Cartesian scalar-product convention lives in [`dot`](@ref), not here. Multi-channel
 (`GenericFusion`) coupling and tree-structured (`via`) coupling are deferred.
 """
 function couple(a::TermSum{I, S}, b::TermSum{I, S}; to, via = nothing) where {I, S}

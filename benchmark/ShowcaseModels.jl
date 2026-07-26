@@ -1,0 +1,263 @@
+"""
+    ShowcaseModels
+
+Registry of the Hamiltonians used by the OpSum.jl benchmarks, docs figures and smoke tests.
+
+The model builders and helper utilities are shared with the example pages: this module `include`s
+`examples/common.jl`, so there is exactly one definition of each model. Dependencies are limited to
+`OpSum`, `TensorKit` and `LinearAlgebra` (all of which the test environment already has) so that
+`test/test_showcase_models.jl` can include this file without pulling in BenchmarkTools, JSON3 or
+CairoMakie. Serialization and timing live in `run.jl` / `benchmarks.jl`.
+"""
+module ShowcaseModels
+
+include(joinpath(@__DIR__, "..", "examples", "common.jl"))
+
+export ModelSpec, MODELS, model_metrics, logsizes
+
+# Re-export the shared helpers from `examples/common.jl` so that dependents (the smoke test, the
+# benchmark driver) get them from this one module.
+export LO, SiteOp, ito_expand, matrixunit, onsite, bondterm
+export siteindex, cylinder_bonds, ladder_bonds
+export bonddim, densedim, maxbonddim, maxdensedim, build
+export islossless, mpo_tensormap, mpo_matches_oracle, spectrum, hermiticity_error
+
+# ── Model builders ────────────────────────────────────────────────────────────
+# Each returns `(H::TermSum, sites)`. Note the two performance idioms used throughout: the local
+# operators are built once outside the term loop, and terms are collected into a `Vector` before
+# `sum`. Folding `+` over a generator instead would be quadratic in the number of terms.
+
+const SPIN_HALF = SU2Space(1 // 2 => 1)
+
+function heisenberg_su2(N; J = 1.0)
+    S = spin(SPIN_HALF)
+    return sum([J * dot(S[i], S[i + 1]) for i in 1:(N - 1)]), fill(SPIN_HALF, N)
+end
+
+function j1j2_su2(N; J1 = 1.0, J2 = 0.5)
+    S = spin(SPIN_HALF)
+    H = sum(
+        vcat(
+            [J1 * dot(S[i], S[i + 1]) for i in 1:(N - 1)],
+            [J2 * dot(S[i], S[i + 2]) for i in 1:(N - 2)],
+        )
+    )
+    return H, fill(SPIN_HALF, N)
+end
+
+function haldane_shastry(N; J = 1.0)
+    S = spin(SPIN_HALF)
+    pref = J * π^2 / N^2
+    H = sum(
+        [
+            (pref / sin(π * (m - n) / N)^2) * dot(S[n], S[m])
+                for n in 1:(N - 1) for m in (n + 1):N
+        ]
+    )
+    return H, fill(SPIN_HALF, N)
+end
+
+function powerlaw_su2(N; α = 3.0, J = 1.0)
+    S = spin(SPIN_HALF)
+    H = sum(
+        [
+            (J * abs(m - n)^(-α)) * dot(S[n], S[m])
+                for n in 1:(N - 1) for m in (n + 1):N
+        ]
+    )
+    return H, fill(SPIN_HALF, N)
+end
+
+function cylinder_su2(N; Ly = 4, periodic_y = true, J = 1.0)
+    N % Ly == 0 || throw(ArgumentError("cylinder: N=$N must be a multiple of Ly=$Ly"))
+    S = spin(SPIN_HALF)
+    bonds = cylinder_bonds(div(N, Ly), Ly; periodic_y)
+    return sum([J * dot(S[i], S[j]) for (i, j) in bonds]), fill(SPIN_HALF, N)
+end
+
+const FERMION_MODE = Vect[FermionNumber](0 => 1, 1 => 1)
+
+"Named single-letter operators of a spinless fermionic mode."
+function fermion_ops(V = FERMION_MODE)
+    vac, occ = FermionNumber(0), FermionNumber(1)
+    return (
+        c = matrixunit(V, vac, occ),
+        cd = matrixunit(V, occ, vac),
+        n = matrixunit(V, occ, occ),
+        u = unit(FermionNumber),
+    )
+end
+
+# `couple` is strictly left-to-right, so the h.c. partner of `c†_i c_{i+1}` must be written as
+# `-c_i c†_{i+1}`: anticommuting `c†_{i+1} c_i` into site order costs a sign.
+function _hopping_terms(F, bonds, t)
+    return [
+        -t * (bondterm(F.cd, i, F.c, j; to = F.u) - bondterm(F.c, i, F.cd, j; to = F.u))
+            for (i, j) in bonds
+    ]
+end
+
+function free_fermions(N; t = 1.0)
+    F = fermion_ops()
+    bonds = [(i, i + 1) for i in 1:(N - 1)]
+    return sum(_hopping_terms(F, bonds, t)), fill(FERMION_MODE, N)
+end
+
+function tv_chain(N; t = 1.0, Vint = 2.0)
+    F = fermion_ops()
+    bonds = [(i, i + 1) for i in 1:(N - 1)]
+    H = sum(
+        vcat(
+            _hopping_terms(F, bonds, t),
+            [Vint * bondterm(F.n, i, F.n, j; to = F.u) for (i, j) in bonds],
+        )
+    )
+    return H, fill(FERMION_MODE, N)
+end
+
+# Fermi-Hubbard with one spin-orbital per site, `(i, σ) -> 2(i-1) + σ`. Every operator is then a
+# single alphabet letter, and the on-site `U n↑n↓` becomes an ordinary two-site term between the
+# two orbitals of the same physical site. `N` counts *orbitals*, so it must be even.
+orbital(i, σ) = 2 * (i - 1) + σ
+
+function hubbard(N; t = 1.0, U = 4.0, Ly = nothing)
+    iseven(N) || throw(ArgumentError("hubbard: N=$N counts spin-orbitals and must be even"))
+    Nsites = div(N, 2)
+    F = fermion_ops()
+    sitebonds = if Ly === nothing
+        [(i, i + 1) for i in 1:(Nsites - 1)]
+    else
+        Nsites % Ly == 0 ||
+            throw(ArgumentError("hubbard: $Nsites sites must be a multiple of Ly=$Ly"))
+        cylinder_bonds(div(Nsites, Ly), Ly)
+    end
+    hop = reduce(
+        vcat,
+        [_hopping_terms(F, [(orbital(i, σ), orbital(j, σ))], t) for (i, j) in sitebonds for σ in 1:2]
+    )
+    int = [U * bondterm(F.n, orbital(i, 1), F.n, orbital(i, 2); to = F.u) for i in 1:Nsites]
+    return sum(vcat(hop, int)), fill(FERMION_MODE, N)
+end
+
+# ── Registry ──────────────────────────────────────────────────────────────────
+
+struct ModelSpec
+    key::String
+    label::String
+    family::Symbol                        # :spin1d | :longrange | :quasi2d | :fermionic
+    params::Dict{String, Any}
+    build::Function                       # N -> (H, sites)
+    timesizes::Dict{Symbol, Vector{Int}}  # :smoke | :ci | :full
+    dimsizes::Dict{Symbol, Vector{Int}}
+end
+
+"Log-spaced sizes in `[lo, hi]`, snapped to multiples of `mult`."
+function logsizes(lo, hi; n = 6, mult = 1)
+    lo >= hi && return [mult * max(1, cld(lo, mult))]
+    xs = exp.(range(log(lo), log(hi); length = n))
+    return unique(sort(max.(mult, mult .* round.(Int, xs ./ mult))))
+end
+
+sweeps(smoke, ci, full) = Dict(:smoke => smoke, :ci => ci, :full => full)
+
+# Sizes are chosen from measured costs. The exact bipartite sweep materializes a suffix path per
+# term per bond, so cost grows steeply -- roughly N^3 for finite-range models and N^4 for
+# all-to-all ones. Bond-dimension metrics cost a single `irrep_mpo` call while timings cost several
+# samples, so the metric sweeps run to roughly twice the size.
+const MODELS = ModelSpec[
+    ModelSpec(
+        "heisenberg_su2", "Heisenberg SU(2)", :spin1d, Dict("J" => 1.0),
+        heisenberg_su2,
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 256; n = 7)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 512; n = 8)),
+    ),
+    ModelSpec(
+        "j1j2_su2", "J1-J2 SU(2)", :spin1d, Dict("J1" => 1.0, "J2" => 0.5),
+        j1j2_su2,
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 256; n = 7)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 512; n = 8)),
+    ),
+    ModelSpec(
+        "haldane_shastry", "Haldane-Shastry", :longrange, Dict("J" => 1.0),
+        haldane_shastry,
+        sweeps([8, 16], logsizes(8, 32; n = 3), logsizes(8, 128; n = 6)),
+        sweeps([8, 16], logsizes(8, 48; n = 4), logsizes(8, 192; n = 7)),
+    ),
+    ModelSpec(
+        "powerlaw_a3", "Power law 1/r^3", :longrange, Dict("alpha" => 3.0),
+        N -> powerlaw_su2(N; α = 3.0),
+        sweeps([8, 16], logsizes(8, 32; n = 3), logsizes(8, 128; n = 6)),
+        sweeps([8, 16], logsizes(8, 48; n = 4), logsizes(8, 192; n = 7)),
+    ),
+    ModelSpec(
+        "ladder_su2", "Ladder Ly=2", :quasi2d, Dict("Ly" => 2, "periodic_y" => false),
+        N -> cylinder_su2(N; Ly = 2, periodic_y = false),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 192; n = 6, mult = 2)),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 384; n = 7, mult = 2)),
+    ),
+    ModelSpec(
+        "cylinder_ly3", "Cylinder Ly=3", :quasi2d, Dict("Ly" => 3),
+        N -> cylinder_su2(N; Ly = 3),
+        sweeps([9, 18], logsizes(9, 63; n = 4, mult = 3), logsizes(9, 192; n = 6, mult = 3)),
+        sweeps([9, 18], logsizes(9, 63; n = 4, mult = 3), logsizes(9, 384; n = 7, mult = 3)),
+    ),
+    ModelSpec(
+        "cylinder_ly4", "Cylinder Ly=4", :quasi2d, Dict("Ly" => 4),
+        N -> cylinder_su2(N; Ly = 4),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 4), logsizes(8, 192; n = 6, mult = 4)),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 4), logsizes(8, 384; n = 7, mult = 4)),
+    ),
+    ModelSpec(
+        "cylinder_ly6", "Cylinder Ly=6", :quasi2d, Dict("Ly" => 6),
+        N -> cylinder_su2(N; Ly = 6),
+        sweeps([12, 24], logsizes(12, 60; n = 3, mult = 6), logsizes(12, 192; n = 6, mult = 6)),
+        sweeps([12, 24], logsizes(12, 60; n = 3, mult = 6), logsizes(12, 240; n = 6, mult = 6)),
+    ),
+    ModelSpec(
+        "free_fermions", "Free fermions", :fermionic, Dict("t" => 1.0),
+        free_fermions,
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 256; n = 7)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 512; n = 8)),
+    ),
+    ModelSpec(
+        "tv_chain", "t-V chain", :fermionic, Dict("t" => 1.0, "V" => 2.0),
+        tv_chain,
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 256; n = 7)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 512; n = 8)),
+    ),
+    ModelSpec(
+        "hubbard_1d", "Fermi-Hubbard 1D", :fermionic, Dict("t" => 1.0, "U" => 4.0),
+        hubbard,
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 192; n = 6, mult = 2)),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 384; n = 7, mult = 2)),
+    ),
+    ModelSpec(
+        "hubbard_ly4", "Fermi-Hubbard cylinder Ly=4", :fermionic, Dict("U" => 4.0, "Ly" => 4),
+        N -> hubbard(N; Ly = 4),
+        sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 128; n = 4, mult = 8)),
+        sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 192; n = 5, mult = 8)),
+    ),
+]
+
+modelbykey(key) = MODELS[findfirst(m -> m.key == key, MODELS)]
+
+"""
+    model_metrics(spec, N) -> NamedTuple
+
+Deterministic (timing-free) MPO statistics for one model at one size.
+"""
+function model_metrics(spec::ModelSpec, N::Int)
+    H, sites = spec.build(N)
+    Ws, secs = irrep_mpo(H, sites)
+    return (
+        size = N,
+        nterms = length(H.terms),
+        nbonds = length(secs),
+        maxdensedim = maxdensedim(secs),
+        maxmultdim = maxbonddim(secs),
+        densedims = [densedim(secs, b) for b in eachindex(secs)],
+        algorithm = "bipartite",
+    )
+end
+
+end # module

@@ -1,5 +1,5 @@
 # Reference
 
 ```@autodocs
-Modules = [OpSum]
+Modules = [OpSum, OpSum.IrrepTensorOperators]
 ```

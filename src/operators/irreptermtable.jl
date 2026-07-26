@@ -21,7 +21,7 @@ using MatrixAlgebraKit: svd_trunc, trunctol
 
 Flat, sparse-per-term storage of an ITO term-sum on an `N`-vertex chain: each term's active
 `(site, ITOKey)` factors in `K×M` matrices (`sites` zero-padded, ascending) plus a parallel
-`coeffs` vector. The ITO counterpart of the dense [`TermTable`](@ref).
+`coeffs` vector.
 """
 struct ITOTermTable{I <: Sector}
     sites::Matrix{Int}

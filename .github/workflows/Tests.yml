@@ -16,8 +16,41 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 jobs:
+  # The `TestGroups` reusable workflow discovers groups as *subdirectories* of `test/`. This
+  # package's `test/` is flat -- `ParallelTestRunner` already parallelizes across the `test_*.jl`
+  # files itself -- so group discovery yielded an empty matrix, no test job was ever created, and
+  # the aggregate gate failed without Julia running at all. The plain `Tests` workflow runs
+  # `Pkg.test()` directly, with the version/OS matrix expanded here instead.
+  # The reusable workflow already names each job "Julia <version> - <os>", and GitHub prefixes that
+  # with this job's name, so keep it short to avoid a doubled-up check name.
   tests:
     name: "Tests"
-    uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/TestGroups.yml@main"
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["min", "1"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    uses: "QuantumKitHub/QuantumKitHubActions/.github/workflows/Tests.yml@main"
+    with:
+      julia-version: "${{ matrix.version }}"
+      os: "${{ matrix.os }}"
+      nthreads: 2
+      # Collect coverage once rather than from every matrix entry.
+      coverage: ${{ matrix.os == 'ubuntu-latest' && matrix.version == '1' }}
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Single aggregate check, so branch protection has one stable name to require rather than every
+  # matrix entry. Keeps the `ci-success` name the previous workflow exposed.
+  ci-success:
+    name: "ci-success"
+    needs: tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Check that all test jobs succeeded"
+        if: needs.tests.result != 'success'
+        run: |
+          echo "Test matrix result: ${{ needs.tests.result }}"
+          exit 1
+      - run: echo "All test jobs succeeded."

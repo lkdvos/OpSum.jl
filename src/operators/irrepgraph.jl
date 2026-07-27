@@ -3,13 +3,19 @@
 # A port of ITensorMPOConstruction.jl's persistent-graph + `at_site!` sweep architecture onto
 # OpSum's non-abelian (TensorKit `Sector`) ITO machinery. It builds the *same* reduced MPO as the
 # transient-frontier sweep `_irrep_bipartite` (irreptermtable.jl) — same per-bond-sector dimensions,
-# same `(Ws, bondsectors)` contract — but keeps an explicit, persistent bipartite graph handed from
-# one site step to the next, and suffix-merges the right vertices *incrementally* instead of
-# re-materialising every strand's suffix path each bond.
+# same `(Ws, bondsectors)` contract — but keeps an explicit bipartite graph handed from one site step
+# to the next, instead of re-materialising every strand's suffix path each bond.
+#
+# Cost is `Θ(M·K)` to intern the suffix classes plus `Θ(Σ_terms span)` for the sweep, i.e. linear in N
+# for a finite-range model. Two things buy that, and both are load-bearing: suffix classes are named by
+# an interned `O(1)` signature rather than a materialised path (`_suffix_ids`, `_signature!`), and a
+# term's right vertex is created only once it is reachable (`_promote_pending!` and the injection in
+# `_build_next_graph!`). See research/persistent-graph-mpo.md §2 — in particular §2.2, whose
+# pending-versus-started class collision is the invariant a change here is most likely to break.
 #
 # Non-abelian mapping (see research/itensor-mpograph-construction.md §9):
-# * Right vertices  = terms of the `ITOTermTable` (persist across the whole sweep; only their count
-#   shrinks via suffix-merge). ITensor's "term + additive QN flux" becomes "term + running fusion
+# * Right vertices  = suffix classes of the `ITOTermTable`, entering at their term's first active site
+#   and thereafter only merging. ITensor's "term + additive QN flux" becomes "term + running fusion
 #   charge", carried in each site's `ITOKey.bond` (a fusion *outcome*, not a sum).
 # * Left vertices   = `LeftVertex(link, key::ITOKey)` — the incoming bond index plus the on-site ITO
 #   key applied here. Rebuilt each site.
@@ -44,68 +50,152 @@ end
     ITOGraph{I}
 
 The persistent bipartite graph over an [`ITOTermTable`](@ref), handed from one site step to the next
-by `_at_site!`. Right vertices are terms (identified by a representative term id); they
-persist and only shrink via the incremental suffix-merge. The current bipartite graph (for the bond
-`i-1 → i` about to be processed) is `lefts` ↔ right vertices, with per-left-vertex adjacency lists
-`radj`/`wadj` (right-vertex id, scalar weight).
+by `_at_site!`. A right vertex is a suffix class (identified by a representative term id); classes
+enter at their term's first active site and thereafter only merge. The current bipartite graph (for the
+bond `i-1 → i` about to be processed) is `lefts` ↔ right vertices, with per-left-vertex adjacency lists
+`radj`/`wadj` (right-vertex id, scalar weight); zero-weight entries are never kept.
 
 Fields split into three groups:
-* seeding-fixed merge machinery: `sortpos` (right vertices in reversed-suffix sort order) and `lcp`
-  (longest-common-prefix of consecutive reversed suffix paths) drive the O(1)-per-boundary
-  incremental suffix-merge;
-* persistent right-vertex state: `rrepr` (representative term id per right vertex) and `rhi` (the
-  max sorted position in each right vertex's merged class, for boundary-lcp lookup);
-* the current bipartite graph: `lefts`, `radj`, `wadj`, and `nlinks` (incoming bond dimension).
+* fixed suffix-class machinery: `K` (the term table's arity) and `sufid`, the interned id of every
+  *contiguous column suffix* of `tt` — see [`_suffix_ids`](@ref);
+* persistent right-vertex state (shrinks via the suffix-merge): `rrepr` (representative term id) plus
+  the monotone cursor `rcur`/`rbond` that turns "the suffix path from site `i+1`" into an `O(1)`
+  two-word signature;
+* the current bipartite graph: `lefts`, `radj`, `wadj`, and `nlinks` (incoming bond dimension);
+* lazy-insertion state (see [`_promote_pending!`](@ref)): `lazy`, `firstsite`, `pend_at`, `pendbysig`,
+  `inserted`, `nremaining`, and the per-bond `rsent` (sentinel right-vertex id, 0 if none),
+  `startleft` (the left vertex the sentinel hangs off, 0 if none) and `startidx` (the outgoing bond
+  index of the start channel);
+* per-site scratch reused across the sweep so the site step allocates nothing per bond: `slot` and
+  `vlocal` (right-vertex id → local index, for the remap and the per-component numbering),
+  `firstleft` (right vertex → first incident left vertex, all the cover needs to read off a covered
+  right vertex's bond charge without transposing the adjacency), `remap`, and `siggroups`.
 """
 mutable struct ITOGraph{I <: Sector}
     tt::ITOTermTable{I}
     N::Int
-    sortpos::Vector{Int}   # sorted position -> term id (fixed)
-    lcp::Vector{Int}       # lcp[k] between sorted positions k and k+1 (length M-1, fixed)
+    K::Int                 # arity(tt): rows of tt.sites / tt.keys
+    sufid::Matrix{Int}     # (K+1) × M interned id of the column suffix j:K (0 == exhausted)
     rrepr::Vector{Int}     # right vertex -> representative term id
-    rhi::Vector{Int}       # right vertex -> max sorted position in its merged class
+    rcur::Vector{Int}      # right vertex -> first column j with sites[j, rrepr] > current site
+    rbond::Vector{I}       # right vertex -> running bond charge just past the current site
     lefts::Vector{LeftVertex{I}}
     radj::Vector{Vector{Int}}
     wadj::Vector{Vector{ComplexF64}}
     nlinks::Int
+    lazy::Bool             # insert a term's right vertex only once it is reachable
+    firstsite::Vector{Int} # term -> first active site (1 for a K=0 identity term)
+    pend_at::Vector{Vector{Int}}                # site -> terms whose first active site is that site
+    pendbysig::Dictionary{Tuple{Int, I}, Int}   # pre-start suffix signature -> pending term
+    inserted::BitVector    # term -> already represented by a right vertex
+    nremaining::Int        # terms not yet inserted (all of them start strictly right of here)
+    rsent::Int             # sentinel right-vertex id for this bond (0 if none)
+    startleft::Int         # left vertex carrying the sentinel (0 if none)
+    startidx::Int          # outgoing bond index of the start channel (0 if there is none)
+    slot::Vector{Int}      # scratch: right-vertex id -> position within one left vertex's adjacency
+    vlocal::Vector{Int}    # scratch: right-vertex id -> component-local index
+    firstleft::Vector{Int} # right-vertex id -> first incident left vertex (0 if isolated)
+    remap::Vector{Int}     # scratch: old right-vertex id -> merged right-vertex id
+    siggroups::Dictionary{Tuple{Int, I}, Int}  # scratch: suffix signature -> merged right-vertex id
 end
 
-# Longest common prefix of two equal-length reversed suffix paths (compared as `ITOKey`s).
-function _lcp_len(a::Vector{ITOKey{I}}, b::Vector{ITOKey{I}}) where {I}
-    n = 0
-    @inbounds for k in 1:min(length(a), length(b))
-        a[k] == b[k] || break
-        n += 1
+"""
+    _suffix_ids(tt::ITOTermTable{I}) -> Matrix{Int}
+
+Intern every term's *contiguous column suffixes*. `tt.sites` columns are ascending and zero-padded, so
+a term's active factors at sites `> i` are always a suffix `j₀:K` of its column; `sufid[j, t]` is a
+dense integer id for the factor list `j:K` of term `t`, with `0` for the exhausted suffix. Built
+bottom-up in `Θ(M·K)` — the replacement for materialising a length-`N` path per term.
+
+Equality of ids is equality of the remaining factor list. That is *not* by itself equality of the
+suffix path: `_op_at_ito` fills idle sites with a pass-through carrying the running bond charge, and
+the idle sites *before* the first remaining factor carry the charge accumulated so far. So a suffix
+path is identified by the pair `(sufid[j₀, t], running bond charge)` — see `_signature`.
+"""
+function _suffix_ids(tt::ITOTermTable{I}) where {I}
+    K, M = arity(tt), nterms(tt)
+    sufid = zeros(Int, K + 1, M)      # row K+1 and every padded position stay 0 == exhausted
+    intern = Dictionary{Tuple{Int, ITOKey{I}, Int}, Int}()
+    nid = 0
+    for t in 1:M
+        for j in K:-1:1
+            s = tt.sites[j, t]
+            iszero(s) && continue    # padding: the suffix from here on is exhausted
+            trans = (s, tt.keys[j, t], sufid[j + 1, t])
+            id = get(intern, trans, 0)
+            if iszero(id)
+                nid += 1
+                id = nid
+                insert!(intern, trans, id)
+            end
+            sufid[j, t] = id
+        end
     end
-    return n
+    return sufid
+end
+
+# Advance right vertex `r`'s cursor past every factor at a site `<= i`, accumulating the running bond
+# charge, and return its suffix signature `(interned remaining-factor list, running bond charge)`.
+# Amortised `O(1)`: each cursor advances at most `K` times over the whole sweep.
+function _signature!(g::ITOGraph{I}, r::Int, i::Int) where {I}
+    t = g.rrepr[r]
+    sites, keys = g.tt.sites, g.tt.keys
+    j = g.rcur[r]
+    @inbounds while j <= g.K
+        s = sites[j, t]
+        (iszero(s) || s > i) && break
+        g.rbond[r] = keys[j, t].bond
+        j += 1
+    end
+    g.rcur[r] = j
+    return (g.sufid[j, t], g.rbond[r])
+end
+
+# The `ITOKey` term `r`'s class applies at site `i+1`, from the cursor state left by `_signature!(…, i)`
+# — identical to `_op_at_ito(tt, rrepr[r], i+1)` but `O(1)` and without rebuilding the pass-through.
+function _next_key(g::ITOGraph{I}, r::Int, i::Int) where {I}
+    t = g.rrepr[r]
+    j = g.rcur[r]
+    (j <= g.K && g.tt.sites[j, t] == i + 1) && return g.tt.keys[j, t]
+    return ITOKey{I}(passthrough(I), g.rbond[r], 1)
+end
+
+# First active site of each term; a `K=0` identity term is treated as starting at site 1 (it is all
+# pass-through, so it belongs to the identity/start channel from the very first bond). `tt.sites`
+# columns are ascending and zero-padded, so this is just the first row.
+function _first_sites(tt::ITOTermTable)
+    return Int[(s = tt.sites[1, t]; iszero(s) ? 1 : s) for t in 1:nterms(tt)]
 end
 
 """
-    ITOGraph(tt::ITOTermTable{I}, N) -> ITOGraph{I}
+    ITOGraph(tt::ITOTermTable{I}, N; lazy = true) -> ITOGraph{I}
 
-Seed the persistent graph (mirrors ITensor's `MPOGraph(os)`): materialise each term's full path,
-reverse it (descending site) and sort so equal-suffix runs are contiguous — the precondition the
-incremental suffix-merge relies on — then bucket the initial left vertices by the site-1 key against
-the single left-boundary link. Right vertices start as one-per-term (suffix-from-1 classes are all
-distinct, since `ITOTermTable` already merged coincident active content).
+Seed the persistent graph (mirrors ITensor's `MPOGraph(os)`): intern the column suffixes, create the
+right vertices, and bucket the initial left vertices by the site-1 key against the single
+left-boundary link. `Θ(M·K)`, with no length-`N` path and no sort.
+
+With `lazy = true` (the default) only terms *active at site 1* get a right vertex; the rest are
+represented collectively by a sentinel right vertex on the identity/start channel and are inserted
+when they become reachable (`_promote_pending!` / the injection in `_build_next_graph!`). That is what
+makes the sweep cost `Θ(Σ_terms span)` instead of `Θ(N·M)`. `lazy = false` seeds every term eagerly,
+which is the form `_irrep_graph_svd` uses (its per-bond dense SVD dominates anyway).
 """
-function ITOGraph(tt::ITOTermTable{I}, N::Int) where {I}
+function ITOGraph(tt::ITOTermTable{I}, N::Int; lazy::Bool = true) where {I}
     M = nterms(tt)
-    # full path of each term, reversed to descending site order (site N first)
-    rpaths = [ITOKey{I}[_op_at_ito(tt, t, s) for s in N:-1:1] for t in 1:M]
-    sortpos = sort(1:M; by = t -> rpaths[t])
-    lcp = Int[_lcp_len(rpaths[sortpos[k]], rpaths[sortpos[k + 1]]) for k in 1:(M - 1)]
+    sufid = _suffix_ids(tt)
+    firstsite = _first_sites(tt)
 
-    rrepr = collect(sortpos)          # right vertex r ↔ sorted position r, repr = sortpos[r]
-    rhi = collect(1:M)                # each class is a single sorted position initially
-
-    # seed left vertices: single boundary link, bucketed by the site-1 key
-    buckets = Dictionary{ITOKey{I}, Int}()
+    rrepr = Int[]
+    rcur = Int[]
+    rbond = I[]
+    inserted = falses(M)
     lefts = LeftVertex{I}[]
     radj = Vector{Int}[]
     wadj = Vector{ComplexF64}[]
-    for r in 1:M
-        t = sortpos[r]
+    buckets = Dictionary{ITOKey{I}, Int}()
+
+    for t in 1:M
+        (lazy && firstsite[t] > 1) && continue
         key1 = _op_at_ito(tt, t, 1)
         b = get(buckets, key1, 0)
         if iszero(b)
@@ -115,71 +205,182 @@ function ITOGraph(tt::ITOTermTable{I}, N::Int) where {I}
             b = length(lefts)
             insert!(buckets, key1, b)
         end
-        push!(radj[b], r)             # right vertex id == sorted position r
+        push!(rrepr, t)
+        push!(rcur, 1)
+        push!(rbond, unit(I))
+        inserted[t] = true
+        push!(radj[b], length(rrepr))
         push!(wadj[b], tt.coeffs[t])
     end
 
-    return ITOGraph{I}(tt, N, sortpos, lcp, rrepr, rhi, lefts, radj, wadj, 1)
+    # pending bookkeeping: which site each uninserted term enters at, and its pre-start signature
+    # (its full factor list, with the trivial running charge) so a colliding class can promote it
+    pend_at = [Int[] for _ in 1:N]
+    pendbysig = Dictionary{Tuple{Int, I}, Int}()
+    nremaining = 0
+    for t in 1:M
+        inserted[t] && continue
+        nremaining += 1
+        push!(pend_at[firstsite[t]], t)
+        insert!(pendbysig, (sufid[1, t], unit(I)), t)   # injective: `sufid[1, t]` fixes the term
+    end
+
+    # the identity/start channel's left vertex — where the sentinel and every injected term hang off.
+    # A `K=0` term shares this exact `(link, key)`, so the bucket may already exist.
+    startleft = 0
+    if nremaining > 0
+        key0 = ITOKey{I}(passthrough(I), unit(I), 1)
+        startleft = get(buckets, key0, 0)
+        if iszero(startleft)
+            push!(lefts, LeftVertex{I}(1, key0))
+            push!(radj, Int[])
+            push!(wadj, ComplexF64[])
+            startleft = length(lefts)
+        end
+    end
+
+    cap = M + 1   # right-vertex ids are at most one sentinel beyond the real ones
+    return ITOGraph{I}(
+        tt, N, arity(tt), sufid, rrepr, rcur, rbond, lefts, radj, wadj, 1,
+        lazy, firstsite, pend_at, pendbysig, inserted, nremaining, 0, startleft, 0,
+        zeros(Int, cap), zeros(Int, cap), zeros(Int, cap), zeros(Int, cap),
+        Dictionary{Tuple{Int, I}, Int}()
+    )
 end
 
-# Phase 1: incrementally suffix-merge right vertices "equal from site i+1 on". Because right vertices
-# stay in the seeding sort order and only merge (never split), two currently-adjacent right vertices
-# `r, r+1` are equal from i+1 on iff the single boundary `lcp[rhi[r]] >= N - i` (their interiors
-# already satisfy the coarser previous threshold). Returns `remap[old_right_id] -> new_right_id` and
-# updates `g.rrepr`/`g.rhi` in place.
+# Phase 1: suffix-merge the right vertices, i.e. group those "equal from site i+1 on". Each live right
+# vertex advances its cursor and hands over its two-word suffix signature; identical signatures merge.
+# `Θ(live)` with `O(1)` per vertex, and — unlike the sorted-order/lcp scheme it replaces — indifferent
+# to right vertices being created mid-sweep. Returns `remap[old_right_id] -> new_right_id` and updates
+# `g.rrepr`/`g.rcur`/`g.rbond` in place.
 function _suffix_merge!(g::ITOGraph{I}, i::Int) where {I}
-    thr = g.N - i
     R = length(g.rrepr)
-    remap = Vector{Int}(undef, R)
-    newrrepr = Int[]
-    newrhi = Int[]
-    r = 1
-    while r <= R
-        start = r
-        while r < R && g.lcp[g.rhi[r]] >= thr
-            r += 1
+    groups = g.siggroups
+    empty!(groups)
+    remap = g.remap
+    length(remap) < R && resize!(remap, R)
+
+    newrepr = Int[]
+    newcur = Int[]
+    newbond = I[]
+    for r in 1:R
+        sig = _signature!(g, r, i)
+        b = get(groups, sig, 0)
+        if iszero(b)
+            push!(newrepr, g.rrepr[r])
+            push!(newcur, g.rcur[r])
+            push!(newbond, g.rbond[r])
+            b = length(newrepr)
+            insert!(groups, sig, b)
         end
-        push!(newrrepr, g.rrepr[start])
-        push!(newrhi, g.rhi[r])
-        newid = length(newrrepr)
-        for rr in start:r
-            remap[rr] = newid
-        end
-        r += 1
+        remap[r] = b
     end
-    g.rrepr = newrrepr
-    g.rhi = newrhi
+
+    g.rrepr = newrepr
+    g.rcur = newcur
+    g.rbond = newbond
     return remap
 end
 
 # Apply a right-vertex remap to every left vertex's adjacency, summing weights of edges that now land
-# on the same merged right vertex.
-function _remap_adjacency!(g::ITOGraph, remap::Vector{Int})
-    for lv in 1:length(g.lefts)
-        acc = Dictionary{Int, ComplexF64}()
-        for (rid, w) in zip(g.radj[lv], g.wadj[lv])
-            increaseindex!(acc, remap[rid], w)
+# on the same merged right vertex. In place, via a scratch `rid -> position` table: `Θ(deg)` per left
+# vertex with no allocation and no dictionary. The surviving order is first-encounter, which is
+# deterministic; nothing downstream (matching, König, connected components) needs it sorted.
+function _merge_edges!(g::ITOGraph, lv::Int, remap)
+    slot = g.slot
+    radj, wadj = g.radj[lv], g.wadj[lv]
+    n = 0
+    @inbounds for k in eachindex(radj)
+        rid = remap === nothing ? radj[k] : remap[radj[k]]
+        s = slot[rid]
+        if iszero(s)
+            n += 1                  # n <= k always, so writing back into the same vectors is safe
+            radj[n] = rid
+            wadj[n] = wadj[k]
+            slot[rid] = n
+        else
+            wadj[s] += wadj[k]
         end
-        g.radj[lv] = collect(keys(acc))
-        g.wadj[lv] = collect(values(acc))
+    end
+    @inbounds for k in 1:n
+        slot[radj[k]] = 0           # reset only the touched slots
+    end
+    # Drop edges whose accumulated weight cancelled to zero. They are not edges of the bipartite
+    # graph and must not reach the cover, which would otherwise spend a bond index on them — the dense
+    # predecessor fed `(!iszero).(coeff)` to `min_vertex_cover_bipartite` and so excluded them too.
+    m = 0
+    @inbounds for k in 1:n
+        iszero(wadj[k]) && continue
+        m += 1
+        radj[m] = radj[k]
+        wadj[m] = wadj[k]
+    end
+    resize!(radj, m)
+    resize!(wadj, m)
+    return m
+end
+
+# `slot` is all-zero on entry and on exit (every touched entry is reset above), so only newly grown
+# space needs clearing — keeping the merge `O(deg)` rather than `O(nV)` per left vertex.
+function _grow_scratch!(g::ITOGraph, nV::Int)
+    for scratch in (g.slot, g.vlocal, g.firstleft)
+        if length(scratch) < nV
+            n0 = length(scratch)
+            resize!(scratch, nV)
+            fill!(view(scratch, (n0 + 1):nV), 0)
+        end
+    end
+    return g
+end
+
+function _apply_remap!(g::ITOGraph, remap::Vector{Int}, nVnew::Int)
+    _grow_scratch!(g, nVnew)
+    for lv in eachindex(g.lefts)
+        _merge_edges!(g, lv, remap)
     end
     return g
 end
 
 # Per-component minimum-vertex-cover backend (the VC path). Given a connected component `(us, vs)`
-# (global left/right vertex ids), the scalar coefficient matrix `coeff` and boolean `adjacency`, it
-# chooses the component's bond basis via `min_vertex_cover_bipartite` and returns, for that
-# component: `rank`, `blocks` (`(incoming_link, local_bond_index, localop)`), `nextedges` (per local
-# bond index, the `(right_vertex_id, weight)` edges to forward; empty at the last site) and `secs`
-# (the bond charge per local index). Reproduces the covered-U / covered-V coefficient-flow of
-# `_irrep_bipartite`.
+# (global left/right vertex ids), it chooses the component's bond basis via
+# `min_vertex_cover_bipartite` and returns, for that component: `rank`, `blocks`
+# (`(incoming_link, local_bond_index, localop)`), `nextedges` (per local bond index, the
+# `(right_vertex_id, weight)` edges to forward; empty at the last site), `secs` (the bond charge per
+# local index) and `startidx` (the local index of the identity/start channel, 0 if this component does
+# not hold it). Reproduces the covered-U / covered-V coefficient-flow of `_irrep_bipartite`.
+#
+# Everything is driven off the sparse adjacency `g.radj`/`g.wadj` plus `g.firstleft`, so the cost is
+# `Θ(E_component)` — no `|us| × |vs|` matrix is ever formed, and neither the covered-left forwarding
+# nor the covered-right folding scans the opposite side.
+#
+# The sentinel needs no special-casing in the cover, only in the *forwarding*. It is a degree-1 right
+# vertex, and König's construction never covers one: in a maximum matching `L₀` is matched (or `L₀`–
+# sentinel would augment), and the sentinel can only be reached from `L₀` — via their matching edge,
+# which the forward search skips, or as a free vertex, which would complete an augmenting path. So
+# `L₀` is always covered-left and emits the bare pass-through letter into `(L₀.link, m₀)`.
+#
+# The covered-right sentinel case below is therefore unreachable. It is kept because it costs two
+# comparisons and is the exact dual: an uncovered `L₀` folds `passthrough × 1` into that same block, so
+# a future change to the cover construction cannot silently produce a bond with no identity channel.
 function _vc_component(
-        g::ITOGraph{I}, us::Vector{Int}, vs::Vector{Int},
-        coeff::Matrix{ComplexF64}, i::Int
+        g::ITOGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int
     ) where {I}
     LOp = LocalOp{ComplexF64, IrrepOperator{I}}
     N = g.N
-    cUbits, cVbits = min_vertex_cover_bipartite((!iszero).(@view coeff[us, vs]))
+    nus, nvs = length(us), length(vs)
+
+    # component-local right-vertex numbering (every neighbour of a `us` vertex lies in `vs`)
+    vlocal = g.vlocal
+    @inbounds for p in 1:nvs
+        vlocal[vs[p]] = p
+    end
+    localadj = Vector{Vector{Int}}(undef, nus)
+    @inbounds for k in 1:nus
+        radj = g.radj[us[k]]
+        localadj[k] = Int[vlocal[rid] for rid in radj]
+    end
+
+    cUbits, cVbits = min_vertex_cover_bipartite(localadj, nus, nvs)
     cU = findall(cUbits)
     cV = findall(cVbits)
     nleft = length(cU)
@@ -188,95 +389,218 @@ function _vc_component(
     blocks = Tuple{Int, Int, LOp}[]
     nextedges = [Tuple{Int, ComplexF64}[] for _ in 1:rank]
     secs = Vector{I}(undef, rank)
+    startidx = 0
 
     # covered-left vertices → local bond indices 1 … nleft ("a term starts its operator here")
     for (m, lu) in enumerate(cU)
         iu = us[lu]
         lv = g.lefts[iu]
         secs[m] = lv.key.bond
+        iu == g.startleft && (startidx = m)
         if i == N
-            w = sum(coeff[iu, r] for r in vs)
-            push!(blocks, (lv.link, m, lv.key.op * w))
+            @assert iszero(g.rsent) "the sentinel must be gone by the last site"
+            push!(blocks, (lv.link, m, lv.key.op * sum(g.wadj[iu]; init = zero(ComplexF64))))
         else
             push!(blocks, (lv.link, m, convert(LOp, lv.key.op)))
-            for r in vs
-                w = coeff[iu, r]
-                iszero(w) || push!(nextedges[m], (r, w))
+            edges = nextedges[m]
+            for (rid, w) in zip(g.radj[iu], g.wadj[iu])
+                (rid == g.rsent || iszero(w)) && continue   # the sentinel is regenerated, not carried
+                push!(edges, (rid, w))
             end
         end
     end
 
     # covered-right vertices → local bond indices nleft+1 … rank ("a shared suffix flows through")
-    coveredU = falses(length(us))
-    coveredU[cU] .= true
+    # `bondof[p]` is the bond index a covered right vertex takes, 0 if it is not covered.
+    bondof = zeros(Int, nvs)
     for (p, lvv) in enumerate(cV)
         m = nleft + p
         iv = vs[lvv]
-        conn = [us[k] for k in 1:length(us) if !iszero(coeff[us[k], iv])]
-        charge = g.lefts[first(conn)].key.bond
-        @assert all(g.lefts[iu].key.bond == charge for iu in conn) "bond index not sector-pure (block-diagonality violated)"
-        secs[m] = charge
-        for k in 1:length(us)
-            coveredU[k] && continue
-            iu = us[k]
-            w = coeff[iu, iv]
-            iszero(w) && continue
-            push!(blocks, (g.lefts[iu].link, m, g.lefts[iu].key.op * w))
+        bondof[lvv] = m
+        # the component is pure in the bond charge (asserted in `_prepare_bond!`), so any incident
+        # left vertex gives it
+        secs[m] = g.lefts[g.firstleft[iv]].key.bond
+        if iv == g.rsent
+            @assert iszero(startidx) "start channel covered on both sides"
+            startidx = m                        # the sentinel *is* the start channel here
+        elseif i != N
+            push!(nextedges[m], (iv, one(ComplexF64)))
         end
-        i == N || push!(nextedges[m], (iv, one(ComplexF64)))
     end
 
-    return rank, blocks, nextedges, secs
+    # every neighbour of an *uncovered* left vertex is a covered right vertex (otherwise that edge
+    # would be uncovered), so one pass over the uncovered lefts' edges folds all the coefficients
+    coveredU = falses(nus)
+    coveredU[cU] .= true
+    for k in 1:nus
+        coveredU[k] && continue
+        iu = us[k]
+        lv = g.lefts[iu]
+        for (rid, w) in zip(g.radj[iu], g.wadj[iu])
+            iszero(w) && continue
+            m = bondof[vlocal[rid]]
+            @assert !iszero(m) "edge left uncovered by the minimum vertex cover"
+            push!(blocks, (lv.link, m, lv.key.op * w))
+        end
+    end
+
+    return rank, blocks, nextedges, secs, startidx
 end
 
-# Phases 1 & 2, shared by both backends: suffix-merge the right vertices, then materialise the scalar
-# coefficient matrix `coeff[u, v]` (summed over parallel edges) and the left-vertex adjacency lists
-# `adjU`. Returns `(coeff, adjU, nU, nV)`. (`g.radj` entries are already unique — they are the keys of
-# the `Dictionary` built in `_remap_adjacency!` — so `sort` alone suffices for a deterministic order.)
-function _bond_matrix!(g::ITOGraph{I}, i::Int) where {I}
+"""
+    _promote_pending!(g, i)
+
+Insert every not-yet-started term whose suffix class *coincides* with a live one at bond `i`.
+
+This is the subtle half of lazy insertion. `_op_at_ito` fills idle sites with a pass-through carrying
+the **running** bond charge, so a started term whose accumulated charge has fused back to `unit(I)` is
+indistinguishable, over its idle sites, from a term that has not started yet. If its remaining factors
+then coincide with the whole content of a pending term, the two suffix classes are genuinely equal and
+the eager sweep merges them — covering the shared right vertex instead of spending a bond index. That
+merge has to be reproduced, and at the *earliest* bond where it applies; suffix-equality-from-`i+1` is
+monotone in `i`, so probing every bond finds it exactly once.
+
+Cost: one hash probe per live right vertex (`pendbysig` is keyed injectively by a term's pre-start
+signature, so a hit names a single term).
+"""
+function _promote_pending!(g::ITOGraph{I}, i::Int) where {I}
+    (g.nremaining > 0 && !isempty(g.pendbysig)) || return g
+    lv = g.startleft
+    @assert !iszero(lv) "pending terms with no start channel to inject them on"
+    promoted = false
+    for r in eachindex(g.rrepr)
+        t = get(g.pendbysig, (g.sufid[g.rcur[r], g.rrepr[r]], g.rbond[r]), 0)
+        (iszero(t) || g.inserted[t]) && continue
+        g.inserted[t] = true
+        g.nremaining -= 1
+        push!(g.radj[lv], r)
+        push!(g.wadj[lv], g.tt.coeffs[t])
+        promoted = true
+    end
+    # the start channel may already have carried an edge to this class (a term promoted at an earlier
+    # bond whose class has since merged), so parallel edges have to be summed
+    promoted && _merge_edges!(g, lv, nothing)
+    return g
+end
+
+# Phases 1 & 2, shared by both backends: suffix-merge the right vertices, apply the remap to the
+# adjacency, promote any pending term whose class just became live, attach the sentinel that stands in
+# for the still-pending terms, and record `g.firstleft` (first incident left vertex per right vertex)
+# while asserting that every right vertex is pure in the incoming bond charge — the block-diagonality
+# invariant `_irrep_bipartite` also checks, here in `Θ(E)` off the sparse adjacency.
+#
+# The sentinel is *not* a term: it takes the right-vertex id one past the real ones, so everything that
+# iterates `g.rrepr` skips it automatically and it is discarded (rather than forwarded) each bond.
+# Returns `(nU, nV)`.
+function _prepare_bond!(g::ITOGraph{I}, i::Int) where {I}
+    g.rsent = 0
     remap = _suffix_merge!(g, i)
-    _remap_adjacency!(g, remap)
+    nV = length(g.rrepr)
+    _apply_remap!(g, remap, nV)
+    _promote_pending!(g, i)
+
+    if g.nremaining > 0
+        nV += 1
+        g.rsent = nV
+        _grow_scratch!(g, nV)
+        push!(g.radj[g.startleft], g.rsent)
+        push!(g.wadj[g.startleft], one(ComplexF64))
+    end
 
     nU = length(g.lefts)
-    nV = length(g.rrepr)
+    firstleft = g.firstleft
+    fill!(view(firstleft, 1:nV), 0)
+    for iu in 1:nU
+        bond = g.lefts[iu].key.bond
+        for rid in g.radj[iu]
+            if iszero(firstleft[rid])
+                firstleft[rid] = iu
+            else
+                @assert g.lefts[firstleft[rid]].key.bond == bond "bond index not sector-pure (block-diagonality violated)"
+            end
+        end
+    end
+
+    return nU, nV
+end
+
+# The dense `coeff[u, v]` matrix, materialised from the sparse adjacency. Only the SVD backend needs
+# it (its cost is dominated by the dense per-bond SVD anyway); the VC backend stays sparse.
+function _dense_bond_matrix(g::ITOGraph, nU::Int, nV::Int)
     coeff = zeros(ComplexF64, nU, nV)
-    adjU = Vector{Vector{Int}}(undef, nU)
     for iu in 1:nU
         for (rid, w) in zip(g.radj[iu], g.wadj[iu])
             coeff[iu, rid] += w
         end
-        adjU[iu] = sort(g.radj[iu])
     end
-    return coeff, adjU, nU, nV
+    return coeff
 end
 
 # Phase 5, shared by both backends: build the next graph reusing the SAME (persistent) right vertices
 # and tagging fresh left vertices with the outgoing bond index `j` as their `link`, bucketed by the
 # next-site key `op@(i+1)` of the right vertex. `nextedges_global[j]` is the list of `(right_vertex,
 # weight)` edges the outgoing bond index `j` forwards. Mutates `g` into the graph for bond `i → i+1`.
+#
+# The next-site key depends only on the right vertex, so it is computed once per right vertex rather
+# than once per edge (the same right vertex is typically forwarded by many outgoing bond indices).
+#
+# This is also where lazy insertion *injects*: a term whose first active site is `i+1` gets its right
+# vertex here, hanging off the start channel with the term's coefficient as the edge weight — exactly
+# the weight the eager sweep would have been carrying along that channel since bond 0.
 function _build_next_graph!(
         g::ITOGraph{I}, i::Int, nout::Int,
         nextedges_global::Vector{Vector{Tuple{Int, ComplexF64}}}
     ) where {I}
+    nextkeys = [_next_key(g, r, i) for r in eachindex(g.rrepr)]
     buckets = Dictionary{Tuple{Int, ITOKey{I}}, Int}()
     next_lefts = LeftVertex{I}[]
     next_radj = Vector{Int}[]
     next_wadj = Vector{ComplexF64}[]
+
+    function bucket!(j::Int, key::ITOKey{I})
+        b = get(buckets, (j, key), 0)
+        if iszero(b)
+            push!(next_lefts, LeftVertex{I}(j, key))
+            push!(next_radj, Int[])
+            push!(next_wadj, ComplexF64[])
+            b = length(next_lefts)
+            insert!(buckets, (j, key), b)
+        end
+        return b
+    end
+
     for j in 1:nout
         for (rid, w) in nextedges_global[j]
-            key = _op_at_ito(g.tt, g.rrepr[rid], i + 1)
-            b = get(buckets, (j, key), 0)
-            if iszero(b)
-                push!(next_lefts, LeftVertex{I}(j, key))
-                push!(next_radj, Int[])
-                push!(next_wadj, ComplexF64[])
-                b = length(next_lefts)
-                insert!(buckets, (j, key), b)
-            end
+            b = bucket!(j, nextkeys[rid])
             push!(next_radj[b], rid)
             push!(next_wadj[b], w)
         end
     end
+
+    if g.lazy
+        startidx = g.startidx
+        # Guarded here rather than inside the loop below: `g.startleft` is rebuilt off `startidx` even
+        # when no term enters at `i+1`, so a missing start channel has to be caught either way.
+        # `nremaining > 0` means the sentinel existed at this bond, which forces a start channel. When
+        # it is 0 every term is already inserted, `pend_at[i+1]` is a no-op and no channel is needed.
+        @assert iszero(g.nremaining) || !iszero(startidx) "terms remain to the right of site $i with no start channel to enter on"
+        for t in g.pend_at[i + 1]
+            g.inserted[t] && continue         # already promoted into a colliding class
+            g.inserted[t] = true
+            g.nremaining -= 1
+            push!(g.rrepr, t)
+            push!(g.rcur, 1)
+            push!(g.rbond, unit(I))
+            b = bucket!(startidx, g.tt.keys[1, t])
+            push!(next_radj[b], length(g.rrepr))
+            push!(next_wadj[b], g.tt.coeffs[t])
+        end
+        # the start channel has to survive even when it forwards nothing, so that the next bond's
+        # sentinel (and the terms after that) still have a left vertex to hang off
+        g.startleft = g.nremaining > 0 ?
+            bucket!(startidx, ITOKey{I}(passthrough(I), unit(I), 1)) : 0
+    end
+
     g.lefts = next_lefts
     g.radj = next_radj
     g.wadj = next_wadj
@@ -292,22 +616,27 @@ end
 function _at_site!(g::ITOGraph{I}, i::Int) where {I}
     LOp = LocalOp{ComplexF64, IrrepOperator{I}}
 
-    coeff, adjU, nU, nV = _bond_matrix!(g, i)
-    us_of_comp, vs_of_comp = bipartite_connected_components(adjU, nV)
+    nU, nV = _prepare_bond!(g, i)
+    us_of_comp, vs_of_comp = bipartite_connected_components(g.radj, nV)
 
     # phases 3 & 4 — per-component cover, concatenate into the bond
     secW = I[]
     nextedges_global = Vector{Tuple{Int, ComplexF64}}[]
     site_dict = Dictionary{CartesianIndex{2}, LOp}()
     offset = 0
+    g.startidx = 0
     for (us, vs) in zip(us_of_comp, vs_of_comp)
-        rank, blocks, nextedges, secs = _vc_component(g, us, vs, coeff, i)
+        rank, blocks, nextedges, secs, startidx = _vc_component(g, us, vs, i)
         for (link, m, op) in blocks
             increaseindex!(site_dict, CartesianIndex(link, offset + m), op)
         end
         for m in 1:rank
             push!(secW, secs[m])
             push!(nextedges_global, nextedges[m])
+        end
+        if !iszero(startidx)
+            @assert iszero(g.startidx) "the start channel appeared in more than one component"
+            g.startidx = offset + startidx
         end
         offset += rank
     end
@@ -352,7 +681,8 @@ function _svd_at_site!(g::ITOGraph{I}, i::Int, truncstrat) where {I}
     LOp = LocalOp{ComplexF64, IrrepOperator{I}}
     N = g.N
 
-    coeff, _, nU, nV = _bond_matrix!(g, i)
+    nU, nV = _prepare_bond!(g, i)
+    coeff = _dense_bond_matrix(g, nU, nV)
 
     # bond charge of each prefix (left) state and each suffix (right) state; sector-pure per column.
     # A right vertex may be orphaned (no incident edge) after a *truncation* dropped the singular
@@ -463,7 +793,9 @@ function _irrep_graph_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
     nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
     truncstrat = something(trunc, trunctol(rtol = eps(Float64)))
-    g = ITOGraph(tt, N)
+    # eager seeding: this backend materialises a dense per-bond coefficient matrix anyway, so lazy
+    # insertion would buy nothing while adding a sentinel column the SVD would have to carry
+    g = ITOGraph(tt, N; lazy = false)
     Ws = Vector{SparseMatrixCSC{LOp, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)
     for i in 1:N

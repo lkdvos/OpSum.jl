@@ -13,3 +13,4 @@ docs/Manifest.toml
 docs/build/
 docs/src/index.md
 docs/src/examples/
+benchmark/*.png

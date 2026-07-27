@@ -77,6 +77,13 @@ const PROVENANCE = (
     catch
         "unknown"
     end,
+    # `git_commit` alone is misleading when the tree has uncommitted changes — the numbers then do not
+    # correspond to that commit. Record it explicitly.
+    git_dirty = try
+        !isempty(readchomp(`git -C $(@__DIR__) status --porcelain`))
+    catch
+        missing
+    end,
     sweep = OPTS.sweep,
     hostname = gethostname(),
 )

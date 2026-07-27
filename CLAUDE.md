@@ -4,21 +4,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+No `Manifest.toml` is checked in (it is gitignored), so instantiate first:
+
+```bash
+julia --project -e 'using Pkg; Pkg.instantiate()'
+```
+
 ```bash
 # Run all tests
 julia --project -e 'using Pkg; Pkg.test()'
 
-# Run a single test file
-julia --project test/test_irrep_mpo.jl
-julia --project test/test_irrep_alphabet.jl
-julia --project test/test_irrep_termtable.jl
+# Run a single test file (uses the test environment)
+julia --project=test test/test_irrep_mpo.jl
+julia --project=test test/test_irrep_graph.jl
+julia --project=test test/test_bipartite.jl
 
-# Format code (Runic)
-julia --project -e 'using Runic; Runic.format_file("src/file.jl")'
-
-# Check formatting without modifying
-julia --project -e 'using Runic; Runic.format_file("src/file.jl"; check=true)'
+# Format code (Runic). Runic is not a project dependency — CI uses a reusable workflow — so install
+# it into a throwaway environment rather than adding it to Project.toml.
+julia --project=/tmp/runic -e 'using Pkg; Pkg.add("Runic"); using Runic; Runic.format_file("src/file.jl", "src/file.jl"; inplace=true)'
 ```
+
+```bash
+# Scaling benchmarks + figures (separate environment: BenchmarkTools, CairoMakie, JSON3)
+julia --project=benchmark benchmark/run.jl --sweep ci
+julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full --figure all
+```
+
+See `benchmark/FIGURES.md` for how the checked-in figures under `docs/src/assets/` are refreshed and
+what machine/commit the current ones came from.
 
 ## Architecture
 
@@ -41,11 +54,14 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
    - `ITOTermTable{I}` (`irreptermtable.jl`): flat, sparse-per-term storage of a `TermSum` — each term's active `(site, ITOKey)` factors in `K×M` matrices plus a `coeffs` vector; idle sites reconstruct the pass-through symbol's running bond charge via `_op_at_ito`. The `ITOKey` alphabet and caterpillar fusion helpers live in `irrepkey.jl`.
 
 4. **Compression primitive** — `src/datastructures/bipartite.jl`
-   - `min_vertex_cover_bipartite` (Hopcroft–Karp maximum matching + König): chooses each bond's basis, fed a bipartite (prefix, suffix) graph per bond-sector.
+   - `min_vertex_cover_bipartite` (Hopcroft–Karp maximum matching + König): chooses each bond's basis, fed a bipartite (prefix, suffix) graph per bond-sector. Adjacency-list-driven and `O(E√V)`; the dense-matrix method is a wrapper for the `_irrep_bipartite` oracle.
 
-5. **MPO construction** — `src/operators/irrepmpo.jl`
-   - `irrep_mpo(H::TermSum, sites[, alg])`: symmetric reduced MPO from a `TermSum` via the per-bond-*sector* sweep (`_irrep_bipartite`) over an `ITOTermTable`; returns reduced bond matrices + per-bond charge sectors. `alg` is `BipartiteAlgorithm()` (default, min-vertex-cover) or `SVDBondAlgorithm()`.
-   - `mpo_terms` reconstructs the `TermSum` (faithfulness check) and `irrep_mpo_tensors` assembles the symmetric `TensorMap`s.
+5. **Persistent-graph sweep** — `src/operators/irrepgraph.jl`
+   - `_irrep_graph_bipartite` (the default backend) walks an `ITOGraph` site by site via `_at_site!`. Right vertices are suffix classes, identified by an interned `(sufid, running bond charge)` signature (`_suffix_ids`) rather than a materialised path, and inserted lazily at each term's first active site — the still-pending terms ride a single sentinel on the identity/start channel. Cost is `Θ(M·K) + Θ(Σ_terms span)`: linear in `N` for finite-range models. `research/persistent-graph-mpo.md` §2 is the design note; §2.2 documents the pending↔started suffix-class **collision**, the one invariant a change here is likely to break (`test/test_irrep_graph.jl` guards it in all three sectors).
+
+6. **MPO construction** — `src/operators/irrepmpo.jl`
+   - `irrep_mpo(H::TermSum, sites[, alg])`: symmetric reduced MPO from a `TermSum` via the per-bond-*sector* sweep over an `ITOTermTable`; returns reduced bond matrices + per-bond charge sectors. `alg` is `BipartiteAlgorithm()` (default, min-vertex-cover → `_irrep_graph_bipartite`) or `SVDBondAlgorithm()` (→ `_irrep_svd`). The transient-frontier `_irrep_bipartite` in `irreptermtable.jl` is retained as the parity oracle.
+   - `mpo_terms` reconstructs the `TermSum` (faithfulness check) and `irrep_mpo_tensors` assembles the symmetric `TensorMap`s (one contraction per distinct on-site letter per site, not per bond entry).
 
 ### Key design patterns
 

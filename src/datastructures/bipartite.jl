@@ -1,77 +1,107 @@
-# TODO: this is probably cleaner to implement through a CSR/CSC adjacency matrix
+# Maximum matching (Hopcroft–Karp) + minimum vertex cover (König) on bipartite graphs
+# ===================================================================================
+# The primitive the per-bond-sector MPO sweeps use to choose each bond's basis. Everything here is
+# driven by **adjacency lists**: `adjU[u]` lists the right vertices incident to left vertex `u`, so
+# the whole computation is `O(E√V)` and never touches an `nU × nV` object. The dense-matrix method
+# of `min_vertex_cover_bipartite` is a thin wrapper for callers that only have an adjacency matrix.
 
 # -------------------------------------------------------------------------
-# BFS: build layered graph of alternating paths, starting from all free U's.
+# BFS: build the layered graph of alternating paths, starting from all free U's.
 #
-# Returns true if there is at least one free vertex in V reachable
-# via an alternating path (i.e., there exists an augmenting path).
+# Returns the length of the *shortest* augmenting path (`typemax` if none exists). Layering stops at
+# that length: expanding deeper layers would let the DFS follow non-shortest augmenting paths, which
+# is what breaks Hopcroft–Karp's O(√V) phase bound.
 # -------------------------------------------------------------------------
-function hopcroft_karp_bfs!(dist, adjU, pairU, pairV)
-    # Initialize distances:
-    # free vertices in U start at distance 0 and matched vertices start at INF
+function hopcroft_karp_bfs!(dist, adjU, pairU, pairV, queue)
     INF = typemax(eltype(dist))
     fill!(dist, INF)
-    queue = findall(iszero, pairU)
-    dist[queue] .= 0
+    empty!(queue)
 
-    found_augmenting = false
+    # free vertices in U start at distance 0; matched ones stay at INF until layered
+    for u in eachindex(pairU)
+        if iszero(pairU[u])
+            dist[u] = 0
+            push!(queue, u)
+        end
+    end
 
-    # Standard BFS
-    while !isempty(queue)
-        u = popfirst!(queue)
-        dist[u] == INF && continue # Only proceed if vertex is in the layered graph
-
-        for v in adjU[u] # loop over all vertices in V connected to u
-            u2 = pairV[v] # if v is matched, u2 is its partner in U
-            if u2 == 0
-                # We reached a free vertex on V side:
-                # this means there is at least one augmenting path
-                found_augmenting = true
+    found = INF
+    head = 1
+    while head <= length(queue)
+        u = queue[head]
+        head += 1
+        # `dist[u] == INF` (not layered) and `dist[u] >= found` (past the shortest layer) both stop
+        # here; the guard also keeps `dist[u] + 1` from overflowing.
+        dist[u] < found || continue
+        d = dist[u] + 1
+        for v in adjU[u]
+            u2 = pairV[v]
+            if iszero(u2)
+                found = min(found, d) # reached a free V vertex: an augmenting path of length `d`
             elseif dist[u2] == INF
-                # If u2 has not been assigned a layer yet, put it in the next layer.
-                dist[u2] = dist[u] + 1
+                dist[u2] = d
                 push!(queue, u2)
             end
         end
     end
 
-    return found_augmenting
+    return found
 end
 
 # -------------------------------------------------------------------------
-# DFS: search for an augmenting path from vertex u in U,
-#      constrained to layered graph built by BFS.
+# DFS: search for an augmenting path from `u0`, constrained to the layered graph and to paths of
+# exactly length `found`. Iterative (explicit stack + per-vertex cursor into `adjU`) — the recursive
+# form would nest to the alternating-path length, which is `O(nU)` on the large components the
+# long-range models produce.
 #
-# Returns true if an augmenting path was found and matching updated.
+# Returns true if an augmenting path was found and the matching updated.
 # -------------------------------------------------------------------------
-function hopcroft_karp_dfs!(adjU, pairU, pairV, dist, u)::Bool
+function hopcroft_karp_dfs!(adjU, pairU, pairV, dist, cursor, stack, u0, found)
     INF = typemax(eltype(dist))
-    for v in adjU[u]
-        u2 = pairV[v]
-        # Case 1: v is free → we can extend the alternating path
-        if u2 == 0
-            pairU[u] = v
-            pairV[v] = u
-            return true
+    empty!(stack)
+    push!(stack, u0)
+    cursor[u0] = 1
 
-            # Case 2: v is matched, but we may be able to go further
-        elseif dist[u2] == dist[u] + 1 && hopcroft_karp_dfs!(adjU, pairU, pairV, dist, u2)
-            pairU[u] = v
-            pairV[v] = u
+    while !isempty(stack)
+        u = stack[end]
+        adj = adjU[u]
+        k = cursor[u]
+        if k > length(adj)
+            dist[u] = INF # dead end: drop `u` from the layered graph for this phase
+            pop!(stack)
+            continue
+        end
+        cursor[u] = k + 1
+
+        v = adj[k]
+        u2 = pairV[v]
+        if iszero(u2)
+            # `v` is free. Only take it if this completes a *shortest* augmenting path, then rewire
+            # the whole alternating path held on the stack: each `u` takes the right vertex its
+            # child was matched on, from the top down.
+            dist[u] + 1 == found || continue
+            while true
+                uu = pop!(stack)
+                prev = pairU[uu]
+                pairU[uu] = v
+                pairV[v] = uu
+                isempty(stack) && break
+                v = prev
+            end
             return true
+        elseif dist[u2] == dist[u] + 1
+            push!(stack, u2)
+            cursor[u2] = 1
         end
     end
 
-    # If we fail to find an augmenting path from u,
-    # remove u from the layered graph for this phase.
-    dist[u] = INF
     return false
 end
 
 """
     hopcroft_karp(adjU, nU, nV)
 
-Compute a maximum matching in a bipartite graph using the Hopcroft–Karp algorithm.
+Compute a maximum matching in a bipartite graph using the Hopcroft–Karp algorithm, in `O(E√V)`.
 
 Arguments
 ---------
@@ -88,48 +118,51 @@ Returns
 - `matching_size::Int`: size of the maximum matching.
 """
 function hopcroft_karp(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
-    # pairU[u] = matched neighbor v in V, or 0 if free
-    pairU = zeros(Int, nU)
-    # pairV[v] = matched neighbor u in U, or 0 if free
-    pairV = zeros(Int, nV)
+    pairU = zeros(Int, nU) # pairU[u] = matched neighbor v in V, or 0 if free
+    pairV = zeros(Int, nV) # pairV[v] = matched neighbor u in U, or 0 if free
 
-    # dist[u] = distance label from BFS layering (only for U side)
-    dist = fill(0, nU)
+    dist = fill(0, nU)     # BFS layer of each U vertex (INF = not in the layered graph)
+    queue = Int[]
+    cursor = zeros(Int, nU)
+    stack = Int[]
 
-
-    # -------------------------------------------------------------------------
-    # Main phase loop
-    # -------------------------------------------------------------------------
     matching = 0
-    while hopcroft_karp_bfs!(dist, adjU, pairU, pairV)
-        # Try to find augmenting paths from each free vertex in U
+    while true
+        found = hopcroft_karp_bfs!(dist, adjU, pairU, pairV, queue)
+        found == typemax(eltype(dist)) && break
         for u in 1:nU
-            if pairU[u] == 0
-                if hopcroft_karp_dfs!(adjU, pairU, pairV, dist, u)
-                    matching += 1
-                end
-            end
+            iszero(pairU[u]) || continue
+            hopcroft_karp_dfs!(adjU, pairU, pairV, dist, cursor, stack, u, found) &&
+                (matching += 1)
         end
     end
 
     return pairU, pairV, matching
 end
 
-function min_vertex_cover_bipartite(A::AbstractMatrix{<:Real})
-    n, m = size(A)
+"""
+    min_vertex_cover_bipartite(adjU::Vector{Vector{Int}}, nU, nV)
+    min_vertex_cover_bipartite(A::AbstractMatrix{<:Real})
 
-    adjU = [findall(!iszero, A[u, :]) for u in 1:n]
-    pairU, pairV, matching = hopcroft_karp(adjU, n, m)
+Minimum vertex cover of a bipartite graph, via a Hopcroft–Karp maximum matching plus König's
+construction. Returns `(coverU, coverV, pairU, pairV, matching_size)` where `coverU`/`coverV` are
+boolean masks over the left/right vertices.
 
-    # Step 1: find all vertices reachable by alternating paths
-    # from unmatched vertices in U.
-    visitedU = falses(n)
-    visitedV = falses(m)
+The adjacency-list method is the primary one and runs in `O(E√V)`; the matrix method builds the
+adjacency lists (treating any nonzero as an edge) and forwards. Left vertices with no incident edge
+are never covered.
+"""
+function min_vertex_cover_bipartite(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
+    pairU, pairV, matching = hopcroft_karp(adjU, nU, nV)
 
-    # Start from all free vertices in U
+    # Step 1: find all vertices reachable by alternating paths from unmatched vertices in U —
+    # non-matching edges U → V, matching edges V → U.
+    visitedU = falses(nU)
+    visitedV = falses(nV)
+
     stack = Int[]
-    for u in 1:n
-        if pairU[u] == 0
+    for u in 1:nU
+        if iszero(pairU[u])
             push!(stack, u)
             visitedU[u] = true
         end
@@ -137,18 +170,13 @@ function min_vertex_cover_bipartite(A::AbstractMatrix{<:Real})
 
     while !isempty(stack)
         u = pop!(stack)
-
-        # From u (in U, reachable), go via unmatched edges to V
-        for v in 1:m
-            if A[u, v] != 0 && !visitedV[v] && pairU[u] != v
-                # edge u-v is either unmatched or we don't care about matched direction here
-                visitedV[v] = true
-                # From v in V, follow matched edges back to U (if any)
-                u2 = pairV[v]
-                if u2 != 0 && !visitedU[u2]
-                    visitedU[u2] = true
-                    push!(stack, u2)
-                end
+        for v in adjU[u]
+            (pairU[u] == v || visitedV[v]) && continue
+            visitedV[v] = true
+            u2 = pairV[v]
+            if !iszero(u2) && !visitedU[u2]
+                visitedU[u2] = true
+                push!(stack, u2)
             end
         end
     end
@@ -160,4 +188,14 @@ function min_vertex_cover_bipartite(A::AbstractMatrix{<:Real})
     coverV = visitedV
 
     return coverU, coverV, pairU, pairV, matching
+end
+
+function min_vertex_cover_bipartite(A::AbstractMatrix{<:Real})
+    n, m = size(A)
+    adjU = [Int[] for _ in 1:n]
+    # column-major traversal: cache-friendly on `A`, and leaves every `adjU[u]` ascending
+    @inbounds for v in 1:m, u in 1:n
+        iszero(A[u, v]) || push!(adjU[u], v)
+    end
+    return min_vertex_cover_bipartite(adjU, n, m)
 end

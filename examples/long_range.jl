@@ -124,11 +124,19 @@ end
 # julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full
 # ```
 #
+# The linear bond dimension has a price in construction time. Every in-flight coupling is one edge of
+# the bipartite graph at every bond it straddles, so the exact sweep costs ``\sum_\mathrm{terms}
+# \mathrm{span}``: linear in ``N`` for a finite-range model, but ``O(N^3)`` when all
+# ``\binom{N}{2}`` pairs interact. That is intrinsic rather than an implementation artefact — at a cut
+# after site ``b`` the coefficient matrix ``J(n,m)`` restricted to ``n \le b < m`` is genuinely dense,
+# so the edges have to be there. Truncation, above, is the lever for large long-range systems.
+#
 # ![Bond dimension and construction time versus system size](../assets/scaling.png)
 #
 # The *profile* of the bond dimension along the chain makes the contrast with the local models
-# vivid: long-range couplings give a triangle peaking at the middle of the chain, where the cut
-# separates the largest number of interacting pairs, while finite-range and quasi-2D models sit on a
-# flat plateau.
+# vivid: long-range couplings peak at the middle of the chain, where the cut separates the largest
+# number of interacting pairs — ``\min(b, N-b)`` open channels, a triangle in ``b`` — while
+# finite-range and quasi-2D models sit on a flat plateau. (The figure is log-scaled in
+# ``D_\mathrm{dense}`` so the plateaus, two orders of magnitude below the peak, stay legible.)
 #
 # ![Bond dimension profile along the chain](../assets/profile.png)

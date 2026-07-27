@@ -2,7 +2,8 @@
 # =====================================================================
 # `irrep_mpo` compresses an ITO `TermSum` into a reduced MPO — site tensors of ITO letters times
 # reduced coefficients, plus per-bond charge sectors — by running the per-bond-sector bipartite
-# min-vertex-cover sweep `_irrep_bipartite` over the flat `ITOTermTable` (see irreptermtable.jl).
+# min-vertex-cover sweep `_irrep_graph_bipartite` over the flat `ITOTermTable` (see irrepgraph.jl;
+# the transient-frontier `_irrep_bipartite` in irreptermtable.jl is kept as the parity oracle).
 # Each retained bond index has a single, well-defined charge (`ITOKey.bond`); block-diagonality is
 # `@assert`ed there. Supported scope: K ≤ 2 active sites per term.
 #
@@ -120,6 +121,22 @@ function _deg_indices(sec::Vector{I}) where {I}
     return out
 end
 
+# Contract one letter's accumulated bond coupler into the site tensor. Split out so that `@tensor`
+# specialises on the concrete tensor types even though the per-site memo tables below are
+# heterogeneously typed.
+function _add_bond_entry!(W, O, κ)
+    @tensor W[bl o; ii br] += O[o; ii cc] * κ[bl cc; br]
+    return W
+end
+
+# Write one reduced coefficient into a coupler block. Also a function barrier: this runs once per
+# *stored bond entry* — `O(D_L · D_R)` of them, against `O(d²)` contractions above — so it is the loop
+# that must not stay dynamically dispatched off the memo tables' `Any` element type.
+function _add_coupler_coeff!(κ, f1, f2, dL::Int, dR::Int, coeff)
+    κ[f1, f2][dL, 1, dR] += coeff
+    return κ
+end
+
 """
     irrep_mpo_tensors(Ws, bondsectors, sites) -> Vector{<:AbstractTensorMap}
 
@@ -135,18 +152,39 @@ function irrep_mpo_tensors(
         bondsectors::Vector{Vector{I}}, sites
     ) where {I}
     N = length(Ws)
+
+    # Every internal bond is shared by two site tensors, so build its graded space and degeneracy
+    # indices once rather than twice (as `Bright`/`degR` of site i and `Bleft`/`degL` of site i+1).
+    # `bsecs[i]` is the bond to the *left* of site i; `bsecs[1]` is the trivial left boundary.
+    bsecs = Vector{Vector{I}}(undef, N + 1)
+    bsecs[1] = I[unit(I)]
+    for i in 1:N
+        bsecs[i + 1] = bondsectors[i]
+    end
+    bspaces = map(_bond_space, bsecs)
+    bdegs = map(_deg_indices, bsecs)
+
     # `map` infers a concrete `Vector{<:AbstractTensorMap}` element type (all site tensors share
     # the same `B ⊗ V ← V ⊗ B` space *type*), unlike an untyped preallocated buffer.
     return map(1:N) do i
         V = sites[i]
-        secL = i == 1 ? I[unit(I)] : bondsectors[i - 1]
-        secR = bondsectors[i]
-        Bleft = _bond_space(secL)
-        Bright = _bond_space(secR)
-        degL = i == 1 ? Int[1] : _deg_indices(bondsectors[i - 1])
-        degR = _deg_indices(secR)
+        secL, secR = bsecs[i], bsecs[i + 1]
+        Bleft, Bright = bspaces[i], bspaces[i + 1]
+        degL, degR = bdegs[i], bdegs[i + 1]
 
         W = zeros(ComplexF64, Bleft ⊗ V ← V ⊗ Bright)
+
+        # Assemble per *letter*, not per entry. The bond coupler κ_letter : Bleft ⊗ Vc ← Bright
+        # collects every reduced coefficient carrying that letter, so the site needs one contraction
+        # per distinct letter — `O(d²)` of them — instead of one per stored bond entry, of which there
+        # are `O(D_L · D_R)`. (The previous form also rebuilt κ, the letter tensor and both fusion
+        # trees per entry, and accumulated via an out-of-place `W = W + Wentry` that reallocated and
+        # rewrote the whole site tensor every time.)
+        ops = Dictionary{IrrepOperator{I}, Any}()
+        couplers = Dictionary{IrrepOperator{I}, Any}()
+        f1s = Dictionary{Tuple{I, I, I}, Any}()
+        f2s = Dictionary{I, Any}()
+
         for (idx, localop) in storedpairs(Ws[i])
             l, r = Tuple(idx)
             bL, dL = secL[l], degL[l]
@@ -154,22 +192,31 @@ function irrep_mpo_tensors(
             for (letter, coeff) in _local_terms(localop)
                 letter === nothing && continue
                 c = letter.c
-                Vc = Vect[I](c => 1)
                 # V ← V ⊗ Vect[c]; pass-through (c = unit) carries a trivial charge leg so the
                 # bond contraction is uniform (instantiate would drop it, returning bare id(V)).
-                O = ispassthrough(letter) ? isomorphism(ComplexF64, V ← V ⊗ Vc) :
-                    instantiate(letter, V)
-                # bond coupler κ : Bleft ⊗ Vc ← Bright, forward fusion (bL, c) → bR — running bond
-                # FIRST, then the operator charge, matching the left-nested caterpillar the oracle
-                # uses. (Charge-first would agree only for symmetric vertices, e.g. K=2 singlets, and
-                # flips the sign at antisymmetric inner vertices like 1⊗1→1 for K ≥ 3.)
-                κ = zeros(ComplexF64, Bleft ⊗ Vc ← Bright)
-                f1 = only(fusiontrees((bL, c), bR, (false, false)))
-                f2 = only(fusiontrees((bR,), bR, (false,)))
-                κ[f1, f2][dL, 1, dR] = coeff
-                @tensor Wentry[bl o; ii br] := O[o; ii cc] * κ[bl cc; br]
-                W = W + Wentry
+                get!(ops, letter) do
+                    Vc = Vect[I](c => 1)
+                    return ispassthrough(letter) ? isomorphism(ComplexF64, V ← V ⊗ Vc) :
+                        instantiate(letter, V)
+                end
+                # κ couples the operator charge into the bond by the (forward) fusion (bL, c) → bR —
+                # running bond FIRST, then the operator charge, matching the left-nested caterpillar
+                # the oracle uses. (Charge-first would agree only for symmetric vertices, e.g. K=2
+                # singlets, and flips the sign at antisymmetric inner vertices like 1⊗1→1 for K ≥ 3.)
+                κ = get!(couplers, letter) do
+                    return zeros(ComplexF64, Bleft ⊗ Vect[I](c => 1) ← Bright)
+                end
+                f1 = get!(() -> only(fusiontrees((bL, c), bR, (false, false))), f1s, (bL, c, bR))
+                f2 = get!(() -> only(fusiontrees((bR,), bR, (false,))), f2s, bR)
+                # `(l, r)` determines `(bL, dL, bR, dR)` and the letter fixes `c`, so distinct stored
+                # entries always address distinct slots; the `+=` only matters if `_local_terms`
+                # returns one letter twice for a single entry.
+                _add_coupler_coeff!(κ, f1, f2, dL, dR, coeff)
             end
+        end
+
+        for (letter, κ) in pairs(couplers)
+            _add_bond_entry!(W, ops[letter], κ)
         end
         return W
     end

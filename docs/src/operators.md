@@ -106,22 +106,39 @@ letters, and a scalar multiple of the identity is [`scalarop`](@ref OpSum.scalar
 `TermSum`. `couple(a, b; to = c)` fuses two of them into a two-site term with total charge `c`:
 
 ```@example ops
-z = unit(U1Irrep)
-term = couple(Sz[1], Sz[2]; to = z)
+term = couple(Sz[1], Sz[2])
 ```
 
 Four rules govern `couple`:
 
-1. **Site order increases.** `couple` builds its caterpillar fusion tree left to right, so the
-   second operand must act strictly to the right of the first. For fermions this is not a
+1. **Site order increases.** `couple` builds its caterpillar fusion tree left to right, so each
+   operand must act strictly to the right of the ones before it. For fermions this is not a
    convention — writing ``c^†_{i+1} c_i`` as ``-c_i c^†_{i+1}`` costs a sign you must supply.
-2. **Composite operands are fine.** Both sides may have several letters; the coupling distributes
-   over every pair, and pairs whose charges cannot fuse to `to` are dropped. It is an error if none
-   fuse.
-3. **`to` is the total charge of the term.** A term in a Hamiltonian is a scalar, so `to = unit(I)`.
-   Non-unit totals are legal and useful as building blocks.
-4. **Three or more sites nest.** For ``K ≥ 3`` the intermediate channel is not determined by the
-   charges and the total, so you name it:
+2. **Composite operands are fine.** Every side may have several letters; the coupling distributes
+   over every combination, and combinations whose charges cannot fuse to `to` are dropped. It is an
+   error if none fuse.
+3. **`to` is the total charge of the term, and defaults to the unit sector.** A term in a
+   Hamiltonian is a scalar, so the default is what you almost always want. Pass `to` explicitly to
+   build a charged object — those are legal and useful as building blocks. If the charges cannot
+   reach `to` you get an error rather than a silently empty result, which is what makes the default
+   safe: `couple(Sp[1], Sp[2])` throws instead of quietly vanishing.
+4. **Three or more sites: abelian folds, non-abelian nests.** Under an abelian symmetry
+   (`UniqueFusion` — `U₁`, `ℤₙ`, `FermionNumber`, `Trivial`, products thereof) every intermediate
+   charge is forced, so there is nothing to choose and the variadic form does the whole chain:
+
+```@example ops
+using OpSum: total
+
+Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+cop = matrixunit(Vf, FermionNumber(0), FermionNumber(1))
+cdag = matrixunit(Vf, FermionNumber(1), FermionNumber(0))
+
+H4 = couple(cdag[1], cop[2], cdag[3], cop[4])       # charge-neutral four-fermion term
+total(only(keys(H4.terms)))
+```
+
+Under a non-abelian symmetry the intermediates are real freedom, so the variadic form throws and you
+nest, naming each channel — which also means the choice reads back off the term:
 
 ```@example ops
 chirality = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
@@ -148,9 +165,9 @@ generic block works:
 
 ```@example ops
 hbond = OpSum.instantiate(
-    (1 / 2) * couple(Sp[1], Sm[2]; to = z) +
-        (1 / 2) * couple(Sm[1], Sp[2]; to = z) +
-        couple(Sz[1], Sz[2]; to = z),
+    (1 / 2) * couple(Sp[1], Sm[2]) +
+        (1 / 2) * couple(Sm[1], Sp[2]) +
+        couple(Sz[1], Sz[2]),
     [V, V],
 )
 

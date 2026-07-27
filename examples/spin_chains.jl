@@ -80,12 +80,11 @@ length(OpSum.variant(Sz).terms)
 # ``S^z S^z`` term is written exactly like the single-letter ones.
 
 function xxz(N; J = 1.0, Δ = 1.0)
-    z = unit(U1Irrep)
     return sum(
         [
-            J / 2 * couple(Sp[i], Sm[i + 1]; to = z) +
-                J / 2 * couple(Sm[i], Sp[i + 1]; to = z) +
-                J * Δ * couple(Sz[i], Sz[i + 1]; to = z)
+            J / 2 * couple(Sp[i], Sm[i + 1]) +
+                J / 2 * couple(Sm[i], Sp[i + 1]) +
+                J * Δ * couple(Sz[i], Sz[i + 1])
                 for i in 1:(N - 1)
         ]
     )
@@ -124,9 +123,9 @@ spectrum(heisenberg(6), fill(V, 6)) ≈ spectrum(xxz(6), fill(Vu, 6))
 # against a complete orthogonal basis, so the expansion is not a fit.
 
 h_bond = instantiate(
-    (1 / 2) * couple(Sp[1], Sm[2]; to = unit(U1Irrep)) +
-        (1 / 2) * couple(Sm[1], Sp[2]; to = unit(U1Irrep)) +
-        couple(Sz[1], Sz[2]; to = unit(U1Irrep)),
+    (1 / 2) * couple(Sp[1], Sm[2]) +
+        (1 / 2) * couple(Sm[1], Sp[2]) +
+        couple(Sz[1], Sz[2]),
     [Vu, Vu],
 )
 

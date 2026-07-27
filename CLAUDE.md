@@ -53,6 +53,7 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
 - **`VectorInterface` integration**: symbolic algebra types implement `VectorInterface` norms/inner products for truncation/compression.
 - **Instantiation**: `instantiate(op, V)` materializes symbolic ITOs into `TensorMap`s; `instantiate(ts::TermSum, sites)` is the correctness oracle in tests. `project` is its inverse.
 - **`couple` distributes**: both operands may be composite (several terms, e.g. from `project`); pairs whose charges cannot fuse to `to` are dropped, and it is an error if none do. `dot` does *not* distribute — its `-√dim(c)` factor is per-letter.
+- **`couple` defaults `to` to `unit(I)`** (what a Hamiltonian term needs) and accepts a variadic form for abelian sectors (`FusionStyle(I) isa UniqueFusion`), where every intermediate caterpillar charge is forced by the charges: `couple(cd[1], c[2], cd[3], c[4])`. Non-abelian sectors must nest to name each channel — the variadic form throws.
 - **Sparse bond matrices**: each sweep accumulates bond entries into a dict-of-keys `Dictionary{CartesianIndex{2}, LocalOp}` and finalizes it to a stdlib `SparseArrays.SparseMatrixCSC` at the end (`sparse_from_dict`/`storedpairs` in `src/utility/linalg.jl`).
 
 ### Test structure

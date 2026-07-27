@@ -31,8 +31,11 @@ using LinearAlgebra: dot, eigvals, norm
 #
 #  * the expansion is a `LocalOp`, so ordinary arithmetic reads the way you would write it on
 #    paper (`Sᶻ = (n↑ - n↓)/2`), and `A[i]` places the whole expansion on site `i`;
-#  * `couple(A[i], B[j]; to = c)` distributes over composite operands and drops letter pairs whose
-#    charges cannot fuse to `c`, so nothing has to be expanded by hand.
+#  * `couple(A[i], B[j])` distributes over composite operands and drops letter pairs whose charges
+#    cannot fuse to the total, so nothing has to be expanded by hand. The total defaults to the unit
+#    sector — what a Hamiltonian term needs — and `to` names it otherwise. Under an abelian symmetry
+#    the variadic `couple(A[i], B[j], C[k], …)` folds a whole chain, since every intermediate charge
+#    is forced; non-abelian chains nest so each channel is named.
 #
 # Nothing is ever converted to a dense array, which matters for fermionic sectors where
 # `convert(Array, t)` is not a well-defined operation.

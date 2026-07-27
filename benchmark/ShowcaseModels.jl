@@ -83,7 +83,6 @@ function fermion_ops(V = FERMION_MODE)
         c = matrixunit(V, vac, occ),
         cd = matrixunit(V, occ, vac),
         n = matrixunit(V, occ, occ),
-        u = unit(FermionNumber),
     )
 end
 
@@ -91,7 +90,7 @@ end
 # `-c_i c†_{i+1}`: anticommuting `c†_{i+1} c_i` into site order costs a sign.
 function _hopping_terms(F, bonds, t)
     return [
-        -t * (couple(F.cd[i], F.c[j]; to = F.u) - couple(F.c[i], F.cd[j]; to = F.u))
+        -t * (couple(F.cd[i], F.c[j]) - couple(F.c[i], F.cd[j]))
             for (i, j) in bonds
     ]
 end
@@ -108,7 +107,7 @@ function tv_chain(N; t = 1.0, Vint = 2.0)
     H = sum(
         vcat(
             _hopping_terms(F, bonds, t),
-            [Vint * couple(F.n[i], F.n[j]; to = F.u) for (i, j) in bonds],
+            [Vint * couple(F.n[i], F.n[j]) for (i, j) in bonds],
         )
     )
     return H, fill(FERMION_MODE, N)
@@ -134,7 +133,7 @@ function hubbard(N; t = 1.0, U = 4.0, Ly = nothing)
         vcat,
         [_hopping_terms(F, [(orbital(i, σ), orbital(j, σ))], t) for (i, j) in sitebonds for σ in 1:2]
     )
-    int = [U * couple(F.n[orbital(i, 1)], F.n[orbital(i, 2)]; to = F.u) for i in 1:Nsites]
+    int = [U * couple(F.n[orbital(i, 1)], F.n[orbital(i, 2)]) for i in 1:Nsites]
     return sum(vcat(hop, int)), fill(FERMION_MODE, N)
 end
 

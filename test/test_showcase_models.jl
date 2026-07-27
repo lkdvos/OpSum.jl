@@ -99,7 +99,7 @@ end
     sites = fill(V, N)
     wrong = sum(
         [
-            couple(F.cd[i], F.c[i + 1]; to = F.u) + couple(F.c[i], F.cd[i + 1]; to = F.u)
+            couple(F.cd[i], F.c[i + 1]) + couple(F.c[i], F.cd[i + 1])
                 for i in 1:(N - 1)
         ]
     )

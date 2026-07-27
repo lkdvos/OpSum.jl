@@ -183,8 +183,14 @@ Fitted exponents of the `mpo_bipartite` benchmark group (`--sweep full`, OLS in 
 
 | | after |
 |---|---|
-| the ten finite-range models | **`N^0.99 … N^1.09`** |
-| `haldane_shastry`, `powerlaw_a3` | **`N^2.22`, `N^2.24`** over `N = 8 … 256` — the `Θ(N³)` bound is the asymptote, and the top-octave local slope is already `2.9` |
+| the ten finite-range models | **`≈ N^1.0 … N^1.15`** |
+| `haldane_shastry`, `powerlaw_a3` | **`≈ N^2`** over `N = 8 … 256` — the `Θ(N³)` bound is the asymptote |
+
+Those are rounded deliberately. Repeating the sweep on a shared machine moves the finite-range fits
+within `1.0 … 1.14` and the long-range ones over `1.9 … 2.24` (only seven points, and the largest is a
+quarter-second), so a three-digit exponent would be false precision. The long-range fit sitting below
+its `Θ(N³)` asymptote is expected: the `Θ(M)` class term still outweighs the `Θ(Σ span)` edge term at
+these sizes.
 
 Be careful reading a *before* exponent off the old figure: that figure plots the **total** (term-sum
 assembly + compression) fitted from `N = 8`, where per-call overhead inflates it, so its `~N^2.5` is not

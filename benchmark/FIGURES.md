@@ -21,12 +21,17 @@ of the (gitignored) `benchmark/results.json` and `benchmark/results.metrics.json
 | generated | 2026-07-27 |
 | sweep | `full` |
 | Julia | 1.12.6 |
-| OpSum | 0.1.0 |
-| base commit | `5d7fc3a`, **plus uncommitted working-tree changes** (the persistent-graph rewrite these figures measure) |
+| source | the code commit this branch's figures accompany, with a clean working tree |
 | host | `ccqlin038.flatironinstitute.org` (Flatiron CCQ workstation) |
 
-Timings are wall-clock on a shared machine, so the absolute numbers are indicative; the fitted
-exponents are the point. Bond dimensions are deterministic and machine-independent.
+The exact commit is recorded in the regenerated JSON (`git_commit`, plus `git_dirty` — trust the numbers
+only when that is `false`); it is deliberately not pinned here, since a rebase or an amended message
+would silently invalidate it while the figures stayed correct.
+
+Timings are wall-clock on a shared machine, so treat the absolute numbers as indicative and the fitted
+exponents as good to about one decimal: repeating the sweep moves the finite-range compression fits
+within `1.0 … 1.14` and the long-range ones over `1.9 … 2.24`. Bond dimensions are deterministic and
+machine-independent.
 
 ## What the figures show
 

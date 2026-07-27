@@ -158,82 +158,91 @@ end
 
 sweeps(smoke, ci, full) = Dict(:smoke => smoke, :ci => ci, :full => full)
 
-# Sizes are chosen from measured costs. The exact bipartite sweep materializes a suffix path per
-# term per bond, so cost grows steeply -- roughly N^3 for finite-range models and N^4 for
-# all-to-all ones. Bond-dimension metrics cost a single `irrep_mpo` call while timings cost several
-# samples, so the metric sweeps run to roughly twice the size.
+# Sizes are chosen from measured costs. The exact bipartite sweep costs `Θ(M·K)` to intern the term
+# suffixes plus `Θ(Σ_terms span)` for the sweep itself, where a term's *span* is the number of bonds
+# between its first and last active site: each in-flight term is one edge at each bond it crosses.
+# So finite-range models (spans `O(1)`, or `O(Ly)` on a cylinder) come out linear in N, while
+# all-to-all models are `Θ(N³)` -- there the bond coefficient matrix `J(n,m)` restricted to
+# `n <= b < m` is genuinely dense, so that is intrinsic to an exact minimum-vertex-cover sweep rather
+# than an artefact. Use `SVDBondAlgorithm` with truncation for large long-range systems.
+# Bond-dimension metrics cost a single `irrep_mpo` call while timings cost several samples, so the
+# metric sweeps run to roughly twice the size.
+#
+# NOTE on reading the timing figures: with the compression linear, the plotted *total* for a
+# finite-range model is now dominated by the symbolic `TermSum` accumulation, not by `irrep_mpo`. The
+# `phases` figure breaks the two apart, and it is the one to look at when judging the compression.
 const MODELS = ModelSpec[
     ModelSpec(
         "heisenberg_su2", "Heisenberg SU(2)", :spin1d, Dict("J" => 1.0),
         heisenberg_su2,
-        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 256; n = 7)),
-        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 512; n = 8)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 2048; n = 9)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 4096; n = 10)),
     ),
     ModelSpec(
         "j1j2_su2", "J1-J2 SU(2)", :spin1d, Dict("J1" => 1.0, "J2" => 0.5),
         j1j2_su2,
-        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 256; n = 7)),
-        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 512; n = 8)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 2048; n = 9)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 4096; n = 10)),
     ),
     ModelSpec(
         "haldane_shastry", "Haldane-Shastry", :longrange, Dict("J" => 1.0),
         haldane_shastry,
-        sweeps([8, 16], logsizes(8, 32; n = 3), logsizes(8, 128; n = 6)),
-        sweeps([8, 16], logsizes(8, 48; n = 4), logsizes(8, 192; n = 7)),
+        sweeps([8, 16], logsizes(8, 32; n = 3), logsizes(8, 256; n = 7)),
+        sweeps([8, 16], logsizes(8, 48; n = 4), logsizes(8, 384; n = 8)),
     ),
     ModelSpec(
         "powerlaw_a3", "Power law 1/r^3", :longrange, Dict("alpha" => 3.0),
         N -> powerlaw_su2(N; α = 3.0),
-        sweeps([8, 16], logsizes(8, 32; n = 3), logsizes(8, 128; n = 6)),
-        sweeps([8, 16], logsizes(8, 48; n = 4), logsizes(8, 192; n = 7)),
+        sweeps([8, 16], logsizes(8, 32; n = 3), logsizes(8, 256; n = 7)),
+        sweeps([8, 16], logsizes(8, 48; n = 4), logsizes(8, 384; n = 8)),
     ),
     ModelSpec(
         "ladder_su2", "Ladder Ly=2", :quasi2d, Dict("Ly" => 2, "periodic_y" => false),
         N -> cylinder_su2(N; Ly = 2, periodic_y = false),
-        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 192; n = 6, mult = 2)),
-        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 384; n = 7, mult = 2)),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 1024; n = 8, mult = 2)),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 2048; n = 9, mult = 2)),
     ),
     ModelSpec(
         "cylinder_ly3", "Cylinder Ly=3", :quasi2d, Dict("Ly" => 3),
         N -> cylinder_su2(N; Ly = 3),
-        sweeps([9, 18], logsizes(9, 63; n = 4, mult = 3), logsizes(9, 192; n = 6, mult = 3)),
-        sweeps([9, 18], logsizes(9, 63; n = 4, mult = 3), logsizes(9, 384; n = 7, mult = 3)),
+        sweeps([9, 18], logsizes(9, 63; n = 4, mult = 3), logsizes(9, 1023; n = 8, mult = 3)),
+        sweeps([9, 18], logsizes(9, 63; n = 4, mult = 3), logsizes(9, 2046; n = 9, mult = 3)),
     ),
     ModelSpec(
         "cylinder_ly4", "Cylinder Ly=4", :quasi2d, Dict("Ly" => 4),
         N -> cylinder_su2(N; Ly = 4),
-        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 4), logsizes(8, 192; n = 6, mult = 4)),
-        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 4), logsizes(8, 384; n = 7, mult = 4)),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 4), logsizes(8, 1024; n = 8, mult = 4)),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 4), logsizes(8, 2048; n = 9, mult = 4)),
     ),
     ModelSpec(
         "cylinder_ly6", "Cylinder Ly=6", :quasi2d, Dict("Ly" => 6),
         N -> cylinder_su2(N; Ly = 6),
-        sweeps([12, 24], logsizes(12, 60; n = 3, mult = 6), logsizes(12, 192; n = 6, mult = 6)),
-        sweeps([12, 24], logsizes(12, 60; n = 3, mult = 6), logsizes(12, 240; n = 6, mult = 6)),
+        sweeps([12, 24], logsizes(12, 60; n = 3, mult = 6), logsizes(12, 1020; n = 7, mult = 6)),
+        sweeps([12, 24], logsizes(12, 60; n = 3, mult = 6), logsizes(12, 2040; n = 8, mult = 6)),
     ),
     ModelSpec(
         "free_fermions", "Free fermions", :fermionic, Dict("t" => 1.0),
         free_fermions,
-        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 256; n = 7)),
-        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 512; n = 8)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 2048; n = 9)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 4096; n = 10)),
     ),
     ModelSpec(
         "tv_chain", "t-V chain", :fermionic, Dict("t" => 1.0, "V" => 2.0),
         tv_chain,
-        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 256; n = 7)),
-        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 512; n = 8)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 2048; n = 9)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 4096; n = 10)),
     ),
     ModelSpec(
         "hubbard_1d", "Fermi-Hubbard 1D", :fermionic, Dict("t" => 1.0, "U" => 4.0),
         hubbard,
-        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 192; n = 6, mult = 2)),
-        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 384; n = 7, mult = 2)),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 1024; n = 8, mult = 2)),
+        sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 2048; n = 9, mult = 2)),
     ),
     ModelSpec(
         "hubbard_ly4", "Fermi-Hubbard cylinder Ly=4", :fermionic, Dict("U" => 4.0, "Ly" => 4),
         N -> hubbard(N; Ly = 4),
-        sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 128; n = 4, mult = 8)),
-        sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 192; n = 5, mult = 8)),
+        sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 512; n = 6, mult = 8)),
+        sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 768; n = 7, mult = 8)),
     ),
 ]
 

@@ -194,25 +194,33 @@ function safe_legend!(ax; kwargs...)
     return nothing
 end
 
-function draw_series!(ax, d, idx, label; scale = 1.0, fitvar = "N", showfit = true)
+function draw_series!(
+        ax, d, idx, label; scale = 1.0, fitvar = "N", showfit = true, fitinlabel = false
+    )
     color = COLOR_CYCLE[mod1(idx, length(COLOR_CYCLE))]
     marker = MARKER_CYCLE[mod1(idx, length(MARKER_CYCLE))]
     sizes, vals, lo, hi = d
     isempty(sizes) && return NaN
     y = vals .* scale
-    scatter!(ax, Float64.(sizes), y; marker, color, markersize = 9, label)
+    _, b, fit = fit_power_law(sizes, y)
+    # `fitinlabel` folds the exponent into the series label instead of giving the fit line its own
+    # legend entry — halving the entry count, which matters when a single axis holds every model.
+    scatterlabel = (fitinlabel && !isnan(b)) ?
+        latexstring(@sprintf("\\mathrm{%s}\\ \\sim %s^{%.2f}", replace(label, " " => "\\ "), fitvar, b)) :
+        label
+    scatter!(ax, Float64.(sizes), y; marker, color, markersize = 9, label = scatterlabel)
     if any(>(0), lo) || any(>(0), hi)
         errorbars!(
             ax, Float64.(sizes), y, lo .* scale, hi .* scale;
             color = (color, 0.5), whiskerwidth = 6
         )
     end
-    _, b, fit = fit_power_law(sizes, y)
     if showfit && !isnan(b)
+        fitkwargs = fitinlabel ? (;) :
+            (; label = latexstring(@sprintf("\\sim %s^{%.2f}", fitvar, b)))
         lines!(
             ax, Float64.(sizes), fit;
-            color = (color, 0.6), linestyle = :dash,
-            label = latexstring(@sprintf("\\sim %s^{%.2f}", fitvar, b))
+            color = (color, 0.6), linestyle = :dash, fitkwargs...
         )
     end
     return b
@@ -310,9 +318,10 @@ function plot_phases(metrics, suite, output_path)
         ax.ylabel = "Time [$unit]"
         for (i, k) in enumerate(present)
             s = series[k]
-            s === nothing || draw_series!(ax, s, i, label_of(metrics, k); scale)
+            s === nothing ||
+                draw_series!(ax, s, i, label_of(metrics, k); scale, fitinlabel = true)
         end
-        safe_legend!(ax; position = :lt, framevisible = false, labelsize = 8, nbanks = 2)
+        safe_legend!(ax; position = :lt, framevisible = false, labelsize = 7, nbanks = 3)
     end
 
     ax = Axis(
@@ -326,9 +335,10 @@ function plot_phases(metrics, suite, output_path)
     ax.ylabel = "Time [$unit]"
     for (i, k) in enumerate(present)
         s = totals[k]
-        s === nothing || draw_series!(ax, s, i, label_of(metrics, k); scale)
+        s === nothing ||
+            draw_series!(ax, s, i, label_of(metrics, k); scale, fitinlabel = true)
     end
-    safe_legend!(ax; position = :lt, framevisible = false, labelsize = 8, nbanks = 2)
+    safe_legend!(ax; position = :lt, framevisible = false, labelsize = 7, nbanks = 3)
 
     rowgap!(fig.layout, 8)
     save(output_path, fig)
@@ -341,26 +351,34 @@ end
 
 function plot_profile(metrics, output_path)
     fig = Figure(; size = (760, 420))
+    # The representatives reach very different sizes (a finite-range chain goes an order of magnitude
+    # further than an all-to-all one), so the bond index is normalised to its position along the chain
+    # and `D_dense` is log-scaled. Otherwise the long-range triangle flattens everything else onto the
+    # axis and the plateau-versus-triangle contrast — the point of the figure — is lost.
     ax = Axis(
         fig[1, 1];
-        xlabel = "Bond index", ylabel = L"D_\mathrm{dense}",
+        xlabel = "Position along the chain, bond / N", ylabel = L"D_\mathrm{dense}",
+        yscale = log10,
         title = "Bond-dimension profile (largest available system)",
     )
     reps = ["heisenberg_su2", "cylinder_ly4", "haldane_shastry", "hubbard_1d"]
     i = 0
+    allvals = Float64[]
     for key in reps
         haskey(metrics.models, key) || continue
         i += 1
         e = argmax(x -> x.size, collect(metrics.models[key].entries))
         prof = Float64.(e.densedims)
+        append!(allvals, prof)
         lines!(
-            ax, 1:length(prof), prof;
+            ax, (1:length(prof)) ./ length(prof), prof;
             color = COLOR_CYCLE[mod1(i, length(COLOR_CYCLE))], linewidth = 2,
             label = "$(label_of(metrics, key)) (N=$(e.size))"
         )
     end
     i == 0 && (println("No metric data; skipping profile figure."); return nothing)
-    safe_legend!(ax; position = :rt, framevisible = false, labelsize = 9)
+    ax.yticks = integer_log_ticks(allvals)
+    safe_legend!(ax; position = :lb, framevisible = false, labelsize = 9)
     save(output_path, fig)
     return println("Wrote $output_path")
 end

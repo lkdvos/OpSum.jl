@@ -190,3 +190,10 @@ end
 # ```
 #
 # ![Bond dimension and construction time versus system size](../assets/scaling.png)
+#
+# The time panel above is the whole pipeline: symbolic term-sum assembly *plus* MPO compression.
+# Splitting the two (`--figure phases`) shows where the work actually goes — for a finite-range model
+# the compression is linear in ``N``, because each term is an open channel only on the bonds it
+# actually straddles, so the total is dominated by the term-sum accumulation:
+#
+# ![Term-sum assembly versus MPO compression](../assets/phases.png)

@@ -7,14 +7,14 @@
 
 using Test
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum, spin, couple
+using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum, spin, couple, scalarop
 using OpSum: BipartiteAlgorithm
 using OpSum: ITOTermTable, _irrep_bipartite, _irrep_graph_bipartite, _irrep_svd, _irrep_graph_svd
 using OpSum: ITOGraph, _at_site!
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor
-using LinearAlgebra: dot
+using LinearAlgebra: dot, norm
 
 LO(x) = OpSum.LocalOp(x)
 
@@ -72,6 +72,21 @@ function reference_hamiltonians()
                 couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)), fill(V, 3),
             )
         )
+        # Coupling S₁⊗S₂ to charge 0 makes the running bond charge trivial, so from bond 2 on the
+        # K=3 term is indistinguishable from a not-yet-started on-site S₄ — their suffix classes
+        # genuinely merge. See the "pending suffix class can collide with a started one" testset.
+        push!(
+            cases, (
+                "SU2 K=3 tail collides with on-site field",
+                couple(couple(S[1], S[2]; to = SU2Irrep(0)), S[4]; to = SU2Irrep(1)) + 2.0 * S[4],
+                fill(V, 4),
+            )
+        )
+        # boundary shapes: nothing active at site 1; a term whose first active site is the last one
+        push!(cases, ("SU2 no term starts at site 1", dot(S[2], S[3]), fill(V, 3)))
+        # a term whose first active site is the last one (uniform total charge: both are single spins,
+        # mixing total charges in one `TermSum` is out of scope for the sweeps)
+        push!(cases, ("SU2 first active site == N", S[1] + S[4], fill(V, 4)))
     end
     let V = Rep[U₁](0 => 1, 1 => 1)
         raise = LO(IrrepOperator(U1Irrep(1), 1))
@@ -87,11 +102,30 @@ function reference_hamiltonians()
                 couple(couple(raise[1], raise[2]; to = U1Irrep(2)), lower[3]; to = U1Irrep(1)), fill(V, 3),
             )
         )
+        # A charge-0 letter leaves the running bond trivial, so a pending on-site term can share a
+        # suffix class with a started two-site one — the U(1)/fermionic analogue of an `n̂`
+        # chemical-potential term colliding with the tail of an `n̂ᵢn̂ⱼ` interaction.
+        z = LO(IrrepOperator(U1Irrep(0), 1))
+        push!(
+            cases, (
+                "U1 charge-0 on-site collides with two-site tail",
+                couple(z[1], z[3]; to = U1Irrep(0)) + 0.5 * z[3], fill(V, 3),
+            )
+        )
     end
     let V = ℂ^2
         ops = instances(IrrepOperator, V)
         H = reduce(+, couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2)
         push!(cases, ("trivial sector N=3", H, fill(V, 3)))
+        # In the trivial sector every bond charge is the unit, so the collision above degenerates to
+        # "a pending term's whole content equals a started term's tail".
+        push!(
+            cases, (
+                "trivial on-site collides with two-site tail",
+                couple(LO(ops[2])[1], LO(ops[3])[3]; to = unit(Trivial)) + 0.5 * LO(ops[3])[3],
+                fill(V, 3),
+            )
+        )
     end
     return cases
 end
@@ -169,9 +203,9 @@ end
     end
 end
 
-@testset "incremental suffix-merge on a longer chain" begin
-    # exercise many at_site! steps; the incremental (LCP-driven) suffix-merge must reproduce the
-    # transient sweep's per-sector bond dims and stay lossless on an 8-site Heisenberg chain.
+@testset "suffix-merge over many site steps" begin
+    # exercise many at_site! steps; the per-site signature regroup must reproduce the transient
+    # sweep's per-sector bond dims and stay lossless on an 8-site Heisenberg chain.
     V = SU2Space(1 // 2 => 1)
     N = 8
     sites = fill(V, N)
@@ -185,18 +219,115 @@ end
     @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
 end
 
-@testset "right vertices persist while their count shrinks" begin
-    # the persistent graph keeps one right vertex per (surviving) suffix class; after each at_site!
-    # the right-vertex count is non-increasing (suffix-merge only merges), ending at 1 (empty suffix).
+@testset "K=0 identity terms" begin
+    # A K=0 term is all pass-through: its suffix class is the "done" class from bond 0 on, and its
+    # left vertex coincides with the identity/start channel. Checked via per-sector bond dims and the
+    # `mpo_terms` round-trip rather than the dense oracle, because `instantiate` cannot represent a
+    # `TermSum` that mixes K=0 and K>0 terms (a pre-existing limitation of the oracle, not the sweep).
     V = SU2Space(1 // 2 => 1)
-    N = 5
-    H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
-    g = ITOGraph(ITOTermTable(H, fill(V, N)), N)
-    counts = Int[]
-    for i in 1:N
-        _at_site!(g, i)
-        push!(counts, length(g.rrepr))
+    S = spin(V)
+    for (name, H, N) in (
+            ("pure identity", scalarop(2.5, V)[1], 3),
+            ("identity plus bond", scalarop(2.5, V)[1] + dot(S[1], S[2]), 3),
+            ("identity plus two bonds", scalarop(-1.5, V)[1] + dot(S[1], S[2]) + dot(S[2], S[3]), 3),
+        )
+        sites = fill(V, N)
+        tt = ITOTermTable(H, sites)
+        Wo, so = _irrep_bipartite(tt, N)
+        Wg, sg = _irrep_graph_bipartite(tt, N)
+        @testset "$name" begin
+            @test persector(so) == persector(sg)
+            back = mpo_terms(Wg, sg)
+            @test Set(keys(back.terms)) == Set(keys(H.terms))
+            @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+        end
     end
-    @test issorted(counts; rev = true)
-    @test counts[end] == 1
+end
+
+@testset "suffix signature needs the running bond charge" begin
+    # A suffix class is named by `(interned remaining factors, running bond charge)`. The second
+    # component is not decoration: two terms can have *identical* remaining factors yet different
+    # accumulated charge, and then `_op_at_ito` fills the idle sites between with pass-throughs at
+    # different charges — so the suffix paths differ and the classes must stay apart. Here both terms
+    # end with the same spin-1 letter at site 4 but reach bond 2 at charge 0 and charge 1 respectively.
+    # Dropping the charge from the signature merges them and trips the sector-purity assert.
+    #
+    # This case cannot go through `reference_hamiltonians`: `_irrep_bipartite` keys its suffix classes
+    # on `_op_at_ito` alone (`_suffix_path`), so it omits the running charge and over-merges here,
+    # tripping its own purity assert. The graph sweep is strictly more general in this regime, so the
+    # check is against `mpo_terms` and the dense oracle rather than against the transient sweep.
+    V = SU2Space(1 // 2 => 1)
+    z, s = LO.(instances(IrrepOperator, V))          # charge-0 and charge-1 letters
+    @test z.c == SU2Irrep(0) && s.c == SU2Irrep(1)
+    N = 4
+    sites = fill(V, N)
+    H = couple(z[1], s[4]; to = SU2Irrep(1)) + 2.0 * couple(s[1], s[4]; to = SU2Irrep(1))
+    tt = ITOTermTable(H, sites)
+
+    # the two classes agree on the remaining factors at bond 2 but not on the running charge
+    @test OpSum._op_at_ito(tt, 1, 4) == OpSum._op_at_ito(tt, 2, 4)
+    @test OpSum._op_at_ito(tt, 1, 3) != OpSum._op_at_ito(tt, 2, 3)
+
+    Wg, sg = _irrep_graph_bipartite(tt, N)
+    back = mpo_terms(Wg, sg)
+    @test Set(keys(back.terms)) == Set(keys(H.terms))
+    @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+    @test norm(instantiate(back, sites) - instantiate(H, sites)) < 1.0e-10
+end
+
+@testset "pending suffix class can collide with a started one" begin
+    # The invariant that makes lazy right-vertex insertion subtle. `_op_at_ito` fills idle sites with
+    # a pass-through carrying the *running* bond charge, so a started term whose accumulated charge
+    # has fused back to the unit is indistinguishable, over its idle sites, from a term that has not
+    # started yet. Here `A₁B₃` and the on-site `B₃` share the suffix class from site 2 on, and the
+    # minimum vertex cover exploits it: it covers the single shared right vertex and both left
+    # vertices fold their weighted letters into that one column, so every bond stays 1-dimensional.
+    #
+    # A lazy scheme that simply defers a pending term until its first active site loses this merge
+    # and reports [2, 2, 1] instead — which is why the pending signatures have to be probed at every
+    # site. No showcase model triggers this (all K=2, no on-site terms), so this is the guard.
+    V = ℂ^2
+    ops = instances(IrrepOperator, V)
+    A, B = LO(ops[2]), LO(ops[3])
+    N = 3
+    sites = fill(V, N)
+    H = couple(A[1], B[3]; to = unit(Trivial)) + 0.5 * B[3]
+    tt = ITOTermTable(H, sites)
+
+    # the two terms really are in the same suffix class at bond 1 (they differ only at site 1)
+    @test OpSum._op_at_ito(tt, 1, 2) == OpSum._op_at_ito(tt, 2, 2)
+    @test OpSum._op_at_ito(tt, 1, 3) == OpSum._op_at_ito(tt, 2, 3)
+    @test OpSum._op_at_ito(tt, 1, 1) != OpSum._op_at_ito(tt, 2, 1)
+
+    Wo, so = _irrep_bipartite(tt, N)
+    Wg, sg = _irrep_graph_bipartite(tt, N)
+    @test length.(so) == [1, 1, 1]
+    @test length.(sg) == [1, 1, 1]
+    back = mpo_terms(Wg, sg)
+    @test Set(keys(back.terms)) == Set(keys(H.terms))
+    @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+end
+
+@testset "live right vertices stay bounded independently of N" begin
+    # The persistent graph keeps one right vertex per *reachable* suffix class. Under lazy insertion
+    # the count is no longer monotone — terms enter at their first active site — so what matters is
+    # the property that buys the linear scaling: for a finite-range model the live count is bounded by
+    # a constant, not by the number of terms. (Eagerly it peaked at M, making the sweep Θ(N·M).)
+    V = SU2Space(1 // 2 => 1)
+    sizes = (5, 20, 80)
+    livecounts = map(sizes) do N
+        H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+        g = ITOGraph(ITOTermTable(H, fill(V, N)), N)
+        counts = Int[]
+        for i in 1:N
+            _at_site!(g, i)
+            push!(counts, length(g.rrepr))
+        end
+        @test counts[end] == 1                 # only the exhausted ("done") suffix class survives
+        # summed over the sweep the right-vertex visits are linear in N. Eagerly this was ~N²/2 (every
+        # term was live from bond 1), which is exactly what made the sweep Θ(N·M).
+        @test sum(counts) <= 4 * N
+        return counts
+    end
+    @test allequal(maximum.(livecounts))       # the peak is independent of the chain length
 end

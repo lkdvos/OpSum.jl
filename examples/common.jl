@@ -3,129 +3,42 @@
 # Every example page begins by `include`ing this file. It contains no physics — only the
 # scaffolding that the examples share:
 #
-#  1. a way to *name* the on-site alphabet letters instead of hard-coding indices,
-#  2. a distributor that lets `couple` accept composite (multi-letter) local operators,
-#  3. quasi-2D lattice geometry,
-#  4. reporting of bond dimensions and construction times,
-#  5. three tiers of verification.
+#  1. quasi-2D lattice geometry,
+#  2. reporting of bond dimensions and construction times,
+#  3. three tiers of verification.
 #
 # The file is plain Julia, so the same `include` works whether you are reading the rendered docs
 # or running an example directly from a checkout.
 
 using OpSum
 using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum,
-    spin, scalarop, couple, BipartiteAlgorithm, SVDBondAlgorithm
+    spin, couple, project, matrixunit, BipartiteAlgorithm, SVDBondAlgorithm
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, eigvals, norm
 
-# `LocalOp` is not exported; this shorthand promotes a bare alphabet letter to a local operator.
-LO(x) = OpSum.LocalOp(x)
-
-# ## Naming the alphabet letters
+# ## Writing down operators
 #
 # `instances(IrrepOperator, V)` enumerates the on-site alphabet as `(charge, n)` pairs, where `n`
 # indexes TensorKit's canonical block ordering. Hard-coding those `n`s is fragile: the ordering
 # depends on how `V` was written down, so permuting the sectors of `V` silently permutes every
 # letter index and you end up with a *different Hamiltonian and no error*.
 #
-# So we go the other way round. We write down the operator we want as a `TensorMap`, then expand
-# it in the alphabet. The alphabet is orthonormal under TensorKit's qdim-weighted inner product,
-# so the expansion coefficients are just inner products. Crucially this never converts anything
-# to a dense array, which matters for fermionic sectors where `convert(Array, t)` is not a
-# well-defined operation.
+# So the examples go the other way round: write the operator down as a `TensorMap` and let
+# [`project`](@ref OpSum.project) expand it in the alphabet. `matrixunit(V, out, in)` is the shorthand for
+# ``|out⟩⟨in|``. Both live in OpSum itself, so there is nothing to define here — see
+# `src/operators/irrepprojection.jl`. Two properties matter for the pages that follow:
 #
-# An expanded operator is a small wrapper around a list of `letter => coefficient` pairs, so that
-# ordinary operator arithmetic (`Sᶻ = (n↑ - n↓)/2`) reads the way you would write it on paper.
-
-struct SiteOp{I <: Sector}
-    terms::Vector{Pair{IrrepOperator{I}, ComplexF64}}
-end
-
-function Base.:*(x::Number, a::SiteOp{I}) where {I}
-    return SiteOp{I}(Pair{IrrepOperator{I}, ComplexF64}[l => ComplexF64(x) * v for (l, v) in a.terms])
-end
-Base.:*(a::SiteOp, x::Number) = x * a
-Base.:/(a::SiteOp, x::Number) = inv(x) * a
-Base.:-(a::SiteOp) = -1 * a
-Base.:+(a::SiteOp{I}, b::SiteOp{I}) where {I} = SiteOp{I}(_combine(I, a.terms, b.terms))
-Base.:-(a::SiteOp{I}, b::SiteOp{I}) where {I} = a + (-b)
-
-function _combine(::Type{I}, a, b; atol = 1.0e-12) where {I}
-    acc = Dict{IrrepOperator{I}, ComplexF64}()
-    for (l, v) in Iterators.flatten((a, b))
-        acc[l] = get(acc, l, zero(ComplexF64)) + v
-    end
-    return Pair{IrrepOperator{I}, ComplexF64}[l => v for (l, v) in acc if abs(v) > atol]
-end
-
-"""
-    ito_expand(O::AbstractTensorMap, V) -> SiteOp
-
-Expand the single-site operator `O : V ← V ⊗ Vect[I](c => 1)` in the ITO alphabet of `V`.
-Throws if the result does not reproduce `O`, so a change in TensorKit's conventions surfaces
-here rather than as wrong physics downstream.
-"""
-function ito_expand(O::AbstractTensorMap, V::ElementarySpace; atol = 1.0e-10)
-    I = sectortype(V)
-    c = only(sectors(domain(O)[2]))
-    letters = [l for l in instances(IrrepOperator, V) if l.c == c]
-    coeffs = [l => ComplexF64(dot(instantiate(l, V), O)) for l in letters]
-    filter!(p -> abs(last(p)) > atol, coeffs)
-    isempty(coeffs) && throw(ArgumentError("operator is zero on the alphabet of $V"))
-    err = norm(sum(v * instantiate(l, V) for (l, v) in coeffs) - O)
-    err < atol * max(1, norm(O)) ||
-        throw(ArgumentError("alphabet expansion failed (residual $err)"))
-    return SiteOp(coeffs)
-end
-
-"""
-    matrixunit(V, out, in) -> SiteOp
-
-The matrix unit ``|out⟩⟨in|`` on a space whose sectors are one-dimensional and multiplicity-one
-(abelian or fermionic: `Vect[U₁]`, `Vect[FermionNumber]`, products thereof). The operator charge
-follows from fusion, `out ⊗ in' → c`, and the letter index is *derived* rather than guessed.
-"""
-function matrixunit(V::ElementarySpace, out::I, in::I) where {I <: Sector}
-    dim(out) == 1 && dim(in) == 1 ||
-        throw(ArgumentError("matrixunit requires one-dimensional sectors"))
-    dim(V, out) == 1 && dim(V, in) == 1 ||
-        throw(ArgumentError("matrixunit requires multiplicity-one sectors in V"))
-    c = only(⊗(out, dual(in)))
-    t = zeros(ComplexF64, V ← V ⊗ Vect[I](c => 1))
-    block(t, out) .= 1
-    return ito_expand(t, V)
-end
-
-# ## Placing operators on the lattice
+#  * the expansion is a `LocalOp`, so ordinary arithmetic reads the way you would write it on
+#    paper (`Sᶻ = (n↑ - n↓)/2`), and `A[i]` places the whole expansion on site `i`;
+#  * `couple(A[i], B[j]; to = c)` distributes over composite operands and drops letter pairs whose
+#    charges cannot fuse to `c`, so nothing has to be expanded by hand.
 #
-# A one-site term is a plain sum over the expansion. A two-site term has to distribute the
-# coupling over both expansions, because `couple` insists on single-letter operands: it builds
-# the caterpillar fusion tree one leg at a time, so `couple(Sᶻ[i], Sᶻ[j])` — with `Sᶻ` a
-# two-letter operator — throws `"first operand must be a single-term operator"`.
-
-"One-site term: place an expanded operator on site `i`."
-onsite(A::SiteOp, i::Int) = sum(v * LO(l)[i] for (l, v) in A.terms)
-
-"""
-    bondterm(A, i, B, j; to) -> TermSum
-
-Two-site term `A_i B_j` fused to total charge `to`, distributed over both alphabet expansions.
-Letter pairs whose charges cannot fuse to `to` are dropped.
-
-`couple` is strictly left-to-right, so `i < j` is required. For fermions this is not a mere
-convention: swapping the two sites flips the sign of the term.
-"""
-function bondterm(A::SiteOp, i::Int, B::SiteOp, j::Int; to)
-    i < j || throw(ArgumentError("bondterm requires i < j (`couple` is left-to-right); got $i, $j"))
-    terms = [
-        (va * vb) * couple(LO(la)[i], LO(lb)[j]; to = to)
-            for (la, va) in A.terms, (lb, vb) in B.terms
-            if !iszero(Nsymbol(la.c, lb.c, to))
-    ]
-    isempty(terms) && throw(ArgumentError("no letter pair of the operands fuses to $to"))
-    return sum(terms)
-end
+# Nothing is ever converted to a dense array, which matters for fermionic sectors where
+# `convert(Array, t)` is not a well-defined operation.
+#
+# `couple` is strictly left-to-right, so the site indices must increase. For fermions that is not a
+# mere convention: swapping the two sites flips the sign of the term.
 
 # ## Quasi-2D geometry
 #

@@ -17,7 +17,6 @@ export ModelSpec, MODELS, model_metrics, logsizes
 
 # Re-export the shared helpers from `examples/common.jl` so that dependents (the smoke test, the
 # benchmark driver) get them from this one module.
-export LO, SiteOp, ito_expand, matrixunit, onsite, bondterm
 export siteindex, cylinder_bonds, ladder_bonds
 export bonddim, densedim, maxbonddim, maxdensedim, build
 export islossless, mpo_tensormap, mpo_matches_oracle, spectrum, hermiticity_error
@@ -92,7 +91,7 @@ end
 # `-c_i c†_{i+1}`: anticommuting `c†_{i+1} c_i` into site order costs a sign.
 function _hopping_terms(F, bonds, t)
     return [
-        -t * (bondterm(F.cd, i, F.c, j; to = F.u) - bondterm(F.c, i, F.cd, j; to = F.u))
+        -t * (couple(F.cd[i], F.c[j]; to = F.u) - couple(F.c[i], F.cd[j]; to = F.u))
             for (i, j) in bonds
     ]
 end
@@ -109,7 +108,7 @@ function tv_chain(N; t = 1.0, Vint = 2.0)
     H = sum(
         vcat(
             _hopping_terms(F, bonds, t),
-            [Vint * bondterm(F.n, i, F.n, j; to = F.u) for (i, j) in bonds],
+            [Vint * couple(F.n[i], F.n[j]; to = F.u) for (i, j) in bonds],
         )
     )
     return H, fill(FERMION_MODE, N)
@@ -135,7 +134,7 @@ function hubbard(N; t = 1.0, U = 4.0, Ly = nothing)
         vcat,
         [_hopping_terms(F, [(orbital(i, σ), orbital(j, σ))], t) for (i, j) in sitebonds for σ in 1:2]
     )
-    int = [U * bondterm(F.n, orbital(i, 1), F.n, orbital(i, 2); to = F.u) for i in 1:Nsites]
+    int = [U * couple(F.n[orbital(i, 1)], F.n[orbital(i, 2)]; to = F.u) for i in 1:Nsites]
     return sum(vcat(hop, int)), fill(FERMION_MODE, N)
 end
 

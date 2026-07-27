@@ -46,7 +46,7 @@ function hopping(N; t = 1.0, sign = -1.0)
     u = unit(FermionNumber)
     return -t * sum(
         [
-            bondterm(cd, i, c, i + 1; to = u) + sign * bondterm(c, i, cd, i + 1; to = u)
+            couple(cd[i], c[i + 1]; to = u) + sign * couple(c[i], cd[i + 1]; to = u)
                 for i in 1:(N - 1)
         ]
     )
@@ -98,7 +98,7 @@ res_free = build("free fermions", H, sites)
 
 function tV_chain(N; t = 1.0, Vint = 2.0)
     u = unit(FermionNumber)
-    return hopping(N; t) + Vint * sum([bondterm(nh, i, nh, i + 1; to = u) for i in 1:(N - 1)])
+    return hopping(N; t) + Vint * sum([couple(nh[i], nh[i + 1]; to = u) for i in 1:(N - 1)])
 end
 
 H_tV = tV_chain(N)
@@ -128,13 +128,13 @@ function hubbard(Nsites; t = 1.0, U = 4.0)
     u = unit(FermionNumber)
     hop = [
         -t * (
-                bondterm(cd, orbital(i, σ), c, orbital(i + 1, σ); to = u) -
-                bondterm(c, orbital(i, σ), cd, orbital(i + 1, σ); to = u)
+                couple(cd[orbital(i, σ)], c[orbital(i + 1, σ)]; to = u) -
+                couple(c[orbital(i, σ)], cd[orbital(i + 1, σ)]; to = u)
             )
             for i in 1:(Nsites - 1) for σ in 1:2
     ]
     int = [
-        U * bondterm(nh, orbital(i, 1), nh, orbital(i, 2); to = u)
+        U * couple(nh[orbital(i, 1)], nh[orbital(i, 2)]; to = u)
             for i in 1:Nsites
     ]
     return sum(vcat(hop, int)), fill(V, 2Nsites)
@@ -204,12 +204,12 @@ function hubbard_cylinder(Lx, Ly; t = 1.0, U = 4.0)
     Nsites = Lx * Ly
     hop = [
         -t * (
-                bondterm(cd, orbital(i, σ), c, orbital(j, σ); to = u) -
-                bondterm(c, orbital(i, σ), cd, orbital(j, σ); to = u)
+                couple(cd[orbital(i, σ)], c[orbital(j, σ)]; to = u) -
+                couple(c[orbital(i, σ)], cd[orbital(j, σ)]; to = u)
             )
             for (i, j) in cylinder_bonds(Lx, Ly) for σ in 1:2
     ]
-    int = [U * bondterm(nh, orbital(i, 1), nh, orbital(i, 2); to = u) for i in 1:Nsites]
+    int = [U * couple(nh[orbital(i, 1)], nh[orbital(i, 2)]; to = u) for i in 1:Nsites]
     return sum(vcat(hop, int)), fill(V, 2Nsites)
 end
 

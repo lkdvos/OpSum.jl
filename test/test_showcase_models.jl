@@ -34,19 +34,21 @@ const EXPECTED = Dict{String, Any}(
     # These guard against a silent reordering of TensorKit's canonical block order, which would
     # change which physical operator a given letter index denotes.
     V = Rep[U₁](0 => 1, 1 => 1)
+    letters(op) = OpSum.variant(op).terms
     nup = matrixunit(V, U1Irrep(1), U1Irrep(1))
-    @test only(nup.terms) == (IrrepOperator(U1Irrep(0), 2) => ComplexF64(1))
+    @test only(pairs(letters(nup))) ==
+        (OpSum.LocalOp(IrrepOperator(U1Irrep(0), 2)) => ComplexF64(1))
 
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     vac, occ = FermionNumber(0), FermionNumber(1)
-    @test length(matrixunit(Vf, vac, occ).terms) == 1     # c
-    @test length(matrixunit(Vf, occ, vac).terms) == 1     # c†
-    @test length(matrixunit(Vf, occ, occ).terms) == 1     # n̂
+    @test length(letters(matrixunit(Vf, vac, occ))) == 1     # c
+    @test length(letters(matrixunit(Vf, occ, vac))) == 1     # c†
+    @test length(letters(matrixunit(Vf, occ, occ))) == 1     # n̂
     @test BraidingStyle(sectortype(Vf)) isa Fermionic
 
-    # A composite on-site operator really is composite -- this is why `bondterm` exists.
+    # A composite on-site operator really is composite -- `couple` distributes over it.
     Sz = (matrixunit(V, U1Irrep(1), U1Irrep(1)) - matrixunit(V, U1Irrep(0), U1Irrep(0))) / 2
-    @test length(Sz.terms) == 2
+    @test length(letters(Sz)) == 2
 end
 
 @testset "geometry" begin
@@ -97,7 +99,7 @@ end
     sites = fill(V, N)
     wrong = sum(
         [
-            bondterm(F.cd, i, F.c, i + 1; to = F.u) + bondterm(F.c, i, F.cd, i + 1; to = F.u)
+            couple(F.cd[i], F.c[i + 1]) + couple(F.c[i], F.cd[i + 1])
                 for i in 1:(N - 1)
         ]
     )
@@ -149,8 +151,8 @@ end
     z = unit(U1Irrep)
     Hu = sum(
         [
-            0.5 * bondterm(Sp, i, Sm, i + 1; to = z) + 0.5 * bondterm(Sm, i, Sp, i + 1; to = z) +
-                bondterm(Sz, i, Sz, i + 1; to = z) for i in 1:(L - 1)
+            0.5 * couple(Sp[i], Sm[i + 1]; to = z) + 0.5 * couple(Sm[i], Sp[i + 1]; to = z) +
+                couple(Sz[i], Sz[i + 1]; to = z) for i in 1:(L - 1)
         ]
     )
     a, b = spectrum(Hs, ss), spectrum(Hu, fill(Vu, L))

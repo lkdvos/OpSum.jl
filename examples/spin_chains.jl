@@ -74,19 +74,17 @@ Sz = (matrixunit(Vu, up, up) - matrixunit(Vu, dn, dn)) / 2 # ``S^z``
 
 # ``S^z`` is a genuinely *composite* on-site operator — a two-letter combination:
 
-length(Sz.terms)
+length(OpSum.variant(Sz).terms)
 
-# That matters, because `couple` builds its fusion tree one leg at a time and so accepts only
-# single-letter operands: `couple(Sz[i], Sz[j])` throws. `bondterm` distributes the coupling over
-# both expansions, which is what makes the ``S^z S^z`` term expressible.
+# `couple` distributes over both expansions, so a composite operand needs no special handling: the
+# ``S^z S^z`` term is written exactly like the single-letter ones.
 
 function xxz(N; J = 1.0, Δ = 1.0)
-    z = unit(U1Irrep)
     return sum(
         [
-            J / 2 * bondterm(Sp, i, Sm, i + 1; to = z) +
-                J / 2 * bondterm(Sm, i, Sp, i + 1; to = z) +
-                J * Δ * bondterm(Sz, i, Sz, i + 1; to = z)
+            J / 2 * couple(Sp[i], Sm[i + 1]) +
+                J / 2 * couple(Sm[i], Sp[i + 1]) +
+                J * Δ * couple(Sz[i], Sz[i + 1])
                 for i in 1:(N - 1)
         ]
     )
@@ -115,6 +113,34 @@ spectrum(heisenberg(6), fill(V, 6)) ≈ spectrum(xxz(6), fill(Vu, 6))
 # irreducible object.
 
 (su2 = (res_heis.D, res_heis.Ddense), u1 = (res_xxz.D, res_xxz.Ddense))
+
+# ## Projecting a whole bond at once
+#
+# Naming the on-site factors is not the only option. If you already have the two-site bond operator
+# as a `TensorMap` — from a paper's matrix, from an ED code, from `kron` — hand it straight to
+# `project`, which expands it in the two-site ITO term basis. Nothing has to factorize into
+# ``A_i B_j``: a generic two-site block works, and the coefficients are exact inner products
+# against a complete orthogonal basis, so the expansion is not a fit.
+
+h_bond = instantiate(
+    (1 / 2) * couple(Sp[1], Sm[2]) +
+        (1 / 2) * couple(Sm[1], Sp[2]) +
+        couple(Sz[1], Sz[2]),
+    [Vu, Vu],
+)
+
+H_proj = sum([project(h_bond, [i, i + 1]) for i in 1:(N - 1)])
+
+# `project` re-materializes its own output and compares it against the input, so a faithful result
+# is checked rather than assumed. Summed over bonds it reproduces the hand-written chain, term for
+# term:
+
+Set(keys(H_proj.terms)) == Set(keys(H_xxz.terms)) &&
+    all(H_proj.terms[k] ≈ H_xxz.terms[k] for k in keys(H_xxz.terms))
+
+# The one thing to know: every projected term is active on *all* the sites you pass. An on-site
+# identity factor comes back as a trivial-charge letter rather than a shorter term, so
+# `project` inverts `instantiate` only for operators whose terms have full support on those sites.
 
 # ## ``J_1``–``J_2``
 #

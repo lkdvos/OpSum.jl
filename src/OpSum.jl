@@ -36,6 +36,7 @@ include("operators/irreptensoroperators.jl")
 using .IrrepTensorOperators: IrrepOperator
 include("operators/irrepalgebra.jl")
 include("operators/irrepkey.jl")
+include("operators/irrepprojection.jl")
 include("operators/irreptermtable.jl")
 include("operators/irrepgraph.jl")
 include("operators/irrepmpo.jl")

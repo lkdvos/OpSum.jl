@@ -18,7 +18,7 @@
 
 using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id,
-    Vect, domain, permute, sectors
+    Vect, domain, permute, sectors, FusionStyle, UniqueFusion
 import TensorKit: sectortype
 using LinearAlgebra: LinearAlgebra
 using .IrrepTensorOperators: IrrepOperator
@@ -247,16 +247,7 @@ end
 
 # Coupling
 # --------
-# First operand of `couple`: any single-*term* TermSum with ≥ 1 active site (a caterpillar composite);
-# returns its `(TermKey, coeff)`.
-function _composite_term(a::TermSum{I, S, T}, ctx) where {I, S, T}
-    length(a.terms) == 1 || throw(ArgumentError("$ctx must be a single-term operator"))
-    k, v = only(pairs(a.terms))
-    isempty(k.sites) && throw(ArgumentError("$ctx must carry at least one charged operator"))
-    return k, v
-end
-
-# Second operand of `couple`: a single-site charged term; returns `(site, op, coeff)`.
+# Second operand of `dot`: a single-site charged term; returns `(site, op, coeff)`.
 function _single_site_term(b::TermSum{I, S, T}, ctx) where {I, S, T}
     length(b.terms) == 1 || throw(ArgumentError("$ctx must be a single-term operator"))
     k, v = only(pairs(b.terms))
@@ -265,55 +256,132 @@ function _single_site_term(b::TermSum{I, S, T}, ctx) where {I, S, T}
     return only(k.sites), only(k.ops), v
 end
 
+# Core of `couple`: extend every term of `a` by every single-site term of `b`, fusing to the total
+# `target(ka, opb)` returns for that pair. Pairs whose charges cannot reach it are dropped, so the
+# result may be empty — callers decide whether that is an error.
+function _couple_terms(a::TermSum{I, S}, b::TermSum{I, S}, target) where {I, S}
+    d = Dictionary{TermKey{I, S}, ComplexF64}()
+    for (ka, va) in pairs(a.terms)
+        isempty(ka.sites) && throw(
+            ArgumentError("couple: every term of the first operand must carry at least one charged operator")
+        )
+        for (kb, vb) in pairs(b.terms)
+            (length(kb.sites) == 1 && length(kb.ops) == 1) || throw(
+                ArgumentError("couple: every term of the second operand must be a single-site charged operator")
+            )
+            sb, opb = only(kb.sites), only(kb.ops)
+            sb in ka.sites && throw(ArgumentError("couple: operators must act on distinct sites"))
+            maximum(ka.sites) < sb || throw(
+                ArgumentError(
+                    "couple: the second operand must act to the right of the first " *
+                        "(left-nested caterpillar; out-of-order coupling is deferred)"
+                )
+            )
+
+            # extend the caterpillar by one leg:  (total(a), opb.c) → tot, at a new vertex
+            tot = target(ka, opb)
+            f2s = collect(fusiontrees((total(ka), opb.c), tot, (false, false)))
+            isempty(f2s) && continue    # this pair of charges cannot fuse to `tot`: drop it
+            @assert length(f2s) == 1 "expected a unique coupling channel; multi-channel (GenericFusion) coupling is deferred"
+            tree = TensorKit.join(ka.tree, only(f2s))
+
+            key = TermKey{I, S}(S[ka.sites..., sb], IrrepOperator{I}[ka.ops..., opb], tree)
+            setwith!(+, d, key, ComplexF64(va) * ComplexF64(vb))
+        end
+    end
+    filter!(!iszero, d)
+    return TermSum{I, S, ComplexF64}(d)
+end
+
 """
-    couple(a::TermSum, b::TermSum; to)
+    couple(a::TermSum, b::TermSum; to = unit(I))
+    couple(a::TermSum, b::TermSum, cs::TermSum...; to = unit(I))   # abelian only
 
 Left-nested (caterpillar) irrep coupling: extend the composite `a` (any K ≥ 1 sites, with its stored
 coupling tree) by one single-site operator `b`, fusing the running total `total(a)` with `b`'s charge
-to `to` at a new vertex. `b` must act to the **right** of every site of `a` (out-of-order coupling
-needs F-moves and is deferred). Chain to build K ≥ 3 terms, choosing each intermediate channel:
-`couple(couple(x, y; to = b₂), z; to = t)`.
+to `to` at a new vertex. `to` defaults to the unit sector, which is what a term of a Hamiltonian
+needs — pass it explicitly to build a charged object.
+
+Each operand after the first must act to the **right** of every site before it (out-of-order
+coupling needs F-moves and is deferred).
+
+Both operands may be composite (several terms, e.g. from [`project`](@ref)): the coupling
+distributes over every pair of terms, and pairs whose charges cannot fuse to `to` are dropped. It is
+an error if *no* pair fuses. Each term of `a` must carry at least one charged operator, and each
+term of `b` must be a single charged site.
+
+For ``K ≥ 3`` the intermediate channels matter. Under an **abelian** symmetry (`UniqueFusion`: `U₁`,
+`ℤₙ`, `FermionNumber`, `Trivial`, products thereof) every intermediate is forced by the charges, so
+the variadic form does the whole chain for you:
+
+```julia
+couple(cd[1], c[2], cd[3], c[4])        # a charge-neutral four-fermion term
+```
+
+Under a non-abelian symmetry the intermediates are genuine freedom and the variadic form throws:
+nest instead, naming each channel, so the choice is explicit and readable back off the term:
+
+```julia
+couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
+```
 
 This is the bare fusion coupler — it carries **no** normalization factor (reduced coeff `= va·vb`).
 The Cartesian scalar-product convention lives in [`dot`](@ref), not here. Multi-channel
 (`GenericFusion`) coupling and tree-structured (`via`) coupling are deferred.
 """
-function couple(a::TermSum{I, S}, b::TermSum{I, S}; to, via = nothing) where {I, S}
+function couple(a::TermSum{I, S}, b::TermSum{I, S}; to = unit(I), via = nothing) where {I, S}
     via === nothing ||
         throw(ArgumentError("tree-structured / multi-body coupling (`via`) is deferred"))
-    ka, va = _composite_term(a, "couple: first operand")
-    sb, opb, vb = _single_site_term(b, "couple: second operand")
-    sb in ka.sites && throw(ArgumentError("couple: operators must act on distinct sites"))
-    maximum(ka.sites) < sb || throw(
-        ArgumentError(
-            "couple: the second operand must act to the right of the first " *
-                "(left-nested caterpillar; out-of-order coupling is deferred)"
-        )
-    )
+    isempty(a.terms) && throw(ArgumentError("couple: first operand has no terms"))
+    isempty(b.terms) && throw(ArgumentError("couple: second operand has no terms"))
     tot = to::I
 
-    # extend the caterpillar by one leg:  (total(a), opb.c) → tot, at a new vertex
-    f2s = collect(fusiontrees((total(ka), opb.c), tot, (false, false)))
-    @assert !isempty(f2s) "charges $(total(ka)),$(opb.c) do not fuse to $tot"
-    @assert length(f2s) == 1 "expected a unique coupling channel; multi-channel (GenericFusion) coupling is deferred"
-    tree = TensorKit.join(ka.tree, only(f2s))
-
-    sites = S[ka.sites..., sb]
-    ops = IrrepOperator{I}[ka.ops..., opb]
-    coeff = ComplexF64(va) * ComplexF64(vb)
-
-    d = Dictionary{TermKey{I, S}, ComplexF64}()
-    insert!(d, TermKey{I, S}(sites, ops, tree), coeff)
-    return TermSum{I, S, ComplexF64}(d)
+    out = _couple_terms(a, b, (_, _) -> tot)
+    isempty(out.terms) &&
+        throw(ArgumentError("couple: no pair of terms of the operands fuses to $tot"))
+    return out
 end
 
-function couple(a::TermSum, b::TermSum, c::TermSum, rest::TermSum...; kwargs...)
-    throw(
+# Variadic coupling, abelian only: with `UniqueFusion` every intermediate charge is the single
+# outcome of fusing the running total with the next operand's charge, so the whole caterpillar is
+# fixed by the charges and there is nothing for the caller to choose. Fold left, letting each pair
+# find its own intermediate, and constrain only the final total to `to`.
+function couple(
+        a::TermSum{I, S}, b::TermSum{I, S}, c::TermSum{I, S}, rest::TermSum{I, S}...;
+        to = unit(I), via = nothing
+    ) where {I, S}
+    via === nothing ||
+        throw(ArgumentError("tree-structured / multi-body coupling (`via`) is deferred"))
+    FusionStyle(I) isa UniqueFusion || throw(
         ArgumentError(
-            "variadic coupling is not supported; nest `couple` to specify each intermediate " *
-                "channel, e.g. couple(couple(a, b; to = b₂), c; to = t)"
+            "couple: variadic coupling needs an abelian symmetry (unique fusion), but $I has " *
+                "$(FusionStyle(I)) — the intermediate channels are a real choice there. Nest " *
+                "`couple` to name each one, e.g. couple(couple(a, b; to = b₂), c; to = t)"
         )
     )
+    isempty(a.terms) && throw(ArgumentError("couple: first operand has no terms"))
+    tot = to::I
+
+    others = (b, c, rest...)
+    acc = a
+    for (i, nxt) in enumerate(others)
+        isempty(nxt.terms) &&
+            throw(ArgumentError("couple: operand $(i + 1) has no terms"))
+        # intermediates are forced; only the last step has to land on `to`
+        acc = if i == length(others)
+            _couple_terms(acc, nxt, (_, _) -> tot)
+        else
+            _couple_terms(acc, nxt, (ka, opb) -> only(total(ka) ⊗ opb.c))
+        end
+        isempty(acc.terms) && throw(
+            ArgumentError(
+                i == length(others) ?
+                    "couple: no chain of the operands fuses to $tot" :
+                    "couple: no pair of terms of operands 1..$(i + 1) can be coupled"
+            )
+        )
+    end
+    return acc
 end
 
 """
@@ -324,6 +392,10 @@ The Cartesian two-body scalar product of two single-site ITO operators: singlet 
 `couple(a, b; to = unit(I))` times the Cartesian factor `-√dim(c)` (the identity
 `Sᵢ·Sⱼ = -√3 [S⊗S]⁽⁰⁾` with `-√3 = -√dim(spin-1)`). Order-independent in the two sites. Distinct
 from bare `couple(…; to = unit(I))`, which carries no such factor.
+
+Unlike [`couple`](@ref) this does not distribute over composite operands: the Cartesian factor
+`-√dim(c)` is per-letter, so it has no meaning for an operator mixing several charges. Use `couple`
+for those.
 """
 function LinearAlgebra.dot(a::TermSum{I}, b::TermSum{I}) where {I}
     sa, opa, _ = _single_site_term(a, "·: first operand")

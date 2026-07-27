@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate
+using OpSum: instantiate, total, bondcharges
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, norm, I as Id
@@ -124,11 +124,79 @@ end
 @testset "coupling API errors / deferrals" begin
     V = SU2Space(1 // 2 => 1)
     a, b, c = spin(V)[1], spin(V)[2], spin(V)[3]
-    # multi-body / tree coupling deferred to Phase 3
+    # tree coupling deferred to Phase 3
     @test_throws ArgumentError couple(a, b; to = SU2Irrep(0), via = :tree)
+    @test_throws ArgumentError couple(a, b, c; to = SU2Irrep(0), via = :tree)
+    # variadic coupling needs unique fusion; SU(2) intermediates are a real choice
     @test_throws ArgumentError couple(a, b, c; to = SU2Irrep(0))
+    @test_throws ArgumentError couple(a, b, c)
     # coupling a scalar (no charge leg) is invalid
     @test_throws ArgumentError instantiate(couple(scalarop(1, V)[1], b; to = SU2Irrep(0)), [V, V, V])
     # same-site coupling invalid
     @test_throws ArgumentError instantiate(couple(spin(V)[1], spin(V)[1]; to = SU2Irrep(0)), [V, V])
+end
+
+@testset "`to` defaults to the unit sector" begin
+    Vu = Rep[U₁](0 => 1, 1 => 1)
+    dn, up = U1Irrep(0), U1Irrep(1)
+    Sp, Sm = matrixunit(Vu, up, dn), matrixunit(Vu, dn, up)
+    Sz = (matrixunit(Vu, up, up) - matrixunit(Vu, dn, dn)) / 2
+
+    @test couple(Sp[1], Sm[2]).terms == couple(Sp[1], Sm[2]; to = unit(U1Irrep)).terms
+    @test couple(Sz[1], Sz[2]).terms == couple(Sz[1], Sz[2]; to = unit(U1Irrep)).terms
+
+    # charges that cannot reach the unit sector are an error, not a silent empty result
+    @test_throws ArgumentError couple(Sp[1], Sp[2])
+    @test length(couple(Sp[1], Sp[2]; to = U1Irrep(2)).terms) == 1
+
+    # non-abelian and fermionic defaults too
+    V2 = SU2Space(1 // 2 => 1)
+    @test total(only(keys(couple(spin(V2)[1], spin(V2)[2]).terms))) == unit(SU2Irrep)
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    cc = matrixunit(Vf, FermionNumber(0), FermionNumber(1))
+    cd = matrixunit(Vf, FermionNumber(1), FermionNumber(0))
+    @test total(only(keys(couple(cd[1], cc[2]).terms))) == unit(FermionNumber)
+end
+
+@testset "variadic coupling (abelian)" begin
+    Vu = Rep[U₁](0 => 1, 1 => 1)
+    dn, up = U1Irrep(0), U1Irrep(1)
+    z = unit(U1Irrep)
+    Sp, Sm = matrixunit(Vu, up, dn), matrixunit(Vu, dn, up)
+    Sz = (matrixunit(Vu, up, up) - matrixunit(Vu, dn, dn)) / 2
+
+    # the intermediates are forced, so the variadic form must agree with the explicit nesting
+    @test couple(Sp[1], Sm[2], Sz[3]).terms ==
+        couple(couple(Sp[1], Sm[2]; to = z), Sz[3]; to = z).terms
+
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    u = unit(FermionNumber)
+    cc = matrixunit(Vf, FermionNumber(0), FermionNumber(1))
+    cd = matrixunit(Vf, FermionNumber(1), FermionNumber(0))
+    H4 = couple(cd[1], cc[2], cd[3], cc[4])
+    nested = couple(
+        couple(couple(cd[1], cc[2]; to = u), cd[3]; to = FermionNumber(1)), cc[4]; to = u
+    )
+    @test H4.terms == nested.terms
+    @test only(keys(H4.terms)).sites == [1, 2, 3, 4]
+    @test bondcharges(only(keys(H4.terms)).tree) ==
+        [FermionNumber(1), u, FermionNumber(1), u]
+
+    # composite operands still distribute over every chain
+    @test length(couple(Sz[1], Sz[2], Sz[3]).terms) == 8
+
+    # a total the charges cannot reach is an error
+    @test_throws ArgumentError couple(cd[1], cd[2], cd[3], cc[4])
+    @test length(couple(Sp[1], Sp[2], Sm[3]; to = U1Irrep(1)).terms) == 1
+
+    # independent dense check: S⁺₁ S⁻₂ Sᶻ₃, with the sector-ordered basis (0 => dn, 1 => up)
+    Spm = ComplexF64[0 0; 1 0]
+    Smm = ComplexF64[0 1; 0 0]
+    Szm = ComplexF64[-0.5 0; 0 0.5]
+    A = dropdims(convert(Array, instantiate(couple(Sp[1], Sm[2], Sz[3]), fill(Vu, 3))); dims = 7)
+    ref = [
+        Spm[o1, i1] * Smm[o2, i2] * Szm[o3, i3]
+            for o1 in 1:2, o2 in 1:2, o3 in 1:2, i1 in 1:2, i2 in 1:2, i3 in 1:2
+    ]
+    @test A ≈ ref
 end

@@ -43,6 +43,7 @@ makedocs(;
     ),
     pages = [
         "Home" => "index.md",
+        "Building operators" => "operators.md",
         "Examples" => ["examples/$(first(splitext(f))).md" for f in EXAMPLES],
         "Reference" => "reference.md",
     ],

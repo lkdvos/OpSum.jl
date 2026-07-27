@@ -15,6 +15,11 @@
 # of the input exactly, rather than being an approximation with a truncation threshold. And the
 # symmetry is carried all the way through, so the bond indices are irreducible-representation
 # labels and the MPO tensors come out as symmetric `TensorMap`s.
+#
+# The compression algorithms are inspired by
+# [ITensorMPOConstruction.jl](https://github.com/ITensor/ITensorMPOConstruction.jl); the
+# contribution here is folding non-abelian symmetry into them and making them work on TensorKit
+# objects; see the Acknowledgements at the bottom of this page.
 
 # ## Installation
 #
@@ -81,3 +86,20 @@ Set(keys(back.terms)) == Set(keys(H.terms)) &&
 #
 # Construction time and bond dimension across system size are measured by the benchmark harness in
 # `benchmark/` and plotted with `scripts/plot_benchmarks.jl`.
+
+# ## Acknowledgements
+#
+# The MPO construction here is inspired by
+# [ITensorMPOConstruction.jl](https://github.com/ITensor/ITensorMPOConstruction.jl)
+# (MIT licensed, © 2024 Ben Corbett and contributors), which demonstrated that exact
+# minimal-bond-dimension MPOs can be built by bipartite-graph compression. OpSum.jl takes those
+# algorithms and folds in non-abelian symmetry, so that bond indices carry
+# irreducible-representation labels and the MPO tensors come out as TensorKit `TensorMap`s.
+#
+# The underlying bipartite-graph / minimum-vertex-cover method is due to J. Ren, W. Li, T. Jiang and
+# Z. Shuai, [*A general automatic method for optimal construction of matrix product operators using
+# bipartite graph theory*, J. Chem. Phys. **153**, 084118 (2020)](https://doi.org/10.1063/5.0018149).
+#
+# ITensorMPOConstruction.jl asks to be cited as B. Corbett and A. Miyake, [*Scaling up the
+# transcorrelated density matrix renormalization group*, Phys. Rev. B **112**, 165120
+# (2025)](https://doi.org/10.1103/nzrt-l2j1).

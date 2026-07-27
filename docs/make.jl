@@ -15,14 +15,11 @@ const EXAMPLES = [
     "fermions.jl",
 ]
 
-# `examples/README.jl` is the single source for both the docs landing page and the root README.
+# `examples/index.jl` is the source for the docs landing page. The root `README.md` is maintained
+# by hand and is not generated from it.
 Literate.markdown(
-    joinpath(EXAMPLES_DIR, "README.jl"), SRC_DIR;
-    name = "index", flavor = Literate.DocumenterFlavor()
-)
-Literate.markdown(
-    joinpath(EXAMPLES_DIR, "README.jl"), joinpath(@__DIR__, "..");
-    name = "README", flavor = Literate.CommonMarkFlavor()
+    joinpath(EXAMPLES_DIR, "index.jl"), SRC_DIR;
+    flavor = Literate.DocumenterFlavor()
 )
 
 for file in EXAMPLES

@@ -22,3 +22,8 @@ VectorInterface = "0.5.0, 0.6"
 
 [sources]
 OpSum = {path = ".."}
+# Track MPSKit `main`, not the registered release: `JordanMPOTensor` was reworked after v0.13.13 was
+# tagged (registered has fields `V,A,B,C,D`; main has `tensors,scalars`), and main is the version this
+# emission is being built against. A url+rev source rather than a local path so this still resolves on
+# CI and on any other machine. Pin `rev` to a SHA if a moving target ever bites.
+MPSKit = {url = "https://github.com/QuantumKitHub/MPSKit.jl", rev = "main"}

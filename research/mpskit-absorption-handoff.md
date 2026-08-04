@@ -78,10 +78,20 @@ Remaining work is **MPSKit-side**, in the worktree `/mnt/home/ldevos/Projects/MP
    constructor asserts both diagonal corners are identities, but at site 1 (single row) the
    `(end,end)` corner *is* the `(1,end)` D-block slot, and symmetrically at site N. Route the
    boundaries through the same `undef` + `setindex!` path the constructor itself uses.
-2. **Watch out:** registered MPSKit 0.13.13 and the `main` worktree are *different code*. Registered
-   `JordanMPOTensor` has fields `V,A,B,C,D`; `~/Projects/MPSKit.jl/main` has `tensors,scalars`. The
-   OpSum test targets the **registered** release on purpose — an absolute `[sources]` path in
-   `test/Project.toml` would break CI and every other machine. Decide deliberately which you target.
+2. **The test env tracks MPSKit `main`, not the registered release.** These are different code even
+   though both report version `0.13.13`: `JordanMPOTensor` was reworked after the tag, so registered
+   has fields `V,A,B,C,D` while main has `tensors,scalars`. `test/Project.toml` pins
+   `MPSKit = {url = "https://github.com/QuantumKitHub/MPSKit.jl", rev = "main"}` — a url+rev source
+   rather than a local path, so it still resolves on CI and on any other machine.
+
+   Two consequences. First, `rev = "main"` is a **moving target**: a resolve after main changes can
+   pull code this emission has not been tested against, and the `MPSKit = "0.13.13"` compat entry
+   will block main once it bumps to 0.14. Pin `rev` to a SHA if that becomes annoying. Second,
+   **Pkg's clone cache can be stale** — if `fieldnames(MPSKit.JordanMPOTensor)` comes back as
+   `(:V, :A, :B, :C, :D)` you are on old code; force a fetch of the clone under
+   `~/.julia/clones/` and `Pkg.update("MPSKit")`. The seam test passes against main as of
+   `1c817907`, including DMRG vs ED, with no test changes needed — it only uses API-level entry
+   points (`JordanMPOTensor`, `jordanmpotensortype`), not the struct fields.
 3. MPSKitModels adapter: `LocalOperator` is `(Vector{MPOTensor}, Vector{LatticePoint})`. Recombine to
    a dense `K`-site `TensorMap`, `project` it **once per distinct operator** (cache it), then place
    with the ITO algebra. This keeps `@mpoham`'s surface exactly and bypasses `instantiate_operator`'s

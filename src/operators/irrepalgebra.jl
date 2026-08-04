@@ -1,10 +1,10 @@
-# Term-list symbolic algebra over ITOs (redesign)
-# ================================================
+# Term-list symbolic algebra over ITOs
+# =====================================
 # The ITO global algebra is a *sum of sparse, sited terms* (`TermSum` over `TermKey`), not an
 # expression tree. Each term is a set of active sites, one ITO letter per active site, coupled by
 # a caterpillar fusion tree to a total charge, weighted by a reduced coefficient. `op[site]`,
-# `+`, `scale`/`*`, and `couple`/`·` all produce or merge terms; the automaton trie (see
-# `irreptrie.jl`) is a derived index over the term list.
+# `+`, `scale`/`*`, and `couple`/`·` all produce or merge terms; the flat `ITOTermTable`
+# (irreptermtable.jl) is the derived index over the term list that the MPO sweep consumes.
 #
 # Design notes:
 # * Supported term arities: K = length(active sites) ∈ {0, 1, 2, …} — identity, single-site field,
@@ -14,7 +14,6 @@
 #   intermediate ("inner line") charges are NOT determined by `(charges, total)`, so the tree is the
 #   single source of truth. `total` is an accessor (`= tree.coupled`).
 # * The scalar identity is materialized structurally as `c * id(V)`, never via `one(::Type{A})`.
-# * The dense/Pauli `GlobalOp`/`LocalOp` pipeline is untouched; dense migrates to this later.
 
 using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id,
@@ -22,8 +21,6 @@ using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id
 import TensorKit: sectortype
 using LinearAlgebra: LinearAlgebra
 using .IrrepTensorOperators: IrrepOperator
-
-export spin, scalarop, couple, TermSum
 
 # sector type of the ITO alphabet
 sectortype(::Type{IrrepOperator{I}}) where {I} = I

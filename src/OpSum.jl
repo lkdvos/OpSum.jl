@@ -1,8 +1,17 @@
 module OpSum
 
-export Sum
-export simplify
+# Public API
+# ----------
+
+# on-site operators: build them once, outside any loop
+export IrrepOperator, spin, scalarop, project, matrixunit
+# term algebra: place, couple, combine
+export TermSum, couple
+# MPO construction
+export irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
+# symbolic-algebra scaffolding (slated for removal — see research/onsite-products.md)
+export Sum, simplify
 
 using Dictionaries
 using SparseArrays: SparseMatrixCSC, sparse, nonzeros, nzrange, rowvals

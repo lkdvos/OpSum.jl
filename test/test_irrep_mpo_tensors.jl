@@ -5,17 +5,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor
 
-LO(x) = OpSum.LocalOp(x)
-
-# densify a TensorMap operator to a matrix: drop dim-1 (boundary/charge) legs, keep the 2N
-# physical axes ordered [out_1..N, in_1..N], reorder to kron index convention.
-function physmatrix(t, N, d)
-    A = convert(Array, t)
-    A = dropdims(A; dims = Tuple(findall(==(1), size(A))))
-    @assert ndims(A) == 2N
-    perm = (reverse(1:N)..., reverse((N + 1):(2N))...)
-    return reshape(permutedims(A, perm), d^N, d^N)
-end
+include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix
 
 @testset "SU(2) MPO tensors contract to the operator" begin
     V = SU2Space(1 // 2 => 1)

@@ -1,7 +1,3 @@
-function MatrixAlgebraKit.copy_input(::typeof(svd_compact), A::SparseMatrixCSC)
-    return MatrixAlgebraKit.copy_input(svd_compact, Matrix(A))
-end
-
 # Sparse dict-of-keys → CSC helpers
 # ---------------------------------
 # The bond-matrix sweeps accumulate into `Dictionary{CartesianIndex{2}, T}` and only materialise a

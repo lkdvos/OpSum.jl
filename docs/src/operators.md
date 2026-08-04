@@ -22,9 +22,13 @@ Three types carry the whole interface:
 | [`TermSum`](@ref OpSum.TermSum) | a sum of sited, fusion-coupled terms — the Hamiltonian | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, `+`, `*` |
 | `(Ws, bondsectors)` | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
-Of these, `project`, `matrixunit`, `spin`, `scalarop`, `couple`, `TermSum`, `BipartiteAlgorithm` and
-`SVDBondAlgorithm` are exported. `irrep_mpo`, `irrep_mpo_tensors`, `mpo_terms`, `instantiate` and
-`LocalOp` are not — reach them as `OpSum.irrep_mpo` or via `using OpSum: irrep_mpo`.
+Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
+list. The full surface is `IrrepOperator`, `spin`, `scalarop`, `project`, `matrixunit`, `TermSum`,
+`couple`, `irrep_mpo`, `irrep_mpo_tensors`, `mpo_terms`, `instantiate`, `BipartiteAlgorithm` and
+`SVDBondAlgorithm`.
+
+Note that `dot` (for the Cartesian `Sᵢ·Sⱼ`) is `LinearAlgebra.dot`, so that one still needs
+`using LinearAlgebra: dot`.
 
 ## Never name an alphabet letter by its index
 

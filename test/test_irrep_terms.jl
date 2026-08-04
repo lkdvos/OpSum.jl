@@ -6,10 +6,8 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, I as Id
 
-LO(x) = OpSum.LocalOp(x)
+include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm
 
-# the single (TermKey, coeff) of a one-term TermSum
-onlyterm(ts::TermSum) = only(pairs(ts.terms))
 # charges of a term's active operators
 charges(tk::TermKey) = [o.c for o in tk.ops]
 # per-active-position bond charges of a term (from its stored caterpillar tree)

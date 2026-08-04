@@ -34,8 +34,6 @@
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, oneunit
 using LinearAlgebra: norm
 
-export project, matrixunit
-
 # Coefficients below `100 * eps` (relative to `‖h‖`) are round-off from `inner`, not physics. Kept
 # deliberately tight: dropping a genuinely small coupling would be silently absorbed by the
 # faithfulness check, so the default must only ever discard noise.

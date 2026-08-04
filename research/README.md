@@ -2,6 +2,10 @@
 
 Background notes and algorithm studies that inform OpSum.jl's development. Not part of the package.
 
+- [mpskit-absorption-handoff.md](mpskit-absorption-handoff.md) — **start here if you are picking this
+  work up.** Where the MPSKit absorption stands, what is left to build (MPSKit-side constructor,
+  MPSKitModels adapter, API ergonomics, test coverage), and the non-obvious facts a change is likely
+  to trip over. Supersedes `port-handoff.md`, which is now historical.
 - [persistent-graph-mpo.md](persistent-graph-mpo.md) — **the as-built design note for the default MPO
   sweep.** How the persistent bipartite graph walks the chain site by site, why interned suffix
   classes (§2.1) and lazy right-vertex insertion (§2.2) make it linear in `N` for finite-range

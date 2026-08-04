@@ -106,8 +106,9 @@ Still open:
    unregistered, so nothing committed there resolves on CI. Register OpSum first. (There is also no
    reserved MPSKitModels worktree; `/mnt/home/ldevos/Projects/MPSKitModels.jl` has `main`, `kagome`,
    `tensorkittensors`, `testing`.)
-That is all of stage 7. The audit also listed a `remove_orphans!` bug under this heading; it is **not**
-part of this work and has been moved to §6 so it stops reading like a task.
+
+Those two are all of it. The audit also listed a `remove_orphans!` bug under this heading; it is **not**
+part of this work and has moved to §6 so it stops reading like a task.
 
 ### 3.2 Stage 5 remainder
 

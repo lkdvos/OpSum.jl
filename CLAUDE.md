@@ -40,14 +40,14 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
 (A dense/Pauli pipeline based on a `GlobalOp` expression tree previously ran in parallel; it has been removed — only the symmetric ITO track remains.)
 
 1. **Symbolic operator algebra** — `src/operators/`
-   - `LocalOp{T,A}`: a sum type (via `LightSumTypes.@sumtype`) for operators on one local Hilbert space; variants are scalars, basis elements, `Sum`, `Prod`, `Pow`, `Kron`, `Fun`. `A` is the on-site alphabet.
+   - `SiteOperator{I}` (`siteoperator.jl`): an operator on one site, as a small ordered map from alphabet letter to `ComplexF64` coefficient (two parallel vectors). Consume it with `pairs(op)`. The bare identity is not a separate case: it is the `passthrough` sentinel letter, so `scalarop(c, I)` is `c · passthrough` and consumers branch on `ispassthrough`.
    - `OperatorBasis`: supertype for concrete operator alphabets.
    - `IrrepOperator{I}` (`irreptensoroperators.jl`): the irreducible-tensor-operator (ITO) alphabet, `A = IrrepOperator{I}`. The fusion-resolved global algebra is the term-sum `TermSum`/`TermKey` (`irrepalgebra.jl`), built by `op[site]`, `+`, `scale`, and `couple`/`dot`.
 
 2. **Projection (numeric → symbolic)** — `src/operators/irrepprojection.jl`
-   - `project(h, sites)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning a `TermSum`. `project(O, V)` is the single-site form, returning a `LocalOp`. This is the inverse of `instantiate` and the intended way to write operators down — hard-coding letter indices `(c, n)` is fragile because `n` follows TensorKit's block order.
+   - `project(h, sites)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning a `TermSum`. `project(O, V)` is the single-site form, returning an `SiteOperator`. This is the inverse of `instantiate` and the intended way to write operators down — hard-coding letter indices `(c, n)` is fragile because `n` follows TensorKit's block order.
    - The candidate basis `(ops, tree)` is orthogonal and complete, with the closed-form diagonal `inner(E,E) = dim(tot) / Π_k dim(c_k)`, so coefficients are plain inner products — no solve. Coefficients below tolerance are dropped and the result is re-materialized and checked against the input (throws if unfaithful).
-   - `matrixunit(V, out, in)`: `|out⟩⟨in|` as a `LocalOp`, for abelian/fermionic spaces.
+   - `matrixunit(V, out, in)`: `|out⟩⟨in|` as an `SiteOperator`, for abelian/fermionic spaces.
    - Every projected term has full support on all `K` sites: an on-site identity factor appears as a trivial-charge letter, not a shorter term.
 
 3. **Flat term storage** — `src/operators/`
@@ -65,12 +65,13 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
 
 ### Key design patterns
 
-- **Sum types via `LightSumTypes`**: `LocalOp` uses `@sumtype`; pattern-match with `@cases`.
-- **`VectorInterface` integration**: symbolic algebra types implement `VectorInterface` norms/inner products for truncation/compression.
+- **Concrete types, not expression trees**: there is no lazy symbolic algebra. `SiteOperator` is a flat letter→coefficient map; on-site products are not symbolic — build the `TensorMap` and `project` it.
+- **Invariant checks are real `throw`s, never `@assert`**: the sector-purity / cover-validity checks guard *silently wrong output*, and `@assert` is strippable. They go through the `@noinline _invariant` helper so the cost is one never-taken branch.
+- **`VectorInterface` integration**: the algebra types implement `VectorInterface` norms/inner products for truncation/compression.
 - **Instantiation**: `instantiate(op, V)` materializes symbolic ITOs into `TensorMap`s; `instantiate(ts::TermSum, sites)` is the correctness oracle in tests. `project` is its inverse.
 - **`couple` distributes**: both operands may be composite (several terms, e.g. from `project`); pairs whose charges cannot fuse to `to` are dropped, and it is an error if none do. `dot` does *not* distribute — its `-√dim(c)` factor is per-letter.
 - **`couple` defaults `to` to `unit(I)`** (what a Hamiltonian term needs) and accepts a variadic form for abelian sectors (`FusionStyle(I) isa UniqueFusion`), where every intermediate caterpillar charge is forced by the charges: `couple(cd[1], c[2], cd[3], c[4])`. Non-abelian sectors must nest to name each channel — the variadic form throws.
-- **Sparse bond matrices**: each sweep accumulates bond entries into a dict-of-keys `Dictionary{CartesianIndex{2}, LocalOp}` and finalizes it to a stdlib `SparseArrays.SparseMatrixCSC` at the end (`sparse_from_dict`/`storedpairs` in `src/utility/linalg.jl`).
+- **Sparse bond matrices**: each sweep accumulates bond entries into a dict-of-keys `Dictionary{CartesianIndex{2}, SiteOperator}` and finalizes it to a stdlib `SparseArrays.SparseMatrixCSC` at the end (`sparse_from_dict`/`storedpairs` in `src/utility/linalg.jl`).
 
 ### Test structure
 

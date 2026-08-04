@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Shared utilities · OpSum.jl</title><meta name="title" content="Shared utilities · OpSum.jl"/><meta property="og:title" content="Shared utilities · OpSum.jl"/><meta property="twitter:title" content="Shared utilities · OpSum.jl"/><meta name="description" content="Documentation for OpSum.jl."/><meta property="og:description" content="Documentation for OpSum.jl."/><meta property="twitter:description" content="Documentation for OpSum.jl."/><meta property="og:url" content="https://lkdvos.github.io/OpSum.jl/examples/common/"/><meta property="twitter:url" content="https://lkdvos.github.io/OpSum.jl/examples/common/"/><link rel="canonical" href="https://lkdvos.github.io/OpSum.jl/examples/common/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">OpSum.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><a class="tocitem" href="../../operators/">Building operators</a></li><li><span class="tocitem">Examples</span><ul><li class="is-active"><a class="tocitem" href>Shared utilities</a><ul class="internal"><li><a class="tocitem" href="#Writing-down-operators"><span>Writing down operators</span></a></li><li><a class="tocitem" href="#Quasi-2D-geometry"><span>Quasi-2D geometry</span></a></li><li><a class="tocitem" href="#Reporting"><span>Reporting</span></a></li><li><a class="tocitem" href="#Verification"><span>Verification</span></a></li></ul></li><li><a class="tocitem" href="../spin_chains/">Spin chains</a></li><li><a class="tocitem" href="../long_range/">Long-range interactions</a></li><li><a class="tocitem" href="../ladders_and_cylinders/">Ladders and cylinders</a></li><li><a class="tocitem" href="../multibody/">Multi-body interactions</a></li><li><a class="tocitem" href="../fermions/">Fermions: free chains and the Hubbard model</a></li></ul></li><li><a class="tocitem" href="../../reference/">Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Examples</a></li><li class="is-active"><a href>Shared utilities</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Shared utilities</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/lkdvos/OpSum.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/lkdvos/OpSum.jl/blob/main/examples/common.jl" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Shared-utilities"><a class="docs-heading-anchor" href="#Shared-utilities">Shared utilities</a><a id="Shared-utilities-1"></a><a class="docs-heading-anchor-permalink" href="#Shared-utilities" title="Permalink"></a></h1><p>Every example page begins by <code>include</code>ing this file. It contains no physics — only the scaffolding that the examples share:</p><ol><li>quasi-2D lattice geometry,</li><li>reporting of bond dimensions and construction times,</li><li>three tiers of verification.</li></ol><p>The file is plain Julia, so the same <code>include</code> works whether you are reading the rendered docs or running an example directly from a checkout.</p><pre><code class="language-julia hljs">using OpSum
+using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum,
+    spin, couple, project, matrixunit, BipartiteAlgorithm, SVDBondAlgorithm
+using OpSum.IrrepTensorOperators: IrrepOperator
+using TensorKit
+using LinearAlgebra: dot, eigvals, norm</code></pre><h2 id="Writing-down-operators"><a class="docs-heading-anchor" href="#Writing-down-operators">Writing down operators</a><a id="Writing-down-operators-1"></a><a class="docs-heading-anchor-permalink" href="#Writing-down-operators" title="Permalink"></a></h2><p><code>instances(IrrepOperator, V)</code> enumerates the on-site alphabet as <code>(charge, n)</code> pairs, where <code>n</code> indexes TensorKit&#39;s canonical block ordering. Hard-coding those <code>n</code>s is fragile: the ordering depends on how <code>V</code> was written down, so permuting the sectors of <code>V</code> silently permutes every letter index and you end up with a <em>different Hamiltonian and no error</em>.</p><p>So the examples go the other way round: write the operator down as a <code>TensorMap</code> and let <a href="../../reference/#OpSum.project-Tuple{TensorKit.AbstractTensorMap, Any}"><code>project</code></a> expand it in the alphabet. <code>matrixunit(V, out, in)</code> is the shorthand for <span>$|out⟩⟨in|$</span>. Both live in OpSum itself, so there is nothing to define here — see <code>src/operators/irrepprojection.jl</code>. Two properties matter for the pages that follow:</p><ul><li>the expansion is an <code>OnsiteOp</code>, so ordinary arithmetic reads the way you would write it on paper (<code>Sᶻ = (n↑ - n↓)/2</code>), and <code>A[i]</code> places the whole expansion on site <code>i</code>;</li><li><code>couple(A[i], B[j])</code> distributes over composite operands and drops letter pairs whose charges cannot fuse to the total, so nothing has to be expanded by hand. The total defaults to the unit sector — what a Hamiltonian term needs — and <code>to</code> names it otherwise. Under an abelian symmetry the variadic <code>couple(A[i], B[j], C[k], …)</code> folds a whole chain, since every intermediate charge is forced; non-abelian chains nest so each channel is named.</li></ul><p>Nothing is ever converted to a dense array, which matters for fermionic sectors where <code>convert(Array, t)</code> is not a well-defined operation.</p><p><code>couple</code> is strictly left-to-right, so the site indices must increase. For fermions that is not a mere convention: swapping the two sites flips the sign of the term.</p><h2 id="Quasi-2D-geometry"><a class="docs-heading-anchor" href="#Quasi-2D-geometry">Quasi-2D geometry</a><a id="Quasi-2D-geometry-1"></a><a class="docs-heading-anchor-permalink" href="#Quasi-2D-geometry" title="Permalink"></a></h2><p>An MPO lives on a chain, so a two-dimensional lattice has to be <em>ordered</em>. We use column-major ordering, <code>(x, y) ↦ (x-1)*Ly + y</code>, with <code>x</code> running along the cylinder and <code>y</code> around it. Each rung is then contiguous and every bond spans at most <code>Ly</code> sites — that locality is exactly what keeps the MPO bond dimension linear in the circumference <code>Ly</code> and independent of the length.</p><pre><code class="language-julia hljs">siteindex(x, y, Ly) = (x - 1) * Ly + mod1(y, Ly)
+
+&quot;&quot;&quot;
+    cylinder_bonds(Lx, Ly; periodic_y = true) -&gt; Vector{Tuple{Int,Int}}
+
+Nearest-neighbour bonds of an `Lx × Ly` lattice in column-major order, always with the smaller
+linear index first (`couple` only accepts left-to-right site order).
+
+For `Ly == 2` a periodic wrap would emit the single rung bond twice, doubling its coupling, so
+the wrap is dropped and a notice is issued.
+&quot;&quot;&quot;
+function cylinder_bonds(Lx, Ly; periodic_y = true)
+    wrap = periodic_y &amp;&amp; Ly &gt; 2
+    if periodic_y &amp;&amp; Ly == 2
+        @info &quot;cylinder_bonds: Ly == 2, dropping the periodic wrap (it would double-count the rung)&quot;
+    end
+    bonds = Tuple{Int, Int}[]
+    for x in 1:Lx, y in 1:Ly
+        if y &lt; Ly || wrap
+            push!(bonds, minmax(siteindex(x, y, Ly), siteindex(x, y + 1, Ly)))
+        end
+        x &lt; Lx &amp;&amp; push!(bonds, minmax(siteindex(x, y, Ly), siteindex(x + 1, y, Ly)))
+    end
+    return unique!(bonds)
+end
+
+ladder_bonds(Lx, Ly) = cylinder_bonds(Lx, Ly; periodic_y = false)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ladder_bonds (generic function with 1 method)</code></pre><h2 id="Reporting"><a class="docs-heading-anchor" href="#Reporting">Reporting</a><a id="Reporting-1"></a><a class="docs-heading-anchor-permalink" href="#Reporting" title="Permalink"></a></h2><p>Two numbers matter. The <em>reduced</em> bond dimension counts the symmetry-resolved indices the MPO actually carries — this is what downstream DMRG pays for. The <em>dense-equivalent</em> bond dimension is the qdim-weighted sum of the per-sector multiplicities: what a symmetry-agnostic MPO would need for the same operator.</p><pre><code class="language-julia hljs">bonddim(secs, b) = length(secs[b])
+densedim(secs, b) = sum(dim(c) for c in secs[b])
+maxbonddim(secs) = maximum(b -&gt; bonddim(secs, b), eachindex(secs))
+maxdensedim(secs) = maximum(b -&gt; densedim(secs, b), eachindex(secs))
+
+&quot;&quot;&quot;
+    build(name, H, sites; alg) -&gt; NamedTuple
+
+Construct the MPO and report its bond dimensions and (warm) construction time.
+&quot;&quot;&quot;
+function build(name, H::TermSum, sites; alg = BipartiteAlgorithm(), quiet = false)
+    irrep_mpo(H, sites, alg)   # warm up compilation so the timing is meaningful
+    stats = @timed irrep_mpo(H, sites, alg)
+    Ws, secs = stats.value
+    if !quiet
+        println(
+            rpad(name, 28),
+            &quot; N=&quot;, lpad(length(sites), 4),
+            &quot;  nterms=&quot;, lpad(length(H.terms), 6),
+            &quot;  D=&quot;, lpad(maxbonddim(secs), 4),
+            &quot;  D_dense=&quot;, lpad(maxdensedim(secs), 5),
+            &quot;  &quot;, round(stats.time; digits = 4), &quot; s&quot;
+        )
+    end
+    return (; Ws, secs, D = maxbonddim(secs), Ddense = maxdensedim(secs), time = stats.time)
+end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Main.build</code></pre><h2 id="Verification"><a class="docs-heading-anchor" href="#Verification">Verification</a><a id="Verification-1"></a><a class="docs-heading-anchor-permalink" href="#Verification" title="Permalink"></a></h2><p>Three checks of increasing cost. Every example runs at least the first.</p><p><strong>1. Faithfulness</strong> — cheap, purely symbolic, valid at any <code>N</code> and for any sector including fermionic ones: the reduced MPO reconstructs the original term sum exactly. Only meaningful for lossless compression; after a truncating SVD it says nothing.</p><pre><code class="language-julia hljs">function islossless(H::TermSum, sites; alg = BipartiteAlgorithm())
+    Ws, secs = irrep_mpo(H, sites, alg)
+    back = mpo_terms(Ws, secs)
+    Set(keys(back.terms)) == Set(keys(H.terms)) || return false
+    return all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">islossless (generic function with 1 method)</code></pre><p><strong>2. Tensor assembly</strong> — contract the assembled <code>TensorMap</code>s and compare against the dense oracle. Exponential in <code>N</code>, so small systems only, but it stays inside TensorKit and never builds a dense array, so it is valid for fermions too.</p><pre><code class="language-julia hljs">&quot;Contract a vector of MPO tensors into a single operator in `instantiate`&#39;s convention.&quot;
+function mpo_tensormap(Ts)
+    N = length(Ts)
+    net = [[i == 1 ? -(2N + 1) : i - 1, -i, -(N + i), i == N ? -(2N + 2) : i] for i in 1:N]
+    O = ncon(Ts, net)                # legs: o₁…o_N, i₁…i_N, bL, bR
+    O = removeunit(O, 2N + 1)        # drop the trivial left boundary
+    return permute(O, (ntuple(identity, N), (ntuple(i -&gt; N + i, N)..., 2N + 1)))
+end
+
+function mpo_matches_oracle(H::TermSum, sites; alg = BipartiteAlgorithm())
+    Ws, secs = irrep_mpo(H, sites, alg)
+    return mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ instantiate(H, sites)
+end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">mpo_matches_oracle (generic function with 1 method)</code></pre><p><strong>3. Spectrum</strong> — the physics check, and the only honest route for fermions when comparing against an external reference. Eigenvalues are computed block by block, which is intrinsic and basis-independent.</p><p>Each block is labelled by a coupled sector <code>c</code> and holds one eigenvalue per multiplet. In the full (dense) Hilbert space every such eigenvalue appears <code>dim(c)</code> times — for SU(2) that is the <span>$2j+1$</span> states of the multiplet. Repeating them accordingly is what makes spectra comparable across different symmetry groups.</p><pre><code class="language-julia hljs">function spectrum(O::AbstractTensorMap)
+    Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
+    vals = Float64[]
+    for (c, b) in blocks(Oop)
+        ev = real(eigvals(Matrix(b)))
+        for _ in 1:dim(c)
+            append!(vals, ev)
+        end
+    end
+    return sort!(vals)
+end
+spectrum(H::TermSum, sites) = spectrum(instantiate(H, sites))
+
+&quot;Relative deviation from Hermiticity — the sharpest detector of a wrong fermionic sign.&quot;
+function hermiticity_error(H::TermSum, sites)
+    O = instantiate(H, sites)
+    Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
+    return norm(Oop - Oop&#39;) / norm(Oop)
+end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Main.hermiticity_error</code></pre><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../operators/">« Building operators</a><a class="docs-footer-nextpage" href="../spin_chains/">Spin chains »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 4 August 2026 23:06">Tuesday 4 August 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

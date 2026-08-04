@@ -1,11 +1,11 @@
 # Reduced MPO for the ITO automaton: reconstruction + symmetric tensors
 # =====================================================================
 # `irrep_mpo` compresses an ITO `TermSum` into a reduced MPO — site tensors of ITO letters times
-# reduced coefficients, plus per-bond charge sectors — by running the per-bond-sector bipartite
-# min-vertex-cover sweep `_irrep_graph_bipartite` over the flat `ITOTermTable` (see irrepgraph.jl;
-# the transient-frontier `_irrep_bipartite` in irreptermtable.jl is kept as the parity oracle).
-# Each retained bond index has a single, well-defined charge (`ITOKey.bond`); block-diagonality is
-# `@assert`ed there. Supported scope: any arity K ≥ 0 active sites per term.
+# reduced coefficients, plus per-bond charge sectors — by running a per-bond-sector sweep over the
+# flat `ITOTermTable`. Which bond basis that sweep keeps is the algorithm selector's `BondStrategy`
+# (algorithms.jl); the sweeps themselves are in irrepgraph.jl. Each retained bond index has a single,
+# well-defined charge (`ITOKey.bond`); block-diagonality is checked there. Supported scope: any arity
+# K ≥ 0 active sites per term.
 #
 # This file adds the two consumers of that reduced data:
 # * `mpo_terms`         — reconstruct the original `TermSum` by enumerating MPO paths (faithfulness);
@@ -30,22 +30,18 @@ function irrep_mpo(H::TermSum{I, S, Tc}, sites) where {I, S, Tc}
     return irrep_mpo(H, sites, BipartiteAlgorithm())
 end
 
-function irrep_mpo(H::TermSum{I, S, Tc}, sites, ::BipartiteAlgorithm) where {I, S, Tc}
-    return _irrep_graph_bipartite(ITOTermTable(H, sites), length(sites))
-end
-
 """
-    irrep_mpo(H::TermSum, sites, alg::SVDBondAlgorithm) -> (Ws, bondsectors)
+    irrep_mpo(H::TermSum, sites, alg) -> (Ws, bondsectors)
 
-SVD-based reduced MPO: same `(Ws, bondsectors)` contract as the default bipartite construction, but
-each bond's compressed basis is chosen by an SVD of the (charge-graded) bond coefficient matrix
-rather than a minimum vertex cover. Truncation is set by `alg.trunc` (a `MatrixAlgebraKit`
-truncation strategy such as `truncrank`/`trunctol`, applied globally across charge sectors);
-`SVDBondAlgorithm()` keeps the lossless default. The compression acts on the symbolic bond
-coefficients, so the output still feeds `irrep_mpo_tensors` unchanged.
+As above, with an explicit algorithm selector: `BipartiteAlgorithm()` (the default, lossless minimum
+vertex cover) or `SVDBondAlgorithm(trunc; sweep)`, whose `sweep` picks between the two truncation
+semantics (`IndependentSVD`, the default and the historical behaviour, versus `SequentialSVD`). Each
+selector names a [`BondStrategy`](@ref); the sweeps live in irrepgraph.jl.
 """
-function irrep_mpo(H::TermSum{I, S, Tc}, sites, alg::SVDBondAlgorithm) where {I, S, Tc}
-    return _irrep_svd(ITOTermTable(H, sites), length(sites), alg.trunc)
+function irrep_mpo(
+        H::TermSum{I, S, Tc}, sites, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm}
+    ) where {I, S, Tc}
+    return _irrep_sweep(ITOTermTable(H, sites), length(sites), bondstrategy(alg))
 end
 
 """

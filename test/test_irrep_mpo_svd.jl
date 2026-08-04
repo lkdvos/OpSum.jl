@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum, spin, scalarop, couple
-using OpSum: BipartiteAlgorithm, SVDBondAlgorithm
+using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, IndependentSVD, SequentialSVD
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor
@@ -113,4 +113,40 @@ end
     Mexact = physmatrix(instantiate(H, sites), N, 2)
     @test size(Mtrunc) == size(Mexact)
     @test !(Mtrunc ≈ Mexact)
+end
+
+@testset "sweep selector — the two truncation semantics" begin
+    # `SVDBondAlgorithm` names a bond-basis strategy: `IndependentSVD` (every bond compressed on the
+    # raw prefix/suffix classes) or `SequentialSVD` (each bond compressed in the basis the previous
+    # bond left behind). Losslessly they agree; under truncation they differ by design, and that
+    # difference is the whole reason both are exposed.
+    V = SU2Space(1 // 2 => 1)
+    N = 4
+    sites = fill(V, N)
+    H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+
+    # the bare / positional constructors keep meaning the per-bond-independent sweep
+    @test SVDBondAlgorithm().strategy isa IndependentSVD
+    @test SVDBondAlgorithm().strategy.trunc === nothing
+    @test SVDBondAlgorithm(truncrank(2)).strategy isa IndependentSVD
+    @test SVDBondAlgorithm(; sweep = SequentialSVD).strategy isa SequentialSVD
+
+    # lossless: same operator, and the same per-sector dimensions on the internal bonds. (Bond N is
+    # excluded: the independent sweep hardcodes the right boundary to `unit(I)`, the sequential one
+    # reports the true total charge — they agree only for charge-0 Hamiltonians, as here.)
+    Wi, si = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = IndependentSVD))
+    Wq, sq = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = SequentialSVD))
+    @test [length(s) for s in si[1:(N - 1)]] == [length(s) for s in sq[1:(N - 1)]]
+    @test mpo_operator(Wi, si, sites) ≈ instantiate(H, sites)
+    @test mpo_operator(Wq, sq, sites) ≈ instantiate(H, sites)
+
+    # truncated: `truncrank(1)` means "one index per bond" for the independent sweep …
+    _, sti = irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(1)))
+    @test all(length(s) == 1 for s in sti)
+    # … whereas the sequential sweep truncates in the basis it was handed, so an aggressive early
+    # truncation starves every bond downstream of it (here to nothing at all — with quantum
+    # dimensions counted, rank 1 cannot hold the spin-1 channel the next bond needs).
+    _, sts = irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD))
+    @test [length(s) for s in sts] != [length(s) for s in sti]
+    @test all(length(s) <= 1 for s in sts)
 end

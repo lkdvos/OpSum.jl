@@ -25,30 +25,18 @@ using .IrrepTensorOperators: IrrepOperator
 # sector type of the ITO alphabet
 sectortype(::Type{IrrepOperator{I}}) where {I} = I
 
-# LocalOp instantiation over ITOs (single-site materialization)
-# -------------------------------------------------------------
+# SiteOperator instantiation over ITOs (single-site materialization)
+# --------------------------------------------------------------
 """
-    instantiate(O::LocalOp{T,<:IrrepOperator}, V::ElementarySpace)
+    instantiate(O::SiteOperator, V::ElementarySpace)
 
-Materialize a single-site symbolic operator over the ITO alphabet: scalar → `c * id(V)`, bare
-ITO → its Phase-1 tensor, `Sum` → scaled sum. On-site `Prod`/`Pow` are deferred.
+Materialize a single-site operator over the ITO alphabet as the coefficient-weighted sum of its
+letters' tensors. The pass-through letter instantiates to `id(V)`, so a scalar `c·𝟙` comes out as
+`c * id(V)` structurally.
 """
-function instantiate(O::LocalOp{T, A}, V::ElementarySpace) where {T, A <: IrrepOperator}
-    o = variant(O)
-    if o isa T
-        return o * id(V)
-    elseif o isa A
-        return instantiate(o, V)
-    elseif o isa Sum
-        isempty(o.terms) && throw(ArgumentError("cannot instantiate an empty Sum without a space"))
-        return sum(pairs(o.terms)) do (k, v)
-            return v * instantiate(k, V)
-        end
-    elseif o isa Prod || o isa Pow
-        throw(ArgumentError("on-site products/powers of ITOs (fusion recoupling) are deferred"))
-    else
-        throw(ArgumentError("unsupported LocalOp variant for ITO instantiation: $(typeof(o))"))
-    end
+function instantiate(O::SiteOperator{I}, V::ElementarySpace) where {I}
+    isempty(O) && throw(ArgumentError("cannot instantiate an empty SiteOperator without a space"))
+    return sum(((l, c),) -> c * instantiate(l, V), pairs(O))
 end
 
 # Named accessors
@@ -67,8 +55,7 @@ function spin(V::ElementarySpace)
         throw(ArgumentError("spin(V) requires a single SU(2) irrep sector"))
     s = only(sectors(V)).j
     scale = sqrt(s * (s + 1) * (2s + 1))
-    A = IrrepOperator{SU2Irrep}
-    return scale * LocalOp{ComplexF64, A}(A(SU2Irrep(1), 1))
+    return scale * SiteOperator(IrrepOperator{SU2Irrep}(SU2Irrep(1), 1))
 end
 
 """
@@ -78,29 +65,8 @@ end
 A scalar (identity) local operator `c·𝟙` over the ITO alphabet; instantiates structurally to
 `c * id(V)` (the identity is not an alphabet letter).
 """
-scalarop(c::Number, ::Type{I}) where {I} = LocalOp{ComplexF64, IrrepOperator{I}}(ComplexF64(c))
+scalarop(c::Number, ::Type{I}) where {I} = SiteOperator{I}(ComplexF64(c))
 scalarop(c::Number, V::ElementarySpace) = scalarop(c, sectortype(V))
-
-# Extract on-site (letter, scalar) terms of a LocalOp: bare letter, scalar (→ `nothing` =
-# pass-through), or a `Sum` distributing over both.
-function _local_terms(op::LocalOp{T, A}) where {T, A <: IrrepOperator}
-    o = variant(op)
-    if o isa T
-        return Tuple{Union{Nothing, A}, T}[(nothing, o)]
-    elseif o isa A
-        return Tuple{Union{Nothing, A}, T}[(o, one(T))]
-    elseif o isa Sum
-        out = Tuple{Union{Nothing, A}, T}[]
-        for (k, v) in pairs(o.terms)
-            for (letter, s) in _local_terms(k)
-                push!(out, (letter, v * s))
-            end
-        end
-        return out
-    else
-        throw(ArgumentError("cannot resolve on-site variant $(typeof(o)) (products/powers deferred)"))
-    end
-end
 
 # Caterpillar-tree constructors
 # ------------------------------
@@ -228,17 +194,21 @@ end
 
 # op[site]  →  a (possibly distributed) TermSum
 # ---------------------------------------------
-function Base.getindex(O::LocalOp{T, A}, ind::S, inds::S...) where {T, A <: IrrepOperator, S}
+function Base.getindex(O::SiteOperator{I}, ind::S, inds::S...) where {I, S}
     isempty(inds) ||
-        throw(ArgumentError("multi-site placement of an ITO LocalOp is not supported; use `couple`"))
-    I = sectortype(A)
+        throw(ArgumentError("multi-site placement of an on-site operator is not supported; use `couple`"))
     d = Dictionary{TermKey{I, S}, ComplexF64}()
-    for (letter, coeff) in _local_terms(O)
-        key = letter === nothing ?
+    for (letter, coeff) in pairs(O)
+        # The pass-through letter is the bare identity: it carries no charge and contributes no
+        # active site, so it places as a K=0 identity term rather than a K=1 field. A *real*
+        # trivial-charge letter (`n ≥ 1`, e.g. from `project(id(V), V)`) is not the same thing and
+        # does place on the site.
+        key = ispassthrough(letter) ?
             TermKey{I, S}(S[], IrrepOperator{I}[], _idtree(I)) :
             TermKey{I, S}(S[ind], IrrepOperator{I}[letter], _leaftree(letter.c))
         setwith!(+, d, key, ComplexF64(coeff))
     end
+    filter!(!iszero, d)
     return TermSum{I, S, ComplexF64}(d)
 end
 

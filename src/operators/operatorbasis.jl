@@ -1,23 +1,21 @@
+# The on-site alphabet extension point
+# =====================================
+# Two declarations that have to exist before the alphabet itself, because the `IrrepTensorOperators`
+# submodule subtypes the one and adds methods to the other.
+
 """
     abstract type OperatorBasis
 
-Abstract supertype for all operator basis elements (the on-site alphabet letters wrapped by
-`LocalOp`).
+Supertype for on-site operator alphabets — the letters an [`SiteOperator`](@ref) is a combination of.
+The one concrete alphabet is [`IrrepOperator`](@ref), the irreducible tensor operators of a
+`TensorKit` sector.
 """
 abstract type OperatorBasis end
 
-# Instantiation
-# -------------
 """
     instantiate(op, V)
 
-Materialize a basis element / symbolic operator into its concrete form on the physical space `V`
-(a TensorKit `TensorMap` for the ITO alphabet). Implemented per alphabet; see
-`instantiate(::IrrepOperator, ::ElementarySpace)`.
+Materialize a symbolic operator into its concrete form on the physical space `V` (a TensorKit
+`TensorMap`). Implemented per alphabet; see `instantiate(::IrrepOperator, ::ElementarySpace)`.
 """
 function instantiate end
-
-# Scalar scaling: a bare letter times a scalar promotes to a `LocalOp`. Used by the per-bond sweep
-# when weighting a letter by its reduced coefficient (`k.op * coeff`).
-Base.:*(x::OperatorBasis, y::Number) = LocalOp(x) * y
-Base.:*(x::Number, y::OperatorBasis) = x * LocalOp(y)

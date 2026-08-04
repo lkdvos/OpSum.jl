@@ -2,7 +2,7 @@ using Test
 using OpSum
 using OpSum: project, matrixunit, instantiate, spin, scalarop, couple, irrep_mpo,
     irrep_mpo_tensors, mpo_terms, TermSum, TermKey, total, bondcharges, caterpillar_trees,
-    _instantiate_term, variant
+    _instantiate_term
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor, insertrightunit, removeunit
@@ -98,10 +98,10 @@ end
             @test only(k.ops) == op
             @test v ≈ 1
 
-            # the LocalOp form is the same expansion, unplaced
+            # the SiteOperator form is the same expansion, unplaced
             lo = project(O, V)
             @test instantiate(lo, V) ≈ O
-            @test only(keys(variant(lo).terms)) == LO(op)
+            @test only(keys(lo)) == op
         end
     end
 end
@@ -319,8 +319,8 @@ end
     Sz = (matrixunit(V, up, up) - matrixunit(V, dn, dn)) / 2
 
     # a matrix unit is a single letter; Sᶻ is genuinely composite
-    @test length(variant(Sp).terms) == 1
-    @test length(variant(Sz).terms) == 2
+    @test length(Sp) == 1
+    @test length(Sz) == 2
 
     # `couple` distributes over the composite operands -- no manual expansion needed
     H = couple(Sz[1], Sz[2]; to = z) +
@@ -397,7 +397,7 @@ end
 
     # a zero operator projects to an empty TermSum rather than throwing
     @test isempty(project(zero(h), [1, 2]).terms)
-    @test iszero(variant(project(zero(id(V)), V)))
+    @test iszero(project(zero(id(V)), V))
 end
 
 @testset "input validation" begin
@@ -414,7 +414,7 @@ end
     @test_throws ArgumentError project(randn(ComplexF64, V ← V'), (1,))          # domain ≠ codomain
     @test_throws ArgumentError project(zeros(Float64, ℝ^2 ← ℝ^2), (1,))          # wrong space type
 
-    # the single-site LocalOp form
+    # the single-site SiteOperator form
     @test_throws ArgumentError project(h, V)                                     # two output legs
     @test_throws ArgumentError project(instantiate(spin(V)[1], [V]), SU2Space(1 => 1))
 end

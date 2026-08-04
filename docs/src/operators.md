@@ -7,7 +7,7 @@ material through concrete models; [Reference](@ref) lists every docstring.
 ## The shape of the pipeline
 
 ```
-TensorMap ──project──► LocalOp ──A[i]──► TermSum ──irrep_mpo──► (Ws, bondsectors)
+TensorMap ──project──► SiteOperator ──A[i]──► TermSum ──irrep_mpo──► (Ws, bondsectors)
 (what you                (on-site,    (placed and                    │
  write down)              unplaced)    coupled)                      ▼
                                           │              irrep_mpo_tensors
@@ -18,7 +18,7 @@ Three types carry the whole interface:
 
 | Type | What it is | How you get one |
 |---|---|---|
-| [`LocalOp`](@ref OpSum.LocalOp) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`scalarop`](@ref OpSum.scalarop) |
+| [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`scalarop`](@ref OpSum.scalarop) |
 | [`TermSum`](@ref OpSum.TermSum) | a sum of sited, fusion-coupled terms — the Hamiltonian | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, `+`, `*` |
 | `(Ws, bondsectors)` | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
@@ -65,11 +65,11 @@ Sm = matrixunit(V, dn, up)                                  # S⁻
 Sz = (matrixunit(V, up, up) - matrixunit(V, dn, dn)) / 2     # Sᶻ
 ```
 
-A `LocalOp` supports ordinary arithmetic (`+ - * /`), so composite operators read the way you would
+An `SiteOperator` supports ordinary arithmetic (`+ - * /`), so composite operators read the way you would
 write them on paper. `Sᶻ` here is genuinely composite — two letters:
 
 ```@example ops
-length(OpSum.variant(Sz).terms)
+length(Sz)
 ```
 
 ### SU(2): `spin`
@@ -289,5 +289,4 @@ compression.
 | `project: sites must be strictly increasing` | sorted-unique labels are a downstream invariant; `project` will not permute `h` for you, since that needs braiding and flips fermionic signs |
 | `project: unsupported operator space` | domain ≠ codomain, or a charge leg that is dual or has degeneracy > 1 |
 | `project: the projected term sum is not faithful` | `atol`/`rtol` discarded real weight — lower them |
-| `on-site products/powers of ITOs … are deferred` | `LocalOp` multiplication needs fusion recoupling, which is not implemented; build the product as a `TensorMap` and `project` it |
 | `GenericFusion … deferred` | sectors with fusion multiplicity > 1 are out of scope |

@@ -9,11 +9,11 @@
 # the workflow CLAUDE.md documents) still works.
 
 using OpSum
-using OpSum: irrep_mpo, mpo_terms, TermSum
+using OpSum: irrep_mpo, mpo_terms, TermSum, SiteOperator
 using TensorKit: dim
 
-# Wrap a bare alphabet letter as a `LocalOp`, for comparing against reduced bond-matrix entries.
-LO(x) = OpSum.LocalOp(x)
+# Wrap a bare alphabet letter as an `SiteOperator`, for comparing against reduced bond-matrix entries.
+LO(x) = SiteOperator(x)
 
 # The single `(TermKey, coeff)` pair of a one-term `TermSum`.
 onlyterm(ts::TermSum) = only(pairs(ts.terms))

@@ -29,7 +29,7 @@ using LinearAlgebra: dot, eigvals, norm
 # ``|out⟩⟨in|``. Both live in OpSum itself, so there is nothing to define here — see
 # `src/operators/irrepprojection.jl`. Two properties matter for the pages that follow:
 #
-#  * the expansion is a `LocalOp`, so ordinary arithmetic reads the way you would write it on
+#  * the expansion is an `SiteOperator`, so ordinary arithmetic reads the way you would write it on
 #    paper (`Sᶻ = (n↑ - n↓)/2`), and `A[i]` places the whole expansion on site `i`;
 #  * `couple(A[i], B[j])` distributes over composite operands and drops letter pairs whose charges
 #    cannot fuse to the total, so nothing has to be expanded by hand. The total defaults to the unit

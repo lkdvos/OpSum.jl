@@ -206,13 +206,13 @@ function project(
 end
 
 """
-    project(O::AbstractTensorMap, V::ElementarySpace; atol = 0, rtol = 100eps) -> LocalOp
+    project(O::AbstractTensorMap, V::ElementarySpace; atol = 0, rtol = 100eps) -> SiteOperator
 
-Expand a single-site operator in the ITO alphabet of `V`, as a symbolic [`LocalOp`](@ref) that is
-not yet placed on the lattice. `O` must be either `V ← V` or `V ← V ⊗ Vect[I](c => 1)`. The result
-is a `Sum` variant with one term per surviving letter, even when that is a single letter.
+Expand a single-site operator in the ITO alphabet of `V`, as an [`SiteOperator`](@ref) that is not yet
+placed on the lattice. `O` must be either `V ← V` or `V ← V ⊗ Vect[I](c => 1)`. The result carries
+one letter per surviving alphabet element.
 
-Because a `LocalOp` supports ordinary arithmetic, composite on-site operators read the way you
+Because an `SiteOperator` supports ordinary arithmetic, composite on-site operators read the way you
 would write them on paper, and `A[i]` then places the whole expansion:
 
 ```julia
@@ -221,8 +221,9 @@ H  = sum(couple(Sz[i], Sz[i + 1]; to = unit(I)) for i in 1:(N - 1))
 ```
 
 Note that the identity is not an alphabet letter: `project(id(V), V)` returns a sum of
-trivial-charge letters rather than `scalarop(1, V)`. An operator that is zero (or entirely below
-tolerance) gives the zero scalar `LocalOp`, which does not retain the charge of the input.
+trivial-charge letters (`n ≥ 1`) rather than `scalarop(1, V)` (which is the `n = 0` pass-through
+sentinel). An operator that is zero (or entirely below tolerance) gives the empty `SiteOperator`, which
+does not retain the charge of the input.
 """
 function project(
         O::AbstractTensorMap, V::ElementarySpace; atol::Real = 0, rtol::Real = _default_rtol(O)
@@ -233,14 +234,16 @@ function project(
     codomain(O)[1] == V ||
         throw(ArgumentError("project: `O` acts on $(codomain(O)[1]), not on the given space $V"))
 
-    A = IrrepOperator{sectortype(V)}
+    I = sectortype(V)
     ts = project(O, (1,); atol, rtol)
-    isempty(ts.terms) && return zero(LocalOp{ComplexF64, A})
-    return sum(v * LocalOp{ComplexF64, A}(only(k.ops)) for (k, v) in pairs(ts.terms))
+    isempty(ts.terms) && return zero(SiteOperator{I})
+    letters = IrrepOperator{I}[only(k.ops) for k in keys(ts.terms)]
+    coeffs = ComplexF64[v for v in values(ts.terms)]
+    return SiteOperator{I}(letters, coeffs)
 end
 
 """
-    matrixunit(V::ElementarySpace, out::I, in::I) -> LocalOp
+    matrixunit(V::ElementarySpace, out::I, in::I) -> SiteOperator
 
 The matrix unit ``|out⟩⟨in|`` on a space whose sectors are one-dimensional and appear with
 multiplicity one (abelian or fermionic: `Vect[U₁]`, `Vect[FermionNumber]`, and products thereof).

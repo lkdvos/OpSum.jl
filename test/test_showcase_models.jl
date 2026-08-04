@@ -34,10 +34,10 @@ const EXPECTED = Dict{String, Any}(
     # These guard against a silent reordering of TensorKit's canonical block order, which would
     # change which physical operator a given letter index denotes.
     V = Rep[U₁](0 => 1, 1 => 1)
-    letters(op) = OpSum.variant(op).terms
+    letters(op) = Dict(pairs(op))
     nup = matrixunit(V, U1Irrep(1), U1Irrep(1))
     @test only(pairs(letters(nup))) ==
-        (OpSum.LocalOp(IrrepOperator(U1Irrep(0), 2)) => ComplexF64(1))
+        (IrrepOperator(U1Irrep(0), 2) => ComplexF64(1))
 
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     vac, occ = FermionNumber(0), FermionNumber(1)

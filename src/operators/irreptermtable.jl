@@ -114,7 +114,7 @@ end
 function _irrep_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
     Op = ITOKey{I}
     T = ComplexF64
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = SiteOperator{I}
     M = nterms(tt)
     M == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
@@ -258,7 +258,7 @@ end
 function _irrep_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
     Op = ITOKey{I}
     T = ComplexF64
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = SiteOperator{I}
     M = nterms(tt)
     M == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 

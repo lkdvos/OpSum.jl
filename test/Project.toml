@@ -1,6 +1,8 @@
 [deps]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+BlockTensorKit = "5f87ffc2-9cf1-4a46-8172-465d160bd8cd"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MPSKit = "bb1c41ca-d63c-52ed-829e-0820dda26502"
 MatrixAlgebraKit = "6c742aac-3347-4629-af66-fc926824e5e4"
 OpSum = "ad22a312-ed53-41dd-b1d0-052652c9fe0a"
 ParallelTestRunner = "d3525ed8-44d0-4b2c-a655-542cee43accc"
@@ -11,6 +13,8 @@ VectorInterface = "409d34a3-91d5-4945-b6ec-7529ddf182d8"
 
 [compat]
 Aqua = "0.8.9"
+BlockTensorKit = "0.3.15"
+MPSKit = "0.13.13"
 ParallelTestRunner = "2.2.0"
 TensorKit = "0.17"
 Test = "1.10"

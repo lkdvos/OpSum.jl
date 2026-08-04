@@ -8,7 +8,7 @@ export IrrepOperator, spin, scalarop, project, matrixunit
 # term algebra: place, couple, combine
 export TermSum, couple
 # MPO construction
-export irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate
+export irrep_mpo, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
 
@@ -45,5 +45,6 @@ include("operators/irrepprojection.jl")
 include("operators/irreptermtable.jl")
 include("operators/irrepgraph.jl")
 include("operators/irrepmpo.jl")
+include("operators/jordanmpo.jl")
 
 end

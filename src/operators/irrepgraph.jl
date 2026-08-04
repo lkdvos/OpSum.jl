@@ -1,19 +1,33 @@
-# Persistent bipartite-graph MPO construction for the ITO automaton
-# =================================================================
-# A port of ITensorMPOConstruction.jl's persistent-graph + `at_site!` sweep architecture onto
-# OpSum's non-abelian (TensorKit `Sector`) ITO machinery. It builds the *same* reduced MPO as the
-# transient-frontier sweep `_irrep_bipartite` (irreptermtable.jl) — same per-bond-sector dimensions,
-# same `(Ws, bondsectors)` contract — but keeps an explicit bipartite graph handed from one site step
-# to the next, instead of re-materialising every strand's suffix path each bond.
+# Reduced-MPO sweeps for the ITO automaton
+# ========================================
+# One sweep skeleton with a pluggable bond-basis strategy (algorithms.jl), plus the one strategy that
+# cannot share it.
 #
-# Cost is `Θ(M·K)` to intern the suffix classes plus `Θ(Σ_terms span)` for the sweep, i.e. linear in N
-# for a finite-range model. Two things buy that, and both are load-bearing: suffix classes are named by
-# an interned `O(1)` signature rather than a materialised path (`_suffix_ids`, `_signature!`), and a
-# term's right vertex is created only once it is reachable (`_promote_pending!` and the injection in
-# `_build_next_graph!`). See research/persistent-graph-mpo.md §2 — in particular §2.2, whose
-# pending-versus-started class collision is the invariant a change here is most likely to break.
+# * `VertexCover` (default) and `SequentialSVD` run the *persistent bipartite graph* sweep
+#   `_irrep_graph_sweep` — a port of ITensorMPOConstruction.jl's persistent-graph + `at_site!`
+#   architecture onto OpSum's non-abelian (TensorKit `Sector`) ITO machinery. An explicit bipartite
+#   graph is handed from one site step to the next instead of re-materialising every strand's suffix
+#   path each bond. Four of the five site-step phases are shared; only `_bond_basis!` differs.
+# * `IndependentSVD` compresses every bond on the *raw* prefix/suffix classes, independently of its
+#   neighbours, so it cannot ride the persistent graph — it gets its own pass
+#   (`_irrep_independent_svd`), but shares the class-interning machinery (`_prefix_ids`/`_suffix_ids`)
+#   rather than duplicating it.
 #
-# Non-abelian mapping (see research/itensor-mpograph-construction.md §9):
+# Cost of the graph sweep is `Θ(M·K)` to intern the suffix classes plus `Θ(Σ_terms span)` for the
+# sweep, i.e. linear in N for a finite-range model. Two things buy that, and both are load-bearing:
+# suffix classes are named by an interned `O(1)` signature rather than a materialised path
+# (`_suffix_ids`, `_signature!`), and a term's right vertex is created only once it is reachable
+# (`_promote_pending!` and the injection in `_build_next_graph!`). See
+# research/persistent-graph-mpo.md §2 — in particular §2.2, whose pending-versus-started class
+# collision is the invariant a change here is most likely to break.
+#
+# INVARIANT CHECKS. The sector-purity / cover-validity / start-channel checks below guard *silently
+# wrong output*, not crashes: a violated one means the emitted MPO represents a different operator.
+# They are therefore explicit `throw`s (via the `@noinline _invariant` helper, so the message is only
+# built on failure and the check itself costs one comparison), never `@assert`, which `--check-bounds`
+# / `-O3 --inline` builds are entitled to elide.
+#
+# Non-abelian mapping of the persistent graph (see research/itensor-mpograph-construction.md §9):
 # * Right vertices  = suffix classes of the `ITOTermTable`, entering at their term's first active site
 #   and thereafter only merging. ITensor's "term + additive QN flux" becomes "term + running fusion
 #   charge", carried in each site's `ITOKey.bond` (a fusion *outcome*, not a sum).
@@ -22,8 +36,7 @@
 # * The graph sweep stays SCALAR: reduced coefficients are `ComplexF64`, min-vertex-cover runs on the
 #   scalar adjacency. Non-abelian structure enters only (a) in what makes a bond state distinct (the
 #   augmented `ITOKey` → `bondsectors`) and (b) later, at tensor assembly (`irrep_mpo_tensors`).
-# * Connected components are pure in the outgoing bond charge (`ITOKey.bond`) — asserted, exactly as
-#   the transient sweep does.
+# * Connected components are pure in the outgoing bond charge (`ITOKey.bond`) — checked, see above.
 #
 # Supported arity K ≥ 0 (identity, on-site field, and caterpillar coupling of any number of sites;
 # the suite covers K ≤ 3 and the examples K = 4). The `ITOKey.vertex` multiplicity label is threaded
@@ -35,8 +48,20 @@
 # no Jordan–Wigner strings appear. That is why ITensor's fermion/JW slot on `LeftVertex` is omitted —
 # it is subsumed by the sector structure, not missing.
 
-using TensorKit: Sector
+using TensorKit: Sector, Vect, block, sectors, space, dim
+using MatrixAlgebraKit: svd_trunc, trunctol
 using SparseArrays: SparseMatrixCSC
+
+# Invariant violation. `@noinline` so the (cold) message construction never inlines into the hot
+# loops that check these — the check itself is then one comparison and a never-taken branch, which is
+# what lets every one of these be a real `throw` rather than a strippable `@assert`.
+@noinline function _invariant(msg::AbstractString)
+    return error("OpSum internal invariant violated: ", msg, ". This is a bug in OpSum; the reduced MPO would be wrong.")
+end
+
+# The bond-basis strategies the persistent-graph skeleton can run — the ones with a `_bond_basis!`
+# method. `IndependentSVD` is deliberately not among them: see `_irrep_independent_svd`.
+const GraphStrategy = Union{VertexCover, SequentialSVD}
 
 """
     LeftVertex{I}
@@ -140,6 +165,43 @@ function _suffix_ids(tt::ITOTermTable{I}) where {I}
     return sufid
 end
 
+"""
+    _prefix_ids(tt::ITOTermTable{I}) -> Matrix{Int}
+
+Intern every term's *contiguous column prefixes* — the mirror image of [`_suffix_ids`](@ref).
+`preid[j, t]` is a dense integer id for the factor list `1:j-1` of term `t` (so `preid[1, t] == 0`,
+the empty prefix), built top-down in `Θ(M·K)`.
+
+Equality of ids **is** equality of the prefix path `o_t[1:b]`, with no charge component needed: at
+every idle site of the prefix `_op_at_ito` fills in a pass-through whose running charge is fixed by
+the factors to its left, i.e. by the factor list itself. (The suffix is the asymmetric one — the
+idle sites *before* its first remaining factor carry the charge accumulated by the prefix, which is
+why `_signature!` pairs `sufid` with the running charge.)
+
+Used by the `IndependentSVD` sweep, which classifies both sides of every bond from scratch.
+"""
+function _prefix_ids(tt::ITOTermTable{I}) where {I}
+    K, M = arity(tt), nterms(tt)
+    preid = zeros(Int, K + 1, M)      # row 1 stays 0 == the empty prefix
+    intern = Dictionary{Tuple{Int, Int, ITOKey{I}}, Int}()
+    nid = 0
+    for t in 1:M
+        for j in 1:K
+            s = tt.sites[j, t]
+            iszero(s) && break        # padding: no further factors
+            trans = (preid[j, t], s, tt.keys[j, t])
+            id = get(intern, trans, 0)
+            if iszero(id)
+                nid += 1
+                id = nid
+                insert!(intern, trans, id)
+            end
+            preid[j + 1, t] = id
+        end
+    end
+    return preid
+end
+
 # Advance right vertex `r`'s cursor past every factor at a site `<= i`, accumulating the running bond
 # charge, and return its suffix signature `(interned remaining-factor list, running bond charge)`.
 # Amortised `O(1)`: each cursor advances at most `K` times over the whole sweep.
@@ -184,7 +246,7 @@ With `lazy = true` (the default) only terms *active at site 1* get a right verte
 represented collectively by a sentinel right vertex on the identity/start channel and are inserted
 when they become reachable (`_promote_pending!` / the injection in `_build_next_graph!`). That is what
 makes the sweep cost `Θ(Σ_terms span)` instead of `Θ(N·M)`. `lazy = false` seeds every term eagerly,
-which is the form `_irrep_graph_svd` uses (its per-bond dense SVD dominates anyway).
+which is the form the `SequentialSVD` strategy uses (its per-bond dense SVD dominates anyway).
 """
 function ITOGraph(tt::ITOTermTable{I}, N::Int; lazy::Bool = true) where {I}
     M = nterms(tt)
@@ -353,7 +415,9 @@ end
 # (`(incoming_link, local_bond_index, localop)`), `nextedges` (per local bond index, the
 # `(right_vertex_id, weight)` edges to forward; empty at the last site), `secs` (the bond charge per
 # local index) and `startidx` (the local index of the identity/start channel, 0 if this component does
-# not hold it). Reproduces the covered-U / covered-V coefficient-flow of `_irrep_bipartite`.
+# not hold it). The covered-U / covered-V coefficient-flow is ITensor's (doc §6): covered-left
+# forwards its edge weights unchanged and emits the bare letter; covered-right resets the forwarded
+# weight to 1 and folds `key.op × weight` into the block for every uncovered incident left.
 #
 # Everything is driven off the sparse adjacency `g.radj`/`g.wadj` plus `g.firstleft`, so the cost is
 # `Θ(E_component)` — no `|us| × |vs|` matrix is ever formed, and neither the covered-left forwarding
@@ -404,7 +468,7 @@ function _vc_component(
         secs[m] = lv.key.bond
         iu == g.startleft && (startidx = m)
         if i == N
-            @assert iszero(g.rsent) "the sentinel must be gone by the last site"
+            iszero(g.rsent) || _invariant("the sentinel must be gone by the last site")
             push!(blocks, (lv.link, m, lv.key.op * sum(g.wadj[iu]; init = zero(ComplexF64))))
         else
             push!(blocks, (lv.link, m, convert(LOp, lv.key.op)))
@@ -427,7 +491,7 @@ function _vc_component(
         # left vertex gives it
         secs[m] = g.lefts[g.firstleft[iv]].key.bond
         if iv == g.rsent
-            @assert iszero(startidx) "start channel covered on both sides"
+            iszero(startidx) || _invariant("start channel covered on both sides")
             startidx = m                        # the sentinel *is* the start channel here
         elseif i != N
             push!(nextedges[m], (iv, one(ComplexF64)))
@@ -445,7 +509,7 @@ function _vc_component(
         for (rid, w) in zip(g.radj[iu], g.wadj[iu])
             iszero(w) && continue
             m = bondof[vlocal[rid]]
-            @assert !iszero(m) "edge left uncovered by the minimum vertex cover"
+            iszero(m) && _invariant("edge left uncovered by the minimum vertex cover")
             push!(blocks, (lv.link, m, lv.key.op * w))
         end
     end
@@ -472,7 +536,7 @@ signature, so a hit names a single term).
 function _promote_pending!(g::ITOGraph{I}, i::Int) where {I}
     (g.nremaining > 0 && !isempty(g.pendbysig)) || return g
     lv = g.startleft
-    @assert !iszero(lv) "pending terms with no start channel to inject them on"
+    iszero(lv) && _invariant("pending terms with no start channel to inject them on")
     promoted = false
     for r in eachindex(g.rrepr)
         t = get(g.pendbysig, (g.sufid[g.rcur[r], g.rrepr[r]], g.rbond[r]), 0)
@@ -489,11 +553,11 @@ function _promote_pending!(g::ITOGraph{I}, i::Int) where {I}
     return g
 end
 
-# Phases 1 & 2, shared by both backends: suffix-merge the right vertices, apply the remap to the
-# adjacency, promote any pending term whose class just became live, attach the sentinel that stands in
-# for the still-pending terms, and record `g.firstleft` (first incident left vertex per right vertex)
-# while asserting that every right vertex is pure in the incoming bond charge — the block-diagonality
-# invariant `_irrep_bipartite` also checks, here in `Θ(E)` off the sparse adjacency.
+# Phases 1 & 2, shared by every graph-sweep strategy: suffix-merge the right vertices, apply the remap
+# to the adjacency, promote any pending term whose class just became live, attach the sentinel that
+# stands in for the still-pending terms, and record `g.firstleft` (first incident left vertex per right
+# vertex) while checking that every right vertex is pure in the incoming bond charge — the
+# block-diagonality invariant, here in `Θ(E)` off the sparse adjacency (one comparison per edge).
 #
 # The sentinel is *not* a term: it takes the right-vertex id one past the real ones, so everything that
 # iterates `g.rrepr` skips it automatically and it is discarded (rather than forwarded) each bond.
@@ -522,7 +586,8 @@ function _prepare_bond!(g::ITOGraph{I}, i::Int) where {I}
             if iszero(firstleft[rid])
                 firstleft[rid] = iu
             else
-                @assert g.lefts[firstleft[rid]].key.bond == bond "bond index not sector-pure (block-diagonality violated)"
+                g.lefts[firstleft[rid]].key.bond == bond ||
+                    _invariant("bond index not sector-pure (block-diagonality violated)")
             end
         end
     end
@@ -589,7 +654,8 @@ function _build_next_graph!(
         # when no term enters at `i+1`, so a missing start channel has to be caught either way.
         # `nremaining > 0` means the sentinel existed at this bond, which forces a start channel. When
         # it is 0 every term is already inserted, `pend_at[i+1]` is a no-op and no channel is needed.
-        @assert iszero(g.nremaining) || !iszero(startidx) "terms remain to the right of site $i with no start channel to enter on"
+        (iszero(g.nremaining) || !iszero(startidx)) ||
+            _invariant("terms remain to the right of site $i with no start channel to enter on")
         for t in g.pend_at[i + 1]
             g.inserted[t] && continue         # already promoted into a colliding class
             g.inserted[t] = true
@@ -614,23 +680,21 @@ function _build_next_graph!(
     return g
 end
 
-# One site step (ITensor's `at_site!`), five phases: (1) suffix-merge the right vertices; (2)
-# connected components; (3) per-component vertex-cover backend; (4) assemble the bond (concatenate
-# component ranks, collecting charges + forwarded edges); (5) build the next graph, reusing the same
-# right vertices and tagging fresh left vertices with the outgoing bond index as `link`. Returns
-# `(Ws_i, secW_i)` and mutates `g` into the graph for bond `i → i+1`.
-function _at_site!(g::ITOGraph{I}, i::Int) where {I}
+# Phases 3 & 4 for [`VertexCover`](@ref): split the bond into connected components, run the
+# per-component minimum vertex cover (`_vc_component`), and concatenate the component ranks into one
+# bond (offsets), collecting the per-index charges and the forwarded edges. A minimum vertex cover of
+# a disjoint union is the union of the components' minimum covers (König per component), so this is a
+# pure decomposition — same bond dimension, smaller matching problems.
+#
+# Returns the `_bond_basis!` contract `(nout, site_dict, secW, nextedges_global)`.
+function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) where {I}
     LOp = OnsiteOp{I}
-
-    nU, nV = _prepare_bond!(g, i)
     us_of_comp, vs_of_comp = bipartite_connected_components(g.radj, nV)
 
-    # phases 3 & 4 — per-component cover, concatenate into the bond
     secW = I[]
     nextedges_global = Vector{Tuple{Int, ComplexF64}}[]
     site_dict = Dictionary{CartesianIndex{2}, LOp}()
     offset = 0
-    g.startidx = 0
     for (us, vs) in zip(us_of_comp, vs_of_comp)
         rank, blocks, nextedges, secs, startidx = _vc_component(g, us, vs, i)
         for (link, m, op) in blocks
@@ -641,53 +705,29 @@ function _at_site!(g::ITOGraph{I}, i::Int) where {I}
             push!(nextedges_global, nextedges[m])
         end
         if !iszero(startidx)
-            @assert iszero(g.startidx) "the start channel appeared in more than one component"
+            iszero(g.startidx) ||
+                _invariant("the start channel appeared in more than one component")
             g.startidx = offset + startidx
         end
         offset += rank
     end
-    nout = offset
-
-    Ws_i = sparse_from_dict(site_dict, (g.nlinks, nout))
-    i < g.N && _build_next_graph!(g, i, nout, nextedges_global)
-    return Ws_i, secW
+    return offset, site_dict, secW, nextedges_global
 end
 
-"""
-    _irrep_graph_bipartite(tt::ITOTermTable{I}, N) -> (Ws, bondsectors)
-
-Persistent-graph, minimum-vertex-cover reduced-MPO sweep — the ITensor `at_site!` port. Produces the
-same `(Ws::Vector{SparseMatrixCSC{OnsiteOp{I}, Int}}, bondsectors::Vector{
-Vector{I}})` contract as `_irrep_bipartite`, so `mpo_terms` / `irrep_mpo_tensors` consume it
-unchanged.
-"""
-function _irrep_graph_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
-    LOp = OnsiteOp{I}
-    nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
-
-    g = ITOGraph(tt, N)
-    Ws = Vector{SparseMatrixCSC{LOp, Int}}(undef, N)
-    bondsectors = Vector{Vector{I}}(undef, N)
-    for i in 1:N
-        Ws[i], bondsectors[i] = _at_site!(g, i)
-    end
-    return (Ws, bondsectors)
-end
-
-# SVD site step (ITensor's `at_site!` with the QR/SVD backend, doc §6 "The QR backend"). Phases 1, 2
-# and 5 are shared with the VC step; only the bond-basis choice differs: instead of a per-component
-# minimum vertex cover, the WHOLE bond's scalar coefficient matrix is assembled as a charge-graded
-# `TensorMap C : Ppre ← Psuf` (block-diagonal in the bond charge, so `svd_trunc` does the per-sector
-# SVD *and* the global-across-sectors truncation at once, respecting quantum dimensions — matching
-# `_irrep_svd`). Keeping `U` (left singular vectors) as the compressed bond basis: each outgoing bond
-# index `m` is a linear combination `U[u, m]` of prefix states, emitting `key.op * U[u, m]` into the
-# `(link, m)` block; the residual `R = S·Vᴴ` forwards the coefficient onto the next bond's edges
-# (folded into the block at the last site). Mutates `g` into the graph for bond `i → i+1`.
-function _svd_at_site!(g::ITOGraph{I}, i::Int, truncstrat) where {I}
+# Phases 3 & 4 for [`SequentialSVD`](@ref) (ITensor's `at_site!` with the QR/SVD backend, doc §6 "The
+# QR backend"). Instead of a per-component minimum vertex cover, the WHOLE bond's scalar coefficient
+# matrix is assembled as a charge-graded `TensorMap C : Ppre ← Psuf` (block-diagonal in the bond
+# charge, so `svd_trunc` does the per-sector SVD *and* the global-across-sectors truncation at once,
+# respecting quantum dimensions). Keeping `U` (left singular vectors) as the compressed bond basis:
+# each outgoing bond index `m` is a linear combination `U[u, m]` of prefix states, emitting
+# `key.op * U[u, m]` into the `(link, m)` block; the residual `R = S·Vᴴ` forwards the coefficient onto
+# the next bond's edges (folded into the block at the last site).
+#
+# This is where the two SVD semantics part: the basis handed to the next bond is `U`, i.e. whatever
+# survived truncation here — see [`SequentialSVD`](@ref) versus [`IndependentSVD`](@ref).
+function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, strategy::SequentialSVD) where {I}
     LOp = OnsiteOp{I}
     N = g.N
-
-    nU, nV = _prepare_bond!(g, i)
     coeff = _dense_bond_matrix(g, nU, nV)
 
     # bond charge of each prefix (left) state and each suffix (right) state; sector-pure per column.
@@ -700,7 +740,8 @@ function _svd_at_site!(g::ITOGraph{I}, i::Int, truncstrat) where {I}
         conn = findall(!iszero, @view coeff[:, v])
         isempty(conn) && continue
         q = uCharge[first(conn)]
-        @assert all(uCharge[u] == q for u in conn) "bond index not sector-pure (block-diagonality violated)"
+        all(uCharge[u] == q for u in conn) ||
+            _invariant("bond index not sector-pure (block-diagonality violated)")
         vCharge[v] = q
         vactive[v] = true
     end
@@ -726,7 +767,7 @@ function _svd_at_site!(g::ITOGraph{I}, i::Int, truncstrat) where {I}
         block(C, uCharge[u])[udeg[u], vdeg[v]] += coeff[u, v]
     end
 
-    U, S, Vt = svd_trunc(C; trunc = truncstrat)
+    U, S, Vt = svd_trunc(C; trunc = strategy.trunc)
     Wb = space(S, 1)                 # retained bond space (⊕ charge sectors, truncated multiplicities)
     R = S * Vt                       # Wb ← Psuf, forwards the coefficient onto the next bond
 
@@ -772,40 +813,246 @@ function _svd_at_site!(g::ITOGraph{I}, i::Int, truncstrat) where {I}
         end
     end
 
-    Ws_i = sparse_from_dict(site_dict, (g.nlinks, r))
-    i < N && _build_next_graph!(g, i, r, nextedges_global)
+    return r, site_dict, secW, nextedges_global
+end
+
+# One site step (ITensor's `at_site!`), five phases: (1) suffix-merge the right vertices; (2)
+# connected components / bond assembly; (3) the strategy's bond-basis choice; (4) assemble the bond;
+# (5) build the next graph, reusing the same right vertices and tagging fresh left vertices with the
+# outgoing bond index as `link`. Phases 1, 2 and 5 are strategy-independent; `_bond_basis!` is the
+# plug point and covers 3 & 4. Returns `(Ws_i, secW_i)` and mutates `g` into the graph for bond
+# `i → i+1`.
+function _at_site!(g::ITOGraph{I}, i::Int, strategy::GraphStrategy = VertexCover()) where {I}
+    nU, nV = _prepare_bond!(g, i)
+    g.startidx = 0
+    nout, site_dict, secW, nextedges_global = _bond_basis!(g, i, nU, nV, strategy)
+    Ws_i = sparse_from_dict(site_dict, (g.nlinks, nout))
+    i < g.N && _build_next_graph!(g, i, nout, nextedges_global)
     return Ws_i, secW
 end
 
-"""
-    _irrep_graph_svd(tt::ITOTermTable{I}, N, trunc) -> (Ws, bondsectors)
+# Lazy right-vertex insertion pays off only when the sweep is driven off the sparse adjacency: the
+# SVD strategy materialises a dense per-bond coefficient matrix anyway, so laziness would buy nothing
+# while adding a sentinel column for the SVD to carry.
+_graph_lazy(::VertexCover) = true
+_graph_lazy(::SequentialSVD) = false
 
-Persistent-graph SVD reduced-MPO sweep — the ITensor QR-backend port. Same `(Ws, bondsectors)`
-contract as `_irrep_graph_bipartite` / `_irrep_svd`; each bond's compressed basis is
-the left singular vectors of the charge-graded bond coefficient matrix, truncated globally across
-sectors by `trunc` (a `MatrixAlgebraKit.TruncationStrategy`, or `nothing` for the lossless default).
+# Resolve `trunc === nothing` (the lossless default) once per sweep rather than once per bond.
+_resolve_trunc(s::BondStrategy) = s
+_resolve_trunc(s::SequentialSVD) = SequentialSVD(something(s.trunc, trunctol(rtol = eps(Float64))))
 
-**Lossless (`trunc === nothing`) this is at parity with `_irrep_svd`** — same per-sector bond
-dimensions and same represented operator. Under **truncation the two diverge by design**: this is a
-*sequential* left-to-right sweep (each bond is compressed in the basis left over from the bond before
-it, à la ITensor's QR sweep), whereas `_irrep_svd` compresses every bond *independently* on the raw
-prefix/suffix classes. Both are exact losslessly; under aggressive truncation the sequential sweep can
-starve downstream bonds. The default `SVDBondAlgorithm` selector therefore routes to `_irrep_svd` to
-preserve the pinned per-bond-independent truncation semantics; wiring this sequential variant behind a
-selector (and choosing between the two truncation semantics) is a documented follow-up.
 """
-function _irrep_graph_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
+    _irrep_graph_sweep(tt::ITOTermTable{I}, N, strategy) -> (Ws, bondsectors)
+
+The persistent-graph reduced-MPO sweep, run with a bond-basis `strategy` ([`VertexCover`](@ref) or
+[`SequentialSVD`](@ref)). Produces the `(Ws::Vector{SparseMatrixCSC{OnsiteOp{I}, Int}},
+bondsectors::Vector{Vector{I}})` contract that `mpo_terms` / `irrep_mpo_tensors` consume.
+"""
+function _irrep_graph_sweep(tt::ITOTermTable{I}, N::Int, strategy::GraphStrategy) where {I}
     LOp = OnsiteOp{I}
     nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
-    truncstrat = something(trunc, trunctol(rtol = eps(Float64)))
-    # eager seeding: this backend materialises a dense per-bond coefficient matrix anyway, so lazy
-    # insertion would buy nothing while adding a sentinel column the SVD would have to carry
-    g = ITOGraph(tt, N; lazy = false)
+    strategy = _resolve_trunc(strategy)
+    g = ITOGraph(tt, N; lazy = _graph_lazy(strategy))
     Ws = Vector{SparseMatrixCSC{LOp, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)
     for i in 1:N
-        Ws[i], bondsectors[i] = _svd_at_site!(g, i, truncstrat)
+        Ws[i], bondsectors[i] = _at_site!(g, i, strategy)
     end
     return (Ws, bondsectors)
+end
+
+
+# Independent-SVD sweep — not a graph sweep
+# =========================================
+# `IndependentSVD` compresses every bond on the *raw* prefix/suffix classes of the term table,
+# independently of what its neighbours kept, so it cannot ride the persistent graph (whose whole
+# point is that bond `b` is expressed in the basis bond `b-1` left behind). It therefore gets its own
+# pass — but it shares the class-interning machinery above rather than duplicating it: prefix classes
+# are `_prefix_ids`, suffix classes the `(_suffix_ids, running bond charge)` signature of §2.1.
+
+"""
+    _irrep_independent_svd(tt::ITOTermTable{I}, N, trunc) -> (Ws, bondsectors)
+
+Per-bond-*independent* SVD reduced-MPO sweep: one coefficient matrix per bond over the raw
+prefix/suffix classes, keep the left singular vectors as that bond's compressed basis, then project
+the vertex operators into the compressed bases (`W_op = U_{i-1}' · C_op · U_i` per ITO letter).
+
+The ITO-specific part: each bond's coefficient matrix is a *charge-graded* `TensorMap C_b : Ppre ←
+Psuf`, both spaces graded by the running bond charge, so `C_b` is block-diagonal in that charge and
+`svd_trunc` does the per-sector SVD *and* the global-across-sectors truncation at once (respecting
+the quantum dimensions); the retained bond space gives `bondsectors` directly. The compression acts
+on the symbolic bond coefficients only — entries stay ITO letters times scalars — so the output
+`(Ws, bondsectors)` feeds `irrep_mpo_tensors` unchanged.
+
+`trunc === nothing` ⇒ lossless default, and then this agrees with [`SequentialSVD`](@ref) on the
+internal bonds. Under truncation they differ by design; see [`SVDBondAlgorithm`](@ref).
+
+Classes are named, not materialised: the prefix class at bond `b` is the interned prefix factor list
+(`_prefix_ids` — the pass-through fill of every idle site to its left is fixed by that list), and the
+suffix class is the two-word signature `(sufid, running charge)` the graph sweep uses. Only the
+current bond's `Θ(M)` class assignment is held at a time, plus one `interned id → dense column`
+dictionary per bond (`Θ(Σ_b n_pre(b))`, i.e. `Θ(N)` for a finite-range model) so that phase 3 can
+address the same columns phase 2 built.
+"""
+function _irrep_independent_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
+    T = ComplexF64
+    Op = ITOKey{I}
+    LOp = OnsiteOp{I}
+    M = nterms(tt)
+    M == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
+
+    K = arity(tt)
+    preid = _prefix_ids(tt)
+    sufid = _suffix_ids(tt)
+    truncstrat = something(trunc, trunctol(rtol = eps(Float64)))
+    nb = max(N - 1, 0)
+
+    # --- 1. Per internal bond: classify both sides, SVD the charge-graded matrix, keep U -------
+    #   `bond_Us[b]` is the (n_pre × r_b) left isometry as a plain matrix (block-diagonal in the
+    #   charge, columns grouped per sector); `bond_secs[b]` is the retained charge per column;
+    #   `predense[b]` maps an interned prefix id to its dense column, so phase 3 can re-derive the
+    #   same numbering without storing an `M × (N-1)` id matrix.
+    bond_Us = Vector{Matrix{T}}(undef, nb)
+    bond_secs = Vector{Vector{I}}(undef, nb)
+    predense = [Dictionary{Int, Int}() for _ in 1:nb]
+
+    cursor = zeros(Int, M)          # term -> #active factors at sites <= b (monotone in b)
+    pterm = zeros(Int, M)           # term -> dense prefix column at the current bond
+    sterm = zeros(Int, M)           # term -> dense suffix column at the current bond
+    preQ, sufQ = I[], I[]           # dense class -> bond charge
+    pre_deg, suf_deg = Int[], Int[] # dense class -> degeneracy index within its charge sector
+    pre_mult, suf_mult = Dict{I, Int}(), Dict{I, Int}()
+    sufdense = Dictionary{Tuple{Int, I}, Int}()
+
+    for b in 1:nb
+        pd = predense[b]
+        empty!(sufdense)
+        empty!(preQ)
+        empty!(sufQ)
+        empty!(pre_deg)
+        empty!(suf_deg)
+        empty!(pre_mult)
+        empty!(suf_mult)
+
+        for t in 1:M
+            j = cursor[t]
+            @inbounds while j < K && !iszero(tt.sites[j + 1, t]) && tt.sites[j + 1, t] <= b
+                j += 1
+            end
+            cursor[t] = j
+            q = iszero(j) ? unit(I) : tt.keys[j, t].bond
+
+            p = get(pd, preid[j + 1, t], 0)
+            if iszero(p)
+                push!(preQ, q)
+                pre_mult[q] = get(pre_mult, q, 0) + 1
+                push!(pre_deg, pre_mult[q])
+                p = length(preQ)
+                insert!(pd, preid[j + 1, t], p)
+            elseif preQ[p] != q
+                # unreachable: the prefix factor list fixes the running charge. Kept because a wrong
+                # class here silently mixes charge sectors into one bond index.
+                _invariant("prefix class not sector-pure")
+            end
+            pterm[t] = p
+
+            sig = (sufid[j + 1, t], q)   # the charge is part of the key, so purity is structural
+            s = get(sufdense, sig, 0)
+            if iszero(s)
+                push!(sufQ, q)
+                suf_mult[q] = get(suf_mult, q, 0) + 1
+                push!(suf_deg, suf_mult[q])
+                s = length(sufQ)
+                insert!(sufdense, sig, s)
+            end
+            sterm[t] = s
+        end
+
+        C = zeros(T, Vect[I](pre_mult) ← Vect[I](suf_mult))
+        for t in 1:M
+            p, s = pterm[t], sterm[t]
+            block(C, preQ[p])[pre_deg[p], suf_deg[s]] += tt.coeffs[t]
+        end
+
+        U, S, _ = svd_trunc(C; trunc = truncstrat)
+        Wb = space(S, 1)   # retained bond space (⊕ charge sectors with truncated multiplicities)
+
+        # flatten U into an (npre × r_b) block-diagonal matrix, columns grouped per sector
+        npre = length(preQ)
+        r_b = sum(q -> dim(Wb, q), sectors(Wb); init = 0)
+        Umat = zeros(T, npre, r_b)
+        secs = I[]
+        col = 0
+        for q in sectors(Wb)
+            Ub = block(U, q)              # (pre_mult[q] × Wb_mult[q])
+            for dcol in 1:size(Ub, 2)
+                col += 1
+                push!(secs, q)
+                for p in 1:npre
+                    preQ[p] == q || continue
+                    Umat[p, col] = Ub[pre_deg[p], dcol]
+                end
+            end
+        end
+        col == r_b || _invariant("retained bond space does not match its per-sector dimensions")
+        bond_Us[b] = Umat
+        bond_secs[b] = secs
+    end
+
+    # --- 2. Project each vertex operator into the compressed bond bases -----------------------
+    #   W_op = U_{i-1}' · C_op · U_i, per ITO letter, in the uncompressed (pre_{i-1}, pre_i) basis
+    #   (boundary bonds are the 1×1 identity). Emits the letter times the compressed coefficient.
+    r = [size(bond_Us[b], 2) for b in 1:nb]
+    sizes = Tuple{Int, Int}[(b == 1 ? 1 : r[b - 1], b == N ? 1 : r[b]) for b in 1:N]
+    dicts = [Dictionary{CartesianIndex{2}, LOp}() for _ in 1:N]
+    fill!(cursor, 0)                # term -> #active factors at sites <= i-1, walked forward again
+    for i in 1:N
+        U_left = i > 1 ? bond_Us[i - 1] : ones(T, 1, 1)
+        U_right = i < N ? bond_Us[i] : ones(T, 1, 1)
+        nL, nR = size(U_left, 1), size(U_right, 1)
+
+        op_coeffs = Dictionary{Op, Matrix{T}}()
+        for t in 1:M
+            jprev = cursor[t]
+            active = jprev < K && tt.sites[jprev + 1, t] == i
+            jcur = jprev + (active ? 1 : 0)
+            cursor[t] = jcur
+            key = active ? tt.keys[jcur, t] :
+                ITOKey{I}(passthrough(I), iszero(jprev) ? unit(I) : tt.keys[jprev, t].bond, 1)
+            j = i > 1 ? predense[i - 1][preid[jprev + 1, t]] : 1
+            l = i < N ? predense[i][preid[jcur + 1, t]] : 1
+            Cmat = get!(() -> zeros(T, nL, nR), op_coeffs, key)
+            if i == N
+                Cmat[j, l] += tt.coeffs[t]   # accumulate: many terms can share the same prefix
+            else
+                Cmat[j, l] = one(T)          # deterministic: same (j, l, key) ⇒ same successor
+            end
+        end
+
+        for (key, C_op) in pairs(op_coeffs)
+            W_op = U_left' * C_op * U_right
+            lop = convert(LOp, key.op)
+            for col in 1:size(W_op, 2), row in 1:size(W_op, 1)
+                iszero(W_op[row, col]) && continue
+                increaseindex!(dicts[i], CartesianIndex(row, col), lop * W_op[row, col])
+            end
+        end
+    end
+
+    # bond to the right of site i: internal bonds from the SVD, the right boundary is trivial
+    bondsectors = Vector{I}[i < N ? bond_secs[i] : I[unit(I)] for i in 1:N]
+    return (map(sparse_from_dict, dicts, sizes), bondsectors)
+end
+
+"""
+    _irrep_sweep(tt::ITOTermTable{I}, N, strategy::BondStrategy) -> (Ws, bondsectors)
+
+Run the reduced-MPO compression of `tt` over `N` sites with the given bond-basis strategy. This is
+the single entry point `irrep_mpo` (irrepmpo.jl) dispatches to; the strategy decides whether that is
+the persistent-graph sweep or the independent per-bond pass.
+"""
+_irrep_sweep(tt::ITOTermTable, N::Int, strategy::GraphStrategy) = _irrep_graph_sweep(tt, N, strategy)
+function _irrep_sweep(tt::ITOTermTable, N::Int, strategy::IndependentSVD)
+    return _irrep_independent_svd(tt, N, strategy.trunc)
 end

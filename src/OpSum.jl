@@ -12,6 +12,7 @@ export TermSum, couple
 # MPO construction
 export irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
+export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
 
 using Dictionaries
 using SparseArrays: SparseMatrixCSC, sparse, nonzeros, nzrange, rowvals
@@ -27,7 +28,6 @@ include("algorithms.jl")
 # Utility
 # -------
 include("utility/linalg.jl")
-include("utility/utility.jl")
 
 # Data structures
 # ---------------

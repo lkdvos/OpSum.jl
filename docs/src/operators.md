@@ -24,8 +24,8 @@ Three types carry the whole interface:
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
 list. The full surface is `IrrepOperator`, `spin`, `scalarop`, `project`, `matrixunit`, `TermSum`,
-`couple`, `irrep_mpo`, `irrep_mpo_tensors`, `mpo_terms`, `instantiate`, `BipartiteAlgorithm` and
-`SVDBondAlgorithm`.
+`couple`, `irrep_mpo`, `irrep_mpo_tensors`, `mpo_terms`, `instantiate`, `BipartiteAlgorithm`,
+`SVDBondAlgorithm` and the bond-basis strategies `VertexCover`, `IndependentSVD`, `SequentialSVD`.
 
 Note that `dot` (for the Cartesian `Sᵢ·Sⱼ`) is `LinearAlgebra.dot`, so that one still needs
 `using LinearAlgebra: dot`.
@@ -216,6 +216,19 @@ MPSKit leg convention ``B_{i-1} \otimes V_i \leftarrow V_i \otimes B_i``.
 
 The third argument selects the bond algorithm: `BipartiteAlgorithm()` (default, lossless minimum
 vertex cover) or `SVDBondAlgorithm(trunc)` with a `MatrixAlgebraKit` truncation strategy.
+
+`SVDBondAlgorithm` has two truncation semantics, chosen by its `sweep` keyword. They agree exactly
+when `trunc === nothing`, and differ only once truncation bites:
+
+| `sweep` | meaning of `truncrank(k)` |
+|---|---|
+| `IndependentSVD` (default) | `k` retained indices **per bond** — every bond is compressed on the raw prefix/suffix classes, independently of its neighbours |
+| `SequentialSVD` | `k` retained indices **after upstream truncation** — each bond is compressed in the basis the previous bond left behind, so an aggressive early truncation can starve the downstream bonds |
+
+```julia
+irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(8)))                        # per-bond
+irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
+```
 
 ## Recommended patterns
 

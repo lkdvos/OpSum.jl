@@ -6,8 +6,14 @@ sweep architecture (see `research/itensor-mpograph-construction.md`), generalize
 (TensorKit `Sector`) ITO machinery.*
 
 New file: `src/operators/irrepgraph.jl` (included between `irreptermtable.jl` and `irrepmpo.jl`).
-The transient-frontier sweeps `_irrep_bipartite` / `_irrep_svd` are **kept unchanged** as the parity
-oracles and as the pinned SVD backend (see §4).
+
+> **Revised again (stage 3).** The transient-frontier oracle `_irrep_bipartite` is **deleted** — §3
+> explains why it was never able to validate the general case — and the two sweeps have been
+> refactored into one skeleton with a pluggable `BondStrategy` (`VertexCover`, `SequentialSVD`,
+> `IndependentSVD`; see `src/algorithms.jl`). `_irrep_svd` became `_irrep_independent_svd` and now
+> shares the class-interning machinery of §2.1. Both SVD semantics are reachable through
+> `SVDBondAlgorithm(trunc; sweep = …)`, closing the §4 follow-up. Every load-bearing `@assert` in the
+> sweep is now an explicit `throw`. No bond dimension changed.
 
 > **Revised.** As first written, the sweep was `Θ(N·M)` — quadratic for a finite-range model whose bond
 > dimension is `O(1)` — because every term was a live right vertex from bond 1 and each term's full
@@ -58,12 +64,15 @@ operate on plain matrices. Non-abelian structure enters only (a) in what makes a
 
 ## 2. The sweep (`_at_site!`, five phases)
 
-Exactly ITensor's `at_site!` (doc §6), sharing phases 1/2/5 between both backends:
+Exactly ITensor's `at_site!` (doc §6), sharing phases 1/2/5 between both graph strategies —
+`_at_site!` is the skeleton and `_bond_basis!(g, i, nU, nV, strategy)` is the only thing that
+dispatches, returning `(nout, site_dict, secW, nextedges_global)`:
 
 1. **Suffix-merge** (`_suffix_merge!`) — merge right vertices "equal from site `i+1` on", by grouping
    the live ones on an `O(1)` suffix signature (§2.1). `Θ(live_i)` per bond.
 2. **Connected components** (`bipartite_connected_components`) — reused verbatim.
-3. **Per-component backend** — VC (`_vc_component`) or SVD; see §3/§4.
+3. **Bond basis** (`_bond_basis!`, the strategy plug point) — per-component VC (`_vc_component`)
+   or a whole-bond SVD; see §3/§4.
 4. **Assemble the bond** — concatenate component ranks (offsets), collecting `secW` charges and the
    forwarded edges.
 5. **Build the next graph** (`_build_next_graph!`) — carry the surviving right vertices over; tag
@@ -73,7 +82,8 @@ Exactly ITensor's `at_site!` (doc §6), sharing phases 1/2/5 between both backen
 **Coefficient flow** matches the transient sweep's covered-U / covered-V rule (handoff §3, doc §6):
 covered-left forwards its edge weights unchanged and emits the bare letter; covered-right resets the
 forwarded weight to 1 and folds `key.op × weight` into the block for every uncovered incident left.
-Component bond-charge purity is `@assert`ed, exactly as `_irrep_bipartite` does.
+Component bond-charge purity is checked per edge (an explicit `throw`, not an `@assert`: it
+guards a silently wrong operator, and `@assert` may be compiled out).
 
 Everything is driven off the sparse adjacency lists: no `nU × nV` coefficient matrix is materialised
 anywhere on the VC path (only `_svd_at_site!` densifies, via `_dense_bond_matrix`, since its per-bond
@@ -207,90 +217,118 @@ Two caveats worth keeping in view. First, `Σ_i E_i` for an all-to-all model is 
 exponent rises `2.69 → 2.91` over `N = 16 → 128` — which is the bound above. Second, with the
 compression linear the *pipeline* is no longer dominated by it — see §5.
 
-## 3. VC backend — `_irrep_graph_bipartite` (default `BipartiteAlgorithm`)
+## 3. `VertexCover` — the default `BipartiteAlgorithm` strategy
 
 Per component, `min_vertex_cover_bipartite` chooses the bond basis (covered-left indices first, then
-covered-right). This is the wired default: `irrep_mpo(H, sites, BipartiteAlgorithm())` now routes
-here.
+covered-right). This is the wired default: `irrep_mpo(H, sites, BipartiteAlgorithm())` routes here.
 
-**Parity:** produces the *same per-sector bond dimensions* and the *same represented operator* as
-`_irrep_bipartite` on every Hamiltonian in the suite (`U1Irrep`, `SU2Irrep`, `Trivial`; K ∈ {0,1,2,3};
-decoupled multi-component bonds; chains up to N=8). The exact per-sector basis choice / bond-index
-ordering may differ (multiple minimum vertex covers of equal size exist), so parity is asserted via
-`mpo_terms` round-trip and reconstructed operators, never raw matrices. The whole suite (2853 tests)
-passes, including `irrep_mpo_tensors` assembly and the `instantiate` dense oracle for K=2/K=3
-non-abelian terms — i.e. the output contract is unchanged.
+**The oracle is gone.** Through stage 2 this sweep was validated differentially against the
+transient-frontier `_irrep_bipartite`: same per-sector bond dimensions and same represented operator
+on every Hamiltonian in the suite (`U1Irrep`, `SU2Irrep`, `Trivial`; K ∈ {0,1,2,3}; decoupled
+multi-component bonds; chains up to N=8). That oracle has now been deleted, for two reasons.
 
-**One asymmetry to know about:** the graph sweep is strictly *more general* than its oracle in the
-non-abelian `K ≥ 2` regime. `_irrep_bipartite` keys a suffix class on `_op_at_ito` alone
-(`_suffix_path`), which omits the running bond charge, so it over-merges two classes that share their
-remaining factors but differ in accumulated charge — and trips its own sector-purity assert. The graph
-sweep handles those (see the `suffix signature needs the running bond charge` testset, which therefore
-checks against `mpo_terms` and the dense oracle rather than against the transient sweep). Consequently
-`reference_hamiltonians()` cannot contain such a case, and parity testing alone does not cover §2.1's
-charge component.
+1. It was `Θ(M·N²)` — it re-materialised a suffix path per strand per bond — and was the main reason
+   `test_irrep_graph` was the slowest file in the suite.
+2. **It was strictly less general than the code it validated.** `_irrep_bipartite` keyed a suffix
+   class on `_op_at_ito` alone (`_suffix_path`), which omits the running bond charge, so in the
+   non-abelian `K ≥ 2` regime it over-merges two classes that share their remaining factors but
+   differ in accumulated charge — and trips its own sector-purity assert. The graph sweep handles
+   those (the `suffix signature needs the running bond charge` testset). Consequently
+   `reference_hamiltonians()` could never contain such a case, and parity testing alone never
+   covered §2.1's charge component.
 
-## 4. SVD backend — `_irrep_graph_svd` (ITensor QR-backend port; not the default)
+What replaces it is stronger, because it does not depend on a second implementation: the `mpo_terms`
+round-trip (exact, at any N, valid for fermions), the `instantiate` dense oracle through the
+assembled `TensorMap`s on the small cases, and — the part a lossless-but-worse compression would slip
+past — **pinned per-bond sector profiles**, charge by charge, for every reference Hamiltonian.
 
-Implemented and lossless-verified, but **`SVDBondAlgorithm` deliberately still routes to
-`_irrep_svd`**. Phases 1/2/5 are shared with the VC step; only the basis choice differs: the whole
+## 4. The two SVD strategies
+
+`SequentialSVD` (the ITensor QR-backend port) rides the persistent graph; `IndependentSVD` cannot,
+and gets its own pass. Both are selected by `SVDBondAlgorithm(trunc; sweep = …)`, defaulting to
+`IndependentSVD` — the historical behaviour.
+
+### 4.1 `SequentialSVD` (`_bond_basis!` on the graph)
+
+Phases 1/2/5 are shared with the VC step; only the basis choice differs: the whole
 bond's scalar coefficient matrix is assembled as a **charge-graded** `TensorMap C : Ppre ← Psuf`
 (block-diagonal in the bond charge, so `svd_trunc` does the per-sector SVD *and* the global
 across-sector truncation at once), the left singular vectors `U` become the compressed bond basis
 (block entry `key.op × U[u,m]`), and `R = S·Vᴴ` forwards the coefficient onto the next bond (folded
 into the block at the last site).
 
-**Why not wired:** lossless, it is at parity with `_irrep_svd` (same operator — verified by
-contracting the assembled tensors against the dense oracle). Under **truncation the two diverge by
-design**: `_irrep_graph_svd` is a *sequential* left-to-right sweep (each bond compressed in the basis
-left by the previous bond, à la ITensor's QR sweep), whereas `_irrep_svd` compresses every bond
-*independently* on the raw prefix/suffix classes. The existing truncation test pins the
-per-bond-independent semantics (e.g. `truncrank(1)` keeps one index *per bond*; the sequential sweep
-instead starves downstream bonds after an aggressive early truncation). Rather than change that
-pinned behaviour, the sequential variant is kept available and documented. **Follow-up:** expose it
-behind a selector once the two truncation semantics are reconciled (or offered as distinct options).
+It seeds with `ITOGraph(tt, N; lazy = false)`: it densifies the bond anyway, so lazy insertion would
+buy nothing while adding a sentinel column for the SVD to carry.
 
-It seeds with `ITOGraph(tt, N; lazy = false)`: it densifies the bond anyway, so lazy insertion would buy
-nothing while adding a sentinel column for the SVD to carry.
+### 4.2 `IndependentSVD` (`_irrep_independent_svd`)
+
+Every bond is compressed on the *raw* prefix/suffix classes, independently of what its neighbours
+kept — which is precisely why it cannot ride the persistent graph, whose invariant is that bond `b`
+is expressed in the basis bond `b-1` left behind. It therefore keeps its own pass, but **not** its
+own class-interning code: prefix classes are `_prefix_ids` (the mirror of §2.1's `_suffix_ids`; no
+charge component is needed on that side, because the prefix factor list fixes the running charge),
+and suffix classes are §2.1's `(sufid, running charge)` signature exactly. Only the current bond's
+`Θ(M)` assignment is held at a time, plus one `interned id → dense column` dictionary per bond —
+replacing the two dense `M × (N-1)` id matrices the old `_irrep_svd` allocated.
+
+### 4.3 The two truncation semantics
+
+Losslessly the two agree: same per-sector bond dimensions on the internal bonds, same operator. (The
+right boundary differs cosmetically — `IndependentSVD` hardcodes it to `unit(I)`, `SequentialSVD`
+reports the true total charge.) Under truncation they diverge **by design**:
+
+| | `truncrank(k)` means |
+|---|---|
+| `IndependentSVD` (default) | `k` indices **per bond** |
+| `SequentialSVD` | `k` indices **after upstream truncation** — an aggressive early truncation starves the downstream bonds |
+
+Neither is more correct; `IndependentSVD` remains the default so that `SVDBondAlgorithm()` and
+`SVDBondAlgorithm(trunc)` keep meaning what they always did.
 
 ## 5. Contract & scope
 
-- Output contract **unchanged**: both graph functions return
-  `(Ws::Vector{SparseMatrixCSC{LocalOp{ComplexF64,IrrepOperator{I}}}}, bondsectors::Vector{Vector{I}})`,
+- Output contract **unchanged**: every strategy returns
+  `(Ws::Vector{SparseMatrixCSC{OnsiteOp{I}, Int}}, bondsectors::Vector{Vector{I}})`,
   consumed by `mpo_terms` and `irrep_mpo_tensors` as-is. `ITOKey.vertex` is threaded through
   `LeftVertex.key`, but is `1` throughout the multiplicity-free K ≤ 2 scope, so `bondsectors`
   (charges only) needs no extension.
 - Reused verbatim: `bipartite_connected_components`, `_op_at_ito`,
   `bondcharges`/`vertexlabels`/`caterpillar_trees`/`_tree_from_bonds`, `_bond_space`/`_deg_indices`,
   `sparse_from_dict`, `increaseindex!`. `min_vertex_cover_bipartite` gained an adjacency-list method
-  (now the primary one; the dense-matrix form is a wrapper for `_irrep_bipartite`).
+  (now the primary one; the dense-matrix form survives as a convenience for callers that only
+  have an adjacency matrix, and is covered by `test_bipartite.jl`).
 - **Follow-ups** (out of scope, as in the handoff): fermionic/JW strings (the omitted `LeftVertex`
-  slot), `GenericFusion` multi-channel (vertex > 1), and wiring the sequential SVD backend (§4).
+  slot) and `GenericFusion` multi-channel (vertex > 1). Wiring the sequential SVD backend is done
+  (§4.3).
 - **New bottleneck.** With the compression linear, symbolic `TermSum` accumulation is now the dominant
   cost for finite-range models: building an `N = 8192` Heisenberg chain takes ~0.87 s against ~0.06 s
   to compress it, and it measures ~`N^1.45` over `N = 256 … 8192` rather than the `Θ(M log M)` the
   pairwise `sum` should give. That is `TermSum` addition (hashing `TermKey`s that carry a
   `Vector{Int}` of sites, a vector of ops and a `FusionTree`), not the sweep — worth its own pass.
-- `_irrep_bipartite` (the oracle) is still `Θ(M·N²)` — it re-materialises a suffix path per strand per
-  bond — and `_irrep_svd` still allocates two dense `M × (N-1)` matrices. Neither is on the default
-  path; both are why `test_irrep_graph` is the slowest test file.
+- `_irrep_independent_svd` is still `Θ(M·N)` in time (every bond re-classifies every term), which is
+  intrinsic to compressing each bond independently. It no longer allocates the two dense
+  `M × (N-1)` id matrices.
 
 ## 6. Tests
 
 `test/test_irrep_graph.jl` (standalone, discovered by `ParallelTestRunner`):
-- `graph VC ≡ transient-frontier bipartite` — identical per-sector bond dims + identical operator +
-  lossless round-trip across all reference Hamiltonians. Those now include the §2.2 collision in all
-  three sectors (`SU2 K=3 tail collides with on-site field`, `U1 charge-0 on-site collides with
-  two-site tail`, `trivial on-site collides with two-site tail`) plus the boundary shapes `SU2 no term
-  starts at site 1` and `SU2 first active site == N`.
-- `public BipartiteAlgorithm selector uses the graph path`.
-- `graph SVD (lossless) reconstructs the operator` — via assembled-tensor contraction vs the dense
+- `VertexCover sweep — lossless, dense-exact, pinned bond sectors` — for every reference Hamiltonian:
+  the `mpo_terms` round-trip, the **pinned per-bond charge profile** (`EXPECTED_BONDS`), and, on the
+  N ≤ 3 dim-1-total-charge cases, the assembled tensors contracted against the `instantiate` dense
+  oracle. The reference list includes the §2.2 collision in all three sectors (`SU2 K=3 tail collides
+  with on-site field`, `U1 charge-0 on-site collides with two-site tail`, `trivial on-site collides
+  with two-site tail`) plus the boundary shapes `SU2 no term starts at site 1` and `SU2 first active
+  site == N`.
+- `the default selector is BipartiteAlgorithm / VertexCover`.
+- `SequentialSVD (lossless) reconstructs the operator` — via assembled-tensor contraction vs the dense
   oracle (N ≤ 3, dim-1-total-charge cases).
-- `K=0 identity terms` — checked via per-sector bond dims + the `mpo_terms` round-trip rather than the
-  dense oracle, because `instantiate` cannot represent a `TermSum` mixing K=0 and K>0 terms (a
+- `the two lossless SVD sweeps agree on the internal bonds`.
+- `K=0 identity terms` — checked via the pinned bond profile + the `mpo_terms` round-trip rather than
+  the dense oracle, because `instantiate` cannot represent a `TermSum` mixing K=0 and K>0 terms (a
   pre-existing limitation of the oracle, not of the sweep).
 - `pending suffix class can collide with a started one` — the sharp guard for §2.2: pins the minimal
-  counterexample's `[1, 1, 1]`, which a naive lazy scheme reports as `[2, 2, 1]`.
+  counterexample's `[1, 1, 1]`, which a naive lazy scheme reports as `[2, 2, 1]`, and contracts the
+  result against the dense oracle.
 - `incremental suffix-merge on a longer chain` (N=8) and `live right vertices stay bounded
   independently of N` — the peak live right-vertex count is equal at N=5/20/80 and `Σ_i live_i ≤ 4N`.
   (Under lazy insertion the count is *not* monotone any more, since terms enter mid-sweep; the bound is

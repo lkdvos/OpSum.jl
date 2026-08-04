@@ -347,11 +347,15 @@ Neither is more correct; `IndependentSVD` remains the default so that `SVDBondAl
 - **Follow-ups** (out of scope, as in the handoff): fermionic/JW strings (the omitted `LeftVertex`
   slot) and `GenericFusion` multi-channel (vertex > 1). Wiring the sequential SVD backend is done
   (§4.3).
-- **New bottleneck.** With the compression linear, symbolic `TermSum` accumulation is now the dominant
-  cost for finite-range models: building an `N = 8192` Heisenberg chain takes ~0.87 s against ~0.06 s
-  to compress it, and it measures ~`N^1.45` over `N = 256 … 8192` rather than the `Θ(M log M)` the
-  pairwise `sum` should give. That is `TermSum` addition (hashing `TermKey`s that carry a
-  `Vector{Int}` of sites, a vector of ops and a `FusionTree`), not the sweep — worth its own pass.
+- **New bottleneck — since fixed.** With the compression linear, symbolic `TermSum` accumulation
+  became the dominant cost for finite-range models: building an `N = 8192` Heisenberg chain took
+  ~0.83 s against ~0.05 s to compress it, measuring `N^1.3` for `sum([...])` and `N^2.3` for
+  `reduce(+, generator)` over `N = 512 … 8192`. That was `TermSum` addition — a
+  `Dictionary{TermKey, coeff}` rebuilt from scratch on every `+`, hashing keys that carry a
+  `Vector{Int}` of sites, a vector of ops and a `FusionTree` — not the sweep. It has since been
+  replaced by an append-only column store whose columns are the `(site, ITOKey)` factors the term
+  table already wanted, with the normal form taken once and lazily; assembly is now linear in `M`
+  for every accumulation pattern.
 - `_irrep_independent_svd` is still `Θ(M·N)` in time (every bond re-classifies every term), which is
   intrinsic to compressing each bond independently. It no longer allocates the two dense
   `M × (N-1)` id matrices.

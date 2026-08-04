@@ -20,10 +20,11 @@ include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 # H = J \frac{\pi^2}{N^2} \sum_{n < m} \frac{\vec{S}_n \cdot \vec{S}_m}{\sin^2\!\left(\pi (n-m)/N\right)}
 # ```
 #
-# An all-to-all model on ``N`` sites has ``\binom{N}{2}`` terms, so the accumulation pattern matters
-# a great deal here. Collecting the terms into a `Vector` and calling `sum` is ``O(M \log M)``;
-# writing `reduce(+, generator)` instead folds left and rebuilds the term dictionary at every step,
-# which is ``O(M^2)`` — at ``N = 120`` that is the difference between 0.75 s and 6.9 s.
+# An all-to-all model on ``N`` sites has ``\binom{N}{2}`` terms, so this is where symbolic
+# accumulation is felt. A `TermSum` is an append-only column store — `+` concatenates and the normal
+# form is taken once, lazily — so accumulating ``M`` terms is ``\Theta(M)`` however you write it,
+# `sum([...])`, `sum(generator)` or `reduce(+, generator)` alike. (It was not always: `+` used to
+# rebuild a term dictionary, which made a left fold quadratic.)
 
 V = SU2Space(1 // 2 => 1)
 S = spin(V)

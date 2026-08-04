@@ -154,6 +154,9 @@ function project(
     all(i -> sitev[i] < sitev[i + 1], 1:(K - 1)) || throw(
         ArgumentError("project: `sites` must be strictly increasing (sorted and unique), got $sitev")
     )
+    eltype(sitev) <: Integer || throw(
+        ArgumentError("project: site labels must be lattice indices (`Integer`), got $(eltype(sitev))")
+    )
 
     I = sectortype(h)
     FusionStyle(I) isa GenericFusion && throw(
@@ -179,22 +182,28 @@ function project(
     θ = max(float(atol), float(rtol) * hnorm)
     coeffs, ncand = _ito_coefficients(hc, Vs, tot, θ)
 
-    S = eltype(sitev)
-    terms = Dictionary{TermKey{I, S}, ComplexF64}()
-    local_terms = Dictionary{TermKey{I, Int}, ComplexF64}()
+    # Emit the surviving candidates as term-list columns: a caterpillar tree *is* its per-position
+    # running bond charges plus vertex labels (`bondcharges`/`vertexlabels`), which is what an
+    # `ITOKey` carries. Candidates are distinct by construction, so nothing accumulates.
+    intsites = Int[Int(s) for s in sitev]
     local_sites = collect(1:K)
+    buf = TermBuffer{I}(K)
+    localbuf = TermBuffer{I}(K)
+    _sizehint!(buf, length(coeffs))
+    _sizehint!(localbuf, length(coeffs))
     for (ops, tree, c) in coeffs
-        # candidates are distinct by construction, so no accumulation is needed
-        insert!(terms, TermKey{I, S}(sitev, ops, tree), c)
-        insert!(local_terms, TermKey{I, Int}(local_sites, ops, tree), c)
+        bonds, verts = bondcharges(tree), vertexlabels(tree)
+        keys = ITOKey{I}[ITOKey{I}(ops[j], bonds[j], verts[j]) for j in 1:K]
+        pushcol!(buf, intsites, keys, c)
+        pushcol!(localbuf, local_sites, keys, c)
     end
 
-    # Faithfulness: recompute the operator from the emitted keys alone. This is a genuinely
+    # Faithfulness: recompute the operator from the emitted columns alone. This is a genuinely
     # independent pass through the forward map, so it also catches a wrong `g` or a misassigned tree.
-    resid = if isempty(local_terms)
+    resid = if iszero(localbuf.n)
         hnorm
     else
-        norm(hc - instantiate(TermSum{I, Int, ComplexF64}(local_terms), Vs))
+        norm(hc - instantiate(TermList(localbuf), Vs))
     end
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, ncand)) * hnorm
     resid <= θ + slack || throw(
@@ -204,7 +213,7 @@ function project(
         )
     )
 
-    return TermSum{I, S, ComplexF64}(terms)
+    return TermList(buf)
 end
 
 """
@@ -238,9 +247,9 @@ function project(
 
     I = sectortype(V)
     ts = project(O, (1,); atol, rtol)
-    isempty(ts.terms) && return zero(OnsiteOp{I})
-    letters = IrrepOperator{I}[only(k.ops) for k in keys(ts.terms)]
-    coeffs = ComplexF64[v for v in values(ts.terms)]
+    isempty(ts) && return zero(OnsiteOp{I})
+    letters = IrrepOperator{I}[only(k.ops) for k in keys(ts)]
+    coeffs = ComplexF64[v for v in values(ts)]
     return OnsiteOp{I}(letters, coeffs)
 end
 

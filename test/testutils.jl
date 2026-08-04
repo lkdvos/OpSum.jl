@@ -16,7 +16,7 @@ using TensorKit: dim
 LO(x) = OnsiteOp(x)
 
 # The single `(TermKey, coeff)` pair of a one-term `TermSum`.
-onlyterm(ts::TermSum) = only(pairs(ts.terms))
+onlyterm(ts::TermSum) = only(pairs(ts))
 
 # Densify a `TensorMap` operator to a matrix: drop the dim-1 (boundary / charge) legs, keep the 2N
 # physical axes ordered [out_1..N, in_1..N], and reorder to the kron index convention.
@@ -37,7 +37,5 @@ densedim(secs, b) = sum(dim(c) for c in secs[b])
 # Says nothing after a *truncating* `SVDBondAlgorithm`, which is lossy by construction.
 function islossless(H::TermSum, sites, alg...)
     Ws, secs = irrep_mpo(H, sites, alg...)
-    back = mpo_terms(Ws, secs)
-    Set(keys(back.terms)) == Set(keys(H.terms)) || return false
-    return all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+    return mpo_terms(Ws, secs) ≈ H
 end

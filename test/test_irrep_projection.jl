@@ -361,8 +361,7 @@ end
 
             # faithful at the reduced level
             back = mpo_terms(Ws, secs)
-            @test Set(keys(back.terms)) == Set(keys(H.terms))
-            @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+            @test back ≈ H
 
             # and the assembled tensors contract to the operator
             T = irrep_mpo_tensors(Ws, secs, sites)

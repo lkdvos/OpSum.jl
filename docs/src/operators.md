@@ -19,14 +19,14 @@ Three types carry the whole interface:
 | Type | What it is | How you get one |
 |---|---|---|
 | [`OnsiteOp`](@ref OpSum.OnsiteOp) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`scalarop`](@ref OpSum.scalarop) |
-| [`TermSum`](@ref OpSum.TermSum) | a sum of sited, fusion-coupled terms — the Hamiltonian | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, `+`, `*` |
+| [`TermSum`](@ref OpSum.TermSum) | a sum of sited, fusion-coupled terms — the Hamiltonian, optionally bound to its lattice | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, `+`, `*`, [`onlattice`](@ref OpSum.onlattice) |
 | `(Ws, bondsectors)` | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
 list. The full surface is `IrrepOperator`, `spin`, `scalarop`, `project`, `matrixunit`, `TermSum`,
-`couple`, `irrep_mpo`, `irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`, `instantiate`,
-`BipartiteAlgorithm`, `SVDBondAlgorithm` and the bond-basis strategies `VertexCover`,
-`IndependentSVD`, `SequentialSVD`.
+`couple`, `onlattice`, `lattice`, `irrep_mpo`, `irrep_mpo_tensors`, `jordan_mpo_tensors`,
+`mpo_terms`, `instantiate`, `BipartiteAlgorithm`, `SVDBondAlgorithm` and the bond-basis strategies
+`VertexCover`, `IndependentSVD`, `SequentialSVD`.
 
 Note that `dot` (for the Cartesian `Sᵢ·Sⱼ`) is `LinearAlgebra.dot`, so that one still needs
 `using LinearAlgebra: dot`.
@@ -139,7 +139,7 @@ cop = matrixunit(Vf, FermionNumber(0), FermionNumber(1))
 cdag = matrixunit(Vf, FermionNumber(1), FermionNumber(0))
 
 H4 = couple(cdag[1], cop[2], cdag[3], cop[4])       # charge-neutral four-fermion term
-total(only(keys(H4.terms)))
+total(only(keys(H4)))
 ```
 
 Under a non-abelian symmetry the intermediates are real freedom, so the variadic form throws and you
@@ -177,7 +177,7 @@ hbond = OpSum.instantiate(
 )
 
 Hxxz = sum([project(hbond, [i, i + 1]) for i in 1:5])
-length(Hxxz.terms)
+length(Hxxz)
 ```
 
 Two accepted shapes, with `K = length(sites) = numout(h)`:
@@ -217,6 +217,29 @@ MPSKit leg convention ``B_{i-1} \otimes V_i \leftarrow V_i \otimes B_i``.
 
 The third argument selects the bond algorithm: `BipartiteAlgorithm()` (default, lossless minimum
 vertex cover) or `SVDBondAlgorithm(trunc)` with a `MatrixAlgebraKit` truncation strategy.
+
+### Carrying the lattice
+
+Placement cannot know the lattice — `A[i]` sees one space and no system size — so a term sum starts
+out unbound and `irrep_mpo(H, sites)` binds it on the way in. That binding is also the only place
+where the operators and the spaces you are compressing them with are ever confronted: every letter is
+checked against the space of the site it sits on, and every term against `1:length(sites)`.
+
+You can do it once, up front, and then stop passing `sites` around:
+
+```@example ops
+Hlat = onlattice(Hxxz, sites)
+lattice(Hlat) == sites
+```
+
+```@example ops
+Ws2, secs2 = irrep_mpo(Hlat)       # no second argument
+map(length, secs2) == map(length, secs)
+```
+
+`instantiate(H)` and `jordan_mpo_tensors(H)` do the same. Model builders are the natural place for
+this — return the bound `H` rather than an `(H, sites)` tuple. Rebinding to a *different* lattice is
+an error, which is the point.
 
 `SVDBondAlgorithm` has two truncation semantics, chosen by its `sweep` keyword. They agree exactly
 when `trunc === nothing`, and differ only once truncation bites:
@@ -273,13 +296,16 @@ code is a latent bug. Go through `matrixunit`, `spin` or `project`.
 **Hoist local operators out of the term loop.** `spin(V)` recomputes its normalization on every
 call, and `matrixunit` runs a projection. Build them once.
 
-**Collect terms into a `Vector`, then `sum`.** Never `reduce(+, generator)`: adding two `TermSum`s
-rebuilds the underlying dictionary, so folding over a generator is quadratic in the number of terms.
-`sum([...])` reduces pairwise and avoids that.
+**Accumulate terms however reads best.** A `TermSum` is an append-only column store: `+`
+concatenates and the normal form (coincident terms summed, cancelled ones dropped) is taken once,
+lazily, when the term set is first observed. So `sum([...])`, `sum(generator)` and
+`reduce(+, generator)` are all linear in the number of terms — collecting into a `Vector` first is
+still marginally the fastest (`sum` of a vector is a single pass with one allocation) but it is no
+longer the difference between seconds and minutes it used to be.
 
 ```julia
 Sop = spin(Vphys)                                        # hoisted out of the loop
-H = sum([J * dot(Sop[i], Sop[j]) for (i, j) in bonds])   # a Vector, not reduce(+, generator)
+H = sum([J * dot(Sop[i], Sop[j]) for (i, j) in bonds])
 ```
 
 **Build a bond block once, project per bond.** `project` is cheap for local blocks (well under a
@@ -300,9 +326,8 @@ Three checks, in increasing cost:
 
 ```@example ops
 # 1. Faithfulness — cheap, symbolic, valid at any N and for any sector including fermionic.
-back = mpo_terms(Ws, secs)
-Set(keys(back.terms)) == Set(keys(Hxxz.terms)) &&
-    all(back.terms[k] ≈ Hxxz.terms[k] for k in keys(Hxxz.terms))
+#    `≈` on two term sums compares the canonical term sets exactly and the coefficients approximately.
+mpo_terms(Ws, secs) ≈ Hxxz
 ```
 
 ```@example ops

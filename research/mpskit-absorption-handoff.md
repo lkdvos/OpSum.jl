@@ -47,6 +47,9 @@ Nine commits on `cleanup`, plus one on the MPSKit side:
   8ec7f9b7   Accept Jordan-ordered SparseBlockTensorMaps, boundaries included
 ```
 
+`cleanup` is pushed to `lkdvos/OpSum.jl`. The MPSKit commit is deliberately **local only** — its sole
+remote is the shared `QuantumKitHub/MPSKit.jl`, and getting it there is a human call (see §3.1).
+
 Dependencies: TensorKit, BlockTensorKit, MatrixAlgebraKit, VectorInterface, SparseArrays,
 Dictionaries, LinearAlgebra — all of which MPSKit already has except `Dictionaries`.
 

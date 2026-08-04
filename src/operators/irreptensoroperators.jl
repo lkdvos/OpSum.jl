@@ -2,7 +2,7 @@ module IrrepTensorOperators
 
 export IrrepOperator
 
-using OpSum: OperatorBasis, LocalOp
+using OpSum: OperatorBasis
 import OpSum: instantiate
 using TensorKit
 using VectorInterface
@@ -102,9 +102,9 @@ Base.hash(x::IrrepOperator, h::UInt) = hash(_key(x), hash(:IrrepOperator, h))
 # The scalar field follows the sector's topological data via `sectorscalartype(I)`, promoted to a
 # *complex* floating field: real/integer topological data (e.g. SU(2), U(1), trivial) gives
 # `ComplexF64`, matching the coefficient type the rest of the term algebra / MPO pipeline works in;
-# genuinely anyonic (complex F-symbol) sectors keep their complex field. Staying complex avoids
-# `LocalOp{Float64}`/`LocalOp{ComplexF64}` mismatches in the symbolic algebra. The bare
-# (sector-free) type falls back to `ComplexF64`.
+# genuinely anyonic (complex F-symbol) sectors keep their complex field. Staying complex means the
+# on-site and reduced-coefficient arithmetic is uniformly `ComplexF64`, with no real/complex
+# promotion to track. The bare (sector-free) type falls back to `ComplexF64`.
 VectorInterface.scalartype(::Type{IrrepOperator{I}}) where {I <: Sector} = complex(float(sectorscalartype(I)))
 VectorInterface.scalartype(::Type{<:IrrepOperator}) = ComplexF64
 Base.isreal(::Type{<:IrrepOperator}) = false

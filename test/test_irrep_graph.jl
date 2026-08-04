@@ -250,8 +250,9 @@ end
     # tripping its own purity assert. The graph sweep is strictly more general in this regime, so the
     # check is against `mpo_terms` and the dense oracle rather than against the transient sweep.
     V = SU2Space(1 // 2 => 1)
-    z, s = LO.(instances(IrrepOperator, V))          # charge-0 and charge-1 letters
-    @test z.c == SU2Irrep(0) && s.c == SU2Irrep(1)
+    zl, sl = instances(IrrepOperator, V)             # charge-0 and charge-1 letters
+    @test zl.c == SU2Irrep(0) && sl.c == SU2Irrep(1)
+    z, s = LO(zl), LO(sl)
     N = 4
     sites = fill(V, N)
     H = couple(z[1], s[4]; to = SU2Irrep(1)) + 2.0 * couple(s[1], s[4]; to = SU2Irrep(1))

@@ -15,3 +15,6 @@ Background notes and algorithm studies that inform OpSum.jl's development. Not p
 - [port-handoff.md](port-handoff.md) — the original handoff prompt for that port. Historical: useful
   for *why* things are scoped the way they are (what was deliberately left out), not as a
   description of the code as it now stands.
+- [onsite-products.md](onsite-products.md) — why the symbolic `Prod`/`Pow` scaffolding was removed,
+  what still works today (build the product as a `TensorMap` and `project` it), and what adding
+  symbolic on-site products back would actually require.

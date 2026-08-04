@@ -371,7 +371,7 @@ end
 function _vc_component(
         g::ITOGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int
     ) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = OnsiteOp{I}
     N = g.N
     nus, nvs = length(us), length(vs)
 
@@ -620,7 +620,7 @@ end
 # right vertices and tagging fresh left vertices with the outgoing bond index as `link`. Returns
 # `(Ws_i, secW_i)` and mutates `g` into the graph for bond `i → i+1`.
 function _at_site!(g::ITOGraph{I}, i::Int) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = OnsiteOp{I}
 
     nU, nV = _prepare_bond!(g, i)
     us_of_comp, vs_of_comp = bipartite_connected_components(g.radj, nV)
@@ -657,12 +657,12 @@ end
     _irrep_graph_bipartite(tt::ITOTermTable{I}, N) -> (Ws, bondsectors)
 
 Persistent-graph, minimum-vertex-cover reduced-MPO sweep — the ITensor `at_site!` port. Produces the
-same `(Ws::Vector{SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}, Int}}, bondsectors::Vector{
+same `(Ws::Vector{SparseMatrixCSC{OnsiteOp{I}, Int}}, bondsectors::Vector{
 Vector{I}})` contract as `_irrep_bipartite`, so `mpo_terms` / `irrep_mpo_tensors` consume it
 unchanged.
 """
 function _irrep_graph_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = OnsiteOp{I}
     nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
     g = ITOGraph(tt, N)
@@ -684,7 +684,7 @@ end
 # `(link, m)` block; the residual `R = S·Vᴴ` forwards the coefficient onto the next bond's edges
 # (folded into the block at the last site). Mutates `g` into the graph for bond `i → i+1`.
 function _svd_at_site!(g::ITOGraph{I}, i::Int, truncstrat) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = OnsiteOp{I}
     N = g.N
 
     nU, nV = _prepare_bond!(g, i)
@@ -795,7 +795,7 @@ preserve the pinned per-bond-independent truncation semantics; wiring this seque
 selector (and choosing between the two truncation semantics) is a documented follow-up.
 """
 function _irrep_graph_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = OnsiteOp{I}
     nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
     truncstrat = something(trunc, trunctol(rtol = eps(Float64)))

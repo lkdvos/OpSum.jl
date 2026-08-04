@@ -20,7 +20,7 @@ using .IrrepTensorOperators: IrrepOperator
 
 Compress the ITO Hamiltonian `H` over `N = length(sites)` lattice sites into a reduced MPO.
 
-Returns `Ws::Vector{SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}, Int}}` (one reduced bond
+Returns `Ws::Vector{SparseMatrixCSC{OnsiteOp{I}, Int}}` (one reduced bond
 matrix per site; entries are ITO letters times reduced coefficients) and `bondsectors::Vector{
 Vector{I}}` where `bondsectors[i]` gives the bond charge of each bond index to the right of site
 `i` (so `size(Ws[i], 2) == length(bondsectors[i])`). The left boundary (bond 0) is a single
@@ -59,7 +59,7 @@ For the lossless bipartite compression this recovers the original `TermSum` exac
 faithfulness check.
 """
 function mpo_terms(
-        Ws::Vector{<:SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}}},
+        Ws::Vector{<:SparseMatrixCSC{OnsiteOp{I}}},
         bondsectors::Vector{Vector{I}}
     ) where {I}
     N = length(Ws)
@@ -80,8 +80,7 @@ function mpo_terms(
         for (idx, localop) in storedpairs(Ws[i])
             l, r = Tuple(idx)
             l == leftidx || continue
-            for (letter, c) in _local_terms(localop)
-                letter === nothing && continue
+            for (letter, c) in pairs(localop)
                 # record the outgoing bond charge for active (non-pass-through) letters — these are
                 # the caterpillar running bonds `[b₁ … b_K]`
                 newbonds = ispassthrough(letter) ? bonds : push!(copy(bonds), bondsectors[i][r])
@@ -148,7 +147,7 @@ transition weighted by `coeff`, coupling the operator charge into the bond via t
 fusion `b_L ⊗ c → b_R`.
 """
 function irrep_mpo_tensors(
-        Ws::Vector{<:SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}}},
+        Ws::Vector{<:SparseMatrixCSC{OnsiteOp{I}}},
         bondsectors::Vector{Vector{I}}, sites
     ) where {I}
     N = length(Ws)
@@ -189,8 +188,7 @@ function irrep_mpo_tensors(
             l, r = Tuple(idx)
             bL, dL = secL[l], degL[l]
             bR, dR = secR[r], degR[r]
-            for (letter, coeff) in _local_terms(localop)
-                letter === nothing && continue
+            for (letter, coeff) in pairs(localop)
                 c = letter.c
                 # V ← V ⊗ Vect[c]; pass-through (c = unit) carries a trivial charge leg so the
                 # bond contraction is uniform (instantiate would drop it, returning bare id(V)).
@@ -209,8 +207,8 @@ function irrep_mpo_tensors(
                 f1 = get!(() -> only(fusiontrees((bL, c), bR, (false, false))), f1s, (bL, c, bR))
                 f2 = get!(() -> only(fusiontrees((bR,), bR, (false,))), f2s, bR)
                 # `(l, r)` determines `(bL, dL, bR, dR)` and the letter fixes `c`, so distinct stored
-                # entries always address distinct slots; the `+=` only matters if `_local_terms`
-                # returns one letter twice for a single entry.
+                # entries always address distinct slots; the `+=` only matters if an `OnsiteOp`
+                # carries one letter twice, which `+` prevents.
                 _add_coupler_coeff!(κ, f1, f2, dL, dR, coeff)
             end
         end

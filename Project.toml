@@ -5,7 +5,6 @@ authors = ["Lukas Devos <ldevos98@gmail.com> and contributors"]
 
 [deps]
 Dictionaries = "85a47980-9c8c-11e8-2b9f-f7ca1fa99fb4"
-LightSumTypes = "f56206fc-af4c-5561-a72a-43fe2ca5a923"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MatrixAlgebraKit = "6c742aac-3347-4629-af66-fc926824e5e4"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
@@ -14,7 +13,6 @@ VectorInterface = "409d34a3-91d5-4945-b6ec-7529ddf182d8"
 
 [compat]
 Dictionaries = "0.4.3"
-LightSumTypes = "5.2.0"
 LinearAlgebra = "1.0"
 MatrixAlgebraKit = "0.6"
 SparseArrays = "1"

@@ -93,7 +93,7 @@ end
 
 @testset "fermionic sign is required" begin
     # Flipping the h.c. sign must break hermiticity -- otherwise the check above proves nothing.
-    F = ShowcaseModels.fermion_ops()
+    F = fermion_ops()
     V = ShowcaseModels.FERMION_MODE
     N = 6
     sites = fill(V, N)
@@ -146,13 +146,12 @@ end
 
     Vu = Rep[U₁](0 => 1, 1 => 1)
     dn, up = U1Irrep(0), U1Irrep(1)
-    Sp, Sm = matrixunit(Vu, up, dn), matrixunit(Vu, dn, up)
-    Sz = (matrixunit(Vu, up, up) - matrixunit(Vu, dn, dn)) / 2
+    S = spin_ops(Vu, up, dn)
     z = unit(U1Irrep)
     Hu = sum(
         [
-            0.5 * couple(Sp[i], Sm[i + 1]; to = z) + 0.5 * couple(Sm[i], Sp[i + 1]; to = z) +
-                couple(Sz[i], Sz[i + 1]; to = z) for i in 1:(L - 1)
+            0.5 * couple(S.Sp[i], S.Sm[i + 1]; to = z) + 0.5 * couple(S.Sm[i], S.Sp[i + 1]; to = z) +
+                couple(S.Sz[i], S.Sz[i + 1]; to = z) for i in 1:(L - 1)
         ]
     )
     a, b = spectrum(Hs, ss), spectrum(Hu, fill(Vu, L))

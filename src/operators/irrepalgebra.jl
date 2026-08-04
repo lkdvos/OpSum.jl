@@ -41,14 +41,25 @@ end
 
 # Named accessors
 # ---------------
+const _SPIN_CACHE = Dict{ElementarySpace, Any}()
+
 """
     spin(V::ElementarySpace)
 
 The SU(2) rank-1 vector operator on a single-sector SU(2) space `V`, normalized so `spin(V)[i] ·
 spin(V)[j]` densifies to the Cartesian `Sˣ⊗Sˣ + Sʸ⊗Sʸ + Sᶻ⊗Sᶻ`. Concretely
 `spin(V) = √(s(s+1)(2s+1)) · IrrepOperator(SU2Irrep(1), 1)` (the reduced matrix element).
+
+Memoised per space, so calling it inside a term loop is a dictionary lookup. See also
+[`spin_ops`](@ref) for the U(1)-graded `(Sp, Sm, Sz)` form.
 """
 function spin(V::ElementarySpace)
+    return _cached(_SPIN_CACHE, V) do
+        _spin(V)
+    end
+end
+
+function _spin(V::ElementarySpace)
     sectortype(V) === SU2Irrep ||
         throw(ArgumentError("spin(V) requires an SU(2)-graded space, got $(sectortype(V))"))
     length(collect(sectors(V))) == 1 ||

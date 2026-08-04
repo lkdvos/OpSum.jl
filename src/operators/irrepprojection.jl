@@ -257,8 +257,19 @@ c  = matrixunit(V, vac, occ)   # annihilation
 cd = matrixunit(V, occ, vac)   # creation
 n  = matrixunit(V, occ, occ)   # number
 ```
+
+Memoised per `(V, out, in)`, so the projection is paid once even when this is called inside a term
+loop. [`fermion_ops`](@ref) and [`spin_ops`](@ref) bundle the sets above.
 """
 function matrixunit(V::ElementarySpace, out::I, in::I) where {I <: Sector}
+    return _cached(_MATRIXUNIT_CACHE, (V, out, in)) do
+        _matrixunit(V, out, in)
+    end
+end
+
+const _MATRIXUNIT_CACHE = Dict{Tuple{ElementarySpace, Sector, Sector}, Any}()
+
+function _matrixunit(V::ElementarySpace, out::I, in::I) where {I <: Sector}
     dim(out) == 1 && dim(in) == 1 ||
         throw(ArgumentError("matrixunit requires one-dimensional sectors, got $out and $in"))
     dim(V, out) == 1 && dim(V, in) == 1 ||

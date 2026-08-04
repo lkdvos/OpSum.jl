@@ -12,7 +12,8 @@
 # * `irrep_mpo_tensors` — assemble the symmetric MPO `TensorMap`s.
 
 using SparseArrays: SparseMatrixCSC
-using TensorKit: Vect, ElementarySpace, fusiontrees, permute, dim, unit, isomorphism, @tensor
+using TensorKit: Vect, ElementarySpace, fusiontrees, permute, dim, unit, isomorphism, @tensor,
+    ncon, removeunit
 using .IrrepTensorOperators: IrrepOperator
 
 """
@@ -214,4 +215,51 @@ function irrep_mpo_tensors(
         end
         return W
     end
+end
+
+# Verification
+# ============
+# The two checks every construction wants, previously hand-rolled in `test/testutils.jl`,
+# `examples/common.jl` and `docs/src/operators.md` — three copies of `islossless` and three of
+# `mpo_tensormap`'s `ncon` network.
+
+"""
+    islossless(H::TermSum, sites[, alg]) -> Bool
+
+Whether the compressed MPO reproduces `H` exactly: reconstruct the term sum the reduced MPO generates
+with [`mpo_terms`](@ref) and compare it against `H`, term *set* exactly and coefficients
+approximately.
+
+This is the primary correctness check for a construction — cheap, purely symbolic, independent of `N`,
+and valid for fermionic sectors, where densifying is not a well-defined operation.
+
+Only meaningful for lossless compression: after a truncating [`SVDBondAlgorithm`](@ref) `false` is the
+expected answer rather than a bug.
+"""
+function islossless(H::TermSum, args...)
+    Ws, secs = irrep_mpo(H, args...)
+    back = mpo_terms(Ws, secs)
+    Set(keys(back.terms)) == Set(keys(H.terms)) || return false
+    return all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+end
+
+"""
+    mpo_tensormap(Ts::AbstractVector) -> AbstractTensorMap
+
+Contract a chain of MPO site tensors — as [`irrep_mpo_tensors`](@ref) returns them, or
+[`jordan_mpo_tensors`](@ref) after `map(TensorMap, ·)` — into the single `N`-site operator, in
+[`instantiate`](@ref)'s leg convention: codomain `o₁…o_N`, domain `i₁…i_N` and the trailing
+total-charge leg. The trivial left boundary bond is dropped.
+
+The tensor-level oracle, `mpo_tensormap(irrep_mpo_tensors(irrep_mpo(H, sites)..., sites)) ≈
+instantiate(H, sites)`. Exponential in `N`, so small systems only — but it stays inside TensorKit and
+never materialises a dense array, so unlike `convert(Array, ·)` it is valid for fermionic sectors.
+"""
+function mpo_tensormap(Ts::AbstractVector)
+    N = length(Ts)
+    N >= 1 || throw(ArgumentError("mpo_tensormap: need at least one site tensor"))
+    net = [[i == 1 ? -(2N + 1) : i - 1, -i, -(N + i), i == N ? -(2N + 2) : i] for i in 1:N]
+    O = ncon(Ts, net)                # legs: o₁…o_N, i₁…i_N, bL, bR
+    O = removeunit(O, 2N + 1)        # drop the trivial left boundary
+    return permute(O, (ntuple(identity, N), (ntuple(i -> N + i, N)..., 2N + 1)))
 end

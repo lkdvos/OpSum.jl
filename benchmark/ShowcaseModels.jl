@@ -19,7 +19,9 @@ export ModelSpec, MODELS, model_metrics, logsizes
 # benchmark driver) get them from this one module.
 export siteindex, cylinder_bonds, ladder_bonds
 export bonddim, densedim, maxbonddim, maxdensedim, build
-export islossless, mpo_tensormap, mpo_matches_oracle, spectrum, hermiticity_error
+export mpo_matches_oracle, spectrum, hermiticity_error
+# ...and OpSum's own verification helpers and operator builders, so a dependent needs one `using`.
+export islossless, mpo_tensormap, spin_ops, fermion_ops
 
 # ── Model builders ────────────────────────────────────────────────────────────
 # Each returns `(H::TermSum, sites)`. Note the two performance idioms used throughout: the local
@@ -75,16 +77,6 @@ function cylinder_su2(N; Ly = 4, periodic_y = true, J = 1.0)
 end
 
 const FERMION_MODE = Vect[FermionNumber](0 => 1, 1 => 1)
-
-"Named single-letter operators of a spinless fermionic mode."
-function fermion_ops(V = FERMION_MODE)
-    vac, occ = FermionNumber(0), FermionNumber(1)
-    return (
-        c = matrixunit(V, vac, occ),
-        cd = matrixunit(V, occ, vac),
-        n = matrixunit(V, occ, occ),
-    )
-end
 
 # `couple` is strictly left-to-right, so the h.c. partner of `c†_i c_{i+1}` must be written as
 # `-c_i c†_{i+1}`: anticommuting `c†_{i+1} c_i` into site order costs a sign.

@@ -48,6 +48,7 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
    - `project(h, sites)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning a `TermSum`. `project(O, V)` is the single-site form, returning a `SiteOperator`. This is the inverse of `instantiate` and the intended way to write operators down — hard-coding letter indices `(c, n)` is fragile because `n` follows TensorKit's block order.
    - The candidate basis `(ops, tree)` is orthogonal and complete, with the closed-form diagonal `inner(E,E) = dim(tot) / Π_k dim(c_k)`, so coefficients are plain inner products — no solve. Coefficients below tolerance are dropped and the result is re-materialized and checked against the input (throws if unfaithful).
    - `matrixunit(V, out, in)`: `|out⟩⟨in|` as a `SiteOperator`, for abelian/fermionic spaces.
+   - **Operator builders** — `src/operators/builders.jl`: `spin_ops(V, sectors)` → `(; Sp, Sm, Sz)` for a U(1)-graded spin-`s` site (`sectors` in **descending `m`**, because a `Vect[U₁]` spin site is as often labelled by particle number as by `m` and inferring would be a silent guess); `fermion_ops([V][, vac, occ])` → `(; c, cd, n)`. Both were re-derived by hand in nine files. `spin` and `matrixunit` are memoised per space/sectors (`src/utility/memo.jl`), so the old "hoist them out of the loop" advice is obsolete — safe because both are pure and `SiteOperator` has no in-place API.
    - Every projected term has full support on all `K` sites: an on-site identity factor appears as a trivial-charge letter, not a shorter term.
 
 3. **Flat term storage** — `src/operators/`
@@ -61,6 +62,7 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
 
 6. **MPO construction** — `src/operators/irrepmpo.jl`
    - `irrep_mpo(H::TermSum, sites[, alg])`: symmetric reduced MPO from a `TermSum` via the per-bond-*sector* sweep over an `ITOTermTable`; returns reduced bond matrices + per-bond charge sectors. `alg` is `BipartiteAlgorithm()` (default) or `SVDBondAlgorithm(trunc; sweep)`; each names a `BondStrategy` (`src/algorithms.jl`) that `_irrep_sweep` dispatches on — `VertexCover` (min-vertex-cover, the default), `IndependentSVD` (`truncrank(k)` = k per bond; the `SVDBondAlgorithm` default) or `SequentialSVD` (k after upstream truncation).
+   - The two verification helpers are public and live here too: `islossless(H, sites[, alg])` reconstructs with `mpo_terms` and compares term sets, and `mpo_tensormap(Ts)` contracts a chain of site tensors into `instantiate`'s convention. Both were hand-rolled in `test/testutils.jl`, `examples/common.jl` and `docs/src/operators.md`.
    - `mpo_terms` reconstructs the `TermSum` (faithfulness check) and `irrep_mpo_tensors` assembles the symmetric `TensorMap`s (one contraction per distinct on-site letter per site, not per bond entry).
 
 7. **Jordan-form emission** — `src/operators/jordanmpo.jl`
@@ -75,6 +77,7 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
 - **`VectorInterface` integration**: the algebra types implement `VectorInterface` norms/inner products for truncation/compression.
 - **Instantiation**: `instantiate(op, V)` materializes symbolic ITOs into `TensorMap`s; `instantiate(ts::TermSum, sites)` is the correctness oracle in tests. `project` is its inverse.
 - **`couple` distributes**: both operands may be composite (several terms, e.g. from `project`); pairs whose charges cannot fuse to `to` are dropped, and it is an error if none do. `dot` does *not* distribute — its `-√dim(c)` factor is per-letter.
+- **Build local operators wherever reads best.** `spin`, `matrixunit`, `spin_ops`, `fermion_ops` are memoised. Model code should never mention a bare `IrrepOperator(c, n)` — `n` follows TensorKit's block order, so hard-coding it is a latent bug.
 - **`couple` defaults `to` to `unit(I)`** (what a Hamiltonian term needs) and accepts a variadic form for abelian sectors (`FusionStyle(I) isa UniqueFusion`), where every intermediate caterpillar charge is forced by the charges: `couple(cd[1], c[2], cd[3], c[4])`. Non-abelian sectors must nest to name each channel — the variadic form throws.
 - **Sparse bond matrices**: each sweep accumulates bond entries into a dict-of-keys `Dictionary{CartesianIndex{2}, SiteOperator}` and finalizes it to a stdlib `SparseArrays.SparseMatrixCSC` at the end (`sparse_from_dict`/`storedpairs` in `src/utility/linalg.jl`).
 

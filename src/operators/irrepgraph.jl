@@ -97,6 +97,10 @@ Fields split into three groups:
   `inserted`, `nremaining`, and the per-bond `rsent` (sentinel right-vertex id, 0 if none),
   `startleft` (the left vertex the sentinel hangs off, 0 if none) and `startidx` (the outgoing bond
   index of the start channel);
+* finish-channel bookkeeping, the mirror image of the start channel and the other half of what
+  Jordan emission needs (jordanmpo.jl): `rfinish` (the right vertex whose suffix class is exhausted
+  at the trivial charge, 0 if there is none at this bond), `finishleft` (the left vertex that class's
+  pass-through enters on, 0 if none) and `finishidx` (the outgoing bond index of the finish channel);
 * per-site scratch reused across the sweep so the site step allocates nothing per bond: `slot` and
   `vlocal` (right-vertex id → local index, for the remap and the per-component numbering),
   `firstleft` (right vertex → first incident left vertex, all the cover needs to read off a covered
@@ -123,6 +127,10 @@ mutable struct ITOGraph{I <: Sector}
     rsent::Int             # sentinel right-vertex id for this bond (0 if none)
     startleft::Int         # left vertex carrying the sentinel (0 if none)
     startidx::Int          # outgoing bond index of the start channel (0 if there is none)
+    rfinish::Int           # right vertex of the exhausted/trivial-charge class (0 if none)
+    finishleft::Int        # left vertex that class's pass-through enters on (0 if none)
+    finishidx::Int         # outgoing bond index of the finish channel (0 if there is none)
+    jordan::Bool           # force the finish class into the cover (see `_force_finish!`)
     slot::Vector{Int}      # scratch: right-vertex id -> position within one left vertex's adjacency
     vlocal::Vector{Int}    # scratch: right-vertex id -> component-local index
     firstleft::Vector{Int} # right-vertex id -> first incident left vertex (0 if isolated)
@@ -247,8 +255,11 @@ represented collectively by a sentinel right vertex on the identity/start channe
 when they become reachable (`_promote_pending!` / the injection in `_build_next_graph!`). That is what
 makes the sweep cost `Θ(Σ_terms span)` instead of `Θ(N·M)`. `lazy = false` seeds every term eagerly,
 which is the form the `SequentialSVD` strategy uses (its per-bond dense SVD dominates anyway).
+
+`jordan = true` additionally forces the finish class into every cover (`_force_finish!`), which is
+what Jordan emission needs and what `irrep_mpo` deliberately does not do.
 """
-function ITOGraph(tt::ITOTermTable{I}, N::Int; lazy::Bool = true) where {I}
+function ITOGraph(tt::ITOTermTable{I}, N::Int; lazy::Bool = true, jordan::Bool = false) where {I}
     M = nterms(tt)
     sufid = _suffix_ids(tt)
     firstsite = _first_sites(tt)
@@ -310,7 +321,7 @@ function ITOGraph(tt::ITOTermTable{I}, N::Int; lazy::Bool = true) where {I}
     cap = M + 1   # right-vertex ids are at most one sentinel beyond the real ones
     return ITOGraph{I}(
         tt, N, arity(tt), sufid, rrepr, rcur, rbond, lefts, radj, wadj, 1,
-        lazy, firstsite, pend_at, pendbysig, inserted, nremaining, 0, startleft, 0,
+        lazy, firstsite, pend_at, pendbysig, inserted, nremaining, 0, startleft, 0, 0, 0, 0, jordan,
         zeros(Int, cap), zeros(Int, cap), zeros(Int, cap), zeros(Int, cap),
         Dictionary{Tuple{Int, I}, Int}()
     )
@@ -409,15 +420,61 @@ function _apply_remap!(g::ITOGraph, remap::Vector{Int}, nVnew::Int)
     return g
 end
 
+"""
+    _force_finish!(cUbits, cVbits, localadj, pf) -> Bool
+
+Move the finish class (component-local right index `pf`) into the cover, and drop every left vertex
+that this makes redundant. Returns whether anything changed.
+
+Why it is needed. A minimum cover is free to cover the finish class from the *left* instead, and does
+so exactly when it can: if the finish class and one incident left vertex form an isolated matched pair
+— what a bond at which nothing new finishes looks like — König's alternating search visits neither, so
+the left vertex is the one that lands in the cover. The resulting bond index still means "already
+finished", but it is the covered-left index of a term's last factor, so it emits that factor's
+*letter* weighted by the term coefficient, not the identity.
+Jordan form needs a channel that emits exactly `1 · id` from the previous bond's finish index, and
+that is only the covered-*right* reading. Since a covered-left finish then has to be padded around,
+forcing is never a loss: it grows the cover by at most one (a cover cannot shrink below the minimum,
+so at most one left vertex is dropped), and it saves exactly the one padded index it would otherwise
+have cost. Dropping a left vertex whose neighbours are all covered is safe — a left vertex is only
+needed for the edges its neighbours do not cover.
+
+The start channel needs no counterpart: §2.2 of research/persistent-graph-mpo.md shows König never
+covers a degree-one right vertex, so the sentinel's left vertex `L₀` is always covered-left already.
+`L₀` is also never adjacent to the finish class — every class it carries has at least one factor left
+to place — so forcing cannot remove it.
+"""
+function _force_finish!(cUbits, cVbits, localadj::Vector{Vector{Int}}, pf::Int)
+    cVbits[pf] && return false
+    cVbits[pf] = true
+    @inbounds for k in eachindex(localadj)
+        cUbits[k] || continue
+        all(q -> cVbits[q], localadj[k]) && (cUbits[k] = false)
+    end
+    return true
+end
+
 # Per-component minimum-vertex-cover backend (the VC path). Given a connected component `(us, vs)`
 # (global left/right vertex ids), it chooses the component's bond basis via
 # `min_vertex_cover_bipartite` and returns, for that component: `rank`, `blocks`
 # (`(incoming_link, local_bond_index, localop)`), `nextedges` (per local bond index, the
 # `(right_vertex_id, weight)` edges to forward; empty at the last site), `secs` (the bond charge per
-# local index) and `startidx` (the local index of the identity/start channel, 0 if this component does
-# not hold it). The covered-U / covered-V coefficient-flow is ITensor's (doc §6): covered-left
-# forwards its edge weights unchanged and emits the bare letter; covered-right resets the forwarded
-# weight to 1 and folds `key.op × weight` into the block for every uncovered incident left.
+# local index), `startidx` (the local index of the identity/start channel, 0 if this component does
+# not hold it) and `finishidx` (likewise for the finish channel). The covered-U / covered-V
+# coefficient-flow is ITensor's (doc §6): covered-left forwards its edge weights unchanged and emits
+# the bare letter; covered-right resets the forwarded weight to 1 and folds `key.op × weight` into
+# the block for every uncovered incident left.
+#
+# THE FINISH CHANNEL. Jordan form (jordanmpo.jl) needs a bond index meaning "every factor is placed",
+# reachable *only* from the previous bond's finish index, so that the emitted matrix has no entry
+# below-left of the `(end, end)` corner. Exactly two vertices can carry that meaning: the right vertex
+# `g.rfinish` (the exhausted, trivial-charge suffix class) and the left vertex `g.finishleft =
+# (previous finish index, pass-through)`, whose *only* neighbour is `g.rfinish`. On the Jordan path
+# (`g.jordan`) `_force_finish!` has already put `g.rfinish` in the cover, so `g.finishleft` is then
+# uncovered and folds `passthrough × 1` in; without forcing, whichever of the two the cover takes is
+# read here, and never both (covering both would leave the degree-1 left vertex redundant, which a
+# minimum cover has not got). Either reading emits the bare pass-through with weight 1, so the
+# `(end, end)` corner is an exact identity.
 #
 # Everything is driven off the sparse adjacency `g.radj`/`g.wadj` plus `g.firstleft`, so the cost is
 # `Θ(E_component)` — no `|us| × |vs|` matrix is ever formed, and neither the covered-left forwarding
@@ -451,6 +508,10 @@ function _vc_component(
     end
 
     cUbits, cVbits = min_vertex_cover_bipartite(localadj, nus, nvs)
+    if g.jordan && !iszero(g.rfinish)
+        pf = findfirst(==(g.rfinish), vs)     # `Θ(|vs|)`, i.e. `Θ(nV)` summed over the components
+        pf === nothing || _force_finish!(cUbits, cVbits, localadj, pf)
+    end
     cU = findall(cUbits)
     cV = findall(cVbits)
     nleft = length(cU)
@@ -460,6 +521,7 @@ function _vc_component(
     nextedges = [Tuple{Int, ComplexF64}[] for _ in 1:rank]
     secs = Vector{I}(undef, rank)
     startidx = 0
+    finishidx = 0
 
     # covered-left vertices → local bond indices 1 … nleft ("a term starts its operator here")
     for (m, lu) in enumerate(cU)
@@ -467,6 +529,7 @@ function _vc_component(
         lv = g.lefts[iu]
         secs[m] = lv.key.bond
         iu == g.startleft && (startidx = m)
+        iu == g.finishleft && (finishidx = m)
         if i == N
             iszero(g.rsent) || _invariant("the sentinel must be gone by the last site")
             push!(blocks, (lv.link, m, lv.key.op * sum(g.wadj[iu]; init = zero(ComplexF64))))
@@ -490,6 +553,11 @@ function _vc_component(
         # the component is pure in the bond charge (asserted in `_prepare_bond!`), so any incident
         # left vertex gives it
         secs[m] = g.lefts[g.firstleft[iv]].key.bond
+        if iv == g.rfinish
+            iszero(finishidx) ||
+                _invariant("finish channel covered on both sides (the cover is not minimum)")
+            finishidx = m
+        end
         if iv == g.rsent
             iszero(startidx) || _invariant("start channel covered on both sides")
             startidx = m                        # the sentinel *is* the start channel here
@@ -514,7 +582,7 @@ function _vc_component(
         end
     end
 
-    return rank, blocks, nextedges, secs, startidx
+    return rank, blocks, nextedges, secs, startidx, finishidx
 end
 
 """
@@ -568,6 +636,16 @@ function _prepare_bond!(g::ITOGraph{I}, i::Int) where {I}
     nV = length(g.rrepr)
     _apply_remap!(g, remap, nV)
     _promote_pending!(g, i)
+
+    # the finish class: every factor placed (exhausted suffix) at the trivial running charge. The
+    # suffix merge just made signatures unique, so there is at most one such right vertex.
+    g.rfinish = 0
+    @inbounds for r in eachindex(g.rrepr)
+        if iszero(g.sufid[g.rcur[r], g.rrepr[r]]) && g.rbond[r] == unit(I)
+            g.rfinish = r
+            break
+        end
+    end
 
     if g.nremaining > 0
         nV += 1
@@ -673,6 +751,16 @@ function _build_next_graph!(
             bucket!(startidx, ITOKey{I}(passthrough(I), unit(I), 1)) : 0
     end
 
+    # the finish channel forwards exactly one edge — to the exhausted class, whose next-site key is
+    # the trivial pass-through — so its continuation is a single left vertex, and that left vertex has
+    # no other neighbour. Looking it up here is what lets the next bond recognise its own finish index.
+    g.finishleft = 0
+    if !iszero(g.finishidx)
+        g.finishleft = get(buckets, (g.finishidx, ITOKey{I}(passthrough(I), unit(I), 1)), 0)
+        iszero(g.finishleft) &&
+            _invariant("the finish channel at bond $i forwards nothing to site $(i + 1)")
+    end
+
     g.lefts = next_lefts
     g.radj = next_radj
     g.wadj = next_wadj
@@ -696,7 +784,7 @@ function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) w
     site_dict = Dictionary{CartesianIndex{2}, LOp}()
     offset = 0
     for (us, vs) in zip(us_of_comp, vs_of_comp)
-        rank, blocks, nextedges, secs, startidx = _vc_component(g, us, vs, i)
+        rank, blocks, nextedges, secs, startidx, finishidx = _vc_component(g, us, vs, i)
         for (link, m, op) in blocks
             increaseindex!(site_dict, CartesianIndex(link, offset + m), op)
         end
@@ -709,8 +797,15 @@ function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) w
                 _invariant("the start channel appeared in more than one component")
             g.startidx = offset + startidx
         end
+        if !iszero(finishidx)
+            iszero(g.finishidx) ||
+                _invariant("the finish channel appeared in more than one component")
+            g.finishidx = offset + finishidx
+        end
         offset += rank
     end
+    (iszero(g.startidx) || g.startidx != g.finishidx) ||
+        _invariant("the start and finish channels resolved to the same bond index")
     return offset, site_dict, secW, nextedges_global
 end
 
@@ -825,10 +920,11 @@ end
 function _at_site!(g::ITOGraph{I}, i::Int, strategy::GraphStrategy = VertexCover()) where {I}
     nU, nV = _prepare_bond!(g, i)
     g.startidx = 0
+    g.finishidx = 0
     nout, site_dict, secW, nextedges_global = _bond_basis!(g, i, nU, nV, strategy)
     Ws_i = sparse_from_dict(site_dict, (g.nlinks, nout))
     i < g.N && _build_next_graph!(g, i, nout, nextedges_global)
-    return Ws_i, secW
+    return Ws_i, secW, g.startidx, g.finishidx
 end
 
 # Lazy right-vertex insertion pays off only when the sweep is driven off the sparse adjacency: the
@@ -848,18 +944,41 @@ The persistent-graph reduced-MPO sweep, run with a bond-basis `strategy` ([`Vert
 [`SequentialSVD`](@ref)). Produces the `(Ws::Vector{SparseMatrixCSC{OnsiteOp{I}, Int}},
 bondsectors::Vector{Vector{I}})` contract that `mpo_terms` / `irrep_mpo_tensors` consume.
 """
-function _irrep_graph_sweep(tt::ITOTermTable{I}, N::Int, strategy::GraphStrategy) where {I}
+function _irrep_graph_sweep(tt::ITOTermTable, N::Int, strategy::GraphStrategy)
+    Ws, bondsectors, _, _ = _irrep_graph_channels(tt, N, strategy, false)
+    return (Ws, bondsectors)
+end
+
+"""
+    _irrep_graph_channels(tt::ITOTermTable{I}, N, strategy, jordan) -> (Ws, bondsectors, starts, finishes)
+
+[`_irrep_graph_sweep`](@ref) plus the per-bond identity-channel indices that Jordan emission
+(jordanmpo.jl) needs: `starts[i]` / `finishes[i]` are the bond indices of the start ("nothing placed
+yet") and finish ("everything placed") channels at the bond to the right of site `i`, or `0` where the
+cover did not spend an index on that channel. Only [`VertexCover`](@ref) has them — an SVD bond basis
+is a *mixture* of prefix states, in which neither channel is a basis vector — so
+[`SequentialSVD`](@ref) reports `0` throughout and every channel gets padded.
+
+`jordan = true` also forces the finish class into every cover ([`_force_finish!`](@ref)), which is why
+this is a separate entry point rather than extra return values on `_irrep_graph_sweep`: it can change
+the bond basis, and `irrep_mpo` promises the unconstrained minimum.
+"""
+function _irrep_graph_channels(
+        tt::ITOTermTable{I}, N::Int, strategy::GraphStrategy, jordan::Bool
+    ) where {I}
     LOp = OnsiteOp{I}
-    nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
+    nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[], Int[], Int[])
 
     strategy = _resolve_trunc(strategy)
-    g = ITOGraph(tt, N; lazy = _graph_lazy(strategy))
+    g = ITOGraph(tt, N; lazy = _graph_lazy(strategy), jordan)
     Ws = Vector{SparseMatrixCSC{LOp, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)
+    starts = zeros(Int, N)
+    finishes = zeros(Int, N)
     for i in 1:N
-        Ws[i], bondsectors[i] = _at_site!(g, i, strategy)
+        Ws[i], bondsectors[i], starts[i], finishes[i] = _at_site!(g, i, strategy)
     end
-    return (Ws, bondsectors)
+    return (Ws, bondsectors, starts, finishes)
 end
 
 
@@ -1055,4 +1174,17 @@ the persistent-graph sweep or the independent per-bond pass.
 _irrep_sweep(tt::ITOTermTable, N::Int, strategy::GraphStrategy) = _irrep_graph_sweep(tt, N, strategy)
 function _irrep_sweep(tt::ITOTermTable, N::Int, strategy::IndependentSVD)
     return _irrep_independent_svd(tt, N, strategy.trunc)
+end
+
+"""
+    _irrep_channels(tt::ITOTermTable, N, strategy::BondStrategy) -> (Ws, bondsectors, starts, finishes)
+
+[`_irrep_sweep`](@ref) with the identity-channel indices [`_irrep_graph_channels`](@ref) documents,
+and with the finish class forced into the cover. The independent-SVD pass has no persistent bond
+identity at all, so it reports none and Jordan emission pads every channel.
+"""
+_irrep_channels(tt::ITOTermTable, N::Int, s::GraphStrategy) = _irrep_graph_channels(tt, N, s, true)
+function _irrep_channels(tt::ITOTermTable, N::Int, strategy::IndependentSVD)
+    Ws, bondsectors = _irrep_independent_svd(tt, N, strategy.trunc)
+    return (Ws, bondsectors, zeros(Int, length(Ws)), zeros(Int, length(Ws)))
 end

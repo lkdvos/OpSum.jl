@@ -7,6 +7,11 @@ sweep architecture (see `research/itensor-mpograph-construction.md`), generalize
 
 New file: `src/operators/irrepgraph.jl` (included between `irreptermtable.jl` and `irrepmpo.jl`).
 
+> **Revised again (stage 4).** The sweep now also reports the two **identity channels** per bond —
+> §2.4 — which `src/operators/jordanmpo.jl` uses to emit a Jordan-form MPO. No bond dimension of
+> `irrep_mpo` changed: the finish-class forcing that §2.4 describes runs only on the Jordan path, and
+> on every reference model it produced the same cover anyway.
+
 > **Revised again (stage 3).** The transient-frontier oracle `_irrep_bipartite` is **deleted** — §3
 > explains why it was never able to validate the general case — and the two sweeps have been
 > refactored into one skeleton with a pluggable `BondStrategy` (`VertexCover`, `SequentialSVD`,
@@ -216,6 +221,48 @@ End-to-end `irrep_mpo` (term table + sweep), same measurement both sides: Heisen
 Two caveats worth keeping in view. First, `Σ_i E_i` for an all-to-all model is still `Θ(N³)` — its local
 exponent rises `2.69 → 2.91` over `N = 16 → 128` — which is the bound above. Second, with the
 compression linear the *pipeline* is no longer dominated by it — see §5.
+
+### 2.4 The two identity channels, and Jordan emission
+
+`src/operators/jordanmpo.jl` emits the compressed MPO in Jordan (upper-triangular finite-state
+automaton) form, which is what an `MPOHamiltonian` implementation consumes. That needs two named bond
+indices at every internal bond: a **start** channel ("nothing placed yet") at position 1 and a
+**finish** channel ("everything placed") at position `end`, both carrying `1 · id` on the diagonal.
+`_irrep_graph_channels` returns them alongside `(Ws, bondsectors)`; `_at_site!` reads them off the
+cover.
+
+*Start.* Already tracked as `g.startidx` — it is `L₀`'s covered-left index, and §2.2 shows `L₀` is
+always covered-left when the sentinel exists. It exists exactly while some term still starts to the
+right.
+
+*Finish.* The exhausted, trivial-charge suffix class `g.rfinish` (unique after the suffix merge, since
+signatures are). Two vertices can carry the meaning: `g.rfinish` itself, and the left vertex
+`g.finishleft = (previous finish index, pass-through)`, whose only neighbour is `g.rfinish`. A minimum
+cover takes exactly one of the two when both exist — covering both would leave a degree-one vertex
+redundant — and either reading emits the bare pass-through with weight 1, because covered-left emits
+`key.op` unweighted and covered-right has the uncovered left fold `key.op × 1` in. Weight 1 propagates
+down the chain: the first live finish channel is necessarily a covered-right one, which forwards `1`.
+
+*Forcing.* Left to itself the cover covers `g.rfinish` from the *left* whenever it can, via a term's
+last factor: when the class and one incident left vertex form an isolated matched pair — what a bond at
+which nothing new finishes looks like — König's alternating search visits neither, so the left vertex
+is the one that lands in the cover. The resulting index still means "already finished", but it emits
+that factor's **letter times the term coefficient**, not the identity, so it cannot be the Jordan
+finish channel. `_force_finish!` therefore
+puts `g.rfinish` into every cover on the Jordan path (`ITOGraph(...; jordan = true)`) and drops every
+left vertex this makes redundant. That grows the cover by at most one and saves exactly the one padded
+index it would otherwise cost, so it is never a loss — and empirically it is free: **no reference model
+changes a single bond dimension under forcing.** `L₀` is never adjacent to `g.rfinish` (every class it
+carries has at least one factor left to place), so the start channel survives forcing.
+
+*Padding.* Where the cover spends no index on a channel — no start channel once every term has entered,
+no finish channel before anything has finished — Jordan emission reserves one anyway. That is the whole
+of the trade: the emitted MPO is minimal among *Jordan-form* MPOs, and at most `+2` per bond over the
+unconstrained minimum `irrep_mpo` returns. On the reference models it is `+1` at the first internal
+bond, `+1` at the last, `0` in the bulk, so a nearest-neighbour Heisenberg chain comes out at the
+textbook uniform bond dimension 3. Padded channels are dead: nothing enters a padded finish chain (site
+1 has no finish row) and a padded start chain reaches nothing (it exists only where no term starts to
+its right), so neither can change the operator.
 
 ## 3. `VertexCover` — the default `BipartiteAlgorithm` strategy
 

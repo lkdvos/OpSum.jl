@@ -24,8 +24,9 @@ Three types carry the whole interface:
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
 list. The full surface is `IrrepOperator`, `spin`, `scalarop`, `project`, `matrixunit`, `TermSum`,
-`couple`, `irrep_mpo`, `irrep_mpo_tensors`, `mpo_terms`, `instantiate`, `BipartiteAlgorithm`,
-`SVDBondAlgorithm` and the bond-basis strategies `VertexCover`, `IndependentSVD`, `SequentialSVD`.
+`couple`, `irrep_mpo`, `irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`, `instantiate`,
+`BipartiteAlgorithm`, `SVDBondAlgorithm` and the bond-basis strategies `VertexCover`,
+`IndependentSVD`, `SequentialSVD`.
 
 Note that `dot` (for the Cartesian `Sᵢ·Sⱼ`) is `LinearAlgebra.dot`, so that one still needs
 `using LinearAlgebra: dot`.
@@ -229,6 +230,40 @@ when `trunc === nothing`, and differ only once truncation bites:
 irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(8)))                        # per-bond
 irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
 ```
+
+### Jordan form, for an MPO library
+
+`irrep_mpo_tensors` gives one dense `TensorMap` per site, with the whole bond collapsed into a single
+`GradedSpace` — the right shape for contracting a small chain and checking it, the wrong one for an
+MPO library, which wants the block structure back. [`jordan_mpo_tensors`](@ref
+OpSum.jordan_mpo_tensors) emits that instead: one `BlockTensorKit.SparseBlockTensorMap` per site,
+one level per bond index, and the bond indices reordered into upper-triangular (Jordan) form
+
+```
+⎛ 1  C  D ⎞     row/column 1   = "nothing placed yet"
+⎜ ·  A  B ⎟     row/column end = "everything placed"
+⎝ ·  ·  1 ⎠
+```
+
+```@example ops
+Wsj = jordan_mpo_tensors(Hxxz, sites)
+map(W -> size(W, 4), Wsj)
+```
+
+This is what MPSKit's `JordanMPOTensor` and `FiniteMPOHamiltonian` consume; OpSum itself does not
+depend on MPSKit. Since every bond space is already known exactly, the consumer needs no
+space-deduction fixed point.
+
+Both identity channels are emitted at every internal bond, even where the compression did not spend a
+bond index on them: a chain with no on-site fields has nothing starting to the right of the last
+bonds, so the minimum vertex cover legitimately omits the start channel there, and nothing has
+finished yet at the first bonds. The emitted MPO is therefore minimal among *Jordan-form* MPOs and
+can exceed `irrep_mpo`'s unconstrained minimum by at most two indices per bond — in practice `+1` at
+the first internal bond and `+1` at the last, `0` in the bulk. The padded channels are pure identity
+chains that cost no dense storage and cannot change the operator.
+
+The total charge must be trivial (a Jordan MPO's right boundary is an identity), and a truncation
+aggressive enough to empty a bond is rejected rather than silently emitted.
 
 ## Recommended patterns
 

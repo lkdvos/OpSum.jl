@@ -1,8 +1,19 @@
 module OpSum
 
-export Sum
-export simplify
+# Public API. Kept here rather than next to each definition so that `using OpSum` has one, greppable
+# source of truth — the surface was previously spread over four files, which is why every example and
+# test opened with a long `using OpSum: …` list for things that were already exported (or were not,
+# with no way to tell which).
+
+# on-site operators: build them once, outside any loop
+export IrrepOperator, spin, scalarop, project, matrixunit
+# term algebra: place, couple, combine
+export TermSum, couple
+# MPO construction
+export irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
+# symbolic-algebra scaffolding (slated for removal — see research/onsite-products.md)
+export Sum, simplify
 
 using Dictionaries
 using SparseArrays: SparseMatrixCSC, sparse, nonzeros, nzrange, rowvals

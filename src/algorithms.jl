@@ -1,18 +1,20 @@
 # MPO bond-optimization algorithm selectors
 # ==========================================
-# Shared by both the dense (`mpo_bond_optimizations`, graphbuilding.jl) and the symmetric/irrep
-# (`irrep_mpo`, irrepmpo.jl) pipelines, so they are defined here — ahead of both — rather than in
-# either pipeline's file.
+# How `irrep_mpo` (irrepmpo.jl) chooses each bond's compressed basis. Defined here, ahead of the
+# pipeline, so the selectors are nameable before the sweeps that consume them.
 
-"""Algorithm selector: bipartite graph / minimum vertex cover (current default)."""
+"""Algorithm selector: bipartite graph / minimum vertex cover (the default).
+
+Lossless, and minimal among all MPOs with the same sparsity pattern. Routes to the persistent-graph
+sweep `_irrep_graph_bipartite` (irrepgraph.jl)."""
 struct BipartiteAlgorithm end
 
 """Algorithm selector: SVD-based bond subspace selection.
 
 `trunc` is a `MatrixAlgebraKit.TruncationStrategy` (e.g. `truncrank`, `trunctol`) or `nothing` for
-the lossless default. The same strategy drives the dense path (`svd_trunc!` on a plain coefficient
-matrix) and the irrep path (`svd_trunc` on a charge-graded coefficient `TensorMap`, where truncation
-is applied globally across charge sectors)."""
+the lossless default. Each bond's coefficient matrix is assembled as a charge-graded `TensorMap`, so
+`svd_trunc` does the per-sector SVD *and* the truncation globally across sectors, respecting the
+quantum dimensions."""
 struct SVDBondAlgorithm
     trunc  # TruncationStrategy or nothing
 end

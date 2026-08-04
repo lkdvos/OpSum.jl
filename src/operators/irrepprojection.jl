@@ -34,7 +34,7 @@
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, oneunit
 using LinearAlgebra: norm
 
-export project, matrixunit
+# exports are consolidated in `src/OpSum.jl`
 
 # Coefficients below `100 * eps` (relative to `‖h‖`) are round-off from `inner`, not physics. Kept
 # deliberately tight: dropping a genuinely small coupling would be silently absorbed by the

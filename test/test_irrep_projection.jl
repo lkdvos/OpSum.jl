@@ -9,9 +9,7 @@ using TensorKit: @tensor, insertrightunit, removeunit
 using VectorInterface: inner
 using LinearAlgebra: dot, norm
 
-LO(x) = OpSum.LocalOp(x)
-
-onlyterm(ts::TermSum) = only(pairs(ts.terms))
+include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm, physmatrix
 
 # The alphabet index `n` depends on TensorKit's canonical block order, so the whole point of
 # `project` is not to hard-code it. These spaces exercise every way that order can be non-obvious:
@@ -25,16 +23,6 @@ const SPACES = (
     SU2Space(1 // 2 => 2),
     Vect[FermionNumber](0 => 1, 1 => 1),
 )
-
-# densify a TensorMap operator to a matrix: drop dim-1 (boundary/charge) legs, keep the 2N
-# physical axes ordered [out_1..N, in_1..N], reorder to kron index convention.
-function physmatrix(t, N, d)
-    A = convert(Array, t)
-    A = dropdims(A; dims = Tuple(findall(==(1), size(A))))
-    @assert ndims(A) == 2N
-    perm = (reverse(1:N)..., reverse((N + 1):(2N))...)
-    return reshape(permutedims(A, perm), d^N, d^N)
-end
 
 # every candidate basis element for `Vs`/`tot`, as `(ops, tree, E)`
 function candidates(Vs, tot::I) where {I <: Sector}

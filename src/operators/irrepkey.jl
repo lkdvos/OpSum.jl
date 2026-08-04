@@ -10,8 +10,8 @@
 # Idle sites are filled with a distinguished pass-through identity symbol (trivial charge, index
 # `n = 0`), not an enumerated `(c, n)` letter and not `one(A)`; it acts as `id(V)`. The coupling
 # structure (per-site bond charges + vertex labels) is derived from each term's `(charges, total)`
-# via TensorKit `fusiontrees` (bounded, canonical). Supported term arity K ∈ {0,1,2}; multi-channel
-# (GenericFusion) / multi-body deferred.
+# via TensorKit `fusiontrees` (bounded, canonical). Supported term arity K ≥ 0; multi-channel
+# (`GenericFusion`) coupling is deferred.
 
 using TensorKit
 using TensorKit: Sector, FusionTree, fusiontrees, unit

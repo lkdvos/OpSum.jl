@@ -5,7 +5,7 @@
 # min-vertex-cover sweep `_irrep_graph_bipartite` over the flat `ITOTermTable` (see irrepgraph.jl;
 # the transient-frontier `_irrep_bipartite` in irreptermtable.jl is kept as the parity oracle).
 # Each retained bond index has a single, well-defined charge (`ITOKey.bond`); block-diagonality is
-# `@assert`ed there. Supported scope: K ≤ 2 active sites per term.
+# `@assert`ed there. Supported scope: any arity K ≥ 0 active sites per term.
 #
 # This file adds the two consumers of that reduced data:
 # * `mpo_terms`         — reconstruct the original `TermSum` by enumerating MPO paths (faithfulness);

@@ -5,7 +5,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, norm, I as Id
 
-LO(x) = OpSum.LocalOp(x)
+include(joinpath(@__DIR__, "testutils.jl"))   # LO
 
 # dense reference Pauli / spin-1/2
 const σX = ComplexF64[0 1; 1 0]

@@ -25,10 +25,15 @@
 # * Connected components are pure in the outgoing bond charge (`ITOKey.bond`) — asserted, exactly as
 #   the transient sweep does.
 #
-# Supported arity K ∈ {0,1,2}; the `ITOKey.vertex` multiplicity label is threaded through
-# `LeftVertex.key` but is `1` throughout the multiplicity-free scope, so the reduced `(Ws,
-# bondsectors)` contract is unchanged. GenericFusion multi-channel and fermionic (graded) sectors are
-# out of scope (the `LeftVertex` fermion/JW slot from ITensor is intentionally omitted).
+# Supported arity K ≥ 0 (identity, on-site field, and caterpillar coupling of any number of sites;
+# the suite covers K ≤ 3 and the examples K = 4). The `ITOKey.vertex` multiplicity label is threaded
+# through `LeftVertex.key` but is `1` throughout the multiplicity-free scope, so the reduced `(Ws,
+# bondsectors)` contract is unchanged. `GenericFusion` multi-channel coupling is out of scope.
+#
+# Fermionic (graded) sectors ARE supported: TensorKit's braiding carries the anticommutation through
+# the ITO algebra and the odd-parity charge flowing along the virtual bond does the bookkeeping, so
+# no Jordan–Wigner strings appear. That is why ITensor's fermion/JW slot on `LeftVertex` is omitted —
+# it is subsumed by the sector structure, not missing.
 
 using TensorKit: Sector
 using SparseArrays: SparseMatrixCSC
@@ -39,7 +44,8 @@ using SparseArrays: SparseMatrixCSC
 A left (prefix) vertex of the persistent ITO graph: it entered the current site on incoming bond
 index `link` and applies the on-site ITO key `key = (op, bond, vertex)` here. The non-abelian
 analogue of ITensorMPOConstruction's `LeftVertex(link, op_id, needs_JW)`; the fermion/JW-string slot
-is intentionally omitted (the irrep track has no fermions — a documented follow-up).
+is intentionally omitted, because in the symmetric setting the JW string is subsumed by the sector
+structure (the odd-parity charge on the virtual bond does that bookkeeping).
 """
 struct LeftVertex{I <: Sector}
     link::Int

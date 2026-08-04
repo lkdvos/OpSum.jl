@@ -106,13 +106,8 @@ Still open:
    unregistered, so nothing committed there resolves on CI. Register OpSum first. (There is also no
    reserved MPSKitModels worktree; `/mnt/home/ldevos/Projects/MPSKitModels.jl` has `main`, `kagome`,
    `tensorkittensors`, `testing`.)
-3. **Report `remove_orphans!` upstream** — verified still true on `main`, and unrelated to this work.
-   `remove_orphans!(mpo::SparseMPO)` (`src/operators/abstractmpo.jl:45`) requires
-   `O <: SparseBlockTensorMap`, but `MPOHamiltonian`'s element type is `JordanMPOTensor`, which is an
-   `AbstractBlockTensorMap` and not a `SparseBlockTensorMap`. So `MPOHamiltonian` silently takes the
-   `remove_orphans!(::AbstractMPO) = mpo` no-op fallback, and `toolbox.jl:328` prunes nothing. Fixing it
-   properly needs index-mask slicing on `JordanMPOTensor`, which it does not support — so this is a real
-   piece of work, not a one-liner. Filing an issue was left to the human.
+That is all of stage 7. The audit also listed a `remove_orphans!` bug under this heading; it is **not**
+part of this work and has been moved to §6 so it stops reading like a task.
 
 ### 3.2 Stage 5 remainder
 
@@ -268,3 +263,25 @@ Format everything you touch with Runic (not a project dependency):
 julia --project=/tmp/runic-opsum -e 'using Pkg; Pkg.add("Runic")'
 julia --project=/tmp/runic-opsum -e 'using Runic; for f in ARGS; Runic.format_file(f, f; inplace=true); end' <files>
 ```
+
+---
+
+## 6. Incidental findings, not part of this work
+
+Things the audit turned up while reading MPSKit that are unrelated to the absorption. Recorded only
+because they are expensive to rediscover — none of them blocks anything here.
+
+- **`remove_orphans!` is a silent no-op for `MPOHamiltonian`.** `remove_orphans!(mpo::SparseMPO)`
+  (`src/operators/abstractmpo.jl:45`) is constrained to `O <: SparseBlockTensorMap`, but an
+  `MPOHamiltonian`'s element type is `JordanMPOTensor`, which is an `AbstractBlockTensorMap` and not a
+  `SparseBlockTensorMap` — so it takes the `remove_orphans!(::AbstractMPO) = mpo` fallback instead. The
+  one affected call site is `periodic_boundary_conditions(::InfiniteMPOHamiltonian, L)`
+  (`toolbox.jl:328`), which prunes nothing. The other call sites (`toolbox.jl:190`, `taylorcluster.jl`,
+  `wii.jl`) act on `FiniteMPO`/`SparseMPO`, where the element type genuinely matches, and are fine.
+
+  Why it is irrelevant to OpSum: the affected path is infinite→finite conversion, which is out of
+  scope, and OpSum's emission cannot contain orphans in the first place — the minimum vertex cover
+  *is* the bond basis, so there is nothing dangling to prune. `remove_orphans!` exists to clean up
+  after the greedy channel assignment this work replaces. Fixing it properly would need index-mask
+  slicing on `JordanMPOTensor` (`mpo[i][:, :, :, mask]`), which that type does not support, so it is a
+  real piece of work rather than a one-liner — worth an upstream issue, nothing more.

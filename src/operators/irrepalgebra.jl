@@ -37,7 +37,7 @@
 using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id, Nsymbol,
     Rsymbol, Vect, domain, permute, sectors, fuse, FusionStyle, UniqueFusion, BraidingStyle,
-    SymmetricBraiding
+    SymmetricBraiding, insertrightunit
 import TensorKit: sectortype
 using LinearAlgebra: LinearAlgebra
 using .IrrepTensorOperators: IrrepOperator
@@ -869,7 +869,10 @@ function _instantiate_term(k::TermKey{I, S}, sites) where {I, S}
     N = length(sites)
     K = length(k.sites)
     if K == 0
-        return foldl(⊗, (id(sites[j]) for j in 1:N))
+        # The trailing total-charge leg is `Vect[I](unit(I) => 1)` for every K ≥ 1 term, so a K = 0
+        # identity term needs one too — otherwise a term sum mixing the two cannot be summed at all,
+        # which used to be a documented hole in the oracle.
+        return insertrightunit(foldl(⊗, (id(sites[j]) for j in 1:N)))
     elseif K == 1
         return _embed_field(only(k.ops), only(k.sites), sites)
     else

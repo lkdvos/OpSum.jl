@@ -31,7 +31,7 @@ Nine commits on `cleanup`, plus one on the MPSKit side:
 
 ```
 (OpSum, branch `cleanup`)
-  <stage 6>  Cover the term space with random-term-sum property tests
+  9ed343a    Cover the term space with random-term-sum property tests
   dfe1044    Order-free coupling, hc, operator builders, public verification helpers
   4dda971    Target MPSKit main rather than the registered release
   b57bffa    Add a handoff note for the remaining MPSKit absorption work

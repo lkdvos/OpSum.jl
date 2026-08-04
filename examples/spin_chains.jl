@@ -62,15 +62,15 @@ res_heis.D, res_heis.Ddense
 # ```
 #
 # Keeping only ``U(1)`` means naming individual raising, lowering and ``S^z`` operators. Rather
-# than hard-coding alphabet indices we derive them from the matrix units (see
-# [Shared utilities](@ref)), which is robust against how `V` happens to be written down.
+# than hard-coding alphabet indices, `spin_ops` derives them from the matrix units, which is robust
+# against how `V` happens to be written down. It takes the sectors in *descending* ``m`` — the labels
+# themselves cannot say which is which, since a `Vect[U₁]` spin site is as often labelled by particle
+# number as by ``m``, exactly as here.
 
 Vu = Rep[U₁](0 => 1, 1 => 1)
 dn, up = U1Irrep(0), U1Irrep(1)
 
-Sp = matrixunit(Vu, up, dn)                              # ``S^+``
-Sm = matrixunit(Vu, dn, up)                              # ``S^-``
-Sz = (matrixunit(Vu, up, up) - matrixunit(Vu, dn, dn)) / 2 # ``S^z``
+Sp, Sm, Sz = spin_ops(Vu, up, dn)                        # ``S^+``, ``S^-``, ``S^z``
 
 # ``S^z`` is a genuinely *composite* on-site operator — a two-letter combination:
 

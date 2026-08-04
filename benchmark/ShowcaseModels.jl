@@ -19,7 +19,9 @@ export ModelSpec, MODELS, model_metrics, logsizes
 # benchmark driver) get them from this one module.
 export siteindex, cylinder_bonds, ladder_bonds
 export bonddim, densedim, maxbonddim, maxdensedim, build
-export islossless, mpo_tensormap, mpo_matches_oracle, spectrum, hermiticity_error
+export mpo_matches_oracle, spectrum, hermiticity_error
+# ...and OpSum's own verification helpers and operator builders, so a dependent needs one `using`.
+export islossless, mpo_tensormap, spin_ops, fermion_ops
 
 # ── Model builders ────────────────────────────────────────────────────────────
 # Each returns a `TermSum` already bound to its lattice (`onlattice`), so the physical spaces travel
@@ -76,21 +78,11 @@ end
 
 const FERMION_MODE = Vect[FermionNumber](0 => 1, 1 => 1)
 
-"Named single-letter operators of a spinless fermionic mode."
-function fermion_ops(V = FERMION_MODE)
-    vac, occ = FermionNumber(0), FermionNumber(1)
-    return (
-        c = matrixunit(V, vac, occ),
-        cd = matrixunit(V, occ, vac),
-        n = matrixunit(V, occ, occ),
-    )
-end
-
-# `couple` is strictly left-to-right, so the h.c. partner of `c†_i c_{i+1}` must be written as
-# `-c_i c†_{i+1}`: anticommuting `c†_{i+1} c_i` into site order costs a sign.
+# `couple` is order-free for abelian sectors, so the h.c. partner of `c†_i c_j` is written as it
+# reads: anticommuting `c†_j c_i` into storage order costs a sign, and `couple` inserts it.
 function _hopping_terms(F, bonds, t)
     return [
-        -t * (couple(F.cd[i], F.c[j]) - couple(F.c[i], F.cd[j]))
+        -t * (couple(F.cd[i], F.c[j]) + couple(F.cd[j], F.c[i]))
             for (i, j) in bonds
     ]
 end

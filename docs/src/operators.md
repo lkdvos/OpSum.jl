@@ -18,15 +18,16 @@ Three types carry the whole interface:
 
 | Type | What it is | How you get one |
 |---|---|---|
-| [`OnsiteOp`](@ref OpSum.OnsiteOp) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`scalarop`](@ref OpSum.scalarop) |
-| [`TermSum`](@ref OpSum.TermSum) | a sum of sited, fusion-coupled terms — the Hamiltonian, optionally bound to its lattice | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, `+`, `*`, [`onlattice`](@ref OpSum.onlattice) |
+| [`OnsiteOp`](@ref OpSum.OnsiteOp) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`spin_ops`](@ref OpSum.spin_ops), [`fermion_ops`](@ref OpSum.fermion_ops), [`scalarop`](@ref OpSum.scalarop) |
+| [`TermSum`](@ref OpSum.TermSum) | a sum of sited, fusion-coupled terms — the Hamiltonian, optionally bound to its lattice | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, [`hc`](@ref OpSum.hc), `+`, `*`, [`onlattice`](@ref OpSum.onlattice) |
 | `(Ws, bondsectors)` | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
-list. The full surface is `IrrepOperator`, `spin`, `scalarop`, `project`, `matrixunit`, `TermSum`,
-`couple`, `onlattice`, `lattice`, `irrep_mpo`, `irrep_mpo_tensors`, `jordan_mpo_tensors`,
-`mpo_terms`, `instantiate`, `BipartiteAlgorithm`, `SVDBondAlgorithm` and the bond-basis strategies
-`VertexCover`, `IndependentSVD`, `SequentialSVD`.
+list. The full surface is `IrrepOperator`, `spin`, `spin_ops`, `fermion_ops`, `scalarop`, `project`,
+`matrixunit`, `TermSum`, `couple`, `hc`, `onlattice`, `lattice`, `irrep_mpo`, `irrep_mpo_tensors`,
+`jordan_mpo_tensors`, `mpo_terms`, `instantiate`, `islossless`, `mpo_tensormap`,
+`BipartiteAlgorithm`, `SVDBondAlgorithm` and the bond-basis strategies `VertexCover`,
+`IndependentSVD`, `SequentialSVD`.
 
 Note that `dot` (for the Cartesian `Sᵢ·Sⱼ`) is `LinearAlgebra.dot`, so that one still needs
 `using LinearAlgebra: dot`.
@@ -73,6 +74,16 @@ write them on paper. `Sᶻ` here is genuinely composite — two letters:
 length(Sz)
 ```
 
+Those two sets are common enough to have builders: [`spin_ops`](@ref OpSum.spin_ops) returns
+`(; Sp, Sm, Sz)` for a U(1)-graded spin-`s` site and [`fermion_ops`](@ref OpSum.fermion_ops) returns
+`(; c, cd, n)` for a fermionic mode. `spin_ops` takes the sectors in **descending** magnetic quantum
+number, because the labels cannot say which is which — `Rep[U₁](0 => 1, 1 => 1)` above is labelled by
+particle number, not by ``m``.
+
+```@example ops
+spin_ops(V, up, dn).Sz ≈ Sz
+```
+
 ### SU(2): `spin`
 
 With SU(2) symmetry there is one on-site operator to speak of, the rank-1 vector operator
@@ -116,9 +127,13 @@ term = couple(Sz[1], Sz[2])
 
 Four rules govern `couple`:
 
-1. **Site order increases.** `couple` builds its caterpillar fusion tree left to right, so each
-   operand must act strictly to the right of the ones before it. For fermions this is not a
-   convention — writing ``c^†_{i+1} c_i`` as ``-c_i c^†_{i+1}`` costs a sign you must supply.
+1. **Site order is free under an abelian symmetry, increasing otherwise.** A term is *stored* in site
+   order, so an operand acting to the left of an earlier one has its leg inserted rather than
+   appended, and the braiding phase that costs comes with it. Under a `UniqueFusion` symmetry — which
+   includes every fermionic sector — `couple` does that itself, so ``c^†_{i+1} c_i`` is written as it
+   reads and comes out as ``-c_i c^†_{i+1}``. Under a non-abelian symmetry reordering would need
+   F-moves, so each operand must act strictly to the right of the ones before it. (`dot` accepts
+   either order for any symmetry: two legs coupling to the unit sector need no F-move.)
 2. **Composite operands are fine.** Every side may have several letters; the coupling distributes
    over every combination, and combinations whose charges cannot fuse to `to` are dropped. It is an
    error if none fuse.
@@ -161,6 +176,20 @@ H = heisenberg(6)
 
 `dot` does **not** distribute over composite operands — its factor is per-letter, so it has no
 meaning for an operator mixing charges. Use `couple` for those.
+
+### The hermitian-conjugate partner
+
+[`hc`](@ref OpSum.hc) builds it, so a hopping amplitude only has to be written once:
+
+```@example ops
+F = fermion_ops(Vf)
+T = -1.0 * couple(F.cd[1], F.c[2])
+T + hc(T, [Vf, Vf]) ≈ -1.0 * (couple(F.cd[1], F.c[2]) + couple(F.cd[2], F.c[1]))
+```
+
+`hc` needs the physical spaces (the adjoint of an alphabet letter is generally a combination of the
+dual charge's letters, which only the space knows), so pass `sites` or bind the lattice first with
+`onlattice`. Every term must be charge-neutral: a charged term's adjoint lives in the dual sector.
 
 ## Projecting a whole block
 
@@ -293,8 +322,9 @@ aggressive enough to empty a bond is rejected rather than silently emitted.
 **Write the operator, not the index.** Anything that mentions a bare `IrrepOperator(c, n)` in model
 code is a latent bug. Go through `matrixunit`, `spin` or `project`.
 
-**Hoist local operators out of the term loop.** `spin(V)` recomputes its normalization on every
-call, and `matrixunit` runs a projection. Build them once.
+**Build local operators wherever reads best.** `spin`, `matrixunit`, `spin_ops` and `fermion_ops` are
+memoised per space and sectors, so calling them inside the term loop costs a dictionary lookup. (This
+used to be "hoist them out"; `matrixunit` runs a whole projection, which is now paid once.)
 
 **Accumulate terms however reads best.** A `TermSum` is an append-only column store: `+`
 concatenates and the normal form (coincident terms summed, cancelled ones dropped) is taken once,
@@ -304,7 +334,7 @@ still marginally the fastest (`sum` of a vector is a single pass with one alloca
 longer the difference between seconds and minutes it used to be.
 
 ```julia
-Sop = spin(Vphys)                                        # hoisted out of the loop
+Sop = spin(Vphys)
 H = sum([J * dot(Sop[i], Sop[j]) for (i, j) in bonds])
 ```
 
@@ -327,20 +357,13 @@ Three checks, in increasing cost:
 ```@example ops
 # 1. Faithfulness — cheap, symbolic, valid at any N and for any sector including fermionic.
 #    `≈` on two term sums compares the canonical term sets exactly and the coefficients approximately.
+#    `islossless(H, sites)` is this check in one call.
 mpo_terms(Ws, secs) ≈ Hxxz
 ```
 
 ```@example ops
-# 2. Tensor assembly — contract the MPO and compare against the dense oracle. Exponential in N,
-#    but it stays inside TensorKit, so it is valid for fermions too.
-function mpo_tensormap(Ts)
-    N = length(Ts)
-    net = [[i == 1 ? -(2N + 1) : i - 1, -i, -(N + i), i == N ? -(2N + 2) : i] for i in 1:N]
-    O = ncon(Ts, net)
-    O = removeunit(O, 2N + 1)
-    return permute(O, (ntuple(identity, N), (ntuple(i -> N + i, N)..., 2N + 1)))
-end
-
+# 2. Tensor assembly — contract the MPO with `mpo_tensormap` and compare against the dense oracle.
+#    Exponential in N, but it stays inside TensorKit, so it is valid for fermions too.
 mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ OpSum.instantiate(Hxxz, sites)
 ```
 
@@ -356,7 +379,7 @@ compression.
 
 | Message | Cause |
 |---|---|
-| `couple: the second operand must act to the right of the first` | site indices not increasing; reorder and supply the fermionic sign yourself |
+| `couple: … left of site … reordering the legs of a SimpleFusion() coupling needs F-moves` | out-of-order site indices under a non-abelian symmetry, where the reordering is not available; write them increasing |
 | `couple: no pair of terms of the operands fuses to …` | the requested total charge is unreachable from the operands' charges |
 | `couple: every term of the second operand must be a single-site charged operator` | the right operand has a scalar (identity) part, or spans several sites |
 | `project: sites must be strictly increasing` | sorted-unique labels are a downstream invariant; `project` will not permute `h` for you, since that needs braiding and flips fermionic signs |

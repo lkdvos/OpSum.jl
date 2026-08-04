@@ -68,7 +68,7 @@ end
 # The projection proper: `(ops, tree, coeff)` for every candidate whose norm contribution exceeds
 # `θ`, plus the total number of candidates considered (for the round-off slack).
 function _ito_coefficients(
-        hc::AbstractTensorMap, Vs::AbstractVector{<:ElementarySpace}, tot::I, θ::Real
+        hfull::AbstractTensorMap, Vs::AbstractVector{<:ElementarySpace}, tot::I, θ::Real
     ) where {I <: Sector}
     K = length(Vs)
     # letters grouped by charge, once per site
@@ -92,7 +92,7 @@ function _ito_coefficients(
             ncand += 1
             ops = collect(IrrepOperator{I}, opstup)
             E = _instantiate_term(TermKey{I, Int}(collect(1:K), ops, tree), Vs)
-            c = ComplexF64(inner(E, hc) / g)
+            c = ComplexF64(inner(E, hfull) / g)
             # Threshold the component's *norm contribution*: by orthogonality
             # `‖dropped‖² = Σ|c_α|² g_α` exactly, and `g` varies by `dim(tot)/Π dim(c_k)`, so bare
             # `abs(c)` is not norm-controlled.
@@ -169,18 +169,18 @@ function project(
     )
 
     Vs = [codomain(h)[k] for k in 1:K]
-    hc, tot = _with_charge_leg(h, K, I)
+    hfull, tot = _with_charge_leg(h, K, I)
 
     # One equality covers the remaining shape errors: domain ≠ codomain, a dual or higher-degeneracy
     # charge leg, and a wrong space type.
     Vprod = foldl(⊗, Vs)
     expected = Vprod ← (Vprod ⊗ Vect[I](tot => 1))
-    space(hc) == expected ||
-        throw(ArgumentError("project: unsupported operator space\n  got      $(space(hc))\n  expected $expected"))
+    space(hfull) == expected ||
+        throw(ArgumentError("project: unsupported operator space\n  got      $(space(hfull))\n  expected $expected"))
 
-    hnorm = norm(hc)
+    hnorm = norm(hfull)
     θ = max(float(atol), float(rtol) * hnorm)
-    coeffs, ncand = _ito_coefficients(hc, Vs, tot, θ)
+    coeffs, ncand = _ito_coefficients(hfull, Vs, tot, θ)
 
     # Emit the surviving candidates as term-list columns: a caterpillar tree *is* its per-position
     # running bond charges plus vertex labels (`bondcharges`/`vertexlabels`), which is what an
@@ -203,9 +203,9 @@ function project(
     resid = if iszero(localbuf.n)
         hnorm
     else
-        norm(hc - instantiate(TermList(localbuf), Vs))
+        norm(hfull - instantiate(TermList(localbuf), Vs))
     end
-    slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, ncand)) * hnorm
+    slack = 16 * eps(real(float(scalartype(hfull)))) * sqrt(max(1, ncand)) * hnorm
     resid <= θ + slack || throw(
         ArgumentError(
             "project: the projected term sum is not faithful to `h` (residual $resid exceeds " *
@@ -268,8 +268,19 @@ c  = matrixunit(V, vac, occ)   # annihilation
 cd = matrixunit(V, occ, vac)   # creation
 n  = matrixunit(V, occ, occ)   # number
 ```
+
+Memoised per `(V, out, in)`, so the projection is paid once even when this is called inside a term
+loop. [`fermion_ops`](@ref) and [`spin_ops`](@ref) bundle the sets above.
 """
 function matrixunit(V::ElementarySpace, out::I, in::I) where {I <: Sector}
+    return _cached(_MATRIXUNIT_CACHE, (V, out, in)) do
+        _matrixunit(V, out, in)
+    end
+end
+
+const _MATRIXUNIT_CACHE = Dict{Tuple{ElementarySpace, Sector, Sector}, Any}()
+
+function _matrixunit(V::ElementarySpace, out::I, in::I) where {I <: Sector}
     dim(out) == 1 && dim(in) == 1 ||
         throw(ArgumentError("matrixunit requires one-dimensional sectors, got $out and $in"))
     dim(V, out) == 1 && dim(V, in) == 1 ||

@@ -36,7 +36,8 @@
 
 using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id, Nsymbol,
-    Vect, domain, permute, sectors, fuse, FusionStyle, UniqueFusion
+    Rsymbol, Vect, domain, permute, sectors, fuse, FusionStyle, UniqueFusion, BraidingStyle,
+    SymmetricBraiding
 import TensorKit: sectortype
 using LinearAlgebra: LinearAlgebra
 using .IrrepTensorOperators: IrrepOperator
@@ -62,14 +63,25 @@ end
 
 # Named accessors
 # ---------------
+const _SPIN_CACHE = Dict{ElementarySpace, Any}()
+
 """
     spin(V::ElementarySpace)
 
 The SU(2) rank-1 vector operator on a single-sector SU(2) space `V`, normalized so `spin(V)[i] ·
 spin(V)[j]` densifies to the Cartesian `Sˣ⊗Sˣ + Sʸ⊗Sʸ + Sᶻ⊗Sᶻ`. Concretely
 `spin(V) = √(s(s+1)(2s+1)) · IrrepOperator(SU2Irrep(1), 1)` (the reduced matrix element).
+
+Memoised per space, so calling it inside a term loop is a dictionary lookup. See also
+[`spin_ops`](@ref) for the U(1)-graded `(Sp, Sm, Sz)` form.
 """
 function spin(V::ElementarySpace)
+    return _cached(_SPIN_CACHE, V) do
+        _spin(V)
+    end
+end
+
+function _spin(V::ElementarySpace)
     sectortype(V) === SU2Irrep ||
         throw(ArgumentError("spin(V) requires an SU(2)-graded space, got $(sectortype(V))"))
     length(collect(sectors(V))) == 1 ||
@@ -587,27 +599,46 @@ function _single_site_term(b::TermList{I}, ctx) where {I}
     return colsite(c, 1, 1), colkey(c, 1, 1).op, colcoeff(c, 1)
 end
 
+# Whether `b`'s leg may be *inserted* to the left of some of `a`'s, instead of only appended.
+#
+# `UniqueFusion` is what makes it well defined without F-moves, twice over: every running bond charge
+# the insertion invalidates has a single forced replacement (so there is nothing for the caller to
+# name), and every leg transposition is a single scalar `Rsymbol(x, y, x ⊗ y)` depending on nothing
+# but the two charges. `SymmetricBraiding` (`Bosonic`/`Fermionic`, so `R = R⁻¹ = ±1`) is what makes
+# the answer independent of whether the leg is braided over or under — a convention this API does not
+# expose, and would have to before an anyonic sector could be reordered.
+_canreorder(::Type{I}) where {I <: Sector} =
+    FusionStyle(I) isa UniqueFusion && BraidingStyle(I) isa SymmetricBraiding
+
 # Core of `couple`: extend every term of `a` by every single-site term of `b`, fusing to the total
 # `target(running total of a's term, b's letter)` returns for that pair. Pairs whose charges cannot
 # reach it are dropped, so the result may be empty — callers decide whether that is an error.
 #
-# Extending a left-nested caterpillar by one leg leaves every earlier running bond charge alone, so
-# this is *literally* a column append: copy `a`'s active `(site, ITOKey)` slots, then one new slot
+# Storage is always site-ordered. When `b` acts to the right of all of `a` — the left-nested
+# caterpillar case — every earlier running bond charge is left alone and this is *literally* a column
+# append: copy `a`'s active `(site, ITOKey)` slots, then one new slot
 # `(site of b, ITOKey(letter of b, new total, vertex))`. Only the existence of the channel has to be
 # checked, which is one `Nsymbol` — no fusion tree is built.
+#
+# When `b` acts further left, its leg is *inserted* at position `p` instead (see `_canreorder`): the
+# running bond charges from `p` on are recomputed (forced, since fusion is unique) and the coefficient
+# picks up one R-symbol per leg of `a` that `b` braids past. For fermionic sectors that product is
+# exactly the anticommutation sign, so `couple(cd[j], c[i])` with `i < j` comes out as
+# `-couple(c[i], cd[j])` without the caller supplying anything.
 function _couple_terms(a::TermList{I}, b::TermList{I}, target) where {I}
     ca, cb = canonical(a), canonical(b)
     Ka = rowarity(ca)
     buf = TermBuffer{I}(Ka + 1)
     _sizehint!(buf, nrows(ca) * nrows(cb))
-    pad = _padkey(I)
+    reorder = _canreorder(I)
+    sites = Vector{Int}(undef, Ka + 1)
+    keys = Vector{ITOKey{I}}(undef, Ka + 1)
     for t in 1:nrows(ca)
         na = collength(ca, t)
         na >= 1 || throw(
             ArgumentError("couple: every term of the first operand must carry at least one charged operator")
         )
         ta = colkey(ca, na, t).bond
-        lastsite = colsite(ca, na, t)
         va = colcoeff(ca, t)
         for u in 1:nrows(cb)
             collength(cb, u) == 1 || throw(
@@ -615,11 +646,20 @@ function _couple_terms(a::TermList{I}, b::TermList{I}, target) where {I}
             )
             sb = colsite(cb, 1, u)
             opb = colkey(cb, 1, u).op
-            sb == lastsite && throw(ArgumentError("couple: operators must act on distinct sites"))
-            lastsite < sb || throw(
+
+            # where `b`'s site falls among `a`'s: the first of them strictly to its right
+            p = na + 1
+            for j in 1:na
+                s = colsite(ca, j, t)
+                s == sb && throw(ArgumentError("couple: operators must act on distinct sites"))
+                s > sb && (p = j; break)
+            end
+            (p > na || reorder) || throw(
                 ArgumentError(
-                    "couple: the second operand must act to the right of the first " *
-                        "(left-nested caterpillar; out-of-order coupling is deferred)"
+                    "couple: the second operand acts on site $sb, left of site " *
+                        "$(colsite(ca, p, t)) of the first, and reordering the legs of a " *
+                        "$(FusionStyle(I)) coupling needs F-moves, which is deferred. Write the " *
+                        "operands in increasing site order."
                 )
             )
 
@@ -628,20 +668,30 @@ function _couple_terms(a::TermList{I}, b::TermList{I}, target) where {I}
             iszero(nsym) && continue    # this pair of charges cannot fuse to `tot`: drop it
             @assert isone(nsym) "expected a unique coupling channel; multi-channel (GenericFusion) coupling is deferred"
 
-            for j in 1:(Ka + 1)
-                if j <= na
-                    push!(buf.sites, colsite(ca, j, t))
-                    push!(buf.keys, colkey(ca, j, t))
-                elseif j == na + 1
-                    push!(buf.sites, sb)
-                    push!(buf.keys, ITOKey{I}(opb, tot, 1))
-                else
-                    push!(buf.sites, 0)
-                    push!(buf.keys, pad)
-                end
+            coeff = va * colcoeff(cb, u)
+            for j in 1:(p - 1)
+                sites[j] = colsite(ca, j, t)
+                keys[j] = colkey(ca, j, t)
             end
-            push!(buf.coeffs, va * colcoeff(cb, u))
-            buf.n += 1
+            sites[p] = sb
+            if p == na + 1
+                keys[p] = ITOKey{I}(opb, tot, 1)
+            else
+                run = p == 1 ? opb.c : only(colkey(ca, p - 1, t).bond ⊗ opb.c)
+                keys[p] = ITOKey{I}(opb, run, 1)
+                for j in p:na
+                    op = colkey(ca, j, t).op
+                    coeff *= Rsymbol(op.c, opb.c, only(op.c ⊗ opb.c))
+                    run = only(run ⊗ op.c)
+                    sites[j + 1] = colsite(ca, j, t)
+                    keys[j + 1] = ITOKey{I}(op, run, 1)
+                end
+                # unique fusion is associative *and* commutative, so the reordered chain lands on the
+                # same total as the appended one would have; a mismatch means the recomputation drifted
+                run == tot ||
+                    _invariant("reordered coupling reached $run, not the total $tot")
+            end
+            pushcol!(buf, view(sites, 1:(na + 1)), view(keys, 1:(na + 1)), coeff)
         end
     end
     return TermList(buf, buf.n, _mergelattice(a, b))
@@ -656,8 +706,18 @@ coupling charges) by one single-site operator `b`, fusing the running total of `
 to `to` at a new vertex. `to` defaults to the unit sector, which is what a term of a Hamiltonian
 needs — pass it explicitly to build a charged object.
 
-Each operand after the first must act to the **right** of every site before it (out-of-order
-coupling needs F-moves and is deferred).
+Under an **abelian** symmetry the operands may be written in any site order: the stored form is
+site-ordered, so an out-of-order leg is inserted rather than appended, and the braiding phase that
+costs is inserted with it. For a fermionic sector that phase *is* the anticommutation sign, so
+
+```julia
+couple(cd[i + 1], c[i]) == -couple(c[i], cd[i + 1])       # both spellings are available
+```
+
+and the hand-written sign that used to be mandatory is now only a way to get it wrong. Under a
+non-abelian symmetry reordering needs F-moves and still throws: each operand after the first must
+then act to the **right** of every site before it. ([`dot`](@ref) accepts either order for any
+symmetry — with only two legs coupling to the unit sector, no F-move arises.)
 
 Both operands may be composite (several terms, e.g. from [`project`](@ref)): the coupling
 distributes over every pair of terms, and pairs whose charges cannot fuse to `to` are dropped. It is
@@ -744,10 +804,16 @@ end
 
 The Cartesian two-body scalar product of two single-site ITO operators: singlet coupling
 `couple(a, b; to = unit(I))` times the Cartesian factor `-√dim(c)` (the identity
-`Sᵢ·Sⱼ = -√3 [S⊗S]⁽⁰⁾` with `-√3 = -√dim(spin-1)`). Order-independent in the two sites: the sites
-are sorted before coupling, and the Cartesian factor is read off the operator that ends up on the
-left. (The two charges must fuse to the unit sector, i.e. be each other's dual, and dual sectors have
-equal quantum dimension — so `dot(a, b) == dot(b, a)` exactly.)
+`Sᵢ·Sⱼ = -√3 [S⊗S]⁽⁰⁾` with `-√3 = -√dim(spin-1)`).
+
+Either site order is accepted, for **any** symmetry: two legs coupling to the unit sector is the one
+case where reordering needs no F-move, whatever the fusion style, so `dot` is defined where the
+general out-of-order [`couple`](@ref) is not. The Cartesian factor is read off the operator that ends
+up on the left, which changes nothing — the two charges must fuse to the unit sector, i.e. be each
+other's dual, and dual sectors have equal quantum dimension. The braiding phase does *not* always
+cancel, though: `dot(a, b) == R · dot(b, a)` with `R = Rsymbol(cₐ, c_b, unit)`, which is `+1` for
+bosonic integer charges (so `spin`, and hence every spin chain here, is order-independent) and `-1`
+for a pair of odd fermionic charges or of half-integer SU(2) charges.
 
 Unlike [`couple`](@ref) this does not distribute over composite operands: the Cartesian factor
 `-√dim(c)` is per-letter, so it has no meaning for an operator mixing several charges. Use `couple`
@@ -763,10 +829,22 @@ function LinearAlgebra.dot(a::TermList{I}, b::TermList{I}) where {I}
                 "there is no scalar product; use `couple(a, b; to = …)` for a charged coupling"
         )
     )
-    # Sort first, *then* read the Cartesian factor off the left operand, so that the factor cannot
-    # depend on the order the caller wrote the operands in.
-    lo, hi, oplo = sa < sb ? (a, b, opa) : (b, a, opb)
-    return scale(couple(lo, hi; to = unit(I)), -sqrt(dim(oplo.c)))
+    sa < sb && return scale(couple(a, b; to = unit(I)), -sqrt(dim(opa.c)))
+
+    # `b` sits to the left, so the two legs have to be swapped into storage order. With two legs
+    # coupling to the unit sector that swap is one scalar R-symbol for any multiplicity-free fusion
+    # style — no F-move, which is why this works under SU(2) where the general `couple` reordering
+    # does not. Restricted to symmetric braiding so that `R = R⁻¹` and the (unexposed) over/under
+    # convention cannot change the answer.
+    BraidingStyle(I) isa SymmetricBraiding || throw(
+        ArgumentError(
+            "·: the operands are in decreasing site order and $I has $(BraidingStyle(I)) braiding, " *
+                "where the swap phase depends on a braiding direction this API does not expose; " *
+                "write the operands in increasing site order"
+        )
+    )
+    R = Rsymbol(opa.c, opb.c, unit(I))
+    return scale(couple(b, a; to = unit(I)), -sqrt(dim(opb.c)) * R)
 end
 
 # Dense-oracle materialization

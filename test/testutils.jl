@@ -1,8 +1,8 @@
 # Helpers shared by the test files
 # ================================
 # These were copy-pasted across the suite (`physmatrix` into four files, `densedim` into three,
-# `islossless` into two, `LO`/`onlyterm` into several). They live here so a change to the API only
-# has to be made once.
+# `LO`/`onlyterm` into several). They live here so a change to the API only has to be made once.
+# `islossless` and `mpo_tensormap` used to live here too; they are now part of OpSum's public API.
 #
 # This file is *not* a test file: `test/runtests.jl` excludes it from the discovered suite. Each
 # test file `include`s it, so running a file directly (`julia --project=test test/test_irrep_mpo.jl`,
@@ -31,11 +31,3 @@ end
 # Dense-equivalent bond dimension at bond `b`: the qdim-weighted sum of the per-sector
 # multiplicities, i.e. what an unsymmetric MPO would have to carry.
 densedim(secs, b) = sum(dim(c) for c in secs[b])
-
-# Faithfulness: the compressed MPO reconstructs the original term-sum exactly. This is the primary
-# correctness oracle — cheap, independent of `N`, and safe for fermionic sectors (unlike densifying).
-# Says nothing after a *truncating* `SVDBondAlgorithm`, which is lossy by construction.
-function islossless(H::TermSum, sites, alg...)
-    Ws, secs = irrep_mpo(H, sites, alg...)
-    return mpo_terms(Ws, secs) ≈ H
-end

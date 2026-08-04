@@ -5,14 +5,16 @@ module OpSum
 # test opened with a long `using OpSum: …` list for things that were already exported (or were not,
 # with no way to tell which).
 
-# on-site operators: build them once, outside any loop
-export IrrepOperator, spin, scalarop, project, matrixunit
+# on-site operators (memoised, so they may be built inside a term loop)
+export IrrepOperator, spin, scalarop, project, matrixunit, spin_ops, fermion_ops
 # term algebra: place, couple, combine, bind to a lattice
-export TermSum, TermList, couple, onlattice, lattice
+export TermSum, TermList, couple, hc, onlattice, lattice
 # MPO construction
 export irrep_mpo, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
+# verification
+export islossless, mpo_tensormap
 
 using Dictionaries
 using SparseArrays: SparseMatrixCSC, sparse, nonzeros, nzrange, rowvals
@@ -28,6 +30,7 @@ include("algorithms.jl")
 # Utility
 # -------
 include("utility/linalg.jl")
+include("utility/memo.jl")
 
 # Data structures
 # ---------------
@@ -44,6 +47,7 @@ include("operators/irrepkey.jl")
 include("operators/onsiteop.jl")
 include("operators/irrepalgebra.jl")
 include("operators/irrepprojection.jl")
+include("operators/builders.jl")
 include("operators/irreptermtable.jl")
 include("operators/irrepgraph.jl")
 include("operators/irrepmpo.jl")

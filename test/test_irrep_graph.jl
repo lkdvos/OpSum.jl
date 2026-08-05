@@ -1,22 +1,33 @@
-# Differential tests for the persistent-graph MPO construction (irrepgraph.jl) against the
-# transient-frontier sweep (_irrep_bipartite) and the SVD sweep (_irrep_svd). The public
-# `irrep_mpo(…, BipartiteAlgorithm())` already routes to `_irrep_graph_bipartite`, so the whole
-# existing suite exercises it; here we pin the *equivalence* to the reference implementations directly
-# (same per-sector bond dims, same reconstructed operator) and the incremental suffix-merge on a
-# larger chain.
+# Tests for the reduced-MPO sweeps (irrepgraph.jl): the persistent-graph `VertexCover` and
+# `SequentialSVD` sweeps and the `IndependentSVD` pass.
+#
+# These were differential tests against `_irrep_bipartite`, the transient-frontier sweep. That oracle
+# is gone (it was Θ(M·N²) and, per research/persistent-graph-mpo.md §3, *strictly less general* than
+# the code it validated — it keyed suffix classes on `_op_at_ito` alone and so over-merged in the
+# non-abelian K ≥ 2 regime), so the checks here are self-contained instead:
+#
+#   * `mpo_terms` round-trip losslessness — cheap, exact, valid at any N and for any sector;
+#   * dense-operator agreement against `instantiate`, through the assembled `TensorMap`s, on the
+#     small cases (this also covers `irrep_mpo_tensors`);
+#   * **pinned per-bond sector profiles** — the compression's actual output, charge by charge. A
+#     regression that keeps the MPO lossless but stops exploiting a merge shows up here and nowhere
+#     else;
+#   * the §2.2 pending-versus-started suffix-class collision, in all three sectors plus the sharp
+#     minimal counterexample;
+#   * the scaling guard (live right vertices bounded independently of N).
 
 using Test
 using OpSum
 using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum, spin, couple, scalarop
-using OpSum: BipartiteAlgorithm
-using OpSum: ITOTermTable, _irrep_bipartite, _irrep_graph_bipartite, _irrep_svd, _irrep_graph_svd
+using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, VertexCover, IndependentSVD, SequentialSVD
+using OpSum: ITOTermTable, _irrep_sweep
 using OpSum: ITOGraph, _at_site!
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: dot, norm
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix
+include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix, islossless
 
 # densify an assembled MPO / operator TensorMap to a matrix (drop dim-1 boundary/charge legs, keep the
 # 2N physical axes, reorder to kron order) — the robust operator-equality check, unaffected by the
@@ -28,17 +39,20 @@ function contract3(T)
 end
 contractN(T) = length(T) == 2 ? contract2(T) : contract3(T)
 
-# per-bond charge => multiplicity (order-independent; the per-sector basis choice / bond-index order
-# may differ between implementations even when the compression is identical)
-function _bondcounts(sec)
-    d = Dict{Any, Int}()
-    for c in sec
-        d[c] = get(d, c, 0) + 1
+# Per-bond charge profile: `[charge => multiplicity]`, sorted, per bond. Charges are stringified so
+# that one pinned table can span the SU(2), U(1) and trivial cases; the ordering within a bond is
+# dropped because the per-sector basis choice may legitimately permute equal-charge indices.
+function bondprofile(secs)
+    return map(secs) do sec
+        d = Dict{String, Int}()
+        for c in sec
+            d[string(c)] = get(d, string(c), 0) + 1
+        end
+        return sort!([k => v for (k, v) in d])
     end
-    return d
 end
-persector(secs) = map(_bondcounts, secs)
 
+# operator the reduced MPO represents, via the path-enumeration reconstruction
 mpo_operator(Ws, secs, sites) = instantiate(mpo_terms(Ws, secs), sites)
 
 # reference Hamiltonians spanning the non-abelian sectors in the suite (SU2, U1, trivial) and
@@ -123,52 +137,85 @@ function reference_hamiltonians()
     return cases
 end
 
-@testset "graph VC ≡ transient-frontier bipartite" begin
+# The compression's pinned output: per bond, the retained charges with their multiplicities. Losing a
+# suffix-class merge (the §2.2 collision cases in particular) inflates a bond here while leaving every
+# other check in this file green, which is exactly why these are written out rather than derived.
+const EXPECTED_BONDS = Dict{String, Vector{Vector{Pair{String, Int}}}}(
+    "SU2 Heisenberg N=2" => [["Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "SU2 Heisenberg N=3" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "SU2 Heisenberg N=4" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "SU2 Heisenberg N=5" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "SU2 Heisenberg N=6" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "SU2 fields" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](1)" => 1]],
+    "SU2 decoupled pairs N=6" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "SU2 K=3 three-body" => [["Irrep[SU₂](1)" => 1], ["Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "SU2 K=3 tail collides with on-site field" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1], ["Irrep[SU₂](0)" => 1], ["Irrep[SU₂](1)" => 1]],
+    "SU2 no term starts at site 1" => [["Irrep[SU₂](0)" => 1], ["Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "SU2 first active site == N" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](1)" => 1]],
+    "U1 hopping N=3" => [["Irrep[U₁](-1)" => 1, "Irrep[U₁](0)" => 1, "Irrep[U₁](1)" => 1], ["Irrep[U₁](-1)" => 1, "Irrep[U₁](0)" => 1, "Irrep[U₁](1)" => 1], ["Irrep[U₁](0)" => 1]],
+    "U1 hopping N=4" => [["Irrep[U₁](-1)" => 1, "Irrep[U₁](0)" => 1, "Irrep[U₁](1)" => 1], ["Irrep[U₁](-1)" => 1, "Irrep[U₁](0)" => 2, "Irrep[U₁](1)" => 1], ["Irrep[U₁](-1)" => 1, "Irrep[U₁](0)" => 1, "Irrep[U₁](1)" => 1], ["Irrep[U₁](0)" => 1]],
+    "U1 K=3 three-body" => [["Irrep[U₁](1)" => 1], ["Irrep[U₁](2)" => 1], ["Irrep[U₁](1)" => 1]],
+    "U1 charge-0 on-site collides with two-site tail" => [["Irrep[U₁](0)" => 1], ["Irrep[U₁](0)" => 1], ["Irrep[U₁](0)" => 1]],
+    "trivial sector N=3" => [["Trivial()" => 2], ["Trivial()" => 2], ["Trivial()" => 1]],
+    "trivial on-site collides with two-site tail" => [["Trivial()" => 1], ["Trivial()" => 1], ["Trivial()" => 1]],
+    "pure identity" => [["Irrep[SU₂](0)" => 1], ["Irrep[SU₂](0)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "identity plus bond" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1], ["Irrep[SU₂](0)" => 1]],
+    "identity plus two bonds" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+)
+
+# the same, for the 8-site Heisenberg chain of the incremental-merge testset
+const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]]
+
+@testset "VertexCover sweep — lossless, dense-exact, pinned bond sectors" begin
     for (name, H, sites) in reference_hamiltonians()
         N = length(sites)
-        tt = ITOTermTable(H, sites)
-        Wo, so = _irrep_bipartite(tt, N)
-        Wg, sg = _irrep_graph_bipartite(tt, N)
+        Ws, secs = irrep_mpo(H, sites, BipartiteAlgorithm())
         @testset "$name" begin
-            # identical per-sector bond dimensions at every bond
-            @test persector(so) == persector(sg)
-            # both reconstruct the original term-sum exactly (lossless), hence the same operator
-            @test mpo_operator(Wg, sg, sites) ≈ mpo_operator(Wo, so, sites)
-            back = mpo_terms(Wg, sg)
+            # 1. faithfulness: the reduced MPO reconstructs the original term-sum exactly
+            back = mpo_terms(Ws, secs)
             @test Set(keys(back.terms)) == Set(keys(H.terms))
             @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+            # 2. the compression itself, charge by charge
+            @test bondprofile(secs) == EXPECTED_BONDS[name]
+            # 3. the assembled symmetric tensors contract to the dense oracle. `physmatrix` drops the
+            #    dim-1 boundary/charge legs, so this needs a densifiable (dim-1 total charge) operator;
+            #    `contractN` covers N ∈ {2, 3}.
+            if 2 <= N <= 3 && all(c -> dim(c) == 1, secs[end])
+                d = dim(sites[1])
+                Mmpo = physmatrix(contractN(irrep_mpo_tensors(Ws, secs, sites)), N, d)
+                @test Mmpo ≈ physmatrix(instantiate(H, sites), N, d)
+            end
         end
     end
 end
 
-@testset "public BipartiteAlgorithm selector uses the graph path" begin
+@testset "the default selector is BipartiteAlgorithm / VertexCover" begin
     V = SU2Space(1 // 2 => 1)
     N = 4
     sites = fill(V, N)
     H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+    Wdef, sdef = irrep_mpo(H, sites)
     Wsel, ssel = irrep_mpo(H, sites, BipartiteAlgorithm())
-    Wg, sg = _irrep_graph_bipartite(ITOTermTable(H, sites), N)
-    @test persector(ssel) == persector(sg)
-    @test mpo_operator(Wsel, ssel, sites) ≈ mpo_operator(Wg, sg, sites)
+    Wstr, sstr = _irrep_sweep(ITOTermTable(H, sites), N, VertexCover())
+    @test bondprofile(sdef) == bondprofile(ssel) == bondprofile(sstr)
+    @test mpo_operator(Wdef, sdef, sites) ≈ mpo_operator(Wsel, ssel, sites)
+    @test mpo_operator(Wstr, sstr, sites) ≈ mpo_operator(Wsel, ssel, sites)
     # tensor assembly is unchanged and materialises the same symmetric operator
     T = irrep_mpo_tensors(Wsel, ssel, sites)
     @test T isa Vector{<:AbstractTensorMap}
     @test length(T) == N
 end
 
-@testset "graph SVD (lossless) reconstructs the operator" begin
-    # The persistent-graph SVD sweep (ITensor QR-backend port). Lossless it is at parity with
-    # `_irrep_svd` (same represented operator); it is *not* the default `SVDBondAlgorithm` backend
-    # because under truncation it implements sequential-sweep semantics rather than `_irrep_svd`'s
-    # per-bond-independent truncation (see its docstring). The SVD rotates each bond's basis, so the
-    # robust equality check is via the assembled TensorMaps contracted against the dense oracle — not
+@testset "SequentialSVD (lossless) reconstructs the operator" begin
+    # The persistent-graph SVD sweep (ITensor QR-backend port), reached through
+    # `SVDBondAlgorithm(; sweep = SequentialSVD)`. The SVD rotates each bond's basis, so the robust
+    # equality check is via the assembled TensorMaps contracted against the dense oracle — not
     # `mpo_terms` (which needs an intact identity backbone). Restrict to N ≤ 3 (contract2 / contract3).
     for (name, H, sites) in reference_hamiltonians()
         N = length(sites)
-        N <= 3 || continue
+        2 <= N <= 3 || continue
         d = dim(sites[1])
-        tt = ITOTermTable(H, sites)
-        Wg, sg = _irrep_graph_svd(tt, N, nothing)
+        Wg, sg = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = SequentialSVD))
         # `physmatrix` drops the boundary/charge legs, so it needs a densifiable (dim-1 total charge)
         # operator; a net-charge Hamiltonian (e.g. the spin-1 field sum) is excluded here.
         all(c -> dim(c) == 1, sg[end]) || continue
@@ -180,43 +227,40 @@ end
     end
 end
 
-@testset "graph SVD lossless bond dims match _irrep_svd" begin
-    # Pin the docstring's parity claim on the internal bonds (1 … N-1). The right boundary (bond N) is
-    # excluded because `_irrep_svd` hardcodes it to `unit(I)` whereas the graph SVD reports the true
-    # total charge — they agree only for charge-0 Hamiltonians, so compare the internal bonds only.
+@testset "the two lossless SVD sweeps agree on the internal bonds" begin
+    # Pin the documented parity claim: losslessly, sequential and independent compression keep the
+    # same per-sector bond dimensions. The right boundary (bond N) is excluded because the
+    # independent sweep hardcodes it to `unit(I)` whereas the sequential one reports the true total
+    # charge — they agree only for charge-0 Hamiltonians.
     for (name, H, sites) in reference_hamiltonians()
         N = length(sites)
         N >= 2 || continue
-        tt = ITOTermTable(H, sites)
-        _, so = _irrep_svd(tt, N, nothing)
-        _, sg = _irrep_graph_svd(tt, N, nothing)
+        _, si = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = IndependentSVD))
+        _, ss = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = SequentialSVD))
         @testset "$name" begin
-            @test persector(so[1:(N - 1)]) == persector(sg[1:(N - 1)])
+            @test bondprofile(si[1:(N - 1)]) == bondprofile(ss[1:(N - 1)])
         end
     end
 end
 
 @testset "suffix-merge over many site steps" begin
-    # exercise many at_site! steps; the per-site signature regroup must reproduce the transient
-    # sweep's per-sector bond dims and stay lossless on an 8-site Heisenberg chain.
+    # exercise many at_site! steps: the per-site signature regroup has to keep the bond profile of an
+    # 8-site Heisenberg chain at its minimum (2, then 3 throughout) and stay lossless.
     V = SU2Space(1 // 2 => 1)
     N = 8
     sites = fill(V, N)
     H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
-    tt = ITOTermTable(H, sites)
-    Wo, so = _irrep_bipartite(tt, N)
-    Wg, sg = _irrep_graph_bipartite(tt, N)
-    @test persector(so) == persector(sg)
-    back = mpo_terms(Wg, sg)
-    @test Set(keys(back.terms)) == Set(keys(H.terms))
-    @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+    Ws, secs = irrep_mpo(H, sites, BipartiteAlgorithm())
+    @test bondprofile(secs) == HEISENBERG8_BONDS
+    @test islossless(H, sites)
 end
 
 @testset "K=0 identity terms" begin
     # A K=0 term is all pass-through: its suffix class is the "done" class from bond 0 on, and its
-    # left vertex coincides with the identity/start channel. Checked via per-sector bond dims and the
-    # `mpo_terms` round-trip rather than the dense oracle, because `instantiate` cannot represent a
-    # `TermSum` that mixes K=0 and K>0 terms (a pre-existing limitation of the oracle, not the sweep).
+    # left vertex coincides with the identity/start channel. Checked via the pinned bond profile and
+    # the `mpo_terms` round-trip rather than the dense oracle, because `instantiate` cannot represent
+    # a `TermSum` that mixes K=0 and K>0 terms (a pre-existing limitation of the oracle, not the
+    # sweep).
     V = SU2Space(1 // 2 => 1)
     S = spin(V)
     for (name, H, N) in (
@@ -225,14 +269,10 @@ end
             ("identity plus two bonds", scalarop(-1.5, V)[1] + dot(S[1], S[2]) + dot(S[2], S[3]), 3),
         )
         sites = fill(V, N)
-        tt = ITOTermTable(H, sites)
-        Wo, so = _irrep_bipartite(tt, N)
-        Wg, sg = _irrep_graph_bipartite(tt, N)
+        _, secs = irrep_mpo(H, sites, BipartiteAlgorithm())
         @testset "$name" begin
-            @test persector(so) == persector(sg)
-            back = mpo_terms(Wg, sg)
-            @test Set(keys(back.terms)) == Set(keys(H.terms))
-            @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+            @test bondprofile(secs) == EXPECTED_BONDS[name]
+            @test islossless(H, sites)
         end
     end
 end
@@ -243,12 +283,11 @@ end
     # accumulated charge, and then `_op_at_ito` fills the idle sites between with pass-throughs at
     # different charges — so the suffix paths differ and the classes must stay apart. Here both terms
     # end with the same spin-1 letter at site 4 but reach bond 2 at charge 0 and charge 1 respectively.
-    # Dropping the charge from the signature merges them and trips the sector-purity assert.
+    # Dropping the charge from the signature merges them and trips the sector-purity check.
     #
-    # This case cannot go through `reference_hamiltonians`: `_irrep_bipartite` keys its suffix classes
-    # on `_op_at_ito` alone (`_suffix_path`), so it omits the running charge and over-merges here,
-    # tripping its own purity assert. The graph sweep is strictly more general in this regime, so the
-    # check is against `mpo_terms` and the dense oracle rather than against the transient sweep.
+    # This case could never go through the deleted transient-frontier oracle: that one keyed its
+    # suffix classes on `_op_at_ito` alone (`_suffix_path`), omitting the running charge, so it
+    # over-merged here and tripped its own purity assert — see research/persistent-graph-mpo.md §3.
     V = SU2Space(1 // 2 => 1)
     zl, sl = instances(IrrepOperator, V)             # charge-0 and charge-1 letters
     @test zl.c == SU2Irrep(0) && sl.c == SU2Irrep(1)
@@ -262,7 +301,7 @@ end
     @test OpSum._op_at_ito(tt, 1, 4) == OpSum._op_at_ito(tt, 2, 4)
     @test OpSum._op_at_ito(tt, 1, 3) != OpSum._op_at_ito(tt, 2, 3)
 
-    Wg, sg = _irrep_graph_bipartite(tt, N)
+    Wg, sg = irrep_mpo(H, sites, BipartiteAlgorithm())
     back = mpo_terms(Wg, sg)
     @test Set(keys(back.terms)) == Set(keys(H.terms))
     @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
@@ -293,13 +332,15 @@ end
     @test OpSum._op_at_ito(tt, 1, 3) == OpSum._op_at_ito(tt, 2, 3)
     @test OpSum._op_at_ito(tt, 1, 1) != OpSum._op_at_ito(tt, 2, 1)
 
-    Wo, so = _irrep_bipartite(tt, N)
-    Wg, sg = _irrep_graph_bipartite(tt, N)
-    @test length.(so) == [1, 1, 1]
-    @test length.(sg) == [1, 1, 1]
+    Wg, sg = irrep_mpo(H, sites, BipartiteAlgorithm())
+    @test length.(sg) == [1, 1, 1]          # the merge, exploited; naive lazy insertion gives [2,2,1]
     back = mpo_terms(Wg, sg)
     @test Set(keys(back.terms)) == Set(keys(H.terms))
     @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+    # and the compressed MPO still is the operator
+    d = dim(V)
+    @test physmatrix(contract3(irrep_mpo_tensors(Wg, sg, sites)), N, d) ≈
+        physmatrix(instantiate(H, sites), N, d)
 end
 
 @testset "live right vertices stay bounded independently of N" begin
@@ -314,7 +355,7 @@ end
         g = ITOGraph(ITOTermTable(H, fill(V, N)), N)
         counts = Int[]
         for i in 1:N
-            _at_site!(g, i)
+            _at_site!(g, i, VertexCover())
             push!(counts, length(g.rrepr))
         end
         @test counts[end] == 1                 # only the exhausted ("done") suffix class survives
@@ -324,4 +365,25 @@ end
         return counts
     end
     @test allequal(maximum.(livecounts))       # the peak is independent of the chain length
+end
+
+@testset "_invariant is a real throw, not a strippable assert" begin
+    # Every load-bearing check in the sweep routes through this helper rather than `@assert`, because
+    # what they guard is *silently wrong output* — a violated one means the emitted MPO represents a
+    # different operator — and `@assert` is stripped under `--check-bounds=no`. So the helper has to
+    # keep throwing regardless of how the tests are run, and it has to say what it is.
+    err = try
+        OpSum._invariant("the widget is not sector-pure")
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    msg = sprint(showerror, err)
+    @test occursin("OpSum internal invariant violated", msg)
+    @test occursin("the widget is not sector-pure", msg)
+    @test occursin("bug in OpSum", msg)          # says whose fault it is, not just that it failed
+
+    # `@noinline`, so the cold message construction never inlines into the hot loops that check these
+    @test !isempty(methods(OpSum._invariant))
 end

@@ -64,8 +64,7 @@ bulk = 4
 # The compression is exact, which `mpo_terms` verifies by reconstructing the original term sum:
 
 back = mpo_terms(Ws, sectors)
-Set(keys(back.terms)) == Set(keys(H.terms)) &&
-    all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+back ≈ H
 
 # ## Examples
 #

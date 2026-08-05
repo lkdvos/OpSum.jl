@@ -67,6 +67,25 @@ end
     @test termbonds(onlyterm(ts2)[1]) == [U1Irrep(1), U1Irrep(2)]
 end
 
+# `dot` sorts its operands and only then reads the Cartesian factor `-√dim(c)` off the left one, so
+# the factor cannot depend on the order they were written in. (The two charges have to fuse to the
+# unit sector, hence be dual, and dual sectors carry equal quantum dimension — so the two readings
+# agree numerically as well as structurally. This pins that.)
+@testset "dot is order-independent in its operands" begin
+    V = Rep[U₁](0 => 1, 1 => 1)
+    raise = LO(IrrepOperator(U1Irrep(1), 1))
+    lower = LO(IrrepOperator(U1Irrep(-1), 1))
+    @test dot(raise[1], lower[2]) ≈ dot(lower[2], raise[1])   # charges +1 and -1, not equal
+
+    Vs = SU2Space(1 // 2 => 1)
+    S = spin(Vs)
+    @test dot(S[1], S[2]) ≈ dot(S[2], S[1])
+
+    # charges that cannot reach the unit sector have no scalar product at all
+    @test_throws ArgumentError dot(raise[1], raise[2])
+    @test_throws ArgumentError dot(raise[1], raise[1])        # and not on the same site
+end
+
 @testset "trivial-sector bridge (ℂ²)" begin
     V = ℂ^2
     ops = instances(IrrepOperator, V)

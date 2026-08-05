@@ -26,10 +26,10 @@ include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 # ``\vec{S}``, provided by [`spin`](@ref OpSum.spin). `dot` contracts two of them into the rotationally
 # invariant scalar product, so the Hamiltonian is a one-liner.
 #
-# Note the two idioms used here and throughout. `S = spin(V)` is hoisted out of the loop — it
-# recomputes its normalization on every call otherwise — and the terms are collected into a
-# `Vector` before summing. Never write `reduce(+, generator)`: adding two `TermSum`s rebuilds the
-# underlying dictionary, and folding over a generator makes that quadratic in the number of terms.
+# Note the idiom used here and throughout: `S = spin(V)` is hoisted out of the loop, since it
+# recomputes its normalization on every call. How the terms are accumulated no longer matters much —
+# a `TermSum` appends rather than rebuilding, so `sum([...])`, `sum(generator)` and
+# `reduce(+, generator)` are all linear in the number of terms.
 
 V = SU2Space(1 // 2 => 1)
 S = spin(V)
@@ -135,8 +135,7 @@ H_proj = sum([project(h_bond, [i, i + 1]) for i in 1:(N - 1)])
 # is checked rather than assumed. Summed over bonds it reproduces the hand-written chain, term for
 # term:
 
-Set(keys(H_proj.terms)) == Set(keys(H_xxz.terms)) &&
-    all(H_proj.terms[k] ≈ H_xxz.terms[k] for k in keys(H_xxz.terms))
+H_proj ≈ H_xxz
 
 # The one thing to know: every projected term is active on *all* the sites you pass. An on-site
 # identity factor comes back as a trivial-charge letter rather than a shorter term, so

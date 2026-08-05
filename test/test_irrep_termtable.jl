@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: ITOTermTable, _op_at_ito, arity, nterms, nvertices, ispassthrough,
-    TermSum, spin, scalarop, couple
+    TermSum, spin, scalarop, couple, nrows, irrep_mpo, instantiate, hascontext
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot
@@ -65,4 +65,114 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
         @test path[5].bond == U1Irrep(0)
     end
 
+end
+
+# The store is append-only: `+` concatenates and duplicates/cancellations are resolved once, lazily.
+# Nothing outside may observe the pre-dedup row count.
+@testset "append-only accumulation" begin
+    S = spin(su2)
+    t = dot(S[1], S[2])
+
+    H = t + t
+    @test nrows(H) == 2                       # two appended rows …
+    @test length(H) == 1                      # … but one term
+    @test only(values(H)) ≈ 2 * only(values(t))
+    @test nterms(ITOTermTable(H, fill(su2, 2))) == 1
+
+    @test isempty(t - t)                      # exact cancellation drops the term
+    @test length(t + 2 * t - 3 * t) == 0
+    @test_throws ArgumentError instantiate(t - t, fill(su2, 2))
+
+    terms = [dot(S[i], S[i + 1]) for i in 1:5]
+    @test sum(terms) ≈ reduce(+, terms)
+    @test sum(terms) ≈ sum(dot(S[i], S[i + 1]) for i in 1:5)
+    @test length(sum(terms)) == 5
+
+    # Several term lists share one append buffer. An older value must never see a later append —
+    # this is the one invariant the in-place `+` fast path rests on.
+    a = sum(terms[1:2])
+    b = a + terms[3]
+    c = a + terms[4]
+    @test length(a) == 2 && length(b) == 3 && length(c) == 3
+    @test b ≈ sum(terms[1:3])
+    @test c ≈ sum(terms[[1, 2, 4]])
+    @test a ≈ sum(terms[1:2])
+
+    # mixed arity: the buffer stride widens, and the table reports the true maximum
+    mixed = dot(S[1], S[2]) + couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3])
+    @test arity(ITOTermTable(mixed, fill(su2, 3))) == 3
+    @test length(mixed) == 2
+end
+
+@testset "lattice binding" begin
+    S = spin(su2)
+    H = sum([dot(S[i], S[i + 1]) for i in 1:3])
+    sites = fill(su2, 4)
+
+    @test_throws ArgumentError lattice(H)     # unbound
+    @test_throws ArgumentError irrep_mpo(H)
+    Hl = onlattice(H, sites)
+    @test lattice(Hl) == sites
+    @test onlattice(Hl, sites) === Hl                       # idempotent
+    @test_throws ArgumentError onlattice(Hl, fill(su2, 5))   # never silently rebind
+    @test irrep_mpo(Hl)[2] == irrep_mpo(H, sites)[2]
+
+    # the checks the binding exists for
+    @test_throws ArgumentError onlattice(H, fill(su2, 3))    # a term reaches past the lattice
+    @test_throws ArgumentError onlattice(H, fill(u1, 4))     # wrong sector type
+    @test_throws ArgumentError onlattice(H, fill(SU2Space(0 => 1), 4))  # no spin-1 letter there
+
+    # adding a bound and an unbound operator binds the result (and checks the newcomer)
+    @test lattice(Hl + dot(S[1], S[4])) == sites
+    @test_throws ArgumentError Hl + dot(S[1], S[5])
+    @test_throws ArgumentError Hl + onlattice(dot(S[1], S[2]), fill(su2, 5))
+
+    # `hascontext` is the non-throwing form of `lattice`
+    @test !hascontext(H)
+    @test hascontext(Hl)
+
+    # `sites` need not already be a `Vector{<:ElementarySpace}`
+    @test lattice(onlattice(H, (su2 for _ in 1:4))) == sites
+    @test lattice(onlattice(H, ntuple(_ -> su2, 4))) == sites
+    @test_throws ArgumentError onlattice(H, [1, 2, 3, 4])
+
+    # `sum` of an empty vector is the empty operator, and mixed boundness still binds
+    @test isempty(sum(TermSum{SU2Irrep}[]))
+    @test lattice(sum([Hl, dot(S[1], S[4])])) == sites
+    @test_throws ArgumentError sum([Hl, onlattice(dot(S[1], S[2]), fill(su2, 5))])
+end
+
+# The container surface a consumer actually touches. All of it goes through the canonical view, so
+# these also pin that `H.terms` and the direct methods agree.
+@testset "container and display surface" begin
+    S = spin(su2)
+    t = dot(S[1], S[2])
+    H = t + 2 * dot(S[2], S[3])
+
+    @test propertynames(H) == (:terms, :buf, :n, :lattice)
+    @test H.buf === getfield(H, :buf)         # the non-`:terms` branch of `getproperty`
+    @test length(H.terms) == length(H) == 2   # the `:terms` branch, and it is the canonical view
+
+    k = only(keys(t))
+    @test haskey(H, k)
+    @test H[k] ≈ only(values(t))
+    @test !haskey(t, only(keys(2 * dot(S[2], S[3]))))
+
+    # `==` is exact where `≈` is approximate, and both go through `canonical`
+    @test H == t + 2 * dot(S[2], S[3])
+    @test H == (H + t) - t                    # appended-then-cancelled is the same value
+    @test H != t
+    @test 1.0e-14 * t != zero(1.0e-14) * t
+
+    # both multiplication orders, and division
+    @test H * 2 == 2 * H
+    @test (H * 2) / 2 == H
+    @test -H == -1 * H
+    @test one(H) * 3 ≈ scalarop(3.0, su2)[1]
+
+    str = sprint(show, H)
+    @test startswith(str, "TermSum(")
+    @test occursin("TermKey(", str)
+    @test occursin(" + ", str)                # two terms, joined
+    @test sprint(show, TermSum{SU2Irrep}()) == "TermSum()"
 end

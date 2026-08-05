@@ -173,8 +173,7 @@ const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["I
         @testset "$name" begin
             # 1. faithfulness: the reduced MPO reconstructs the original term-sum exactly
             back = mpo_terms(Ws, secs)
-            @test Set(keys(back.terms)) == Set(keys(H.terms))
-            @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+            @test back ≈ H
             # 2. the compression itself, charge by charge
             @test bondprofile(secs) == EXPECTED_BONDS[name]
             # 3. the assembled symmetric tensors contract to the dense oracle. `physmatrix` drops the
@@ -303,8 +302,7 @@ end
 
     Wg, sg = irrep_mpo(H, sites, BipartiteAlgorithm())
     back = mpo_terms(Wg, sg)
-    @test Set(keys(back.terms)) == Set(keys(H.terms))
-    @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+    @test back ≈ H
     @test norm(instantiate(back, sites) - instantiate(H, sites)) < 1.0e-10
 end
 
@@ -335,8 +333,7 @@ end
     Wg, sg = irrep_mpo(H, sites, BipartiteAlgorithm())
     @test length.(sg) == [1, 1, 1]          # the merge, exploited; naive lazy insertion gives [2,2,1]
     back = mpo_terms(Wg, sg)
-    @test Set(keys(back.terms)) == Set(keys(H.terms))
-    @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+    @test back ≈ H
     # and the compressed MPO still is the operator
     d = dim(V)
     @test physmatrix(contract3(irrep_mpo_tensors(Wg, sg, sites)), N, d) ≈

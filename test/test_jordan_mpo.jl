@@ -139,7 +139,7 @@ end
     @test_throws ArgumentError jordan_mpo_tensors(sum([S[i] for i in 1:3]), fill(V, 3))
     # an empty term sum has no bond structure at all
     @test_throws ArgumentError jordan_mpo_tensors(
-        TermSum{SU2Irrep, Int, ComplexF64}(), fill(V, 3)
+        TermSum{SU2Irrep}(), fill(V, 3)
     )
     # a truncation aggressive enough to empty a bond cannot carry the identity corners
     H = sum([dot(S[i], S[i + 1]) for i in 1:3])

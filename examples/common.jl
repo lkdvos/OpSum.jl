@@ -12,7 +12,7 @@
 
 using OpSum
 using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, mpo_tensormap, islossless, instantiate,
-    TermSum, spin, spin_ops, fermion_ops, couple, project, matrixunit,
+    TermSum, lattice, onlattice, spin, spin_ops, fermion_ops, couple, project, matrixunit,
     BipartiteAlgorithm, SVDBondAlgorithm
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
@@ -101,15 +101,16 @@ maxdensedim(secs) = maximum(b -> densedim(secs, b), eachindex(secs))
 
 Construct the MPO and report its bond dimensions and (warm) construction time.
 """
-function build(name, H::TermSum, sites; alg = BipartiteAlgorithm(), quiet = false)
-    irrep_mpo(H, sites, alg)   # warm up compilation so the timing is meaningful
-    stats = @timed irrep_mpo(H, sites, alg)
+function build(name, H::TermSum, sites = lattice(H); alg = BipartiteAlgorithm(), quiet = false)
+    H = onlattice(H, sites)
+    irrep_mpo(H, alg)   # warm up compilation so the timing is meaningful
+    stats = @timed irrep_mpo(H, alg)
     Ws, secs = stats.value
     if !quiet
         println(
             rpad(name, 28),
             " N=", lpad(length(sites), 4),
-            "  nterms=", lpad(length(H.terms), 6),
+            "  nterms=", lpad(length(H), 6),
             "  D=", lpad(maxbonddim(secs), 4),
             "  D_dense=", lpad(maxdensedim(secs), 5),
             "  ", round(stats.time; digits = 4), " s"
@@ -132,7 +133,7 @@ end
 # `N`, so small systems only, but it stays inside TensorKit and never builds a dense array, so it is
 # valid for fermions too.
 
-function mpo_matches_oracle(H::TermSum, sites; alg = BipartiteAlgorithm())
+function mpo_matches_oracle(H::TermSum, sites = lattice(H); alg = BipartiteAlgorithm())
     Ws, secs = irrep_mpo(H, sites, alg)
     return mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ instantiate(H, sites)
 end
@@ -156,10 +157,10 @@ function spectrum(O::AbstractTensorMap)
     end
     return sort!(vals)
 end
-spectrum(H::TermSum, sites) = spectrum(instantiate(H, sites))
+spectrum(H::TermSum, sites = lattice(H)) = spectrum(instantiate(H, sites))
 
 "Relative deviation from Hermiticity — the sharpest detector of a wrong fermionic sign."
-function hermiticity_error(H::TermSum, sites)
+function hermiticity_error(H::TermSum, sites = lattice(H))
     O = instantiate(H, sites)
     Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
     return norm(Oop - Oop') / norm(Oop)

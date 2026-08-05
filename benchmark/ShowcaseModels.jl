@@ -24,15 +24,15 @@ export mpo_matches_oracle, spectrum, hermiticity_error
 export islossless, mpo_tensormap, spin_ops, fermion_ops
 
 # ── Model builders ────────────────────────────────────────────────────────────
-# Each returns `(H::TermSum, sites)`. Note the two performance idioms used throughout: the local
-# operators are built once outside the term loop, and terms are collected into a `Vector` before
-# `sum`. Folding `+` over a generator instead would be quadratic in the number of terms.
+# Each returns a `TermSum` already bound to its lattice (`onlattice`), so the physical spaces travel
+# with the operator instead of alongside it in a tuple — `lattice(H)` reads them back. Note the one
+# performance idiom used throughout: the local operators are built once, outside the term loop.
 
 const SPIN_HALF = SU2Space(1 // 2 => 1)
 
 function heisenberg_su2(N; J = 1.0)
     S = spin(SPIN_HALF)
-    return sum([J * dot(S[i], S[i + 1]) for i in 1:(N - 1)]), fill(SPIN_HALF, N)
+    return onlattice(sum([J * dot(S[i], S[i + 1]) for i in 1:(N - 1)]), fill(SPIN_HALF, N))
 end
 
 function j1j2_su2(N; J1 = 1.0, J2 = 0.5)
@@ -43,7 +43,7 @@ function j1j2_su2(N; J1 = 1.0, J2 = 0.5)
             [J2 * dot(S[i], S[i + 2]) for i in 1:(N - 2)],
         )
     )
-    return H, fill(SPIN_HALF, N)
+    return onlattice(H, fill(SPIN_HALF, N))
 end
 
 function haldane_shastry(N; J = 1.0)
@@ -55,7 +55,7 @@ function haldane_shastry(N; J = 1.0)
                 for n in 1:(N - 1) for m in (n + 1):N
         ]
     )
-    return H, fill(SPIN_HALF, N)
+    return onlattice(H, fill(SPIN_HALF, N))
 end
 
 function powerlaw_su2(N; α = 3.0, J = 1.0)
@@ -66,14 +66,14 @@ function powerlaw_su2(N; α = 3.0, J = 1.0)
                 for n in 1:(N - 1) for m in (n + 1):N
         ]
     )
-    return H, fill(SPIN_HALF, N)
+    return onlattice(H, fill(SPIN_HALF, N))
 end
 
 function cylinder_su2(N; Ly = 4, periodic_y = true, J = 1.0)
     N % Ly == 0 || throw(ArgumentError("cylinder: N=$N must be a multiple of Ly=$Ly"))
     S = spin(SPIN_HALF)
     bonds = cylinder_bonds(div(N, Ly), Ly; periodic_y)
-    return sum([J * dot(S[i], S[j]) for (i, j) in bonds]), fill(SPIN_HALF, N)
+    return onlattice(sum([J * dot(S[i], S[j]) for (i, j) in bonds]), fill(SPIN_HALF, N))
 end
 
 const FERMION_MODE = Vect[FermionNumber](0 => 1, 1 => 1)
@@ -90,7 +90,7 @@ end
 function free_fermions(N; t = 1.0)
     F = fermion_ops()
     bonds = [(i, i + 1) for i in 1:(N - 1)]
-    return sum(_hopping_terms(F, bonds, t)), fill(FERMION_MODE, N)
+    return onlattice(sum(_hopping_terms(F, bonds, t)), fill(FERMION_MODE, N))
 end
 
 function tv_chain(N; t = 1.0, Vint = 2.0)
@@ -102,7 +102,7 @@ function tv_chain(N; t = 1.0, Vint = 2.0)
             [Vint * couple(F.n[i], F.n[j]) for (i, j) in bonds],
         )
     )
-    return H, fill(FERMION_MODE, N)
+    return onlattice(H, fill(FERMION_MODE, N))
 end
 
 # Fermi-Hubbard with one spin-orbital per site, `(i, σ) -> 2(i-1) + σ`. Every operator is then a
@@ -126,7 +126,7 @@ function hubbard(N; t = 1.0, U = 4.0, Ly = nothing)
         [_hopping_terms(F, [(orbital(i, σ), orbital(j, σ))], t) for (i, j) in sitebonds for σ in 1:2]
     )
     int = [U * couple(F.n[orbital(i, 1)], F.n[orbital(i, 2)]) for i in 1:Nsites]
-    return sum(vcat(hop, int)), fill(FERMION_MODE, N)
+    return onlattice(sum(vcat(hop, int)), fill(FERMION_MODE, N))
 end
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ struct ModelSpec
     label::String
     family::Symbol                        # :spin1d | :longrange | :quasi2d | :fermionic
     params::Dict{String, Any}
-    build::Function                       # N -> (H, sites)
+    build::Function                       # N -> H (bound to its lattice)
     timesizes::Dict{Symbol, Vector{Int}}  # :smoke | :ci | :full
     dimsizes::Dict{Symbol, Vector{Int}}
 end
@@ -246,11 +246,11 @@ modelbykey(key) = MODELS[findfirst(m -> m.key == key, MODELS)]
 Deterministic (timing-free) MPO statistics for one model at one size.
 """
 function model_metrics(spec::ModelSpec, N::Int)
-    H, sites = spec.build(N)
-    Ws, secs = irrep_mpo(H, sites)
+    H = spec.build(N)
+    Ws, secs = irrep_mpo(H)
     return (
         size = N,
-        nterms = length(H.terms),
+        nterms = length(H),
         nbonds = length(secs),
         maxdensedim = maxdensedim(secs),
         maxmultdim = maxbonddim(secs),

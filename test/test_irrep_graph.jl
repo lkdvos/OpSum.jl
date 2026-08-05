@@ -16,18 +16,11 @@ using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: dot, norm
 
-LO(x) = OpSum.LocalOp(x)
+include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix
 
 # densify an assembled MPO / operator TensorMap to a matrix (drop dim-1 boundary/charge legs, keep the
 # 2N physical axes, reorder to kron order) — the robust operator-equality check, unaffected by the
 # per-bond basis rotation the SVD introduces (`mpo_terms` is not reliable there).
-function physmatrix(t, N, d)
-    A = convert(Array, t)
-    A = dropdims(A; dims = Tuple(findall(==(1), size(A))))
-    @assert ndims(A) == 2N
-    perm = (reverse(1:N)..., reverse((N + 1):(2N))...)
-    return reshape(permutedims(A, perm), d^N, d^N)
-end
 contract2(T) = @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
 function contract3(T)
     return @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
@@ -257,8 +250,9 @@ end
     # tripping its own purity assert. The graph sweep is strictly more general in this regime, so the
     # check is against `mpo_terms` and the dense oracle rather than against the transient sweep.
     V = SU2Space(1 // 2 => 1)
-    z, s = LO.(instances(IrrepOperator, V))          # charge-0 and charge-1 letters
-    @test z.c == SU2Irrep(0) && s.c == SU2Irrep(1)
+    zl, sl = instances(IrrepOperator, V)             # charge-0 and charge-1 letters
+    @test zl.c == SU2Irrep(0) && sl.c == SU2Irrep(1)
+    z, s = LO(zl), LO(sl)
     N = 4
     sites = fill(V, N)
     H = couple(z[1], s[4]; to = SU2Irrep(1)) + 2.0 * couple(s[1], s[4]; to = SU2Irrep(1))

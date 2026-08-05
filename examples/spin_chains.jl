@@ -74,7 +74,7 @@ Sz = (matrixunit(Vu, up, up) - matrixunit(Vu, dn, dn)) / 2 # ``S^z``
 
 # ``S^z`` is a genuinely *composite* on-site operator — a two-letter combination:
 
-length(OpSum.variant(Sz).terms)
+length(Sz)
 
 # `couple` distributes over both expansions, so a composite operand needs no special handling: the
 # ``S^z S^z`` term is written exactly like the single-letter ones.

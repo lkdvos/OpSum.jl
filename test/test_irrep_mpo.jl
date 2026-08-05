@@ -5,18 +5,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot
 
-LO(x) = OpSum.LocalOp(x)
-
-# faithfulness: the compressed MPO reconstructs the original term-sum exactly (lossless)
-function islossless(H::TermSum, sites)
-    Ws, secs = irrep_mpo(H, sites)
-    back = mpo_terms(Ws, secs)
-    Set(keys(back.terms)) == Set(keys(H.terms)) || return false
-    return all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
-end
-
-# dense-equivalent bond dimension at bond b (qdim-weighted sum of the per-sector multiplicities)
-densedim(secs, b) = sum(dim(c) for c in secs[b])
+include(joinpath(@__DIR__, "testutils.jl"))   # LO, islossless, densedim
 
 @testset "SU(2) Heisenberg — lossless + per-sector bond dims" begin
     V = SU2Space(1 // 2 => 1)

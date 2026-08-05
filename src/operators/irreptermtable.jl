@@ -114,7 +114,7 @@ end
 function _irrep_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
     Op = ITOKey{I}
     T = ComplexF64
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = SiteOperator{I}
     M = nterms(tt)
     M == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
@@ -243,10 +243,12 @@ function _irrep_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
     return (map(sparse_from_dict, dicts, sizes), bondsectors)
 end
 
-# Per-bond-sector SVD sweep over the flat `ITOTermTable` — the ITO counterpart of the dense
-# `_svd_bond_optimizations` (graphbuilding.jl). Same skeleton (prefix/suffix transition IDs, one
+# Per-bond-*independent* SVD sweep over the flat `ITOTermTable`: prefix/suffix transition IDs, one
 # coefficient matrix per bond, keep the left singular vectors as the compressed bond basis, then
-# project the vertex operators), with one ITO-specific change: each bond coefficient matrix is built
+# project the vertex operators. Each bond is compressed on the *raw* prefix/suffix classes,
+# independently of its neighbours — contrast `_irrep_graph_svd` (irrepgraph.jl), which compresses
+# each bond in the basis left over from the one before it. The two agree losslessly and diverge
+# under truncation. The ITO-specific part: each bond coefficient matrix is built
 # as a *charge-graded* `TensorMap C_b : Ppre ← Psuf` — both spaces graded by the running bond charge
 # `_op_at_ito(tt,t,b).bond`. That makes `C_b` block-diagonal in the bond charge, so `svd_trunc`
 # does the per-sector SVD *and* the global-across-sectors truncation automatically (respecting the
@@ -256,7 +258,7 @@ end
 function _irrep_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
     Op = ITOKey{I}
     T = ComplexF64
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = SiteOperator{I}
     M = nterms(tt)
     M == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
@@ -265,7 +267,7 @@ function _irrep_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
     # --- 1. Prefix / suffix transition IDs at every internal bond -----------------------------
     #   pre_ids[t, b] = class of prefix o_t[1:b];  suf_ids[t, b] = class of suffix o_t[b+1:N].
     #   Assigned via (prev_id, ITOKey) transitions (the ITOKey carries op+bond+vertex, so classes
-    #   are automatically sector-pure). Mirrors graphbuilding.jl but reads keys via `_op_at_ito`.
+    #   are automatically sector-pure), reading keys via `_op_at_ito`.
     pre_ids = zeros(Int, M, max(N - 1, 0))
     suf_ids = zeros(Int, M, max(N - 1, 0))
     pre_trans = [Dictionary{Tuple{Int, Op}, Int}() for _ in 1:(N - 1)]

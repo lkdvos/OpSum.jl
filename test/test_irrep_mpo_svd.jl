@@ -8,17 +8,7 @@ using TensorKit: @tensor
 using LinearAlgebra: dot
 using MatrixAlgebraKit: truncrank, trunctol
 
-LO(x) = OpSum.LocalOp(x)
-
-# densify a TensorMap operator to a matrix (see test_irrep_mpo_tensors.jl): drop dim-1
-# (boundary/charge) legs, keep the 2N physical axes [out_1..N, in_1..N], reorder to kron order.
-function physmatrix(t, N, d)
-    A = convert(Array, t)
-    A = dropdims(A; dims = Tuple(findall(==(1), size(A))))
-    @assert ndims(A) == 2N
-    perm = (reverse(1:N)..., reverse((N + 1):(2N))...)
-    return reshape(permutedims(A, perm), d^N, d^N)
-end
+include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix, densedim
 
 contract2(T) = @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
 function contract3(T)
@@ -29,9 +19,6 @@ end
 # operator the reduced MPO represents, via the path-enumeration reconstruction (works for any valid
 # (Ws, bondsectors), including the SVD-rotated / truncated bond bases).
 mpo_operator(Ws, secs, sites) = instantiate(mpo_terms(Ws, secs), sites)
-
-# dense-equivalent bond dimension (qdim-weighted per-sector multiplicities)
-densedim(secs, b) = sum(dim(c) for c in secs[b])
 
 @testset "lossless SVD reproduces the operator (explicit contraction)" begin
     V = SU2Space(1 // 2 => 1)

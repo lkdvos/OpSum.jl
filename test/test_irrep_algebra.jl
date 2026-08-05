@@ -5,14 +5,14 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, norm, I as Id
 
-LO(x) = OpSum.LocalOp(x)
+include(joinpath(@__DIR__, "testutils.jl"))   # LO
 
 # dense reference Pauli / spin-1/2
 const σX = ComplexF64[0 1; 1 0]
 const σY = ComplexF64[0 -im; im 0]
 const σZ = ComplexF64[1 0; 0 -1]
 
-@testset "LocalOp scalar / sum instantiation" begin
+@testset "SiteOperator scalar / sum instantiation" begin
     V = SU2Space(1 // 2 => 1)
 
     # scalar identity → structural c·id(V), NOT via one(::Type)
@@ -33,15 +33,16 @@ const σZ = ComplexF64[1 0; 0 -1]
     @test convert(Array, instantiate(S2, V)) ≈ 1.5 * convert(Array, Osp)
 
     # spin normalization: reduced element √(s(s+1)(2s+1)) = √(3/2) for spin-1/2
-    coeff = only(values(OpSum.variant(spin(V)).terms))
+    coeff = only(values(spin(V)))
     @test coeff ≈ sqrt(3 / 2)
 
-    # on-site products/powers are deferred (build the Prod variant directly, since `*` between
-    # two symbolic LocalOps is itself not implemented)
-    A = IrrepOperator{SU2Irrep}
-    L = OpSum.LocalOp{ComplexF64, A}
-    pr = L(OpSum.Prod{L}(L[spin(V), spin(V)]))
-    @test_throws ArgumentError instantiate(pr, V)
+    # On-site products are not symbolic: the supported route is to build the product as a
+    # `TensorMap` and project it. `n̂² = n̂` checks that route against a known answer.
+    Vu = Rep[U₁](0 => 1, 1 => 1)
+    nhat = matrixunit(Vu, U1Irrep(1), U1Irrep(1))
+    Nop = zeros(ComplexF64, Vu ← Vu)
+    block(Nop, U1Irrep(1)) .= 1
+    @test project(Nop * Nop, Vu) ≈ nhat
 end
 
 @testset "single-site field embedding" begin

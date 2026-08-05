@@ -25,10 +25,15 @@
 # * Connected components are pure in the outgoing bond charge (`ITOKey.bond`) — asserted, exactly as
 #   the transient sweep does.
 #
-# Supported arity K ∈ {0,1,2}; the `ITOKey.vertex` multiplicity label is threaded through
-# `LeftVertex.key` but is `1` throughout the multiplicity-free scope, so the reduced `(Ws,
-# bondsectors)` contract is unchanged. GenericFusion multi-channel and fermionic (graded) sectors are
-# out of scope (the `LeftVertex` fermion/JW slot from ITensor is intentionally omitted).
+# Supported arity K ≥ 0 (identity, on-site field, and caterpillar coupling of any number of sites;
+# the suite covers K ≤ 3 and the examples K = 4). The `ITOKey.vertex` multiplicity label is threaded
+# through `LeftVertex.key` but is `1` throughout the multiplicity-free scope, so the reduced `(Ws,
+# bondsectors)` contract is unchanged. `GenericFusion` multi-channel coupling is out of scope.
+#
+# Fermionic (graded) sectors ARE supported: TensorKit's braiding carries the anticommutation through
+# the ITO algebra and the odd-parity charge flowing along the virtual bond does the bookkeeping, so
+# no Jordan–Wigner strings appear. That is why ITensor's fermion/JW slot on `LeftVertex` is omitted —
+# it is subsumed by the sector structure, not missing.
 
 using TensorKit: Sector
 using SparseArrays: SparseMatrixCSC
@@ -39,7 +44,8 @@ using SparseArrays: SparseMatrixCSC
 A left (prefix) vertex of the persistent ITO graph: it entered the current site on incoming bond
 index `link` and applies the on-site ITO key `key = (op, bond, vertex)` here. The non-abelian
 analogue of ITensorMPOConstruction's `LeftVertex(link, op_id, needs_JW)`; the fermion/JW-string slot
-is intentionally omitted (the irrep track has no fermions — a documented follow-up).
+is intentionally omitted, because in the symmetric setting the JW string is subsumed by the sector
+structure (the odd-parity charge on the virtual bond does that bookkeeping).
 """
 struct LeftVertex{I <: Sector}
     link::Int
@@ -365,7 +371,7 @@ end
 function _vc_component(
         g::ITOGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int
     ) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = SiteOperator{I}
     N = g.N
     nus, nvs = length(us), length(vs)
 
@@ -614,7 +620,7 @@ end
 # right vertices and tagging fresh left vertices with the outgoing bond index as `link`. Returns
 # `(Ws_i, secW_i)` and mutates `g` into the graph for bond `i → i+1`.
 function _at_site!(g::ITOGraph{I}, i::Int) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = SiteOperator{I}
 
     nU, nV = _prepare_bond!(g, i)
     us_of_comp, vs_of_comp = bipartite_connected_components(g.radj, nV)
@@ -651,12 +657,12 @@ end
     _irrep_graph_bipartite(tt::ITOTermTable{I}, N) -> (Ws, bondsectors)
 
 Persistent-graph, minimum-vertex-cover reduced-MPO sweep — the ITensor `at_site!` port. Produces the
-same `(Ws::Vector{SparseMatrixCSC{LocalOp{ComplexF64, IrrepOperator{I}}, Int}}, bondsectors::Vector{
+same `(Ws::Vector{SparseMatrixCSC{SiteOperator{I}, Int}}, bondsectors::Vector{
 Vector{I}})` contract as `_irrep_bipartite`, so `mpo_terms` / `irrep_mpo_tensors` consume it
 unchanged.
 """
 function _irrep_graph_bipartite(tt::ITOTermTable{I}, N::Int) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = SiteOperator{I}
     nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
     g = ITOGraph(tt, N)
@@ -678,7 +684,7 @@ end
 # `(link, m)` block; the residual `R = S·Vᴴ` forwards the coefficient onto the next bond's edges
 # (folded into the block at the last site). Mutates `g` into the graph for bond `i → i+1`.
 function _svd_at_site!(g::ITOGraph{I}, i::Int, truncstrat) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = SiteOperator{I}
     N = g.N
 
     nU, nV = _prepare_bond!(g, i)
@@ -789,7 +795,7 @@ preserve the pinned per-bond-independent truncation semantics; wiring this seque
 selector (and choosing between the two truncation semantics) is a documented follow-up.
 """
 function _irrep_graph_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
-    LOp = LocalOp{ComplexF64, IrrepOperator{I}}
+    LOp = SiteOperator{I}
     nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
 
     truncstrat = something(trunc, trunctol(rtol = eps(Float64)))

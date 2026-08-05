@@ -11,6 +11,8 @@ export Term, Terms, TermSum, couple, opsum, lattice, canonicalize!
 export irrep_mpo, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
+# infinite chains: a generating term set tiled over a repeating unit cell
+export InfiniteChain
 # verification
 export islossless, mpo_tensormap
 
@@ -48,6 +50,8 @@ include("operators/irrepprojection.jl")
 include("operators/builders.jl")
 include("operators/irreptermtable.jl")
 include("operators/irrepgraph.jl")
+include("operators/infinitechain.jl")
+include("operators/infinitegraph.jl")
 include("operators/irrepmpo.jl")
 include("operators/jordanmpo.jl")
 

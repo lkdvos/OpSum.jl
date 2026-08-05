@@ -111,6 +111,7 @@ mutable struct ITOGraph{I <: Sector}
     N::Int
     K::Int                 # arity(tt): rows of tt.sites / tt.keys
     sufid::Matrix{Int}     # (K+1) × M interned id of the column suffix j:K (0 == exhausted)
+    relsufid::Matrix{Int}  # (K+1) × M same, interned by shape instead of position (`_rel_suffix_ids`)
     rrepr::Vector{Int}     # right vertex -> representative term id
     rcur::Vector{Int}      # right vertex -> first column j with sites[j, rrepr] > current site
     rbond::Vector{I}       # right vertex -> running bond charge just past the current site
@@ -210,6 +211,64 @@ function _prefix_ids(tt::ITOTermTable{I}) where {I}
     return preid
 end
 
+"""
+    _rel_suffix_ids(tt::ITOTermTable{I}) -> Matrix{Int}
+
+Translation-invariant twin of [`_suffix_ids`](@ref): interns each term's contiguous column suffixes by
+*shape* rather than by absolute position, consing `(gap to the next active site, ITOKey, tail id)`
+instead of `(absolute site, ITOKey, tail id)`.
+
+`_suffix_ids` is what the per-bond merge wants — at a fixed bond, "same remaining factor list" and
+"same remaining factor list at the same absolute sites" coincide, and the absolute form is also what
+`pendbysig` keys on. Comparing suffix classes *across* bonds needs the positional information split
+off instead: a class and its translate one unit cell later have the same shape and the same distance
+from their respective bonds. `(distance, relsufid, running charge)` is exactly that pair of facts, and
+is the canonical name of a right vertex — see [`_rdesc`](@ref).
+"""
+function _rel_suffix_ids(tt::ITOTermTable{I}) where {I}
+    K, M = arity(tt), nterms(tt)
+    relid = zeros(Int, K + 1, M)
+    intern = Dictionary{Tuple{Int, ITOKey{I}, Int}, Int}()
+    nid = 0
+    for t in 1:M
+        for j in K:-1:1
+            s = tt.sites[j, t]
+            iszero(s) && continue                     # padding: exhausted from here on
+            nxt = j < K ? tt.sites[j + 1, t] : 0
+            gap = iszero(nxt) ? 0 : nxt - s           # 0 == this is the last factor
+            trans = (gap, tt.keys[j, t], relid[j + 1, t])
+            id = get(intern, trans, 0)
+            if iszero(id)
+                nid += 1
+                id = nid
+                insert!(intern, trans, id)
+            end
+            relid[j, t] = id
+        end
+    end
+    return relid
+end
+
+"""
+    _rdesc(g::ITOGraph, r, i) -> (distance, shape, charge)
+
+The canonical, translation-invariant name of right vertex `r` at bond `i`: the distance from the bond
+to its first remaining factor (`0` once the class is exhausted), the shape of the remaining factor
+list ([`_rel_suffix_ids`](@ref)), and the running bond charge. Two classes carry the same name exactly
+when they are translates of each other relative to their bonds, which is what makes the sweep's
+choices comparable from one unit cell to the next.
+
+The sentinel is not a suffix class and gets the reserved name `(-1, -1, unit(I))`, which sorts before
+every real one.
+"""
+function _rdesc(g::ITOGraph{I}, r::Int, i::Int) where {I}
+    r > length(g.rrepr) && return (-1, -1, unit(I))    # the sentinel
+    t = g.rrepr[r]
+    j = g.rcur[r]
+    s = j <= g.K ? g.tt.sites[j, t] : 0
+    return (iszero(s) ? 0 : s - i, g.relsufid[j, t], g.rbond[r])
+end
+
 # Advance right vertex `r`'s cursor past every factor at a site `<= i`, accumulating the running bond
 # charge, and return its suffix signature `(interned remaining-factor list, running bond charge)`.
 # Amortised `O(1)`: each cursor advances at most `K` times over the whole sweep.
@@ -262,6 +321,7 @@ what Jordan emission needs and what `irrep_mpo` deliberately does not do.
 function ITOGraph(tt::ITOTermTable{I}, N::Int; lazy::Bool = true, jordan::Bool = false) where {I}
     M = nterms(tt)
     sufid = _suffix_ids(tt)
+    relsufid = _rel_suffix_ids(tt)
     firstsite = _first_sites(tt)
 
     rrepr = Int[]
@@ -320,7 +380,7 @@ function ITOGraph(tt::ITOTermTable{I}, N::Int; lazy::Bool = true, jordan::Bool =
 
     cap = M + 1   # right-vertex ids are at most one sentinel beyond the real ones
     return ITOGraph{I}(
-        tt, N, arity(tt), sufid, rrepr, rcur, rbond, lefts, radj, wadj, 1,
+        tt, N, arity(tt), sufid, relsufid, rrepr, rcur, rbond, lefts, radj, wadj, 1,
         lazy, firstsite, pend_at, pendbysig, inserted, nremaining, 0, startleft, 0, 0, 0, 0, jordan,
         zeros(Int, cap), zeros(Int, cap), zeros(Int, cap), zeros(Int, cap),
         Dictionary{Tuple{Int, I}, Int}()
@@ -520,6 +580,9 @@ function _vc_component(
     blocks = Tuple{Int, Int, LOp}[]
     nextedges = [Tuple{Int, ComplexF64}[] for _ in 1:rank]
     secs = Vector{I}(undef, rank)
+    # `origins[m]` names the vertex bond index `m` came from: `(0, left vertex)` or `(1, right vertex)`.
+    # `_at_site!` uses it to put the assembled bond into canonical order.
+    origins = Vector{Tuple{Int, Int}}(undef, rank)
     startidx = 0
     finishidx = 0
 
@@ -528,6 +591,7 @@ function _vc_component(
         iu = us[lu]
         lv = g.lefts[iu]
         secs[m] = lv.key.bond
+        origins[m] = (0, iu)
         iu == g.startleft && (startidx = m)
         iu == g.finishleft && (finishidx = m)
         if i == N
@@ -550,6 +614,7 @@ function _vc_component(
         m = nleft + p
         iv = vs[lvv]
         bondof[lvv] = m
+        origins[m] = (1, iv)
         # the component is pure in the bond charge (asserted in `_prepare_bond!`), so any incident
         # left vertex gives it
         secs[m] = g.lefts[g.firstleft[iv]].key.bond
@@ -582,7 +647,7 @@ function _vc_component(
         end
     end
 
-    return rank, blocks, nextedges, secs, startidx, finishidx
+    return rank, blocks, nextedges, secs, startidx, finishidx, origins
 end
 
 """
@@ -621,6 +686,54 @@ function _promote_pending!(g::ITOGraph{I}, i::Int) where {I}
     return g
 end
 
+"""
+    _canonicalise_rights!(g, i)
+
+Renumber the live right vertices into canonical order — ascending in their translation-invariant name
+[`_rdesc`](@ref) — and sort every adjacency list to match.
+
+This is what makes the sweep a deterministic function of the *canonical* graph rather than of its
+construction history. Hopcroft–Karp's matching, and therefore König's cover, depend on the order the
+adjacency lists are scanned in; that order used to be first-encounter (`_merge_edges!`), which is
+perfectly fine for a single left-to-right pass but means two bonds posing isomorphic problems can
+answer them differently. On a finite chain that is invisible (any minimum cover is as good as any
+other). On a periodic lattice it is fatal: the bond basis then converges only up to a permutation of
+itself, and the extracted unit cell does not close. Everything downstream is driven off right-vertex
+ids and left-vertex order — `bipartite_connected_components` returns components in first-left-vertex
+order with ascending ids — so canonical ids here plus canonical bond-index order in `_at_site!` pin
+the whole sweep.
+
+Called before the sentinel is attached, so every id in play is a real class.
+"""
+function _canonicalise_rights!(g::ITOGraph{I}, i::Int) where {I}
+    R = length(g.rrepr)
+    if R > 1
+        descs = [_rdesc(g, r, i) for r in 1:R]
+        if !issorted(descs)
+            perm = sortperm(descs)
+            newid = Vector{Int}(undef, R)
+            for p in 1:R
+                newid[perm[p]] = p
+            end
+            g.rrepr, g.rcur, g.rbond = g.rrepr[perm], g.rcur[perm], g.rbond[perm]
+            for radj in g.radj
+                @inbounds for k in eachindex(radj)
+                    radj[k] = newid[radj[k]]
+                end
+            end
+        end
+    end
+    for iu in eachindex(g.radj)
+        radj, wadj = g.radj[iu], g.wadj[iu]
+        if !issorted(radj)
+            p = sortperm(radj)
+            permute!(radj, p)
+            permute!(wadj, p)
+        end
+    end
+    return g
+end
+
 # Phases 1 & 2, shared by every graph-sweep strategy: suffix-merge the right vertices, apply the remap
 # to the adjacency, promote any pending term whose class just became live, attach the sentinel that
 # stands in for the still-pending terms, and record `g.firstleft` (first incident left vertex per right
@@ -636,6 +749,7 @@ function _prepare_bond!(g::ITOGraph{I}, i::Int) where {I}
     nV = length(g.rrepr)
     _apply_remap!(g, remap, nV)
     _promote_pending!(g, i)
+    _canonicalise_rights!(g, i)
 
     # the finish class: every factor placed (exhausted suffix) at the trivial running charge. The
     # suffix merge just made signatures unique, so there is at most one such right vertex.
@@ -768,6 +882,48 @@ function _build_next_graph!(
     return g
 end
 
+"""
+    _canonicalise_bond!(g, i, nout, site_dict, secW, nextedges_global, origins_global)
+
+Reorder the assembled bond into canonical order: covered-left indices first, ordered by
+`(incoming bond index, on-site ITOKey)`, then covered-right indices ordered by their canonical class
+name [`_rdesc`](@ref). Permutes the block dictionary's columns, the bond charges, the forwarded edges
+and `g.startidx`/`g.finishidx` together.
+
+Both sort keys are translation-invariant *given* that the incoming bond was itself canonically
+ordered — a left vertex is uniquely named by `(link, key)`, and after this pass an index's position
+*is* its canonical rank, so `link` needs no further translation. That induction, seeded by the
+1-dimensional boundary bond, is what makes bond `i` and bond `i+L` of a periodic model produce
+identically labelled bases rather than merely isomorphic ones (see [`_canonicalise_rights!`](@ref) for
+why that matters and what the other half of it is).
+"""
+function _canonicalise_bond!(
+        g::ITOGraph{I}, i::Int, nout::Int, site_dict, secW::Vector{I},
+        nextedges_global::Vector{Vector{Tuple{Int, ComplexF64}}},
+        origins_global::Vector{Tuple{Int, Int}}
+    ) where {I}
+    nout <= 1 && return site_dict, secW, nextedges_global
+    covleft = [m for m in 1:nout if iszero(origins_global[m][1])]
+    covright = [m for m in 1:nout if isone(origins_global[m][1])]
+    sort!(covleft; by = m -> (lv = g.lefts[origins_global[m][2]]; (lv.link, lv.key)))
+    sort!(covright; by = m -> _rdesc(g, origins_global[m][2], i))
+    order = vcat(covleft, covright)
+    issorted(order) && return site_dict, secW, nextedges_global
+
+    pos = Vector{Int}(undef, nout)
+    for (k, m) in enumerate(order)
+        pos[m] = k
+    end
+    newdict = Dictionary{CartesianIndex{2}, valtype(site_dict)}()
+    for (idx, op) in pairs(site_dict)
+        l, m = Tuple(idx)
+        increaseindex!(newdict, CartesianIndex(l, pos[m]), op)
+    end
+    iszero(g.startidx) || (g.startidx = pos[g.startidx])
+    iszero(g.finishidx) || (g.finishidx = pos[g.finishidx])
+    return newdict, secW[order], nextedges_global[order]
+end
+
 # Phases 3 & 4 for [`VertexCover`](@ref): split the bond into connected components, run the
 # per-component minimum vertex cover (`_vc_component`), and concatenate the component ranks into one
 # bond (offsets), collecting the per-index charges and the forwarded edges. A minimum vertex cover of
@@ -781,16 +937,19 @@ function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) w
 
     secW = I[]
     nextedges_global = Vector{Tuple{Int, ComplexF64}}[]
+    origins_global = Tuple{Int, Int}[]
     site_dict = Dictionary{CartesianIndex{2}, LOp}()
     offset = 0
     for (us, vs) in zip(us_of_comp, vs_of_comp)
-        rank, blocks, nextedges, secs, startidx, finishidx = _vc_component(g, us, vs, i)
+        rank, blocks, nextedges, secs, startidx, finishidx, origins =
+            _vc_component(g, us, vs, i)
         for (link, m, op) in blocks
             increaseindex!(site_dict, CartesianIndex(link, offset + m), op)
         end
         for m in 1:rank
             push!(secW, secs[m])
             push!(nextedges_global, nextedges[m])
+            push!(origins_global, origins[m])
         end
         if !iszero(startidx)
             iszero(g.startidx) ||
@@ -804,9 +963,13 @@ function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) w
         end
         offset += rank
     end
+    nout = offset
+    site_dict, secW, nextedges_global = _canonicalise_bond!(
+        g, i, nout, site_dict, secW, nextedges_global, origins_global
+    )
     (iszero(g.startidx) || g.startidx != g.finishidx) ||
         _invariant("the start and finish channels resolved to the same bond index")
-    return offset, site_dict, secW, nextedges_global
+    return nout, site_dict, secW, nextedges_global
 end
 
 # Phases 3 & 4 for [`SequentialSVD`](@ref) (ITensor's `at_site!` with the QR/SVD backend, doc §6 "The

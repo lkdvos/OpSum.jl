@@ -317,6 +317,43 @@ chains that cost no dense storage and cannot change the operator.
 
 The total charge must be trivial (a Jordan MPO's right boundary is an identity), and a truncation
 aggressive enough to empty a bond is rejected rather than silently emitted.
+## Infinite chains
+
+Pass an `InfiniteChain` alongside the operator and the same term algebra builds an infinite MPO with a
+repeating unit cell of `L = length(chain)` sites:
+
+```@example ops
+chain = InfiniteChain([V])            # one site per unit cell
+Hinf = irrep_mpo(
+    0.5 * couple(Sp[1], Sm[2]) + 0.5 * couple(Sm[1], Sp[2]) + couple(Sz[1], Sz[2]), chain
+)
+```
+
+Note there is no `opsum` here. The chain already names the space of *every* site, by wraparound, so a
+generating set stays a latticeless [`Terms`](@ref OpSum.Terms) bag — exactly what `couple` returns. A
+lattice-bound `TermSum` works too, and is then required to agree with the chain site by site.
+
+The argument is a **generating set**, not the Hamiltonian: the operator represented is
+``\sum_{n \in \mathbb{Z}} \mathrm{translate}(H, nL)``, so each translation class must appear exactly
+once. Writing both `couple(Sz[1], Sz[2])` and `couple(Sz[2], Sz[3])` on a one-site cell would count the
+same class twice and is rejected; on a two-site cell they are different bonds and both are needed.
+
+```@example ops
+Hinf.bondsectors, Hinf.start, Hinf.done
+```
+
+An [`OpSum.InfiniteMPO`](@ref) holds `L` bond matrices and `L` bond-charge lists, with bond `0`
+identified with bond `L`, so `Ws, secs = Hinf` destructures exactly like the finite output. It also
+carries the two boundary vectors as bond indices: `start[j]` is the channel on which nothing has begun
+and `done[j]` the one on which everything has finished. `irrep_mpo_tensors(Hinf, chain)` assembles `L`
+site tensors that tile — site 1's left virtual space is site `L`'s right virtual space.
+
+!!! note
+    Terms must be charge-neutral, and `SVDBondAlgorithm` is not available here: it compresses each bond
+    independently against a vacuum-terminated layout, with no bond basis that closes on itself. Terms
+    with no support (`K = 0`) are rejected too, since `Σ_n c·𝟙` does not converge. Truly infinite-range
+    couplings — exponentially decaying interactions, and the sum-of-exponentials fits that approximate
+    a power law — are not supported yet; `research/infinite-mpo.md` §7 has the design.
 
 ## Recommended patterns
 

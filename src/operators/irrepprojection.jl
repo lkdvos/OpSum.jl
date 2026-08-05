@@ -212,7 +212,7 @@ Expand a single-site operator in the ITO alphabet of `V`, as an [`SiteOperator`]
 placed on the lattice. `O` must be either `V ← V` or `V ← V ⊗ Vect[I](c => 1)`. The result carries
 one letter per surviving alphabet element.
 
-Because an `SiteOperator` supports ordinary arithmetic, composite on-site operators read the way you
+Because a `SiteOperator` supports ordinary arithmetic, composite on-site operators read the way you
 would write them on paper, and `A[i]` then places the whole expansion:
 
 ```julia

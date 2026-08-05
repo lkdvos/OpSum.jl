@@ -55,9 +55,8 @@ end
     @test !iszero(op)
 
     # `iszero` is about the coefficients; an operator can be zero while still carrying letters, which
-    # is exactly the state `prune` exists to clean up. (Note `A - A` on two bare letters does not
-    # promote — `+` and scalar `*` do, `-` does not — so this goes through `SiteOperator` explicitly.)
-    z = SiteOperator(A) - SiteOperator(A)
+    # is exactly the state `prune` exists to clean up
+    z = A - A
     @test iszero(z)
     @test !isempty(z)
     @test isempty(prune(z))
@@ -103,11 +102,15 @@ end
     @test 3 * (2 * A) == 6 * A                # scalar on either side
     @test (4 * A) / 2 == 2 * A
 
-    # a bare letter times a scalar promotes, which the sweep uses when weighting a letter by its
-    # reduced coefficient
+    # a bare letter promotes under every operation, not just the scalar multiply the sweep needs when
+    # weighting a letter by its reduced coefficient
     @test A * 2 == 2 * SiteOperator(A)
     @test 2 * A == SiteOperator(A) * 2
+    @test A / 2 == SiteOperator(A) / 2
     @test A + B == SiteOperator(A) + SiteOperator(B)
+    @test A - B == SiteOperator(A) - SiteOperator(B)
+    @test -A == -SiteOperator(A)
+    @test iszero(A - A)
 
     # the operands are not mutated by any of it
     x, y = 2 * A, 3 * B
@@ -119,11 +122,14 @@ end
     @test scale(2 * A, 3) == 6 * A
     @test add(2 * A, 3 * B) == 2 * A + 3 * B
 
-    # the alphabet is orthonormal, so the inner product is the plain coefficient overlap. (`inner` is
-    # defined on two `SiteOperator`s; a bare letter would fall through to `LinearAlgebra.dot`.)
+    # the alphabet is orthonormal, so the inner product is the plain coefficient overlap
     @test inner(2 * A, 3 * A) ≈ 6
-    @test inner(SiteOperator(A), SiteOperator(B)) ≈ 0
-    @test inner((1 + 2im) * A, SiteOperator(A)) ≈ 1 - 2im   # conjugate-linear in the first argument
+    @test inner(A, B) ≈ 0
+    @test inner((1 + 2im) * A, A) ≈ 1 - 2im       # conjugate-linear in the first argument
+    # a bare letter is accepted on either side, and mixes with a combination
+    @test inner(A, 3 * A) ≈ 3
+    @test inner(3 * A, A) ≈ 3
+    @test inner(A, A + B) ≈ 1
     @test norm(3 * A) ≈ 3
     @test norm(2 * A + 3 * B) ≈ sqrt(13)
     @test norm(zero(SiteOperator{SU2Irrep})) ≈ 0
@@ -139,10 +145,20 @@ end
 end
 
 @testset "show" begin
-    @test sprint(show, zero(SiteOperator{SU2Irrep})) == "SiteOperator{SU2Irrep}(0)"
+    # Structure only, never the exact rendering of the type parameter: `show` qualifies it or not
+    # depending on what is in scope, so `SiteOperator{SU2Irrep}` standalone becomes
+    # `SiteOperator{TensorKitSectors.SU2Irrep}` inside a test worker.
+    empty_str = sprint(show, zero(SiteOperator{SU2Irrep}))
+    @test startswith(empty_str, "SiteOperator{") && endswith(empty_str, "(0)")
+
     # a unit coefficient is elided, a non-unit one printed
-    @test sprint(show, SiteOperator(A)) == "SiteOperator{SU2Irrep}(" * sprint(show, A) * ")"
-    @test occursin("2.0", sprint(show, 2 * A))
+    single = sprint(show, SiteOperator(A))
+    @test occursin(sprint(show, A), single)
+    @test !occursin("*", single)
+    scaled = sprint(show, 2 * A)
+    @test occursin("2.0", scaled) && occursin("*", scaled)
+
+    # several letters are joined
     @test occursin(" + ", sprint(show, A + B))
 end
 

@@ -45,9 +45,9 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
    - `IrrepOperator{I}` (`irreptensoroperators.jl`): the irreducible-tensor-operator (ITO) alphabet, `A = IrrepOperator{I}`. The fusion-resolved global algebra is the term-sum `TermSum`/`TermKey` (`irrepalgebra.jl`), built by `op[site]`, `+`, `scale`, and `couple`/`dot`.
 
 2. **Projection (numeric → symbolic)** — `src/operators/irrepprojection.jl`
-   - `project(h, sites)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning a `TermSum`. `project(O, V)` is the single-site form, returning an `SiteOperator`. This is the inverse of `instantiate` and the intended way to write operators down — hard-coding letter indices `(c, n)` is fragile because `n` follows TensorKit's block order.
+   - `project(h, sites)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning a `TermSum`. `project(O, V)` is the single-site form, returning a `SiteOperator`. This is the inverse of `instantiate` and the intended way to write operators down — hard-coding letter indices `(c, n)` is fragile because `n` follows TensorKit's block order.
    - The candidate basis `(ops, tree)` is orthogonal and complete, with the closed-form diagonal `inner(E,E) = dim(tot) / Π_k dim(c_k)`, so coefficients are plain inner products — no solve. Coefficients below tolerance are dropped and the result is re-materialized and checked against the input (throws if unfaithful).
-   - `matrixunit(V, out, in)`: `|out⟩⟨in|` as an `SiteOperator`, for abelian/fermionic spaces.
+   - `matrixunit(V, out, in)`: `|out⟩⟨in|` as a `SiteOperator`, for abelian/fermionic spaces.
    - Every projected term has full support on all `K` sites: an on-site identity factor appears as a trivial-charge letter, not a shorter term.
 
 3. **Flat term storage** — `src/operators/`

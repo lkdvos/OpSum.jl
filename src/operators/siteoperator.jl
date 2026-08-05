@@ -115,14 +115,26 @@ Base.:*(x::SiteOperator{I}, a::Number) where {I} = SiteOperator{I}(copy(x.letter
 Base.:*(a::Number, x::SiteOperator) = x * a
 Base.:/(x::SiteOperator, a::Number) = x * inv(a)
 
-# A bare letter times a scalar promotes to an `SiteOperator`. The per-bond sweep leans on this when it
-# weights a letter by its reduced coefficient (`key.op * coeff`).
+# A bare letter promotes under all of the above, so `2 * A`, `A / 2`, `-A` and `A - B` mean what they
+# look like rather than erring. The per-bond sweep leans on the scalar case when it weights a letter by
+# its reduced coefficient (`key.op * coeff`); the rest is there so the promotion surface has no holes
+# for a caller to fall into.
 Base.:*(x::IrrepOperator, a::Number) = SiteOperator(x) * a
 Base.:*(a::Number, x::IrrepOperator) = SiteOperator(x) * a
+Base.:/(x::IrrepOperator, a::Number) = SiteOperator(x) / a
 Base.:+(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} = SiteOperator(x) + SiteOperator(y)
+Base.:-(x::IrrepOperator) = -SiteOperator(x)
+Base.:-(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} = SiteOperator(x) - SiteOperator(y)
 
 VectorInterface.scale(x::SiteOperator, a::Number) = x * a
 VectorInterface.add(x::SiteOperator{I}, y::SiteOperator{I}) where {I} = x + y
+
+# `inner` likewise accepts a bare letter on either side. Without these the mixed call falls through to
+# `LinearAlgebra.dot`'s generic path and dies on `iterate` rather than saying anything useful.
+VectorInterface.inner(x::IrrepOperator{I}, y::SiteOperator{I}) where {I} = inner(SiteOperator(x), y)
+VectorInterface.inner(x::SiteOperator{I}, y::IrrepOperator{I}) where {I} = inner(x, SiteOperator(y))
+VectorInterface.inner(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} =
+    inner(SiteOperator(x), SiteOperator(y))
 
 function VectorInterface.inner(x::SiteOperator{I}, y::SiteOperator{I}) where {I}
     # the alphabet is orthonormal, so the inner product is the plain coefficient overlap

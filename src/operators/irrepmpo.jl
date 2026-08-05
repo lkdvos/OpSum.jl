@@ -207,7 +207,7 @@ function irrep_mpo_tensors(
                 f1 = get!(() -> only(fusiontrees((bL, c), bR, (false, false))), f1s, (bL, c, bR))
                 f2 = get!(() -> only(fusiontrees((bR,), bR, (false,))), f2s, bR)
                 # `(l, r)` determines `(bL, dL, bR, dR)` and the letter fixes `c`, so distinct stored
-                # entries always address distinct slots; the `+=` only matters if an `SiteOperator`
+                # entries always address distinct slots; the `+=` only matters if a `SiteOperator`
                 # carries one letter twice, which `+` prevents.
                 _add_coupler_coeff!(κ, f1, f2, dL, dR, coeff)
             end

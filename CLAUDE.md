@@ -63,6 +63,11 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
    - `irrep_mpo(H::TermSum, sites[, alg])`: symmetric reduced MPO from a `TermSum` via the per-bond-*sector* sweep over an `ITOTermTable`; returns reduced bond matrices + per-bond charge sectors. `alg` is `BipartiteAlgorithm()` (default) or `SVDBondAlgorithm(trunc; sweep)`; each names a `BondStrategy` (`src/algorithms.jl`) that `_irrep_sweep` dispatches on — `VertexCover` (min-vertex-cover, the default), `IndependentSVD` (`truncrank(k)` = k per bond; the `SVDBondAlgorithm` default) or `SequentialSVD` (k after upstream truncation).
    - `mpo_terms` reconstructs the `TermSum` (faithfulness check) and `irrep_mpo_tensors` assembles the symmetric `TensorMap`s (one contraction per distinct on-site letter per site, not per bond entry).
 
+7. **Jordan-form emission** — `src/operators/jordanmpo.jl`
+   - `jordan_mpo_tensors(H, sites[, alg])`: the same compressed MPO as `irrep_mpo_tensors`, but emitted as one `BlockTensorKit.SparseBlockTensorMap` per site — one *level* per bond index — with the bond indices reordered `(start channel, everything else, finish channel)` and identity at `(1,1)` / `(end,end)`. This is the shape MPSKit's `JordanMPOTensor` / `FiniteMPOHamiltonian` consume; OpSum does **not** depend on MPSKit (BlockTensorKit is the shared layer, and the only new dependency).
+   - The two identity channels come from the sweep (`_irrep_channels`, `g.startidx` / `g.finishidx`), and are *padded* at bonds where the cover spent no index on them. The emitted MPO is therefore minimal among Jordan-form MPOs, `≤ +2` per bond over `irrep_mpo`'s unconstrained minimum — in practice `+1` at the first internal bond and `+1` at the last (both padded channels are pure identity chains, and neither can change the operator: the padded start channel is reachable only from the left boundary and emits nothing into the finish, and the padded finish chain is reachable from nothing at all). The one thing that *does* change the cover is `_force_finish!`, which runs only on this path.
+   - Diagonal unit pass-throughs are emitted as `TensorKit.BraidingTensor`s, which is how a consumer keeps them out of dense storage — and, for a fermionic bond charge crossing a site, is what carries the sign.
+
 ### Key design patterns
 
 - **Concrete types, not expression trees**: there is no lazy symbolic algebra. `SiteOperator` is a flat letter→coefficient map; on-site products are not symbolic — build the `TensorMap` and `project` it.
@@ -75,5 +80,6 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
 
 ### Test structure
 
-- Test files are `test/test_irrep_*.jl`; each is standalone (defines its own reference matrices).
+- Test files are `test/test_irrep_*.jl` plus `test/test_jordan_mpo.jl`; each is standalone (defines its own reference matrices).
 - Tests use `ParallelTestRunner` for parallel execution; individual files can be run directly with `julia --project`.
+- MPSKit is a **test-only** dependency, and deliberately the *registered* version, not a path source: the seam is exercised through the surface a released MPSKit provides (`JordanMPOTensor(::SparseBlockTensorMap)`, `jordanmpotensortype`, `FiniteMPOHamiltonian`), so CI can instantiate the test environment.

@@ -18,11 +18,11 @@ include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 V = Vect[FermionNumber](0 => 1, 1 => 1)
 vac, occ = FermionNumber(0), FermionNumber(1)
 
-# The operators are matrix units, derived rather than hard-coded:
+# The operators are matrix units, derived rather than hard-coded. `fermion_ops` bundles the three of
+# them so the convention has one definition:
 
-c = matrixunit(V, vac, occ)    # annihilation, ``c``
-cd = matrixunit(V, occ, vac)   # creation, ``c^\dagger``
-nh = matrixunit(V, occ, occ)   # number, ``\hat{n}``
+F = fermion_ops(V)
+c, cd, nh = F.c, F.cd, F.n     # ``c``, ``c^\dagger``, ``\hat{n}``
 
 BraidingStyle(sectortype(V))
 

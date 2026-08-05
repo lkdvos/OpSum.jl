@@ -11,8 +11,9 @@
 # or running an example directly from a checkout.
 
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum,
-    spin, couple, project, matrixunit, BipartiteAlgorithm, SVDBondAlgorithm
+using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, mpo_tensormap, islossless, instantiate,
+    TermSum, spin, spin_ops, fermion_ops, couple, project, matrixunit,
+    BipartiteAlgorithm, SVDBondAlgorithm
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, eigvals, norm
@@ -39,6 +40,11 @@ using LinearAlgebra: dot, eigvals, norm
 #
 # Nothing is ever converted to a dense array, which matters for fermionic sectors where
 # `convert(Array, t)` is not a well-defined operation.
+#
+# Two builders bundle the conventions that would otherwise be re-derived per page:
+# [`spin_ops`](@ref OpSum.spin_ops) for the U(1)-graded `(Sp, Sm, Sz)` and
+# [`fermion_ops`](@ref OpSum.fermion_ops) for `(c, cd, n)`. Both, like `spin` and `matrixunit`, are
+# memoised, so they can be called inside a term loop.
 #
 # `couple` is strictly left-to-right, so the site indices must increase. For fermions that is not a
 # mere convention: swapping the two sites flips the sign of the term.
@@ -118,27 +124,13 @@ end
 #
 # **1. Faithfulness** — cheap, purely symbolic, valid at any `N` and for any sector including
 # fermionic ones: the reduced MPO reconstructs the original term sum exactly. Only meaningful for
-# lossless compression; after a truncating SVD it says nothing.
+# lossless compression; after a truncating SVD it says nothing. This is
+# [`islossless`](@ref OpSum.islossless), part of OpSum's public API.
 
-function islossless(H::TermSum, sites; alg = BipartiteAlgorithm())
-    Ws, secs = irrep_mpo(H, sites, alg)
-    back = mpo_terms(Ws, secs)
-    Set(keys(back.terms)) == Set(keys(H.terms)) || return false
-    return all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
-end
-
-# **2. Tensor assembly** — contract the assembled `TensorMap`s and compare against the dense
-# oracle. Exponential in `N`, so small systems only, but it stays inside TensorKit and never
-# builds a dense array, so it is valid for fermions too.
-
-"Contract a vector of MPO tensors into a single operator in `instantiate`'s convention."
-function mpo_tensormap(Ts)
-    N = length(Ts)
-    net = [[i == 1 ? -(2N + 1) : i - 1, -i, -(N + i), i == N ? -(2N + 2) : i] for i in 1:N]
-    O = ncon(Ts, net)                # legs: o₁…o_N, i₁…i_N, bL, bR
-    O = removeunit(O, 2N + 1)        # drop the trivial left boundary
-    return permute(O, (ntuple(identity, N), (ntuple(i -> N + i, N)..., 2N + 1)))
-end
+# **2. Tensor assembly** — contract the assembled `TensorMap`s with
+# [`mpo_tensormap`](@ref OpSum.mpo_tensormap) and compare against the dense oracle. Exponential in
+# `N`, so small systems only, but it stays inside TensorKit and never builds a dense array, so it is
+# valid for fermions too.
 
 function mpo_matches_oracle(H::TermSum, sites; alg = BipartiteAlgorithm())
     Ws, secs = irrep_mpo(H, sites, alg)

@@ -18,12 +18,13 @@ Three types carry the whole interface:
 
 | Type | What it is | How you get one |
 |---|---|---|
-| [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`scalarop`](@ref OpSum.scalarop) |
+| [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`spin_ops`](@ref OpSum.spin_ops), [`fermion_ops`](@ref OpSum.fermion_ops), [`scalarop`](@ref OpSum.scalarop) |
 | [`TermSum`](@ref OpSum.TermSum) | a sum of sited, fusion-coupled terms — the Hamiltonian | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, `+`, `*` |
 | `(Ws, bondsectors)` | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
-list. The full surface is `IrrepOperator`, `spin`, `scalarop`, `project`, `matrixunit`, `TermSum`,
+list. The full surface is `IrrepOperator`, `spin`, `spin_ops`, `fermion_ops`, `scalarop`, `project`,
+`matrixunit`, `islossless`, `mpo_tensormap`, `TermSum`,
 `couple`, `irrep_mpo`, `irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`, `instantiate`,
 `BipartiteAlgorithm`, `SVDBondAlgorithm` and the bond-basis strategies `VertexCover`,
 `IndependentSVD`, `SequentialSVD`.
@@ -71,6 +72,16 @@ write them on paper. `Sᶻ` here is genuinely composite — two letters:
 
 ```@example ops
 length(Sz)
+```
+
+Those two sets are common enough to have builders: [`spin_ops`](@ref OpSum.spin_ops) returns
+`(; Sp, Sm, Sz)` for a U(1)-graded spin-`s` site and [`fermion_ops`](@ref OpSum.fermion_ops) returns
+`(; c, cd, n)` for a fermionic mode. `spin_ops` takes the sectors in **descending** magnetic quantum
+number, because the labels cannot say which is which — `Rep[U₁](0 => 1, 1 => 1)` above is labelled by
+particle number, not by ``m``.
+
+```@example ops
+spin_ops(V, up, dn).Sz ≈ Sz
 ```
 
 ### SU(2): `spin`
@@ -270,15 +281,16 @@ aggressive enough to empty a bond is rejected rather than silently emitted.
 **Write the operator, not the index.** Anything that mentions a bare `IrrepOperator(c, n)` in model
 code is a latent bug. Go through `matrixunit`, `spin` or `project`.
 
-**Hoist local operators out of the term loop.** `spin(V)` recomputes its normalization on every
-call, and `matrixunit` runs a projection. Build them once.
+**Build local operators wherever reads best.** `spin`, `matrixunit`, `spin_ops` and `fermion_ops` are
+memoised per space and sectors, so calling them inside the term loop costs a dictionary lookup. (This
+used to be "hoist them out"; `matrixunit` runs a whole projection, which is now paid once.)
 
 **Collect terms into a `Vector`, then `sum`.** Never `reduce(+, generator)`: adding two `TermSum`s
 rebuilds the underlying dictionary, so folding over a generator is quadratic in the number of terms.
 `sum([...])` reduces pairwise and avoids that.
 
 ```julia
-Sop = spin(Vphys)                                        # hoisted out of the loop
+Sop = spin(Vphys)
 H = sum([J * dot(Sop[i], Sop[j]) for (i, j) in bonds])   # a Vector, not reduce(+, generator)
 ```
 
@@ -300,22 +312,13 @@ Three checks, in increasing cost:
 
 ```@example ops
 # 1. Faithfulness — cheap, symbolic, valid at any N and for any sector including fermionic.
-back = mpo_terms(Ws, secs)
-Set(keys(back.terms)) == Set(keys(Hxxz.terms)) &&
-    all(back.terms[k] ≈ Hxxz.terms[k] for k in keys(Hxxz.terms))
+#    `islossless` does the reconstruct-and-compare in one call.
+islossless(Hxxz, sites)
 ```
 
 ```@example ops
-# 2. Tensor assembly — contract the MPO and compare against the dense oracle. Exponential in N,
-#    but it stays inside TensorKit, so it is valid for fermions too.
-function mpo_tensormap(Ts)
-    N = length(Ts)
-    net = [[i == 1 ? -(2N + 1) : i - 1, -i, -(N + i), i == N ? -(2N + 2) : i] for i in 1:N]
-    O = ncon(Ts, net)
-    O = removeunit(O, 2N + 1)
-    return permute(O, (ntuple(identity, N), (ntuple(i -> N + i, N)..., 2N + 1)))
-end
-
+# 2. Tensor assembly — contract the MPO with `mpo_tensormap` and compare against the dense oracle.
+#    Exponential in N, but it stays inside TensorKit, so it is valid for fermions too.
 mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ OpSum.instantiate(Hxxz, sites)
 ```
 

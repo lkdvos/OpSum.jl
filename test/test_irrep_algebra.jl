@@ -3,7 +3,7 @@ using OpSum
 using OpSum: instantiate, total, bondcharges
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
-using LinearAlgebra: dot, norm, I as Id
+using LinearAlgebra: dot, norm, eigvals, I as Id
 
 include(joinpath(@__DIR__, "testutils.jl"))   # LO
 
@@ -200,4 +200,76 @@ end
             for o1 in 1:2, o2 in 1:2, o3 in 1:2, i1 in 1:2, i2 in 1:2, i3 in 1:2
     ]
     @test A ≈ ref
+end
+
+# Spectrum computed block by block, so it is valid for any sector (`convert(Array, t)` is not, for
+# fermionic ones). Used to cross-check the U(1) `spin_ops` ladders against the SU(2) `spin` build.
+function blockspectrum(H, sites)
+    O = instantiate(H, sites)
+    Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
+    vals = Float64[]
+    for (c, b) in blocks(Oop)
+        ev = real(eigvals(Matrix(b)))
+        for _ in 1:dim(c)
+            append!(vals, ev)
+        end
+    end
+    return sort!(vals)
+end
+
+@testset "operator builders" begin
+    # U(1) spin ladders, against the SU(2) build of the same Heisenberg chain. Two different symmetry
+    # groups and two different spaces: agreeing spectra is the sharpest available cross-check, and it
+    # pins the ladder normalisation for s > 1/2 as well.
+    for (su2, u1secs) in (
+            (SU2Space(1 // 2 => 1), U1Irrep[U1Irrep(1), U1Irrep(0)]),
+            (SU2Space(1 => 1), U1Irrep[U1Irrep(1), U1Irrep(0), U1Irrep(-1)]),
+            (SU2Space(3 // 2 => 1), U1Irrep[U1Irrep(k) for k in 3:-1:0]),
+        )
+        L = 4
+        S = spin(su2)
+        Hsu2 = sum([dot(S[i], S[i + 1]) for i in 1:(L - 1)])
+        Vu = Vect[U1Irrep](c => 1 for c in u1secs)
+        F = spin_ops(Vu, u1secs)
+        Hu1 = sum(
+            [
+                couple(F.Sz[i], F.Sz[i + 1]) +
+                    (couple(F.Sp[i], F.Sm[i + 1]) + couple(F.Sm[i], F.Sp[i + 1])) / 2
+                    for i in 1:(L - 1)
+            ]
+        )
+        @test blockspectrum(Hsu2, fill(su2, L)) ≈ blockspectrum(Hu1, fill(Vu, L))
+        @test islossless(Hu1, fill(Vu, L))
+    end
+
+    # the two-sector form is the block it replaces
+    V2 = Rep[U₁](0 => 1, 1 => 1)
+    up, dn = U1Irrep(1), U1Irrep(0)
+    S = spin_ops(V2, up, dn)
+    @test S == spin_ops(V2, U1Irrep[up, dn])
+    @test S.Sp ≈ matrixunit(V2, up, dn)
+    @test S.Sm ≈ matrixunit(V2, dn, up)
+    @test S.Sz ≈ (matrixunit(V2, up, up) - matrixunit(V2, dn, dn)) / 2
+    @test_throws ArgumentError spin_ops(V2, U1Irrep[up])
+    @test_throws ArgumentError spin_ops(V2, U1Irrep[up, up])
+    # a *partial* sector list is the trap the length-derived `s` makes possible: it would build
+    # spin-½ ladder operators on two of three sectors and never say so
+    V3 = Rep[U₁](-1 => 1, 0 => 1, 1 => 1)
+    @test_throws ArgumentError spin_ops(V3, U1Irrep(1), U1Irrep(0))
+    @test spin_ops(V3, U1Irrep[U1Irrep(1), U1Irrep(0), U1Irrep(-1)]).Sz ≈
+        matrixunit(V3, U1Irrep(1), U1Irrep(1)) - matrixunit(V3, U1Irrep(-1), U1Irrep(-1))
+
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    vac, occ = FermionNumber(0), FermionNumber(1)
+    F = fermion_ops()
+    @test F == fermion_ops(Vf, vac, occ)
+    @test F.c ≈ matrixunit(Vf, vac, occ)
+    @test F.cd ≈ matrixunit(Vf, occ, vac)
+    @test F.n ≈ matrixunit(Vf, occ, occ)
+    # only `FermionNumber` names its own vacuum
+    @test_throws ArgumentError fermion_ops(V2)
+
+    # memoised, so building inside a term loop is a lookup
+    @test spin(SU2Space(1 // 2 => 1)) === spin(SU2Space(1 // 2 => 1))
+    @test matrixunit(Vf, vac, occ) === matrixunit(Vf, vac, occ)
 end

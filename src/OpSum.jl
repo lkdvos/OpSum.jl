@@ -4,13 +4,15 @@ module OpSum
 # ----------
 
 # on-site operators: build them once, outside any loop
-export IrrepOperator, spin, scalarop, project, matrixunit
+export IrrepOperator, spin, scalarop, project, matrixunit, spin_ops, fermion_ops
 # term algebra: place, couple, combine
 export TermSum, couple
 # MPO construction
 export irrep_mpo, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
+# verification
+export islossless, mpo_tensormap
 
 using Dictionaries
 using SparseArrays: SparseMatrixCSC, sparse, nonzeros, nzrange, rowvals
@@ -26,6 +28,7 @@ include("algorithms.jl")
 # Utility
 # -------
 include("utility/linalg.jl")
+include("utility/memo.jl")
 
 # Data structures
 # ---------------
@@ -42,6 +45,7 @@ include("operators/irrepkey.jl")
 include("operators/siteoperator.jl")
 include("operators/irrepalgebra.jl")
 include("operators/irrepprojection.jl")
+include("operators/builders.jl")
 include("operators/irreptermtable.jl")
 include("operators/irrepgraph.jl")
 include("operators/irrepmpo.jl")

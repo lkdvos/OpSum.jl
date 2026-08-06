@@ -1,15 +1,16 @@
-# Canonicalisation + the flat term table the MPO sweep consumes
-# =============================================================
-# A `TermList` (irrepalgebra.jl) is append-only: `couple` and `+` push columns and never look for
-# coincident ones. `canonical` is the single place where that normal form is taken — coincident
-# columns (identical active `(site, ITOKey)` content) accumulate their coefficients and cancelled
-# terms drop out. It is memoised on the list, so the `H.terms` view, `irrep_mpo` and
-# `jordan_mpo_tensors` all share one pass. (Before this, the normal form was computed *twice*: once
-# by a `Dictionary{TermKey, coeff}` that `+` rebuilt from scratch, and again here.)
+# Normal form + the flat term table the MPO sweep consumes
+# ========================================================
+# A `TermSum` (irrepalgebra.jl) is a bag: `opsum`, `append!` and `+` push terms and never look for
+# coincident ones. `canonicalize!` is the single place that normal form is taken — terms with the
+# same active `(site, ITOKey)` content have their coefficients summed, and cancelled terms drop out.
 #
-# `ITOTermTable` is the canonical list materialised as the `K × M` matrices the sweeps index into,
-# plus the system size. The sweeps (irrepgraph.jl) consume nothing else; `irrep_mpo` (irrepmpo.jl)
-# is the public entry.
+# It runs **in place, immediately before compression** (and whenever the term set is otherwise
+# observed). It assumes nothing about its input — no flag records whether a list is already in normal
+# form, so nothing can fall out of step with the terms. Sorting and merging adjacent equals is what
+# makes that safe: the operation is idempotent, just not free the second time.
+#
+# `ITOTermTable` is the canonical list materialised as the `K × M` matrices the sweeps index into.
+# The sweeps (irrepgraph.jl) consume nothing else; `irrep_mpo` (irrepmpo.jl) is the public entry.
 #
 # The one ITO-specific subtlety vs a dense term table: idle sites are NOT a constant identity — they
 # carry a pass-through symbol with the *running* bond charge. The flat store keeps only active
@@ -21,106 +22,90 @@ using TensorKit: Sector, unit
 
 # Canonicalisation
 # ----------------
-# A column of a term list, addressed in place. Hashing and comparing columns without materialising
-# them is what keeps the dedup allocation-free per term.
-struct ColumnRef{I <: Sector}
-    buf::TermBuffer{I}
-    t::Int
-end
+"""
+    canonicalize!(H::TermSum) -> H
 
-function Base.hash(c::ColumnRef, h::UInt)
-    buf, K = c.buf, c.buf.K
-    o = (c.t - 1) * K
-    h = hash(:ITOColumn, h)
-    @inbounds for j in 1:K
-        s = buf.sites[o + j]
-        iszero(s) && break
-        h = hash(buf.keys[o + j], hash(s, h))
+Put `H` in normal form **in place**: sort its terms, sum coincident ones, drop cancelled ones.
+
+Assumes nothing about its input, so it can be called freely — it is idempotent (a canonical list
+sorts to itself and merges nothing), and there is no flag or cached copy that could fall out of step
+with the terms. The price is that a repeat call re-sorts rather than returning early, which is why
+the sweep takes the normal form once, at the [`ITOTermTable`](@ref) boundary.
+
+Sorting is by `isless(::Term, ::Term)`: active sites first, then the `ITOKey`s, which distinguishes
+both the letters and the coupling. Coincident terms are therefore adjacent, and one merge pass
+finishes the job.
+"""
+canonicalize!(H::TermSum) = (_canonicalize!(H.terms); H)
+
+"""
+    canonicalize!(ts::Terms) -> ts
+
+The same normal form on a bag of terms. Bags are not normalised as they are built, so this is what
+`≈` and `==` on them go through.
+"""
+canonicalize!(ts::Terms) = (_canonicalize!(ts.terms); ts)
+
+# The normal form itself, on the term vector: sort, merge adjacent equals, drop cancellations.
+function _canonicalize!(terms::Vector{Term{I}}) where {I}
+    if length(terms) <= 1
+        # still drop a lone cancelled term, so `isempty` cannot lie
+        length(terms) == 1 && iszero(only(terms).coeff) && empty!(terms)
+        return terms
     end
-    return h
+
+    sort!(terms)
+    out = 0
+    @inbounds for i in eachindex(terms)
+        t = terms[i]
+        if out >= 1 && terms[out] == t
+            prev = terms[out]
+            terms[out] = Term{I}(prev.sites, prev.keys, prev.coeff + t.coeff)
+        else
+            out += 1
+            terms[out] = t
+        end
+    end
+    resize!(terms, out)
+
+    # cancellations are rarer than duplicates, so only pay for a second pass when there are any
+    any(t -> iszero(t.coeff), terms) && filter!(t -> !iszero(t.coeff), terms)
+    return terms
 end
 
-function Base.:(==)(x::ColumnRef{I}, y::ColumnRef{I}) where {I}
-    xb, yb = x.buf, y.buf
-    xo, yo = (x.t - 1) * xb.K, (y.t - 1) * yb.K
-    @inbounds for j in 1:max(xb.K, yb.K)
-        xs = j <= xb.K ? xb.sites[xo + j] : 0
-        ys = j <= yb.K ? yb.sites[yo + j] : 0
-        xs == ys || return false
-        iszero(xs) && return true
-        xb.keys[xo + j] == yb.keys[yo + j] || return false
+# Compare two term lists that are already in normal form: both are sorted by the same total order, so
+# a positional walk is a set comparison.
+function _termsapprox(ta::Vector{Term{I}}, tb::Vector{Term{I}}; kwargs...) where {I}
+    length(ta) == length(tb) || return false
+    for (x, y) in zip(ta, tb)
+        x == y || return false
+        isapprox(x.coeff, y.coeff; kwargs...) || return false
     end
     return true
 end
-Base.isequal(x::ColumnRef{I}, y::ColumnRef{I}) where {I} = x == y
 
-"""
-    canonical(H::TermSum) -> TermSum
-
-The canonical form of `H`: coincident terms summed into one column, cancelled terms dropped, columns
-in order of first appearance. Memoised on `H`, and lattice-free (the normal form does not depend on
-the spaces), so binding a lattice carries the memo over unchanged.
-"""
-function canonical(H::TermList{I}) where {I}
-    c = getfield(H, :canon)
-    c === nothing || return c
-    c = _canonicalize(H)
-    setfield!(H, :canon, c)
-    setfield!(c, :canon, c)
-    return c
+function _termsequal(ta::Vector{Term{I}}, tb::Vector{Term{I}}) where {I}
+    length(ta) == length(tb) || return false
+    return all(((x, y),) -> x == y && x.coeff == y.coeff, zip(ta, tb))
 end
 
-function _canonicalize(H::TermList{I}) where {I}
-    buf, n, K = getfield(H, :buf), nrows(H), rowarity(H)
-    # Nothing to merge for ≤ 1 column: return `H` itself when it is already exactly its buffer and
-    # carries no lattice (the canonical form must stay lattice-free).
-    if n <= 1 && n == buf.n && getfield(H, :lattice) === nothing &&
-            (iszero(n) || !iszero(buf.coeffs[1]))
-        return H
-    end
-
-    index = Dict{ColumnRef{I}, Int}()
-    out = TermBuffer{I}(K)
-    _sizehint!(out, n)
-    sizehint!(index, n)
-    for t in 1:n
-        j = get(index, ColumnRef(buf, t), 0)
-        if iszero(j)
-            @inbounds for s in ((t - 1) * K + 1):(t * K)
-                push!(out.sites, buf.sites[s])
-                push!(out.keys, buf.keys[s])
-            end
-            push!(out.coeffs, buf.coeffs[t])
-            out.n += 1
-            index[ColumnRef(out, out.n)] = out.n
-        else
-            @inbounds out.coeffs[j] += buf.coeffs[t]
-        end
-    end
-
-    any(iszero, out.coeffs) || return TermList(out, out.n)
-    keep = TermBuffer{I}(K)
-    _sizehint!(keep, out.n)
-    @inbounds for t in 1:out.n
-        iszero(out.coeffs[t]) && continue
-        for s in ((t - 1) * K + 1):(t * K)
-            push!(keep.sites, out.sites[s])
-            push!(keep.keys, out.keys[s])
-        end
-        push!(keep.coeffs, out.coeffs[t])
-        keep.n += 1
-    end
-    return TermList(keep, keep.n)
-end
+# the symbol an inactive (padded) slot carries, matching `_op_at_ito`'s reconstruction
+_padkey(::Type{I}) where {I <: Sector} = ITOKey{I}(passthrough(I), unit(I), 1)
 
 # The flat term table
 # -------------------
 """
     ITOTermTable{I<:Sector}
 
-Flat, sparse-per-term storage of a canonical ITO term list on an `N`-vertex chain: each term's
-active `(site, ITOKey)` factors in `K×M` matrices (`sites` zero-padded, ascending) plus a parallel
-`coeffs` vector. This is the only thing the reduced-MPO sweeps read.
+Flat, sparse-per-term storage of a canonical ITO operator on an `N`-vertex chain: each term's active
+`(site, ITOKey)` factors in `K×M` matrices (`sites` zero-padded, ascending) plus a parallel `coeffs`
+vector. This is the only thing the reduced-MPO sweeps read.
+
+Note there is no fusion tree here, and none is needed: an `ITOKey` carries the running bond charge
+and vertex label at its position, and for the left-nested (caterpillar) coupling this algebra
+supports those *are* the tree — `bondcharges`/`vertexlabels` read them off it, `_tree_from_bonds`
+puts it back together. irrepkey.jl has the argument, including why the total charge alone would not
+do.
 """
 struct ITOTermTable{I <: Sector}
     sites::Matrix{Int}
@@ -134,34 +119,27 @@ nterms(tt::ITOTermTable) = length(tt.coeffs)
 nvertices(tt::ITOTermTable) = tt.nvertices
 
 """
-    ITOTermTable(H::TermSum)              # `H` bound to a lattice
-    ITOTermTable(H::TermSum, sites)       # binds `H` to `sites` first
-    ITOTermTable(terms, sites)            # iterable of term sums, summed first
+    ITOTermTable(H::TermSum)
 
-Materialise the canonical form of `H` as the flat table the MPO sweep consumes, on
-`N = length(sites)` lattice sites.
+Materialise `H` in normal form ([`canonicalize!`](@ref)) as the flat table the MPO sweep consumes, on
+the `N = length(lattice(H))` sites it is defined over.
 """
-ITOTermTable(H::TermList) = _termtable(canonical(H), length(lattice(H)))
-ITOTermTable(H::TermList, sites) = _termtable(canonical(onlattice(H, sites)), length(sites))
-ITOTermTable(terms::AbstractVector{<:TermList}, sites) = ITOTermTable(sum(terms), sites)
-
-function _termtable(H::TermList{I}, N::Int) where {I}
-    M = nrows(H)
-    # the *true* max arity, which the append-only stride can overshoot (a column store widened by a
-    # `couple` whose widest term later cancelled). `arity(tt) ≥ 1`: the sweeps index row 1.
-    K = 1
-    for t in 1:M
-        K = max(K, collength(H, t))
-    end
+function ITOTermTable(H::TermSum{I}) where {I}
+    canonicalize!(H)
+    terms = H.terms
+    N = length(lattice(H))
+    M = length(terms)
+    # `arity(tt) ≥ 1`: the sweeps index row 1 unconditionally.
+    K = max(1, maximum(arity, terms; init = 0))
     sitemat = zeros(Int, K, M)
     keymat = fill(_padkey(I), K, M)
-    for t in 1:M
-        for j in 1:collength(H, t)
-            sitemat[j, t] = colsite(H, j, t)
-            keymat[j, t] = colkey(H, j, t)
+    for (t, term) in enumerate(terms)
+        for j in 1:arity(term)
+            sitemat[j, t] = term.sites[j]
+            keymat[j, t] = term.keys[j]
         end
     end
-    return ITOTermTable{I}(sitemat, keymat, ComplexF64[colcoeff(H, t) for t in 1:M], N)
+    return ITOTermTable{I}(sitemat, keymat, ComplexF64[t.coeff for t in terms], N)
 end
 
 # ITOKey at site `s` of term `t`. On an active site it is the stored key; on an idle site it is the

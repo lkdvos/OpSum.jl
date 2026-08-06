@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate, total, bondcharges
+using OpSum: instantiate, total, bondcharges, tree, opsum
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, norm, eigvals, I as Id
@@ -143,20 +143,20 @@ end
     Sp, Sm = matrixunit(Vu, up, dn), matrixunit(Vu, dn, up)
     Sz = (matrixunit(Vu, up, up) - matrixunit(Vu, dn, dn)) / 2
 
-    @test couple(Sp[1], Sm[2]).terms == couple(Sp[1], Sm[2]; to = unit(U1Irrep)).terms
-    @test couple(Sz[1], Sz[2]).terms == couple(Sz[1], Sz[2]; to = unit(U1Irrep)).terms
+    @test collect(couple(Sp[1], Sm[2])) == collect(couple(Sp[1], Sm[2]; to = unit(U1Irrep)))
+    @test collect(couple(Sz[1], Sz[2])) == collect(couple(Sz[1], Sz[2]; to = unit(U1Irrep)))
 
     # charges that cannot reach the unit sector are an error, not a silent empty result
     @test_throws ArgumentError couple(Sp[1], Sp[2])
-    @test length(couple(Sp[1], Sp[2]; to = U1Irrep(2)).terms) == 1
+    @test length(couple(Sp[1], Sp[2]; to = U1Irrep(2))) == 1
 
     # non-abelian and fermionic defaults too
     V2 = SU2Space(1 // 2 => 1)
-    @test total(only(keys(couple(spin(V2)[1], spin(V2)[2]).terms))) == unit(SU2Irrep)
+    @test total(only(couple(spin(V2)[1], spin(V2)[2]))) == unit(SU2Irrep)
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     cc = matrixunit(Vf, FermionNumber(0), FermionNumber(1))
     cd = matrixunit(Vf, FermionNumber(1), FermionNumber(0))
-    @test total(only(keys(couple(cd[1], cc[2]).terms))) == unit(FermionNumber)
+    @test total(only(couple(cd[1], cc[2]))) == unit(FermionNumber)
 end
 
 @testset "variadic coupling (abelian)" begin
@@ -167,8 +167,8 @@ end
     Sz = (matrixunit(Vu, up, up) - matrixunit(Vu, dn, dn)) / 2
 
     # the intermediates are forced, so the variadic form must agree with the explicit nesting
-    @test couple(Sp[1], Sm[2], Sz[3]).terms ==
-        couple(couple(Sp[1], Sm[2]; to = z), Sz[3]; to = z).terms
+    @test collect(couple(Sp[1], Sm[2], Sz[3])) ==
+        collect(couple(couple(Sp[1], Sm[2]; to = z), Sz[3]; to = z))
 
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     u = unit(FermionNumber)
@@ -178,17 +178,17 @@ end
     nested = couple(
         couple(couple(cd[1], cc[2]; to = u), cd[3]; to = FermionNumber(1)), cc[4]; to = u
     )
-    @test H4.terms == nested.terms
-    @test only(keys(H4.terms)).sites == [1, 2, 3, 4]
-    @test bondcharges(only(keys(H4.terms)).tree) ==
+    @test collect(H4) == collect(nested)
+    @test only(H4).sites == [1, 2, 3, 4]
+    @test bondcharges(tree(only(H4))) ==
         [FermionNumber(1), u, FermionNumber(1), u]
 
     # composite operands still distribute over every chain
-    @test length(couple(Sz[1], Sz[2], Sz[3]).terms) == 8
+    @test length(couple(Sz[1], Sz[2], Sz[3])) == 8
 
     # a total the charges cannot reach is an error
     @test_throws ArgumentError couple(cd[1], cd[2], cd[3], cc[4])
-    @test length(couple(Sp[1], Sp[2], Sm[3]; to = U1Irrep(1)).terms) == 1
+    @test length(couple(Sp[1], Sp[2], Sm[3]; to = U1Irrep(1))) == 1
 
     # independent dense check: S⁺₁ S⁻₂ Sᶻ₃, with the sector-ordered basis (0 => dn, 1 => up)
     Spm = ComplexF64[0 0; 1 0]
@@ -204,8 +204,8 @@ end
 
 # Spectrum computed block by block, so it is valid for any sector (`convert(Array, t)` is not, for
 # fermionic ones). Used to cross-check the U(1) `spin_ops` ladders against the SU(2) `spin` build.
-function blockspectrum(H, sites)
-    O = instantiate(H, sites)
+function blockspectrum(H)
+    O = instantiate(H)
     Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
     vals = Float64[]
     for (c, b) in blocks(Oop)
@@ -228,18 +228,19 @@ end
         )
         L = 4
         S = spin(su2)
-        Hsu2 = sum([dot(S[i], S[i + 1]) for i in 1:(L - 1)])
+        Hsu2 = opsum(fill(su2, L), (dot(S[i], S[i + 1]) for i in 1:(L - 1)))
         Vu = Vect[U1Irrep](c => 1 for c in u1secs)
         F = spin_ops(Vu, u1secs)
-        Hu1 = sum(
-            [
+        Hu1 = opsum(
+            fill(Vu, L),
+            (
                 couple(F.Sz[i], F.Sz[i + 1]) +
                     (couple(F.Sp[i], F.Sm[i + 1]) + couple(F.Sm[i], F.Sp[i + 1])) / 2
                     for i in 1:(L - 1)
-            ]
+            )
         )
-        @test blockspectrum(Hsu2, fill(su2, L)) ≈ blockspectrum(Hu1, fill(Vu, L))
-        @test islossless(Hu1, fill(Vu, L))
+        @test blockspectrum(Hsu2) ≈ blockspectrum(Hu1)
+        @test islossless(Hu1)
     end
 
     # the two-sector form is the block it replaces

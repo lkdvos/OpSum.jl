@@ -72,7 +72,7 @@ end
         @test length(secs) == N
 
         # Faithfulness: the reduced MPO reconstructs every original term exactly.
-        @test mpo_terms(Ws, secs) ≈ H
+        @test mpo_terms(Ws, secs, sites) ≈ H
 
         if haskey(EXPECTED, spec.key)
             e = EXPECTED[spec.key]
@@ -96,13 +96,11 @@ end
     V = ShowcaseModels.FERMION_MODE
     N = 6
     sites = fill(V, N)
-    wrong = sum(
-        [
-            couple(F.cd[i], F.c[i + 1]) + couple(F.c[i], F.cd[i + 1])
-                for i in 1:(N - 1)
-        ]
+    wrong = opsum(
+        sites,
+        (couple(F.cd[i], F.c[i + 1]) + couple(F.c[i], F.cd[i + 1]) for i in 1:(N - 1))
     )
-    @test hermiticity_error(wrong, sites) > 0.1
+    @test hermiticity_error(wrong) > 0.1
 end
 
 @testset "free-fermion spectrum" begin
@@ -147,13 +145,14 @@ end
     dn, up = U1Irrep(0), U1Irrep(1)
     S = spin_ops(Vu, up, dn)
     z = unit(U1Irrep)
-    Hu = sum(
-        [
+    Hu = opsum(
+        fill(Vu, L),
+        (
             0.5 * couple(S.Sp[i], S.Sm[i + 1]; to = z) + 0.5 * couple(S.Sm[i], S.Sp[i + 1]; to = z) +
                 couple(S.Sz[i], S.Sz[i + 1]; to = z) for i in 1:(L - 1)
-        ]
+        )
     )
-    a, b = spectrum(Hs), spectrum(Hu, fill(Vu, L))
+    a, b = spectrum(Hs), spectrum(Hu)
     @test length(a) == 2^L        # multiplet degeneracies must be unfolded
     @test a ≈ b
 end

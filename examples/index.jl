@@ -47,9 +47,9 @@ N = 8
 sites = fill(V, N)
 
 S = spin(V)                        # the SU(2) rank-1 vector operator
-H = sum([dot(S[i], S[i + 1]) for i in 1:(N - 1)])
+H = opsum(sites, (dot(S[i], S[i + 1]) for i in 1:(N - 1)))   # terms + the lattice they live on
 
-Ws, sectors = irrep_mpo(H, sites)  # reduced bond matrices + per-bond charge sectors
+Ws, sectors = irrep_mpo(H)         # reduced bond matrices + per-bond charge sectors
 
 # The bond dimension: `sectors[b]` lists the irrep labels on the bond to the right of site `b`, so
 # its length is the number of symmetry-resolved indices, and the quantum-dimension-weighted sum is
@@ -63,7 +63,7 @@ bulk = 4
 #
 # The compression is exact, which `mpo_terms` verifies by reconstructing the original term sum:
 
-back = mpo_terms(Ws, sectors)
+back = mpo_terms(Ws, sectors, sites)
 back ≈ H
 
 # ## Examples

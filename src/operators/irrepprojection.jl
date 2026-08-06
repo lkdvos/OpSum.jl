@@ -9,7 +9,7 @@
 # ------------------------------
 # For sites `V_1…V_K` and total charge `tot`, the candidate basis is `α = (ops, tree)`: one letter
 # per site from `instances(IrrepOperator, V_k)` and one caterpillar tree from `caterpillar_trees`,
-# materialized by the forward map as `E_α = _instantiate_term(TermKey(1:K, ops, tree), Vs)`.
+# materialized by the forward map as `E_α = _instantiate_basis(ops, tree, Vs)`.
 #
 # Writing `E_α = Q_ops ∘ X_tree` as `_embed_caterpillar` builds it: `Q` is a permute of `⊗_k O_k`, so
 # `‖Q‖ = Π_k ‖O_k‖ = 1`; `Q_ops† Q_ops'` contracts only site-local legs and factorizes per site into
@@ -89,7 +89,7 @@ function _ito_coefficients(
         for opstup in Iterators.product(letters...), tree in trees
             ncand += 1
             ops = collect(IrrepOperator{I}, opstup)
-            E = _instantiate_term(TermKey{I, Int}(collect(1:K), ops, tree), Vs)
+            E = _instantiate_basis(ops, tree, Vs)
             c = ComplexF64(inner(E, hc) / g)
             # Threshold the component's *norm contribution*: by orthogonality
             # `‖dropped‖² = Σ|c_α|² g_α` exactly, and `g` varies by `dim(tot)/Π dim(c_k)`, so bare
@@ -102,7 +102,7 @@ function _ito_coefficients(
 end
 
 """
-    project(h::AbstractTensorMap, sites; atol = 0, rtol = 100eps) -> TermSum
+    project(h::AbstractTensorMap, sites; atol = 0, rtol = 100eps) -> Terms
 
 Project a symmetric `K`-site operator onto the ITO term basis — the inverse of
 [`instantiate`](@ref). `h` must have one of the two shapes `instantiate` produces, with
@@ -117,12 +117,13 @@ coefficients are exact inner products against an orthogonal, complete basis, so 
 
 Coefficients whose norm contribution falls at or below `max(atol, rtol * norm(h))` are dropped;
 the result is then re-materialized and compared against `h`, and an `ArgumentError` is thrown if
-the residual exceeds that same tolerance. A projected `TermSum` therefore provably represents its
-input. An operator that is zero (or entirely below tolerance) gives an empty `TermSum`.
+the residual exceeds that same tolerance. A projected [`Terms`](@ref) therefore provably represents
+its input. An operator that is zero (or entirely below tolerance) gives an empty bag. Bind it to a
+lattice with [`opsum`](@ref) to compress it.
 
 Every returned term is active on **all** `K` sites: an on-site identity factor comes back as a
 trivial-charge letter, not as a shorter term. So `project ∘ instantiate` is the identity only for
-term sums whose terms all have full support on `sites`.
+operators whose terms all have full support on `sites`.
 
 ```jldoctest
 julia> using TensorKit
@@ -131,9 +132,7 @@ julia> V = SU2Space(1//2 => 1);
 
 julia> h = OpSum.instantiate(couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0)), [V, V]);
 
-julia> H = project(h, [1, 2]);
-
-julia> length(H.terms)
+julia> length(project(h, [1, 2]))
 1
 ```
 
@@ -180,28 +179,28 @@ function project(
     θ = max(float(atol), float(rtol) * hnorm)
     coeffs, ncand = _ito_coefficients(hc, Vs, tot, θ)
 
-    # Emit the surviving candidates as term-list columns: a caterpillar tree *is* its per-position
-    # running bond charges plus vertex labels (`bondcharges`/`vertexlabels`), which is what an
-    # `ITOKey` carries. Candidates are distinct by construction, so nothing accumulates.
+    # Emit the surviving candidates as terms: a caterpillar tree *is* its per-position running bond
+    # charges plus vertex labels (`bondcharges`/`vertexlabels`), which is what an `ITOKey` carries.
+    # Candidates are distinct by construction, so nothing accumulates.
     intsites = Int[Int(s) for s in sitev]
     local_sites = collect(1:K)
-    buf = TermBuffer{I}(K)
-    localbuf = TermBuffer{I}(K)
-    _sizehint!(buf, length(coeffs))
-    _sizehint!(localbuf, length(coeffs))
+    placed = Term{I}[]
+    local_terms = Term{I}[]
+    sizehint!(placed, length(coeffs))
+    sizehint!(local_terms, length(coeffs))
     for (ops, tree, c) in coeffs
         bonds, verts = bondcharges(tree), vertexlabels(tree)
         keys = ITOKey{I}[ITOKey{I}(ops[j], bonds[j], verts[j]) for j in 1:K]
-        pushcol!(buf, intsites, keys, c)
-        pushcol!(localbuf, local_sites, keys, c)
+        push!(placed, Term{I}(intsites, keys, c))
+        push!(local_terms, Term{I}(local_sites, keys, c))
     end
 
-    # Faithfulness: recompute the operator from the emitted columns alone. This is a genuinely
+    # Faithfulness: recompute the operator from the emitted terms alone. This is a genuinely
     # independent pass through the forward map, so it also catches a wrong `g` or a misassigned tree.
-    resid = if iszero(localbuf.n)
+    resid = if isempty(local_terms)
         hnorm
     else
-        norm(hc - instantiate(TermList(localbuf), Vs))
+        norm(hc - instantiate(Terms{I}(local_terms), Vs))
     end
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, ncand)) * hnorm
     resid <= θ + slack || throw(
@@ -211,7 +210,7 @@ function project(
         )
     )
 
-    return TermList(buf)
+    return Terms{I}(placed)
 end
 
 """
@@ -246,8 +245,8 @@ function project(
     I = sectortype(V)
     ts = project(O, (1,); atol, rtol)
     isempty(ts) && return zero(SiteOperator{I})
-    letters = IrrepOperator{I}[only(k.ops) for k in keys(ts)]
-    coeffs = ComplexF64[v for v in values(ts)]
+    letters = IrrepOperator{I}[only(t.keys).op for t in ts]
+    coeffs = ComplexF64[t.coeff for t in ts]
     return SiteOperator{I}(letters, coeffs)
 end
 

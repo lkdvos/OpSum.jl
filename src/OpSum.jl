@@ -5,8 +5,8 @@ module OpSum
 
 # on-site operators: build them once, outside any loop
 export IrrepOperator, spin, scalarop, project, matrixunit, spin_ops, fermion_ops
-# term algebra: place, couple, combine, bind to a lattice
-export TermSum, TermList, couple, onlattice, lattice
+# term algebra: place, couple, then bind to a lattice with `opsum`
+export Term, Terms, TermSum, couple, opsum, lattice, canonicalize!
 # MPO construction
 export irrep_mpo, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm

@@ -43,7 +43,7 @@ using TensorKit: BraidingTensor, Vect, ElementarySpace, fusiontrees, unit, isomo
 using .IrrepTensorOperators: IrrepOperator
 
 """
-    jordan_mpo_tensors(H::TermSum[, sites][, alg]) -> Vector{<:SparseBlockTensorMap}
+    jordan_mpo_tensors(H::TermSum[, alg]) -> Vector{<:SparseBlockTensorMap}
 
 Compress `H` into a reduced MPO (as [`irrep_mpo`](@ref)) and emit it in **Jordan form**: one
 `BlockTensorKit.SparseBlockTensorMap` per site, `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, whose virtual legs
@@ -67,7 +67,7 @@ every bond; a truncation aggressive enough to empty a bond is rejected, since a 
 zero-dimensional bond cannot carry its identity corners.
 """
 function jordan_mpo_tensors(
-        H::TermList, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
+        H::TermSum, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
     )
     tt = ITOTermTable(H)
     N = nvertices(tt)
@@ -76,11 +76,6 @@ function jordan_mpo_tensors(
         ArgumentError("cannot emit a Jordan MPO for an empty `TermSum`: it has no bond structure")
     )
     return jordan_mpo_tensors(Ws, bondsectors, starts, finishes, lattice(H))
-end
-function jordan_mpo_tensors(
-        H::TermList, sites, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
-    )
-    return jordan_mpo_tensors(onlattice(H, sites), alg)
 end
 
 # The Jordan reordering of one internal bond. `s`/`f` are the bond indices of the start/finish

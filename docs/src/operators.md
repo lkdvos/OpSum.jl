@@ -19,13 +19,15 @@ Three types carry the whole interface:
 | Type | What it is | How you get one |
 |---|---|---|
 | [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`spin_ops`](@ref OpSum.spin_ops), [`fermion_ops`](@ref OpSum.fermion_ops), [`scalarop`](@ref OpSum.scalarop) |
-| [`TermSum`](@ref OpSum.TermSum) | a sum of sited, fusion-coupled terms — the Hamiltonian, optionally bound to its lattice | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, `+`, `*`, [`onlattice`](@ref OpSum.onlattice) |
+| [`Terms`](@ref OpSum.Terms) | a bag of [`Term`](@ref OpSum.Term)s, not yet on a lattice | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, [`project`](@ref OpSum.project), `+`, `*` |
+| [`TermSum`](@ref OpSum.TermSum) | those terms **plus the lattice** — the compressible Hamiltonian | [`opsum`](@ref OpSum.opsum), `+`, `append!` |
 | `(Ws, bondsectors)` | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
 list. The full surface is `IrrepOperator`, `spin`, `spin_ops`, `fermion_ops`, `scalarop`, `project`,
-`matrixunit`, `islossless`, `mpo_tensormap`, `TermSum`, `couple`, `onlattice`, `lattice`,
-`irrep_mpo`, `irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`, `instantiate`,
+`matrixunit`, `islossless`, `mpo_tensormap`, `Term`, `Terms`, `TermSum`, `couple`, `opsum`,
+`lattice`, `canonicalize!`, `irrep_mpo`, `irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`,
+`instantiate`,
 `BipartiteAlgorithm`, `SVDBondAlgorithm` and the bond-basis strategies `VertexCover`,
 `IndependentSVD`, `SequentialSVD`.
 
@@ -150,7 +152,7 @@ cop = matrixunit(Vf, FermionNumber(0), FermionNumber(1))
 cdag = matrixunit(Vf, FermionNumber(1), FermionNumber(0))
 
 H4 = couple(cdag[1], cop[2], cdag[3], cop[4])       # charge-neutral four-fermion term
-total(only(keys(H4)))
+total(only(H4))
 ```
 
 Under a non-abelian symmetry the intermediates are real freedom, so the variadic form throws and you
@@ -166,7 +168,7 @@ For the SU(2) scalar product ``\vec{S}_i \cdot \vec{S}_j`` use `dot`, which is
 ```@example ops
 using LinearAlgebra: dot
 
-heisenberg(N; J = 1.0) = sum([J * dot(S[i], S[i + 1]) for i in 1:(N - 1)])
+heisenberg(N; J = 1.0) = opsum(fill(Vsu2, N), (J * dot(S[i], S[i + 1]) for i in 1:(N - 1)))
 H = heisenberg(6)
 ```
 
@@ -187,7 +189,8 @@ hbond = OpSum.instantiate(
     [V, V],
 )
 
-Hxxz = sum([project(hbond, [i, i + 1]) for i in 1:5])
+sites = fill(V, 6)
+Hxxz = opsum(sites, (project(hbond, [i, i + 1]) for i in 1:5))
 length(Hxxz)
 ```
 
@@ -216,8 +219,7 @@ the input, throwing if the result is not faithful. `atol`/`rtol` control what co
 ```@example ops
 using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms
 
-sites = fill(V, 6)
-Ws, secs = irrep_mpo(Hxxz, sites)
+Ws, secs = irrep_mpo(Hxxz)
 map(length, secs)
 ```
 
@@ -226,31 +228,30 @@ its right, so `length(secs[i])` is the reduced bond dimension and `sum(dim, secs
 dense-equivalent one. `irrep_mpo_tensors(Ws, secs, sites)` assembles symmetric `TensorMap`s in the
 MPSKit leg convention ``B_{i-1} \otimes V_i \leftarrow V_i \otimes B_i``.
 
-The third argument selects the bond algorithm: `BipartiteAlgorithm()` (default, lossless minimum
+The second argument selects the bond algorithm: `BipartiteAlgorithm()` (default, lossless minimum
 vertex cover) or `SVDBondAlgorithm(trunc)` with a `MatrixAlgebraKit` truncation strategy.
 
-### Carrying the lattice
+### The lattice travels with the operator
 
-Placement cannot know the lattice — `A[i]` sees one space and no system size — so a term sum starts
-out unbound and `irrep_mpo(H, sites)` binds it on the way in. That binding is also the only place
-where the operators and the spaces you are compressing them with are ever confronted: every letter is
-checked against the space of the site it sits on, and every term against `1:length(sites)`.
+Note that `irrep_mpo` took no `sites`: a [`TermSum`](@ref OpSum.TermSum) already carries the lattice,
+because [`opsum`](@ref OpSum.opsum) attached it. That is deliberate — `instantiate` and
+`irrep_mpo_tensors` need the space of *every* site, idle ones included, which no individual term can
+know, so there is no useful state in which an operator is compressible but latticeless.
 
-You can do it once, up front, and then stop passing `sites` around:
-
-```@example ops
-Hlat = onlattice(Hxxz, sites)
-lattice(Hlat) == sites
-```
+`opsum` is also the only place where the operators and the spaces you are compressing them with are
+ever confronted: every letter is checked against the space of the site it sits on, and every term
+against `1:length(sites)`.
 
 ```@example ops
-Ws2, secs2 = irrep_mpo(Hlat)       # no second argument
-map(length, secs2) == map(length, secs)
+lattice(Hxxz) == sites
 ```
 
-`instantiate(H)` and `jordan_mpo_tensors(H)` do the same. Model builders are the natural place for
-this — return the bound `H` rather than an `(H, sites)` tuple. Rebinding to a *different* lattice is
-an error, which is the point.
+Placement, coupling and `project` all work without a lattice — they return a
+[`Terms`](@ref OpSum.Terms) bag — so the natural shape for a model builder is to end in `opsum`:
+
+```julia
+heisenberg(N; J = 1.0) = opsum(fill(Vsu2, N), (J * dot(S[i], S[i + 1]) for i in 1:(N - 1)))
+```
 
 `SVDBondAlgorithm` has two truncation semantics, chosen by its `sweep` keyword. They agree exactly
 when `trunc === nothing`, and differ only once truncation bites:
@@ -261,8 +262,8 @@ when `trunc === nothing`, and differ only once truncation bites:
 | `SequentialSVD` | `k` retained indices **after upstream truncation** — each bond is compressed in the basis the previous bond left behind, so an aggressive early truncation can starve the downstream bonds |
 
 ```julia
-irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(8)))                        # per-bond
-irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
+irrep_mpo(H, SVDBondAlgorithm(truncrank(8)))                        # per-bond
+irrep_mpo(H, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
 ```
 
 ### Jordan form, for an MPO library
@@ -280,7 +281,7 @@ one level per bond index, and the bond indices reordered into upper-triangular (
 ```
 
 ```@example ops
-Wsj = jordan_mpo_tensors(Hxxz, sites)
+Wsj = jordan_mpo_tensors(Hxxz)
 map(W -> size(W, 4), Wsj)
 ```
 
@@ -308,17 +309,28 @@ code is a latent bug. Go through `matrixunit`, `spin` or `project`.
 memoised per space and sectors, so calling them inside the term loop costs a dictionary lookup. (This
 used to be "hoist them out"; `matrixunit` runs a whole projection, which is now paid once.)
 
-**Accumulate terms however reads best.** A `TermSum` is an append-only column store: `+`
-concatenates and the normal form (coincident terms summed, cancelled ones dropped) is taken once,
-lazily, when the term set is first observed. So `sum([...])`, `sum(generator)` and
-`reduce(+, generator)` are all linear in the number of terms — collecting into a `Vector` first is
-still marginally the fastest (`sum` of a vector is a single pass with one allocation) but it is no
-longer the difference between seconds and minutes it used to be.
+**Hand every term to `opsum` at once.** It makes one pass over each argument, so building an
+`M`-term Hamiltonian is ``\Theta(M)`` — an all-to-all model on 256 sites (32640 terms) assembles in a
+few hundredths of a second. Any number of arguments is allowed, and iterables nest, so several
+families of terms need no `vcat`:
 
 ```julia
 Sop = spin(Vphys)
-H = sum([J * dot(Sop[i], Sop[j]) for (i, j) in bonds])
+H = opsum(
+    fill(Vphys, N),
+    (J1 * dot(Sop[i], Sop[j]) for (i, j) in nn_bonds),
+    (J2 * dot(Sop[i], Sop[j]) for (i, j) in nnn_bonds),
+)
 ```
+
+`H + term` and `append!(H, terms)` also work, and `append!` is likewise one pass. But `+` *copies* the
+accumulated list, so folding it — `for t in terms; H = H + t; end` — is quadratic. That is fine for a
+handful of terms and the wrong choice for thousands.
+
+The normal form (coincident terms summed, cancelled ones dropped) is not taken on the way in: it
+happens once, in [`canonicalize!`](@ref OpSum.canonicalize!), when the term set is first observed or
+compressed. So `length(H)` always reports the number of terms the operator *has*, never the number
+appended.
 
 **Build a bond block once, project per bond.** `project` is cheap for local blocks (well under a
 millisecond for a two-site spin-½ operator), so projecting the same tensor on each bond of a
@@ -340,17 +352,17 @@ Three checks, in increasing cost:
 # 1. Faithfulness — cheap, symbolic, valid at any N and for any sector including fermionic.
 #    `islossless` does the reconstruct-and-compare in one call: `≈` on two term sums compares the
 #    canonical term sets exactly and the coefficients approximately.
-islossless(Hxxz, sites)
+islossless(Hxxz)
 ```
 
 ```@example ops
 # 2. Tensor assembly — contract the MPO with `mpo_tensormap` and compare against the dense oracle.
 #    Exponential in N, but it stays inside TensorKit, so it is valid for fermions too.
-mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ OpSum.instantiate(Hxxz, sites)
+mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ OpSum.instantiate(Hxxz)
 ```
 
 3. **Spectrum** — the physics check, and the only honest route for fermions against an external
-   reference. Diagonalize `OpSum.instantiate(H, sites)` block by block, repeating each eigenvalue
+   reference. Diagonalize `OpSum.instantiate(H)` block by block, repeating each eigenvalue
    `dim(c)` times so spectra are comparable across symmetry groups. `examples/common.jl` has a
    `spectrum` helper; a `hermiticity_error` check is the sharpest detector of a wrong fermionic sign.
 

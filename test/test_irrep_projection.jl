@@ -1,8 +1,8 @@
 using Test
 using OpSum
-using OpSum: project, matrixunit, instantiate, spin, scalarop, couple, irrep_mpo,
-    irrep_mpo_tensors, mpo_terms, TermSum, TermKey, total, bondcharges, caterpillar_trees,
-    _instantiate_term
+using OpSum: project, matrixunit, instantiate, spin, scalarop, couple, irrep_mpo, opsum,
+    irrep_mpo_tensors, mpo_terms, Term, Terms, TermSum, total, ops, tree, bondcharges,
+    caterpillar_trees, _instantiate_basis
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor, insertrightunit, removeunit
@@ -31,9 +31,9 @@ function candidates(Vs, tot::I) where {I <: Sector}
     out = Tuple{Vector{IrrepOperator{I}}, FusionTree{I}, Any}[]
     for opstup in Iterators.product(alphabets...)
         cs = ntuple(k -> opstup[k].c, K)
-        for tree in caterpillar_trees(cs, tot)
-            ops = collect(IrrepOperator{I}, opstup)
-            push!(out, (ops, tree, _instantiate_term(TermKey{I, Int}(collect(1:K), ops, tree), Vs)))
+        for f in caterpillar_trees(cs, tot)
+            letters = collect(IrrepOperator{I}, opstup)
+            push!(out, (letters, f, _instantiate_basis(letters, f, Vs)))
         end
     end
     return out
@@ -93,10 +93,10 @@ end
         for op in instances(IrrepOperator, V)
             O = instantiate(op, V)
 
-            k, v = onlyterm(project(O, (1,)))
-            @test k.sites == [1]
-            @test only(k.ops) == op
-            @test v ≈ 1
+            t = onlyterm(project(O, (1,)))
+            @test t.sites == [1]
+            @test only(ops(t)) == op
+            @test t.coeff ≈ 1
 
             # the SiteOperator form is the same expansion, unplaced
             lo = project(O, V)
@@ -124,11 +124,11 @@ end
             end
 
             ts = project(O, (1,); rtol = 0)
-            @test length(ts.terms) == count(v -> !iszero(v), values(expected))
-            for (k, v) in pairs(ts.terms)
-                op = only(k.ops)
+            @test length(ts) == count(v -> !iszero(v), values(expected))
+            for t in ts
+                op = only(ops(t))
                 @test op.c == c
-                @test v ≈ expected[op.n]
+                @test t.coeff ≈ expected[op.n]
             end
         end
     end
@@ -138,8 +138,8 @@ end
     for V in SPACES
         # the identity is not a letter: it comes back as a sum of trivial-charge letters
         ts = project(id(V), (1,))
-        @test !isempty(ts.terms)
-        @test all(k -> total(k) == unit(sectortype(V)), keys(ts.terms))
+        @test !isempty(ts)
+        @test all(t -> total(t) == unit(sectortype(V)), ts)
         @test instantiate(ts, [V]) ≈ insertrightunit(id(V))
 
         @test instantiate(project(2.5 * id(V), (1,)), [V]) ≈ insertrightunit(2.5 * id(V))
@@ -152,19 +152,19 @@ end
     V = SU2Space(1 // 2 => 1)
 
     # S·S  (cf. test_irrep_terms.jl)
-    k, v = onlyterm(project(instantiate(dot(spin(V)[1], spin(V)[2]), [V, V]), [1, 2]))
-    @test k.sites == [1, 2]
-    @test total(k) == SU2Irrep(0)
-    @test bondcharges(k.tree) == [SU2Irrep(1), SU2Irrep(0)]
-    @test v ≈ (3 / 2) * (-sqrt(3))
+    t = onlyterm(project(instantiate(dot(spin(V)[1], spin(V)[2]), [V, V]), [1, 2]))
+    @test t.sites == [1, 2]
+    @test total(t) == SU2Irrep(0)
+    @test bondcharges(tree(t)) == [SU2Irrep(1), SU2Irrep(0)]
+    @test t.coeff ≈ (3 / 2) * (-sqrt(3))
 
     # bare coupling to each total: the coefficient is 3/2 for *all* of them. A stray factor of
     # dim(tot) in the normalization would give 3/2, 9/2, 15/2 instead.
     for t in 0:2
         H = couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(t))
-        kk, vv = onlyterm(project(instantiate(H, [V, V]), [1, 2]))
-        @test total(kk) == SU2Irrep(t)
-        @test vv ≈ 3 / 2
+        tk = onlyterm(project(instantiate(H, [V, V]), [1, 2]))
+        @test total(tk) == SU2Irrep(t)
+        @test tk.coeff ≈ 3 / 2
     end
 
     # U(1) hopping
@@ -172,15 +172,15 @@ end
     raise = LO(IrrepOperator(U1Irrep(1), 1))
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
     H = couple(raise[1], lower[2]; to = U1Irrep(0))
-    kk, vv = onlyterm(project(instantiate(H, [Vu, Vu]), [1, 2]))
-    @test [o.c for o in kk.ops] == [U1Irrep(1), U1Irrep(-1)]
-    @test vv ≈ 1
+    tk = onlyterm(project(instantiate(H, [Vu, Vu]), [1, 2]))
+    @test [o.c for o in ops(tk)] == [U1Irrep(1), U1Irrep(-1)]
+    @test tk.coeff ≈ 1
 
     # charged total
     H = couple(raise[1], raise[2]; to = U1Irrep(2))
-    kk, vv = onlyterm(project(instantiate(H, [Vu, Vu]), [1, 2]))
-    @test total(kk) == U1Irrep(2)
-    @test vv ≈ 1
+    tk = onlyterm(project(instantiate(H, [Vu, Vu]), [1, 2]))
+    @test total(tk) == U1Irrep(2)
+    @test tk.coeff ≈ 1
 end
 
 # For K ≥ 3 the intermediate ("inner line") charge is not fixed by (charges, total), and the
@@ -194,16 +194,16 @@ end
     for b2 in 0:2
         H = couple(couple(S[1], S[2]; to = SU2Irrep(b2)), S[3]; to = SU2Irrep(1))
         ts = project(instantiate(H, fill(V, 3)), [1, 2, 3])
-        k, v = onlyterm(ts)
-        @test bondcharges(k.tree) == [SU2Irrep(1), SU2Irrep(b2), SU2Irrep(1)]
-        @test v ≈ expected            # including the sign
+        t = onlyterm(ts)
+        @test bondcharges(tree(t)) == [SU2Irrep(1), SU2Irrep(b2), SU2Irrep(1)]
+        @test t.coeff ≈ expected      # including the sign
     end
 
     # the chirality channel
     H = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
-    k, v = onlyterm(project(instantiate(H, fill(V, 3)), [1, 2, 3]))
-    @test bondcharges(k.tree) == [SU2Irrep(1), SU2Irrep(1), SU2Irrep(0)]
-    @test v ≈ expected
+    t = onlyterm(project(instantiate(H, fill(V, 3)), [1, 2, 3]))
+    @test bondcharges(tree(t)) == [SU2Irrep(1), SU2Irrep(1), SU2Irrep(0)]
+    @test t.coeff ≈ expected
 
     # a superposition of all three tot=1 channels: each coefficient must come back on its own tree,
     # with no mixing between channels
@@ -211,10 +211,10 @@ end
     Hs = [couple(couple(S[1], S[2]; to = SU2Irrep(b2)), S[3]; to = SU2Irrep(1)) for b2 in 0:2]
     h = sum(c * instantiate(H, fill(V, 3)) for (c, H) in zip(coeffs, Hs))
     ts = project(h, [1, 2, 3])
-    @test length(ts.terms) == 3
+    @test length(ts) == 3
     for (b2, c) in zip(0:2, coeffs)
-        k = only(k for k in keys(ts.terms) if bondcharges(k.tree)[2] == SU2Irrep(b2))
-        @test ts.terms[k] ≈ c * expected
+        t = only(t for t in ts if bondcharges(tree(t))[2] == SU2Irrep(b2))
+        @test t.coeff ≈ c * expected
     end
 end
 
@@ -274,9 +274,9 @@ end
             @test back ≈ hc
 
             # the basis is complete, so a random symmetric operator uses all of it ...
-            @test length(ts.terms) == dim(space(hc))
+            @test length(ts) == dim(space(hc))
             # ... and orthogonality gives Parseval
-            @test norm(hc)^2 ≈ sum(abs2(v) * gram(k.ops, total(k)) for (k, v) in pairs(ts.terms))
+            @test norm(hc)^2 ≈ sum(abs2(t.coeff) * gram(ops(t), total(t)) for t in ts)
         end
     end
 
@@ -301,8 +301,8 @@ end
             (σX, Dict((2, 2) => 1.0, (3, 3) => 1.0, (2, 3) => 1.0, (3, 2) => 1.0)),
         )
         ts = project(unit_of(M) ⊗ unit_of(M), [1, 2])
-        @test length(ts.terms) == length(expected)
-        got = Dict((k.ops[1].n, k.ops[2].n) => v for (k, v) in pairs(ts.terms))
+        @test length(ts) == length(expected)
+        got = Dict((ops(t)[1].n, ops(t)[2].n) => t.coeff for t in ts)
         for (idx, c) in expected
             @test got[idx] ≈ c
         end
@@ -339,8 +339,8 @@ end
     @test physmatrix(instantiate(ts, [V, V]), 2, 2) ≈ ref
 
     # pairs that cannot fuse to `to` are dropped rather than erroring ...
-    @test length(couple(Sz[1], Sz[2]; to = z).terms) == 4
-    @test length(couple(Sz[1], Sp[2]; to = U1Irrep(1)).terms) == 2
+    @test length(couple(Sz[1], Sz[2]; to = z)) == 4
+    @test length(couple(Sz[1], Sp[2]; to = U1Irrep(1))) == 2
     # ... but a total charge that nothing reaches is an error
     @test_throws ArgumentError couple(Sp[1], Sp[2]; to = z)
 end
@@ -354,27 +354,27 @@ end
     hbond = instantiate(dot(spin(V)[1], spin(V)[2]), [V, V])
     for (label, h) in (("S·S", hbond), ("S·S + identity", hbond + 0.3 * insertrightunit(id(V ⊗ V))))
         @testset "$label" begin
-            H = sum(project(h, [i, i + 1]) for i in 1:(N - 1))
+            H = opsum(sites, (project(h, [i, i + 1]) for i in 1:(N - 1)))
 
-            Ws, secs = irrep_mpo(H, sites)
+            Ws, secs = irrep_mpo(H)
             @test length(secs) == N
 
             # faithful at the reduced level
-            back = mpo_terms(Ws, secs)
+            back = mpo_terms(Ws, secs, sites)
             @test back ≈ H
 
             # and the assembled tensors contract to the operator
             T = irrep_mpo_tensors(Ws, secs, sites)
             @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
                 T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
-            @test physmatrix(Op, N, d) ≈ physmatrix(instantiate(H, sites), N, d)
+            @test physmatrix(Op, N, d) ≈ physmatrix(instantiate(H), N, d)
         end
     end
 
     # the projected Heisenberg chain is the Heisenberg chain
-    H = sum(project(hbond, [i, i + 1]) for i in 1:(N - 1))
-    Href = sum(dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
-    @test physmatrix(instantiate(H, sites), N, d) ≈ physmatrix(instantiate(Href, sites), N, d)
+    H = opsum(sites, (project(hbond, [i, i + 1]) for i in 1:(N - 1)))
+    Href = opsum(sites, (dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+    @test physmatrix(instantiate(H), N, d) ≈ physmatrix(instantiate(Href), N, d)
 end
 
 @testset "tolerance" begin
@@ -385,9 +385,9 @@ end
     )
     h = instantiate(dot(spin(V)[1], spin(V)[2]), [V, V]) + 1.0e-6 * instantiate(scalarpart, [V, V])
 
-    @test length(project(h, [1, 2]).terms) == 2                  # default keeps the small term
-    @test length(project(h, [1, 2]; rtol = 1.0e-4).terms) == 1    # truncated away
-    @test length(project(h, [1, 2]; atol = 1.0e-4).terms) == 1
+    @test length(project(h, [1, 2])) == 2                  # default keeps the small term
+    @test length(project(h, [1, 2]; rtol = 1.0e-4)) == 1    # truncated away
+    @test length(project(h, [1, 2]; atol = 1.0e-4)) == 1
 
     # dropping enough weight that the reconstruction is no longer faithful is an error, not a
     # silently wrong answer
@@ -395,7 +395,7 @@ end
     @test_throws ArgumentError project(hrand, [1, 2]; rtol = 0.5)
 
     # a zero operator projects to an empty TermSum rather than throwing
-    @test isempty(project(zero(h), [1, 2]).terms)
+    @test isempty(project(zero(h), [1, 2]))
     @test iszero(project(zero(id(V)), V))
 end
 

@@ -20,7 +20,7 @@ Three types carry the whole interface:
 |---|---|---|
 | [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`spin_ops`](@ref OpSum.spin_ops), [`fermion_ops`](@ref OpSum.fermion_ops), [`scalarop`](@ref OpSum.scalarop) |
 | [`Terms`](@ref OpSum.Terms) | a bag of [`Term`](@ref OpSum.Term)s, not yet on a lattice | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, [`project`](@ref OpSum.project), `+`, `*` |
-| [`TermSum`](@ref OpSum.TermSum) | those terms **plus the lattice** — the compressible Hamiltonian | [`opsum`](@ref OpSum.opsum), `+`, `append!` |
+| [`TermSum`](@ref OpSum.TermSum) | those terms **plus the lattice** — the compressible Hamiltonian | [`opsum`](@ref OpSum.opsum), `H'`, `+`, `append!` |
 | `(Ws, bondsectors)` | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
@@ -129,9 +129,13 @@ term = couple(Sz[1], Sz[2])
 
 Four rules govern `couple`:
 
-1. **Site order increases.** `couple` builds its caterpillar fusion tree left to right, so each
-   operand must act strictly to the right of the ones before it. For fermions this is not a
-   convention — writing ``c^†_{i+1} c_i`` as ``-c_i c^†_{i+1}`` costs a sign you must supply.
+1. **Site order is free under an abelian symmetry, increasing otherwise.** A term is *stored* in site
+   order, so an operand acting to the left of an earlier one has its leg inserted rather than
+   appended, and the braiding phase that costs comes with it. Under a `UniqueFusion` symmetry — which
+   includes every fermionic sector — `couple` does that itself, so ``c^†_{i+1} c_i`` is written as it
+   reads and comes out as ``-c_i c^†_{i+1}``. Under a non-abelian symmetry reordering would need
+   F-moves, so each operand must act strictly to the right of the ones before it. (`dot` accepts
+   either order for any symmetry: two legs coupling to the unit sector need no F-move.)
 2. **Composite operands are fine.** Every side may have several letters; the coupling distributes
    over every combination, and combinations whose charges cannot fuse to `to` are dropped. It is an
    error if none fuse.
@@ -174,6 +178,20 @@ H = heisenberg(6)
 
 `dot` does **not** distribute over composite operands — its factor is per-letter, so it has no
 meaning for an operator mixing charges. Use `couple` for those.
+
+### The hermitian-conjugate partner
+
+`H'` ([`adjoint`](@ref Base.adjoint(::OpSum.TermSum))) builds it, so a hopping amplitude only has to
+be written once:
+
+```@example ops
+T = opsum(fill(Vf, 2), -1.0 * couple(cdag[1], cop[2]))
+T + T' ≈ opsum(fill(Vf, 2), -1.0 * (couple(cdag[1], cop[2]) + couple(cdag[2], cop[1])))
+```
+
+It is defined on a `TermSum` and not on a `Terms` bag, because it needs the physical spaces — the
+adjoint of an alphabet letter is generally a combination of the dual charge's letters, which only the
+space knows. Every term must be charge-neutral: a charged term's adjoint lives in the dual sector.
 
 ## Projecting a whole block
 
@@ -373,7 +391,7 @@ compression.
 
 | Message | Cause |
 |---|---|
-| `couple: the second operand must act to the right of the first` | site indices not increasing; reorder and supply the fermionic sign yourself |
+| `couple: … left of site … reordering the legs of a SimpleFusion() coupling needs F-moves` | out-of-order site indices under a non-abelian symmetry, where the reordering is not available; write them increasing |
 | `couple: no pair of terms of the operands fuses to …` | the requested total charge is unreachable from the operands' charges |
 | `couple: every term of the second operand must be a single-site charged operator` | the right operand has a scalar (identity) part, or spans several sites |
 | `project: sites must be strictly increasing` | sorted-unique labels are a downstream invariant; `project` will not permute `h` for you, since that needs braiding and flips fermionic signs |

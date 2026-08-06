@@ -285,10 +285,9 @@ end
 
 @testset "K=0 identity terms" begin
     # A K=0 term is all pass-through: its suffix class is the "done" class from bond 0 on, and its
-    # left vertex coincides with the identity/start channel. Checked via the pinned bond profile and
-    # the `mpo_terms` round-trip rather than the dense oracle, because `instantiate` cannot represent
-    # an operator that mixes K=0 and K>0 terms (a pre-existing limitation of the oracle, not the
-    # sweep).
+    # left vertex coincides with the identity/start channel. `instantiate` used to be unable to
+    # represent an operator mixing K=0 with K>0 (the identity branch built no trailing charge leg), so
+    # the dense oracle was unavailable here; it now is, and runs alongside the pinned bond profile.
     V = SU2Space(1 // 2 => 1)
     S = spin(V)
     sites = fill(V, 3)
@@ -300,10 +299,11 @@ end
                 opsum(sites, scalarop(-1.5, V)[1], dot(S[1], S[2]), dot(S[2], S[3])),
             ),
         )
-        _, secs = irrep_mpo(H, BipartiteAlgorithm())
+        Ws, secs = irrep_mpo(H, BipartiteAlgorithm())
         @testset "$name" begin
             @test bondprofile(secs) == EXPECTED_BONDS[name]
             @test islossless(H)
+            @test mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ instantiate(H)
         end
     end
 end

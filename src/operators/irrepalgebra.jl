@@ -4,7 +4,7 @@
 using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id, Nsymbol,
     Rsymbol, Vect, domain, permute, sectors, fuse, FusionStyle, UniqueFusion, BraidingStyle,
-    SymmetricBraiding
+    SymmetricBraiding, insertrightunit
 import TensorKit: sectortype
 using LinearAlgebra: LinearAlgebra
 using .IrrepTensorOperators: IrrepOperator
@@ -692,7 +692,9 @@ instantiate(ts::Terms, sites::AbstractVector{<:ElementarySpace}) = instantiate(o
 
 function _instantiate_term(t::Term, sites)
     K = arity(t)
-    K == 0 && return foldl(⊗, (id(V) for V in sites))
+    # The trailing total-charge leg is `Vect[I](unit(I) => 1)` for every K ≥ 1 term, so a K = 0
+    # identity term needs one too — otherwise an operator mixing the two cannot be summed at all.
+    K == 0 && return insertrightunit(foldl(⊗, (id(V) for V in sites)))
     K == 1 && return _embed_field(only(t.keys).op, only(t.sites), sites)
     return _embed_caterpillar(ops(t), t.sites, tree(t), sites)
 end
@@ -702,7 +704,7 @@ end
 # against.
 function _instantiate_basis(ops, tree, sites)
     K = length(ops)
-    K == 0 && return foldl(⊗, (id(V) for V in sites))
+    K == 0 && return insertrightunit(foldl(⊗, (id(V) for V in sites)))
     K == 1 && return _embed_field(only(ops), 1, sites)
     return _embed_caterpillar(ops, 1:K, tree, sites)
 end

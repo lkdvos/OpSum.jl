@@ -8,17 +8,18 @@
 # consumes.
 #
 # Idle sites are filled with a distinguished pass-through identity symbol (trivial charge, index
-# `n = 0`), not an enumerated `(c, n)` letter and not `one(A)`; it acts as `id(V)`. The coupling
-# structure (per-site bond charges + vertex labels) is derived from each term's `(charges, total)`
-# via TensorKit `fusiontrees` (bounded, canonical). Supported term arity K ≥ 0; multi-channel
-# (`GenericFusion`) coupling is deferred.
+# `n = 0`), not an enumerated `(c, n)` letter and not `one(A)`; it acts as `id(V)`. Supported term
+# arity K ≥ 0; multi-channel (`GenericFusion`) coupling is deferred.
+#
+# Why a `Term` stores keys and not a fusion tree: for a caterpillar the keys *are* the tree —
+# `bondcharges`/`vertexlabels` project one onto them and `_tree_from_bonds` (irrepalgebra.jl) inverts
+# that. `total` alone would not do, since for K ≥ 3 non-abelian several channels reach the same total;
+# and it rests on the shape being fixed, which is why `couple`'s `via` is deferred.
 
 using TensorKit
 using TensorKit: Sector, FusionTree, fusiontrees, unit
 using .IrrepTensorOperators: IrrepOperator
 
-# Pass-through identity symbol
-# ----------------------------
 """
     passthrough(::Type{I}) where {I<:Sector}
 

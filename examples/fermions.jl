@@ -43,22 +43,22 @@ BraidingStyle(sectortype(V))
 # so the hermitian conjugate partner enters with a **minus**.
 
 function hopping(N; t = 1.0, sign = -1.0)
-    return -t * sum(
-        [
-            couple(cd[i], c[i + 1]) + sign * couple(c[i], cd[i + 1])
+    return opsum(
+        fill(V, N),
+        (
+            -t * (couple(cd[i], c[i + 1]) + sign * couple(c[i], cd[i + 1]))
                 for i in 1:(N - 1)
-        ]
+        )
     )
 end
 
 N = 8
-sites = fill(V, N)
 H = hopping(N)
 
 # Getting the sign wrong is not a subtle error — the operator simply stops being hermitian, which
 # is a cheap and very sharp check:
 
-(correct = hermiticity_error(H, sites), wrong = hermiticity_error(hopping(N; sign = +1.0), sites))
+(correct = hermiticity_error(H), wrong = hermiticity_error(hopping(N; sign = +1.0)))
 
 # ## Verification against the exact spectrum
 #
@@ -78,13 +78,13 @@ function free_fermion_spectrum(N; t = 1.0)
     )
 end
 
-spectrum(H, sites) ≈ free_fermion_spectrum(N)
+spectrum(H) ≈ free_fermion_spectrum(N)
 
 # The MPO is lossless, and its bond dimension is independent of ``N`` just as for the spin chains:
 
-islossless(H, sites)
+islossless(H)
 
-res_free = build("free fermions", H, sites)
+res_free = build("free fermions", H)
 
 # ## Adding a density–density interaction
 #
@@ -96,12 +96,15 @@ res_free = build("free fermions", H, sites)
 # two-site term.
 
 function tV_chain(N; t = 1.0, Vint = 2.0)
-    return hopping(N; t) + Vint * sum([couple(nh[i], nh[i + 1]) for i in 1:(N - 1)])
+    return append!(
+        hopping(N; t),
+        (Vint * couple(nh[i], nh[i + 1]) for i in 1:(N - 1))
+    )
 end
 
 H_tV = tV_chain(N)
-res_tV = build("t-V chain", H_tV, sites)
-islossless(H_tV, sites)
+res_tV = build("t-V chain", H_tV)
+islossless(H_tV)
 
 # ## The Fermi–Hubbard model
 #
@@ -134,13 +137,13 @@ function hubbard(Nsites; t = 1.0, U = 4.0)
         U * couple(nh[orbital(i, 1)], nh[orbital(i, 2)])
             for i in 1:Nsites
     ]
-    return sum(vcat(hop, int)), fill(V, 2Nsites)
+    return opsum(fill(V, 2Nsites), hop, int)
 end
 
 Nsites = 6
-H_hub, sites_hub = hubbard(Nsites)
-res_hub = build("Hubbard 1D", H_hub, sites_hub)
-islossless(H_hub, sites_hub)
+H_hub = hubbard(Nsites)
+res_hub = build("Hubbard 1D", H_hub)
+islossless(H_hub)
 
 # ### Checking it against two exactly solvable limits
 #
@@ -148,7 +151,7 @@ islossless(H_hub, sites_hub)
 # subset sum over the two copies of the single-particle levels:
 
 let Ns = 3
-    H0, s0 = hubbard(Ns; U = 0.0)
+    H0 = hubbard(Ns; U = 0.0)
     ε = vcat(
         [-2 * cos(k * π / (Ns + 1)) for k in 1:Ns],
         [-2 * cos(k * π / (Ns + 1)) for k in 1:Ns],
@@ -159,14 +162,14 @@ let Ns = 3
                 for m in 0:(2^(2Ns) - 1)
         ]
     )
-    spectrum(H0, s0) ≈ exact
+    spectrum(H0) ≈ exact
 end
 
 # At ``t = 0`` nothing moves, so the energy just counts doubly-occupied sites in units of ``U``:
 
 let Ns = 3, U = 4.0
-    Ht, st = hubbard(Ns; t = 0.0, U)
-    sort(unique(round.(spectrum(Ht, st); digits = 8)))
+    Ht = hubbard(Ns; t = 0.0, U)
+    sort(unique(round.(spectrum(Ht); digits = 8)))
 end
 
 # ### Bond dimension
@@ -174,8 +177,7 @@ end
 # As for every other local model, the Hubbard bond dimension saturates:
 
 for Ns in (4, 6, 8, 12)
-    H, s = hubbard(Ns)
-    r = build("hub", H, s; quiet = true)
+    r = build("hub", hubbard(Ns); quiet = true)
     println("  sites=$(rpad(Ns, 3)) orbitals=$(rpad(2Ns, 3))  D=$(rpad(r.D, 3))  D_dense=$(r.Ddense)")
 end
 
@@ -185,8 +187,7 @@ end
 # physical sites does not.
 
 let Ns = 8
-    H, s = hubbard(Ns)
-    _, secs = irrep_mpo(H, s)
+    _, secs = irrep_mpo(hubbard(Ns))
     [densedim(secs, b) for b in eachindex(secs)]
 end
 
@@ -206,12 +207,11 @@ function hubbard_cylinder(Lx, Ly; t = 1.0, U = 4.0)
             for (i, j) in cylinder_bonds(Lx, Ly) for σ in 1:2
     ]
     int = [U * couple(nh[orbital(i, 1)], nh[orbital(i, 2)]) for i in 1:Nsites]
-    return sum(vcat(hop, int)), fill(V, 2Nsites)
+    return opsum(fill(V, 2Nsites), hop, int)
 end
 
 for Lx in (2, 4, 6, 8)
-    H, s = hubbard_cylinder(Lx, 4)
-    r = build("hub cyl", H, s; quiet = true)
+    r = build("hub cyl", hubbard_cylinder(Lx, 4); quiet = true)
     println("  $(Lx)x4 cylinder: sites=$(rpad(4Lx, 3)) orbitals=$(rpad(8Lx, 3))  D_dense=$(r.Ddense)")
 end
 

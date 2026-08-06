@@ -63,17 +63,16 @@ end
 
 @testset "$(spec.key)" for spec in MODELS
     for N in spec.timesizes[:smoke]
-        H, sites = spec.build(N)
-        @test !isempty(H.terms)
+        H = spec.build(N)
+        sites = lattice(H)
+        @test !isempty(H)
         @test length(sites) == N
 
-        Ws, secs = irrep_mpo(H, sites)
+        Ws, secs = irrep_mpo(H)
         @test length(secs) == N
 
         # Faithfulness: the reduced MPO reconstructs every original term exactly.
-        back = mpo_terms(Ws, secs)
-        @test Set(keys(back.terms)) == Set(keys(H.terms))
-        @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+        @test mpo_terms(Ws, secs, sites) ≈ H
 
         if haskey(EXPECTED, spec.key)
             e = EXPECTED[spec.key]
@@ -86,7 +85,7 @@ end
         # this way matters: `instantiate` is exponential in `N`, and running it for every model adds
         # about a minute for no extra coverage (the bosonic builders share one code path).
         if N <= 8 && (spec.family === :fermionic || spec.key == "heisenberg_su2")
-            @test hermiticity_error(H, sites) < 1.0e-10
+            @test hermiticity_error(H) < 1.0e-10
         end
     end
 end
@@ -97,31 +96,29 @@ end
     V = ShowcaseModels.FERMION_MODE
     N = 6
     sites = fill(V, N)
-    wrong = sum(
-        [
-            couple(F.cd[i], F.c[i + 1]) + couple(F.c[i], F.cd[i + 1])
-                for i in 1:(N - 1)
-        ]
+    wrong = opsum(
+        sites,
+        (couple(F.cd[i], F.c[i + 1]) + couple(F.c[i], F.cd[i + 1]) for i in 1:(N - 1))
     )
-    @test hermiticity_error(wrong, sites) > 0.1
+    @test hermiticity_error(wrong) > 0.1
 end
 
 @testset "free-fermion spectrum" begin
     N, t = 6, 1.0
-    H, sites = ShowcaseModels.free_fermions(N; t)
+    H = ShowcaseModels.free_fermions(N; t)
     ε = [-2t * cos(k * π / (N + 1)) for k in 1:N]
     exact = sort(
         [
             sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0) for m in 0:(2^N - 1)
         ]
     )
-    @test spectrum(H, sites) ≈ exact
+    @test spectrum(H) ≈ exact
 end
 
 @testset "Hubbard exactly-solvable limits" begin
     Nsites = 3
     # U = 0: two independent species of free fermions.
-    H0, s0 = ShowcaseModels.hubbard(2Nsites; U = 0.0)
+    H0 = ShowcaseModels.hubbard(2Nsites; U = 0.0)
     ε1 = [-2 * cos(k * π / (Nsites + 1)) for k in 1:Nsites]
     ε = vcat(ε1, ε1)
     exact = sort(
@@ -130,31 +127,32 @@ end
                 for m in 0:(2^(2Nsites) - 1)
         ]
     )
-    @test spectrum(H0, s0) ≈ exact
+    @test spectrum(H0) ≈ exact
 
     # t = 0: the energy counts doubly occupied sites in units of U.
     U = 4.0
-    Ht, st = ShowcaseModels.hubbard(2Nsites; t = 0.0, U)
-    @test sort(unique(round.(spectrum(Ht, st); digits = 8))) ≈ U .* collect(0:Nsites)
+    Ht = ShowcaseModels.hubbard(2Nsites; t = 0.0, U)
+    @test sort(unique(round.(spectrum(Ht); digits = 8))) ≈ U .* collect(0:Nsites)
 end
 
 @testset "SU(2) and U(1) agree on the Heisenberg spectrum" begin
     # Different symmetry groups, different spaces, same operator: comparing spectra is the sharpest
     # available cross-check, and it validates the multiplet-degeneracy handling in `spectrum`.
     L = 4
-    Hs, ss = ShowcaseModels.heisenberg_su2(L)
+    Hs = ShowcaseModels.heisenberg_su2(L)
 
     Vu = Rep[U₁](0 => 1, 1 => 1)
     dn, up = U1Irrep(0), U1Irrep(1)
     S = spin_ops(Vu, up, dn)
     z = unit(U1Irrep)
-    Hu = sum(
-        [
+    Hu = opsum(
+        fill(Vu, L),
+        (
             0.5 * couple(S.Sp[i], S.Sm[i + 1]; to = z) + 0.5 * couple(S.Sm[i], S.Sp[i + 1]; to = z) +
                 couple(S.Sz[i], S.Sz[i + 1]; to = z) for i in 1:(L - 1)
-        ]
+        )
     )
-    a, b = spectrum(Hs, ss), spectrum(Hu, fill(Vu, L))
+    a, b = spectrum(Hs), spectrum(Hu)
     @test length(a) == 2^L        # multiplet degeneracies must be unfolded
     @test a ≈ b
 end

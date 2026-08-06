@@ -1,41 +1,15 @@
-# Jordan-form MPO emission: reduced bond data → `SparseBlockTensorMap`s
-# =====================================================================
-# `irrep_mpo_tensors` (irrepmpo.jl) assembles one dense `TensorMap` per site, with the whole bond
-# collapsed into a single `GradedSpace`. That is the right shape for contracting the chain and
-# checking it against `instantiate`, and the wrong shape for an MPO *library*: the block structure —
-# which bond index is which channel, and which blocks are identities — is exactly what an
-# `MPOHamiltonian` implementation needs, and densifying throws it away.
+# Jordan-form MPO emission: one `SparseBlockTensorMap` per site, virtual legs `SumSpace`s with one
+# level per bond index, reordered into upper-triangular (start channel, rest, finish channel) form —
+# what MPSKit's `JordanMPOTensor` / `FiniteMPOHamiltonian` consume. `irrep_mpo_tensors` (irrepmpo.jl)
+# emits the dense-bond shape instead.
 #
-# This file emits the other shape: one `BlockTensorKit.SparseBlockTensorMap` per site, whose virtual
-# legs are `SumSpace`s with **one level per bond index** (each level `Vect[I](charge => 1)`), the bond
-# indices reordered into Jordan (upper-triangular finite-state-automaton) form
-#
-#     ⎛ 1  C  D ⎞          row/column 1   = the start channel  ("nothing placed yet")
-#     ⎜ ·  A  B ⎟          row/column end = the finish channel ("everything placed")
-#     ⎝ ·  ·  1 ⎠
-#
-# which is precisely what MPSKit's `JordanMPOTensor(::SparseBlockTensorMap)` consumes, and from there
-# `FiniteMPOHamiltonian`. Because OpSum already knows every bond space exactly, no space-deduction
-# fixed point is needed on the consumer side.
-#
-# THE JORDAN PADDING TRADE. Both identity channels are emitted at *every* internal bond, even when the
-# compression did not spend a bond index on them — a chain with no on-site fields has nothing starting
-# to the right of the last bonds, so the minimum vertex cover legitimately omits the start channel
-# there, and nothing has finished yet at the first bonds, so it omits the finish channel. Padding each
-# costs at most one bond index per bond, so the emitted MPO is minimal *among Jordan-form MPOs* and
-# may exceed the unconstrained minimum (`irrep_mpo`) by at most 2 per bond. Both padded channels are
-# pure identity chains, emitted as `BraidingTensor`s so a consumer can keep them out of dense storage,
-# and neither can change the operator: the padded start channel is only reachable from the left boundary
-# and never emits anything into the finish (no term starts to its right, or it would not have been
-# omitted), and the padded finish chain is reachable from nothing at all (site 1 has no finish row).
-#
-# On the reference models the padding is `+1` at the first internal bond and `+1` at the last, and `0`
-# in the bulk — a Heisenberg chain comes out at the textbook uniform bond dimension 3.
-#
-# The *ordering* is a reading of the cover, not a constraint on it (see `_force_finish!` and
-# `_vc_component` in irrepgraph.jl), with one exception: the finish class is forced into the cover, so
-# that the channel it produces emits `1 · id` rather than a covered-left index's weighted letter. That
-# forcing has never changed a bond dimension on any reference model.
+# THE JORDAN PADDING TRADE. Both identity channels are emitted at every internal bond even where the
+# cover spent no index on them, so the result is minimal *among Jordan-form MPOs* and at most `+2` per
+# bond over `irrep_mpo`'s unconstrained minimum (in practice `+1` at the first internal bond and `+1`
+# at the last). Padded channels are pure identity chains and cannot change the operator: the padded
+# start is reachable only from the left boundary and emits nothing into the finish, and the padded
+# finish chain is reachable from nothing. The one thing that *does* touch the cover is `_force_finish!`
+# (irrepgraph.jl), so the finish channel emits `1 · id` rather than a weighted letter.
 
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, SumSpace, eachspace
 using TensorKit: BraidingTensor, Vect, ElementarySpace, fusiontrees, unit, isomorphism,
@@ -43,7 +17,7 @@ using TensorKit: BraidingTensor, Vect, ElementarySpace, fusiontrees, unit, isomo
 using .IrrepTensorOperators: IrrepOperator
 
 """
-    jordan_mpo_tensors(H::TermSum, sites[, alg]) -> Vector{<:SparseBlockTensorMap}
+    jordan_mpo_tensors(H::TermSum[, alg]) -> Vector{<:SparseBlockTensorMap}
 
 Compress `H` into a reduced MPO (as [`irrep_mpo`](@ref)) and emit it in **Jordan form**: one
 `BlockTensorKit.SparseBlockTensorMap` per site, `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, whose virtual legs
@@ -67,23 +41,20 @@ every bond; a truncation aggressive enough to empty a bond is rejected, since a 
 zero-dimensional bond cannot carry its identity corners.
 """
 function jordan_mpo_tensors(
-        H::TermSum{I, S, Tc}, sites, alg = BipartiteAlgorithm()
-    ) where {I, S, Tc}
-    N = length(sites)
-    Ws, bondsectors, starts, finishes = _irrep_channels(
-        ITOTermTable(H, sites), N, bondstrategy(alg)
+        H::TermSum, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
     )
+    tt = ITOTermTable(H)
+    N = nvertices(tt)
+    Ws, bondsectors, starts, finishes = _irrep_channels(tt, N, bondstrategy(alg))
     isempty(Ws) && throw(
         ArgumentError("cannot emit a Jordan MPO for an empty `TermSum`: it has no bond structure")
     )
-    return jordan_mpo_tensors(Ws, bondsectors, starts, finishes, sites)
+    return jordan_mpo_tensors(Ws, bondsectors, starts, finishes, lattice(H))
 end
 
-# The Jordan reordering of one internal bond. `s`/`f` are the bond indices of the start/finish
-# channels (`0` when the cover did not spend one). Slots `1` and `end` of the result are *reserved*
-# for the two channels whether or not they are live, which is what makes the padded case need no
-# separate bookkeeping downstream: position 1 is the start channel by construction. Returns
-# `(pos, sec)` with `pos[old] -> new` and `sec[new]` the new per-index charge.
+# Reorder one internal bond; `s`/`f` are the start/finish indices (`0` if the cover spent none).
+# Slots `1`/`end` are *reserved* for them live or not, so padding needs no separate bookkeeping.
+# Returns `(pos, sec)`: `pos[old] -> new`, `sec[new]` the new charge.
 function _jordan_bond(sec::Vector{I}, s::Int, f::Int) where {I}
     n = length(sec)
     iszero(n) && throw(
@@ -111,11 +82,8 @@ function _jordan_bond(sec::Vector{I}, s::Int, f::Int) where {I}
     return pos, newsec
 end
 
-# The site tensor of one ITO letter, coupling the operator charge into the bond by the (forward)
-# fusion `(bL, c) → bR` — running bond FIRST, matching the left-nested caterpillar, as in
-# `irrep_mpo_tensors`. One level per bond index means both bond legs are one-dimensional here, so this
-# is a small tensor; the point of memoising it per `(letter, bL, bR)` is that the fusion trees and the
-# contraction are then paid once per *distinct* triple rather than once per stored bond entry.
+# One letter's site tensor, fusing `(bL, c) → bR` (running bond first, as in `irrep_mpo_tensors`).
+# Memoised per `(letter, bL, bR)`, so the trees and the contraction are paid once per distinct triple.
 function _jordan_letter_block(letter::IrrepOperator{I}, V, bL::I, bR::I) where {I}
     c = letter.c
     Vc = Vect[I](c => 1)

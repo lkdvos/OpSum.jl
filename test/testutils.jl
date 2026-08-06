@@ -9,14 +9,15 @@
 # the workflow CLAUDE.md documents) still works.
 
 using OpSum
-using OpSum: TermSum, SiteOperator
+using OpSum: Term, Terms, TermSum, SiteOperator, ops, tree, total, arity
 using TensorKit: dim
 
 # Wrap a bare alphabet letter as a `SiteOperator`, for comparing against reduced bond-matrix entries.
 LO(x) = SiteOperator(x)
 
-# The single `(TermKey, coeff)` pair of a one-term `TermSum`.
-onlyterm(ts::TermSum) = only(pairs(ts.terms))
+# The single `Term` of a one-term bag or operator.
+onlyterm(ts::Terms) = only(ts)
+onlyterm(H::TermSum) = only(H)
 
 # Densify a `TensorMap` operator to a matrix: drop the dim-1 (boundary / charge) legs, keep the 2N
 # physical axes ordered [out_1..N, in_1..N], and reorder to the kron index convention.

@@ -18,7 +18,8 @@
 
 using Test
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum, spin, couple, scalarop
+using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum, spin, couple, scalarop,
+    opsum, lattice
 using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, VertexCover, IndependentSVD, SequentialSVD
 using OpSum: ITOTermTable, _irrep_sweep
 using OpSum: ITOGraph, _at_site!
@@ -53,30 +54,40 @@ function bondprofile(secs)
 end
 
 # operator the reduced MPO represents, via the path-enumeration reconstruction
-mpo_operator(Ws, secs, sites) = instantiate(mpo_terms(Ws, secs), sites)
+mpo_operator(Ws, secs, sites) = instantiate(mpo_terms(Ws, secs, sites))
 
 # reference Hamiltonians spanning the non-abelian sectors in the suite (SU2, U1, trivial) and
-# arities K ∈ {0,1,2,3}; each entry is (name, H, sites).
+# arities K ∈ {0,1,2,3}; each entry is (name, H), with `H` carrying its own lattice.
 function reference_hamiltonians()
-    cases = Tuple{String, TermSum, Vector}[]
+    cases = Tuple{String, TermSum}[]
     let V = SU2Space(1 // 2 => 1)
         for N in (2, 3, 4, 5, 6)
-            H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
-            push!(cases, ("SU2 Heisenberg N=$N", H, fill(V, N)))
+            H = opsum(fill(V, N), (dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+            push!(cases, ("SU2 Heisenberg N=$N", H))
         end
-        push!(cases, ("SU2 fields", spin(V)[1] + spin(V)[2] + spin(V)[3], fill(V, 3)))
+        push!(
+            cases,
+            ("SU2 fields", opsum(fill(V, 3), spin(V)[1], spin(V)[2], spin(V)[3]))
+        )
         push!(
             cases, (
                 "SU2 decoupled pairs N=6",
-                dot(spin(V)[1], spin(V)[2]) + dot(spin(V)[3], spin(V)[4]) + dot(spin(V)[5], spin(V)[6]),
-                fill(V, 6),
+                opsum(
+                    fill(V, 6),
+                    dot(spin(V)[1], spin(V)[2]),
+                    dot(spin(V)[3], spin(V)[4]),
+                    dot(spin(V)[5], spin(V)[6]),
+                ),
             )
         )
         S = spin(V)
         push!(
             cases, (
                 "SU2 K=3 three-body",
-                couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)), fill(V, 3),
+                opsum(
+                    fill(V, 3),
+                    couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
+                ),
             )
         )
         # Coupling S₁⊗S₂ to charge 0 makes the running bond charge trivial, so from bond 2 on the
@@ -85,28 +96,37 @@ function reference_hamiltonians()
         push!(
             cases, (
                 "SU2 K=3 tail collides with on-site field",
-                couple(couple(S[1], S[2]; to = SU2Irrep(0)), S[4]; to = SU2Irrep(1)) + 2.0 * S[4],
-                fill(V, 4),
+                opsum(
+                    fill(V, 4),
+                    couple(couple(S[1], S[2]; to = SU2Irrep(0)), S[4]; to = SU2Irrep(1)),
+                    2.0 * S[4],
+                ),
             )
         )
         # boundary shapes: nothing active at site 1; a term whose first active site is the last one
-        push!(cases, ("SU2 no term starts at site 1", dot(S[2], S[3]), fill(V, 3)))
+        push!(cases, ("SU2 no term starts at site 1", opsum(fill(V, 3), dot(S[2], S[3]))))
         # a term whose first active site is the last one (uniform total charge: both are single spins,
-        # mixing total charges in one `TermSum` is out of scope for the sweeps)
-        push!(cases, ("SU2 first active site == N", S[1] + S[4], fill(V, 4)))
+        # mixing total charges in one operator is out of scope for the sweeps)
+        push!(cases, ("SU2 first active site == N", opsum(fill(V, 4), S[1], S[4])))
     end
     let V = Rep[U₁](0 => 1, 1 => 1)
         raise = LO(IrrepOperator(U1Irrep(1), 1))
         lower = LO(IrrepOperator(U1Irrep(-1), 1))
         for N in (3, 4)
-            H = reduce(+, dot(raise[i], lower[i + 1]) for i in 1:(N - 1)) +
-                reduce(+, dot(lower[i], raise[i + 1]) for i in 1:(N - 1))
-            push!(cases, ("U1 hopping N=$N", H, fill(V, N)))
+            H = opsum(
+                fill(V, N),
+                (dot(raise[i], lower[i + 1]) for i in 1:(N - 1)),
+                (dot(lower[i], raise[i + 1]) for i in 1:(N - 1)),
+            )
+            push!(cases, ("U1 hopping N=$N", H))
         end
         push!(
             cases, (
                 "U1 K=3 three-body",
-                couple(couple(raise[1], raise[2]; to = U1Irrep(2)), lower[3]; to = U1Irrep(1)), fill(V, 3),
+                opsum(
+                    fill(V, 3),
+                    couple(couple(raise[1], raise[2]; to = U1Irrep(2)), lower[3]; to = U1Irrep(1))
+                ),
             )
         )
         # A charge-0 letter leaves the running bond trivial, so a pending on-site term can share a
@@ -116,21 +136,27 @@ function reference_hamiltonians()
         push!(
             cases, (
                 "U1 charge-0 on-site collides with two-site tail",
-                couple(z[1], z[3]; to = U1Irrep(0)) + 0.5 * z[3], fill(V, 3),
+                opsum(fill(V, 3), couple(z[1], z[3]; to = U1Irrep(0)), 0.5 * z[3]),
             )
         )
     end
     let V = ℂ^2
         ops = instances(IrrepOperator, V)
-        H = reduce(+, couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2)
-        push!(cases, ("trivial sector N=3", H, fill(V, 3)))
+        H = opsum(
+            fill(V, 3),
+            (couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2)
+        )
+        push!(cases, ("trivial sector N=3", H))
         # In the trivial sector every bond charge is the unit, so the collision above degenerates to
         # "a pending term's whole content equals a started term's tail".
         push!(
             cases, (
                 "trivial on-site collides with two-site tail",
-                couple(LO(ops[2])[1], LO(ops[3])[3]; to = unit(Trivial)) + 0.5 * LO(ops[3])[3],
-                fill(V, 3),
+                opsum(
+                    fill(V, 3),
+                    couple(LO(ops[2])[1], LO(ops[3])[3]; to = unit(Trivial)),
+                    0.5 * LO(ops[3])[3],
+                ),
             )
         )
     end
@@ -167,14 +193,14 @@ const EXPECTED_BONDS = Dict{String, Vector{Vector{Pair{String, Int}}}}(
 const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]]
 
 @testset "VertexCover sweep — lossless, dense-exact, pinned bond sectors" begin
-    for (name, H, sites) in reference_hamiltonians()
+    for (name, H) in reference_hamiltonians()
+        sites = lattice(H)
         N = length(sites)
-        Ws, secs = irrep_mpo(H, sites, BipartiteAlgorithm())
+        Ws, secs = irrep_mpo(H, BipartiteAlgorithm())
         @testset "$name" begin
             # 1. faithfulness: the reduced MPO reconstructs the original term-sum exactly
-            back = mpo_terms(Ws, secs)
-            @test Set(keys(back.terms)) == Set(keys(H.terms))
-            @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+            back = mpo_terms(Ws, secs, sites)
+            @test back ≈ H
             # 2. the compression itself, charge by charge
             @test bondprofile(secs) == EXPECTED_BONDS[name]
             # 3. the assembled symmetric tensors contract to the dense oracle. `physmatrix` drops the
@@ -183,7 +209,7 @@ const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["I
             if 2 <= N <= 3 && all(c -> dim(c) == 1, secs[end])
                 d = dim(sites[1])
                 Mmpo = physmatrix(contractN(irrep_mpo_tensors(Ws, secs, sites)), N, d)
-                @test Mmpo ≈ physmatrix(instantiate(H, sites), N, d)
+                @test Mmpo ≈ physmatrix(instantiate(H), N, d)
             end
         end
     end
@@ -193,10 +219,10 @@ end
     V = SU2Space(1 // 2 => 1)
     N = 4
     sites = fill(V, N)
-    H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
-    Wdef, sdef = irrep_mpo(H, sites)
-    Wsel, ssel = irrep_mpo(H, sites, BipartiteAlgorithm())
-    Wstr, sstr = _irrep_sweep(ITOTermTable(H, sites), N, VertexCover())
+    H = opsum(sites, (dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+    Wdef, sdef = irrep_mpo(H)
+    Wsel, ssel = irrep_mpo(H, BipartiteAlgorithm())
+    Wstr, sstr = _irrep_sweep(ITOTermTable(H), N, VertexCover())
     @test bondprofile(sdef) == bondprofile(ssel) == bondprofile(sstr)
     @test mpo_operator(Wdef, sdef, sites) ≈ mpo_operator(Wsel, ssel, sites)
     @test mpo_operator(Wstr, sstr, sites) ≈ mpo_operator(Wsel, ssel, sites)
@@ -211,16 +237,17 @@ end
     # `SVDBondAlgorithm(; sweep = SequentialSVD)`. The SVD rotates each bond's basis, so the robust
     # equality check is via the assembled TensorMaps contracted against the dense oracle — not
     # `mpo_terms` (which needs an intact identity backbone). Restrict to N ≤ 3 (contract2 / contract3).
-    for (name, H, sites) in reference_hamiltonians()
+    for (name, H) in reference_hamiltonians()
+        sites = lattice(H)
         N = length(sites)
         2 <= N <= 3 || continue
         d = dim(sites[1])
-        Wg, sg = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = SequentialSVD))
+        Wg, sg = irrep_mpo(H, SVDBondAlgorithm(; sweep = SequentialSVD))
         # `physmatrix` drops the boundary/charge legs, so it needs a densifiable (dim-1 total charge)
         # operator; a net-charge Hamiltonian (e.g. the spin-1 field sum) is excluded here.
         all(c -> dim(c) == 1, sg[end]) || continue
         Mgraph = physmatrix(contractN(irrep_mpo_tensors(Wg, sg, sites)), N, d)
-        Mexact = physmatrix(instantiate(H, sites), N, d)
+        Mexact = physmatrix(instantiate(H), N, d)
         @testset "$name" begin
             @test Mgraph ≈ Mexact
         end
@@ -232,11 +259,12 @@ end
     # same per-sector bond dimensions. The right boundary (bond N) is excluded because the
     # independent sweep hardcodes it to `unit(I)` whereas the sequential one reports the true total
     # charge — they agree only for charge-0 Hamiltonians.
-    for (name, H, sites) in reference_hamiltonians()
+    for (name, H) in reference_hamiltonians()
+        sites = lattice(H)
         N = length(sites)
         N >= 2 || continue
-        _, si = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = IndependentSVD))
-        _, ss = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = SequentialSVD))
+        _, si = irrep_mpo(H, SVDBondAlgorithm(; sweep = IndependentSVD))
+        _, ss = irrep_mpo(H, SVDBondAlgorithm(; sweep = SequentialSVD))
         @testset "$name" begin
             @test bondprofile(si[1:(N - 1)]) == bondprofile(ss[1:(N - 1)])
         end
@@ -249,30 +277,33 @@ end
     V = SU2Space(1 // 2 => 1)
     N = 8
     sites = fill(V, N)
-    H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
-    Ws, secs = irrep_mpo(H, sites, BipartiteAlgorithm())
+    H = opsum(sites, (dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+    Ws, secs = irrep_mpo(H, BipartiteAlgorithm())
     @test bondprofile(secs) == HEISENBERG8_BONDS
-    @test islossless(H, sites)
+    @test islossless(H)
 end
 
 @testset "K=0 identity terms" begin
     # A K=0 term is all pass-through: its suffix class is the "done" class from bond 0 on, and its
     # left vertex coincides with the identity/start channel. Checked via the pinned bond profile and
     # the `mpo_terms` round-trip rather than the dense oracle, because `instantiate` cannot represent
-    # a `TermSum` that mixes K=0 and K>0 terms (a pre-existing limitation of the oracle, not the
+    # an operator that mixes K=0 and K>0 terms (a pre-existing limitation of the oracle, not the
     # sweep).
     V = SU2Space(1 // 2 => 1)
     S = spin(V)
-    for (name, H, N) in (
-            ("pure identity", scalarop(2.5, V)[1], 3),
-            ("identity plus bond", scalarop(2.5, V)[1] + dot(S[1], S[2]), 3),
-            ("identity plus two bonds", scalarop(-1.5, V)[1] + dot(S[1], S[2]) + dot(S[2], S[3]), 3),
+    sites = fill(V, 3)
+    for (name, H) in (
+            ("pure identity", opsum(sites, scalarop(2.5, V)[1])),
+            ("identity plus bond", opsum(sites, scalarop(2.5, V)[1], dot(S[1], S[2]))),
+            (
+                "identity plus two bonds",
+                opsum(sites, scalarop(-1.5, V)[1], dot(S[1], S[2]), dot(S[2], S[3])),
+            ),
         )
-        sites = fill(V, N)
-        _, secs = irrep_mpo(H, sites, BipartiteAlgorithm())
+        _, secs = irrep_mpo(H, BipartiteAlgorithm())
         @testset "$name" begin
             @test bondprofile(secs) == EXPECTED_BONDS[name]
-            @test islossless(H, sites)
+            @test islossless(H)
         end
     end
 end
@@ -294,18 +325,21 @@ end
     z, s = LO(zl), LO(sl)
     N = 4
     sites = fill(V, N)
-    H = couple(z[1], s[4]; to = SU2Irrep(1)) + 2.0 * couple(s[1], s[4]; to = SU2Irrep(1))
-    tt = ITOTermTable(H, sites)
+    H = opsum(
+        sites,
+        couple(z[1], s[4]; to = SU2Irrep(1)),
+        2.0 * couple(s[1], s[4]; to = SU2Irrep(1)),
+    )
+    tt = ITOTermTable(H)
 
     # the two classes agree on the remaining factors at bond 2 but not on the running charge
     @test OpSum._op_at_ito(tt, 1, 4) == OpSum._op_at_ito(tt, 2, 4)
     @test OpSum._op_at_ito(tt, 1, 3) != OpSum._op_at_ito(tt, 2, 3)
 
-    Wg, sg = irrep_mpo(H, sites, BipartiteAlgorithm())
-    back = mpo_terms(Wg, sg)
-    @test Set(keys(back.terms)) == Set(keys(H.terms))
-    @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
-    @test norm(instantiate(back, sites) - instantiate(H, sites)) < 1.0e-10
+    Wg, sg = irrep_mpo(H, BipartiteAlgorithm())
+    back = mpo_terms(Wg, sg, sites)
+    @test back ≈ H
+    @test norm(instantiate(back) - instantiate(H)) < 1.0e-10
 end
 
 @testset "pending suffix class can collide with a started one" begin
@@ -324,23 +358,22 @@ end
     A, B = LO(ops[2]), LO(ops[3])
     N = 3
     sites = fill(V, N)
-    H = couple(A[1], B[3]; to = unit(Trivial)) + 0.5 * B[3]
-    tt = ITOTermTable(H, sites)
+    H = opsum(sites, couple(A[1], B[3]; to = unit(Trivial)), 0.5 * B[3])
+    tt = ITOTermTable(H)
 
     # the two terms really are in the same suffix class at bond 1 (they differ only at site 1)
     @test OpSum._op_at_ito(tt, 1, 2) == OpSum._op_at_ito(tt, 2, 2)
     @test OpSum._op_at_ito(tt, 1, 3) == OpSum._op_at_ito(tt, 2, 3)
     @test OpSum._op_at_ito(tt, 1, 1) != OpSum._op_at_ito(tt, 2, 1)
 
-    Wg, sg = irrep_mpo(H, sites, BipartiteAlgorithm())
+    Wg, sg = irrep_mpo(H, BipartiteAlgorithm())
     @test length.(sg) == [1, 1, 1]          # the merge, exploited; naive lazy insertion gives [2,2,1]
-    back = mpo_terms(Wg, sg)
-    @test Set(keys(back.terms)) == Set(keys(H.terms))
-    @test all(back.terms[k] ≈ H.terms[k] for k in keys(H.terms))
+    back = mpo_terms(Wg, sg, sites)
+    @test back ≈ H
     # and the compressed MPO still is the operator
     d = dim(V)
     @test physmatrix(contract3(irrep_mpo_tensors(Wg, sg, sites)), N, d) ≈
-        physmatrix(instantiate(H, sites), N, d)
+        physmatrix(instantiate(H), N, d)
 end
 
 @testset "live right vertices stay bounded independently of N" begin
@@ -351,8 +384,8 @@ end
     V = SU2Space(1 // 2 => 1)
     sizes = (5, 20, 80)
     livecounts = map(sizes) do N
-        H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
-        g = ITOGraph(ITOTermTable(H, fill(V, N)), N)
+        H = opsum(fill(V, N), (dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+        g = ITOGraph(ITOTermTable(H), N)
         counts = Int[]
         for i in 1:N
             _at_site!(g, i, VertexCover())

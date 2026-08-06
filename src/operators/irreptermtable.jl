@@ -1,23 +1,84 @@
-# Flat term-list storage for the ITO automaton
-# ============================================
-# `ITOTermTable` stores each term's active `(site, ITOKey)` factors in flat matrices (the ITO
-# counterpart of the dense `TermTable`). The reduced-MPO sweeps that consume it live in
-# irrepgraph.jl; `irrep_mpo` (irrepmpo.jl) is the public entry.
-#
-# The one ITO-specific subtlety vs the dense `TermTable`: idle sites are NOT a constant identity —
-# they carry a pass-through symbol with the *running* bond charge. The flat store keeps only active
-# factors; `_op_at_ito` reconstructs the pass-through key at any idle position from the last active
-# bond charge to its left, so the per-bond transition key is effectively `(prev_id, op, bond,
-# vertex)`, preserving block-diagonality exactly.
+# The normal form (`canonicalize!`) and `ITOTermTable`, the `K × M` matrices the sweeps index into.
 
 using TensorKit: Sector, unit
 
 """
+    canonicalize!(H::TermSum) -> H
+
+Put `H` in normal form **in place**: sort its terms (by sites, then keys, so coincident ones become
+adjacent), sum coincident ones, drop cancelled ones.
+
+Assumes nothing about its input, so no flag can fall out of step with the terms. It is idempotent, but
+a repeat call re-sorts rather than returning early — hence the sweep normalises once, at the
+[`ITOTermTable`](@ref) boundary.
+"""
+canonicalize!(H::TermSum) = (_canonicalize!(H.terms); H)
+
+"""
+    canonicalize!(ts::Terms) -> ts
+
+The same normal form on a bag of terms. Bags are not normalised as they are built, so this is what
+`≈` and `==` on them go through.
+"""
+canonicalize!(ts::Terms) = (_canonicalize!(ts.terms); ts)
+
+# sort, merge adjacent equals, drop cancellations
+function _canonicalize!(terms::Vector{Term{I}}) where {I}
+    if length(terms) <= 1
+        # still drop a lone cancelled term, so `isempty` cannot lie
+        length(terms) == 1 && iszero(only(terms).coeff) && empty!(terms)
+        return terms
+    end
+
+    sort!(terms)
+    out = 0
+    @inbounds for i in eachindex(terms)
+        t = terms[i]
+        if out >= 1 && terms[out] == t
+            prev = terms[out]
+            terms[out] = Term{I}(prev.sites, prev.keys, prev.coeff + t.coeff)
+        else
+            out += 1
+            terms[out] = t
+        end
+    end
+    resize!(terms, out)
+
+    # cancellations are rarer than duplicates, so only pay for a second pass when there are any
+    any(t -> iszero(t.coeff), terms) && filter!(t -> !iszero(t.coeff), terms)
+    return terms
+end
+
+# Already in normal form and sorted the same way, so a positional walk is a set comparison.
+function _termsapprox(ta::Vector{Term{I}}, tb::Vector{Term{I}}; kwargs...) where {I}
+    length(ta) == length(tb) || return false
+    for (x, y) in zip(ta, tb)
+        x == y || return false
+        isapprox(x.coeff, y.coeff; kwargs...) || return false
+    end
+    return true
+end
+
+function _termsequal(ta::Vector{Term{I}}, tb::Vector{Term{I}}) where {I}
+    length(ta) == length(tb) || return false
+    return all(((x, y),) -> x == y && x.coeff == y.coeff, zip(ta, tb))
+end
+
+# the symbol an inactive (padded) slot carries, matching `_op_at_ito`'s reconstruction
+_padkey(::Type{I}) where {I <: Sector} = ITOKey{I}(passthrough(I), unit(I), 1)
+
+"""
     ITOTermTable{I<:Sector}
 
-Flat, sparse-per-term storage of an ITO term-sum on an `N`-vertex chain: each term's active
-`(site, ITOKey)` factors in `K×M` matrices (`sites` zero-padded, ascending) plus a parallel
-`coeffs` vector.
+Flat, sparse-per-term storage of a canonical ITO operator on an `N`-vertex chain: each term's active
+`(site, ITOKey)` factors in `K×M` matrices (`sites` zero-padded, ascending) plus a parallel `coeffs`
+vector. This is the only thing the reduced-MPO sweeps read.
+
+Note there is no fusion tree here, and none is needed: an `ITOKey` carries the running bond charge
+and vertex label at its position, and for the left-nested (caterpillar) coupling this algebra
+supports those *are* the tree — `bondcharges`/`vertexlabels` read them off it, `_tree_from_bonds`
+puts it back together. irrepkey.jl has the argument, including why the total charge alone would not
+do.
 """
 struct ITOTermTable{I <: Sector}
     sites::Matrix{Int}
@@ -30,57 +91,32 @@ arity(tt::ITOTermTable) = size(tt.sites, 1)
 nterms(tt::ITOTermTable) = length(tt.coeffs)
 nvertices(tt::ITOTermTable) = tt.nvertices
 
-# Active `(site => ITOKey)` factors of a term, in site order (empty for a K=0 identity term).
-function _active_keys(tk::TermKey{I, S}) where {I, S}
-    K = length(tk.sites)
-    K == 0 && return Pair{Int, ITOKey{I}}[]
-    bonds = bondcharges(tk.tree)
-    verts = vertexlabels(tk.tree)
-    return Pair{Int, ITOKey{I}}[Int(tk.sites[a]) => ITOKey{I}(tk.ops[a], bonds[a], verts[a]) for a in 1:K]
-end
-
 """
-    ITOTermTable(ts::TermSum, sites)
-    ITOTermTable(terms, sites)      # iterable of TermSums, summed first
+    ITOTermTable(H::TermSum)
 
-Build the flat ITO term table for a term-sum over `N = length(sites)` lattice sites. Coincident
-paths (identical active `(site, ITOKey)` content) accumulate coefficients.
+Materialise `H` in normal form ([`canonicalize!`](@ref)) as the flat table the MPO sweep consumes, on
+the `N = length(lattice(H))` sites it is defined over.
 """
-function ITOTermTable(ts::TermSum{I, S, Tc}, sites) where {I, S, Tc}
-    N = length(sites)
-    index = Dictionary{Vector{Pair{Int, ITOKey{I}}}, Int}()
-    keys_ = Vector{Pair{Int, ITOKey{I}}}[]
-    coeffs = ComplexF64[]
-    for (termkey, coeff) in pairs(ts.terms)
-        active = _active_keys(termkey)
-        tok = get(index, active, 0)
-        if iszero(tok)
-            push!(keys_, active)
-            push!(coeffs, ComplexF64(coeff))
-            insert!(index, active, length(keys_))
-        else
-            coeffs[tok] += ComplexF64(coeff)
-        end
-    end
-
-    M = length(keys_)
-    K = max(1, maximum(length, keys_; init = 0))
+function ITOTermTable(H::TermSum{I}) where {I}
+    canonicalize!(H)
+    terms = H.terms
+    N = length(lattice(H))
+    M = length(terms)
+    # `arity(tt) ≥ 1`: the sweeps index row 1 unconditionally.
+    K = max(1, maximum(arity, terms; init = 0))
     sitemat = zeros(Int, K, M)
-    keymat = fill(ITOKey{I}(passthrough(I), unit(I), 1), K, M)
-    for t in 1:M
-        for (j, (s, key)) in enumerate(keys_[t])
-            sitemat[j, t] = s
-            keymat[j, t] = key
+    keymat = fill(_padkey(I), K, M)
+    for (t, term) in enumerate(terms)
+        for j in 1:arity(term)
+            sitemat[j, t] = term.sites[j]
+            keymat[j, t] = term.keys[j]
         end
     end
-    return ITOTermTable{I}(sitemat, keymat, coeffs, N)
+    return ITOTermTable{I}(sitemat, keymat, ComplexF64[t.coeff for t in terms], N)
 end
 
-ITOTermTable(terms::AbstractVector{<:TermSum}, sites) = ITOTermTable(reduce(+, terms), sites)
-
-# ITOKey at site `s` of term `t`. On an active site it is the stored key; on an idle site it is the
-# pass-through symbol carrying the running bond charge (the last active bond to the left of `s`, or
-# `unit(I)` if none). Relies on `sites` columns being sorted ascending and zero-padded.
+# `ITOKey` at site `s` of term `t`: the stored key on an active site, else the pass-through symbol
+# carrying the running bond charge to its left — which is what preserves block-diagonality.
 function _op_at_ito(tt::ITOTermTable{I}, t::Int, s::Int) where {I}
     lastbond = unit(I)
     @inbounds for j in 1:size(tt.sites, 1)

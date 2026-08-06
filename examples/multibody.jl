@@ -27,9 +27,12 @@ S = spin(V)
 
 for j12 in 0:2
     try
-        H = couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(0))
-        r = build("K=3 j12=$j12", H, fill(V, 3); quiet = true)
-        println("  j12=$j12  valid    D_dense=$(r.Ddense)  lossless=$(islossless(H, fill(V, 3)))")
+        H = opsum(
+            fill(V, 3),
+            couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(0))
+        )
+        r = build("K=3 j12=$j12", H; quiet = true)
+        println("  j12=$j12  valid    D_dense=$(r.Ddense)  lossless=$(islossless(H))")
     catch e
         println("  j12=$j12  rejected: ", first(sprint(showerror, e), 72))
     end
@@ -46,11 +49,14 @@ end
 channels = Tuple{Int, Int}[]
 for j12 in 0:2, j123 in 0:3
     try
-        H = couple(
-            couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(j123)),
-            S[4]; to = SU2Irrep(0)
+        H = opsum(
+            fill(V, 4),
+            couple(
+                couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(j123)),
+                S[4]; to = SU2Irrep(0)
+            )
         )
-        r = build("k4", H, fill(V, 4); quiet = true)
+        r = build("k4", H; quiet = true)
         push!(channels, (j12, j123))
         println("  (j12=$j12, j123=$j123)  valid    D_dense=$(r.Ddense)")
     catch
@@ -106,17 +112,18 @@ function plaquette_ladder(Lx; J = 1.0, K = 0.3, j12 = 0)
                 S[4x]; to = SU2Irrep(0)
             ) for x in 1:(div(Lx, 2))
     ]
-    return sum(vcat(two_body, plaquettes)), fill(V, 2Lx)
+    return opsum(fill(V, 2Lx), two_body, plaquettes)
 end
 
-H4, sites4 = plaquette_ladder(6)
-res4 = build("ladder + plaquettes", H4, sites4)
-islossless(H4, sites4)
+H4 = plaquette_ladder(6)
+res4 = build("ladder + plaquettes", H4)
+islossless(H4)
 
 # Compare against the pure two-body ladder to isolate what the four-body terms cost:
 
 let Lx = 6
-    two = build("ladder only", sum([dot(S[i], S[j]) for (i, j) in ladder_bonds(Lx, 2)]), fill(V, 2Lx); quiet = true)
+    two_only = opsum(fill(V, 2Lx), (dot(S[i], S[j]) for (i, j) in ladder_bonds(Lx, 2)))
+    two = build("ladder only", two_only; quiet = true)
     println("  two-body only:        D=$(two.D)  D_dense=$(two.Ddense)")
     println("  with plaquettes:      D=$(res4.D)  D_dense=$(res4.Ddense)")
 end
@@ -124,8 +131,7 @@ end
 # And the bond dimension still saturates with system size:
 
 for Lx in (4, 6, 8, 12)
-    H, s = plaquette_ladder(Lx)
-    r = build("plaq", H, s; quiet = true)
+    r = build("plaq", plaquette_ladder(Lx); quiet = true)
     println("  Lx=$(rpad(Lx, 3)) N=$(rpad(2Lx, 3))  D=$(rpad(r.D, 3))  D_dense=$(r.Ddense)")
 end
 

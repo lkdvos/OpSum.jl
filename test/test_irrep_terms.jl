@@ -1,7 +1,7 @@
 using Test
 using OpSum
-using OpSum: instantiate, TermSum, TermKey, total, passthrough, ispassthrough,
-    bondcharges, caterpillar_trees, spin, scalarop, couple
+using OpSum: instantiate, Term, Terms, TermSum, total, passthrough, ispassthrough,
+    bondcharges, caterpillar_trees, spin, scalarop, couple, opsum, tree
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, I as Id
@@ -9,9 +9,10 @@ using LinearAlgebra: dot, I as Id
 include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm
 
 # charges of a term's active operators
-charges(tk::TermKey) = [o.c for o in tk.ops]
-# per-active-position bond charges of a term (from its stored caterpillar tree)
-termbonds(tk::TermKey) = bondcharges(tk.tree)
+charges(t::Term) = [k.op.c for k in t.keys]
+# per-position bond charges, off the keys and — equivalently, the point — off the tree they rebuild
+termbonds(t::Term) = [k.bond for k in t.keys]
+treebonds(t::Term) = bondcharges(tree(t))
 
 @testset "pass-through identity symbol" begin
     I = SU2Irrep
@@ -27,20 +28,21 @@ end
 @testset "SU(2) Sᵢ·Sⱼ term normal form" begin
     V = SU2Space(1 // 2 => 1)
     ts = dot(spin(V)[1], spin(V)[2])
-    @test length(ts.terms) == 1
-    tk, coeff = onlyterm(ts)
+    @test length(ts) == 1
+    tk = onlyterm(ts)
 
     @test tk.sites == [1, 2]
     @test charges(tk) == [SU2Irrep(1), SU2Irrep(1)]
     @test total(tk) == unit(SU2Irrep)                   # singlet
     @test termbonds(tk) == [SU2Irrep(1), SU2Irrep(0)]   # bond 1 across the pair, 0 at the total
-    @test coeff ≈ (3 / 2) * (-sqrt(3))                  # ⟨½‖S‖½⟩² · (−√dim(1))
+    @test treebonds(tk) == termbonds(tk)                # the keys *are* the tree
+    @test tk.coeff ≈ (3 / 2) * (-sqrt(3))               # ⟨½‖S‖½⟩² · (−√dim(1))
 
     # non-singlet target: unit Clebsch–Gordan (no −√dim factor)
-    ts2 = couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(1))
-    tk2, c2 = onlyterm(ts2)
-    @test c2 ≈ (3 / 2)
+    tk2 = onlyterm(couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(1)))
+    @test tk2.coeff ≈ (3 / 2)
     @test termbonds(tk2) == [SU2Irrep(1), SU2Irrep(1)]
+    @test treebonds(tk2) == termbonds(tk2)
 end
 
 @testset "caterpillar channel enumeration is bounded/canonical" begin
@@ -56,31 +58,47 @@ end
     raise = LO(IrrepOperator(U1Irrep(1), 1))
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
 
-    ts = dot(raise[1], lower[2])
-    tk, coeff = onlyterm(ts)
+    tk = onlyterm(dot(raise[1], lower[2]))
     @test charges(tk) == [U1Irrep(1), U1Irrep(-1)]
     @test total(tk) == unit(U1Irrep)
     @test termbonds(tk) == [U1Irrep(1), U1Irrep(0)]
-    @test coeff ≈ -1.0                                  # dot: -√dim(1) · (1·1) = -1
+    @test treebonds(tk) == termbonds(tk)
+    @test tk.coeff ≈ -1.0                               # dot: -√dim(1) · (1·1) = -1
 
-    ts2 = couple(raise[1], raise[2]; to = U1Irrep(2))
-    @test termbonds(onlyterm(ts2)[1]) == [U1Irrep(1), U1Irrep(2)]
+    @test termbonds(onlyterm(couple(raise[1], raise[2]; to = U1Irrep(2)))) ==
+        [U1Irrep(1), U1Irrep(2)]
+end
+
+# `dot` sorts before reading `-√dim(c)` off the left operand, so the factor cannot depend on the
+# order written. Dual sectors have equal quantum dimension, so the two readings agree numerically too.
+@testset "dot is order-independent in its operands" begin
+    V = Rep[U₁](0 => 1, 1 => 1)
+    raise = LO(IrrepOperator(U1Irrep(1), 1))
+    lower = LO(IrrepOperator(U1Irrep(-1), 1))
+    @test dot(raise[1], lower[2]) ≈ dot(lower[2], raise[1])   # charges +1 and -1, not equal
+
+    Vs = SU2Space(1 // 2 => 1)
+    S = spin(Vs)
+    @test dot(S[1], S[2]) ≈ dot(S[2], S[1])
+
+    # charges that cannot reach the unit sector have no scalar product at all
+    @test_throws ArgumentError dot(raise[1], raise[2])
+    @test_throws ArgumentError dot(raise[1], raise[1])        # and not on the same site
 end
 
 @testset "trivial-sector bridge (ℂ²)" begin
     V = ℂ^2
-    ops = instances(IrrepOperator, V)
-    term = couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial))
-    tk, coeff = onlyterm(term)
+    letters = instances(IrrepOperator, V)
+    tk = onlyterm(couple(LO(letters[2])[1], LO(letters[3])[2]; to = unit(Trivial)))
     @test termbonds(tk) == [unit(Trivial), unit(Trivial)]
-    @test coeff ≈ 1.0                                   # bare `couple` carries no factor
-    @test !ispassthrough(tk.ops[1]) && !ispassthrough(tk.ops[2])
+    @test tk.coeff ≈ 1.0                                # bare `couple` carries no factor
+    @test !ispassthrough(tk.keys[1].op) && !ispassthrough(tk.keys[2].op)
 
     # a scalar (identity) field is a K = 0 term
-    idterm = scalarop(2.0, V)[1]
-    tk0, c0 = onlyterm(idterm)
+    tk0 = onlyterm(scalarop(2.0, V)[1])
     @test isempty(tk0.sites)
-    @test c0 ≈ 2.0
+    @test tk0.coeff ≈ 2.0
+    @test total(tk0) == unit(Trivial)
 end
 
 # The reduced representation (reduced coefficients + fusion structure) must re-materialize to the
@@ -124,7 +142,7 @@ end
     Sop = spin(V)
     channels = (SU2Irrep(0), SU2Irrep(1), SU2Irrep(2))     # (S₁⊗S₂) → b₂, fuse with S₃ to total 1
     terms = [couple(couple(Sop[1], Sop[2]; to = b2), Sop[3]; to = SU2Irrep(1)) for b2 in channels]
-    ks = [onlyterm(t)[1] for t in terms]
+    ks = [onlyterm(t) for t in terms]
 
     # same sites, ops, and total — distinguished ONLY by the inner-line charge in the tree
     @test length(unique(ks)) == 3

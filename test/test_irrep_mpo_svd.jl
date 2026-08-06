@@ -1,6 +1,7 @@
 using Test
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum, spin, scalarop, couple
+using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, TermSum, spin, scalarop, couple,
+    opsum, lattice
 using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, IndependentSVD, SequentialSVD
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
@@ -18,21 +19,21 @@ end
 
 # operator the reduced MPO represents, via the path-enumeration reconstruction (works for any valid
 # (Ws, bondsectors), including the SVD-rotated / truncated bond bases).
-mpo_operator(Ws, secs, sites) = instantiate(mpo_terms(Ws, secs), sites)
+mpo_operator(Ws, secs, sites) = instantiate(mpo_terms(Ws, secs, sites))
 
 @testset "lossless SVD reproduces the operator (explicit contraction)" begin
     V = SU2Space(1 // 2 => 1)
     d = 2
 
-    H2 = dot(spin(V)[1], spin(V)[2])
-    Ws, secs = irrep_mpo(H2, [V, V], SVDBondAlgorithm())
+    H2 = opsum([V, V], dot(spin(V)[1], spin(V)[2]))
+    Ws, secs = irrep_mpo(H2, SVDBondAlgorithm())
     T = irrep_mpo_tensors(Ws, secs, [V, V])
-    @test physmatrix(contract2(T), 2, d) ≈ physmatrix(instantiate(H2, [V, V]), 2, d)
+    @test physmatrix(contract2(T), 2, d) ≈ physmatrix(instantiate(H2), 2, d)
 
-    H3 = dot(spin(V)[1], spin(V)[2]) + dot(spin(V)[2], spin(V)[3])
-    Ws3, secs3 = irrep_mpo(H3, fill(V, 3), SVDBondAlgorithm())
+    H3 = opsum(fill(V, 3), dot(spin(V)[1], spin(V)[2]), dot(spin(V)[2], spin(V)[3]))
+    Ws3, secs3 = irrep_mpo(H3, SVDBondAlgorithm())
     T3 = irrep_mpo_tensors(Ws3, secs3, fill(V, 3))
-    @test physmatrix(contract3(T3), 3, d) ≈ physmatrix(instantiate(H3, fill(V, 3)), 3, d)
+    @test physmatrix(contract3(T3), 3, d) ≈ physmatrix(instantiate(H3), 3, d)
 end
 
 @testset "lossless SVD matches the operator + is no larger than bipartite" begin
@@ -40,10 +41,10 @@ end
     V = SU2Space(1 // 2 => 1)
     for N in (3, 4, 5)
         sites = fill(V, N)
-        H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+        H = opsum(sites, (dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
 
-        Wb, sb = irrep_mpo(H, sites, BipartiteAlgorithm())
-        Ws, ss = irrep_mpo(H, sites, SVDBondAlgorithm())
+        Wb, sb = irrep_mpo(H, BipartiteAlgorithm())
+        Ws, ss = irrep_mpo(H, SVDBondAlgorithm())
 
         # same represented operator as the exact bipartite build
         @test mpo_operator(Ws, ss, sites) ≈ mpo_operator(Wb, sb, sites)
@@ -61,19 +62,22 @@ end
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
     N = 4
     sites = fill(V, N)
-    H = reduce(+, dot(raise[i], lower[i + 1]) for i in 1:(N - 1)) +
-        reduce(+, dot(lower[i], raise[i + 1]) for i in 1:(N - 1))
-    Ws, ss = irrep_mpo(H, sites, SVDBondAlgorithm())
-    Wb, sb = irrep_mpo(H, sites, BipartiteAlgorithm())
+    H = opsum(
+        sites,
+        (dot(raise[i], lower[i + 1]) for i in 1:(N - 1)),
+        (dot(lower[i], raise[i + 1]) for i in 1:(N - 1)),
+    )
+    Ws, ss = irrep_mpo(H, SVDBondAlgorithm())
+    Wb, sb = irrep_mpo(H, BipartiteAlgorithm())
     @test mpo_operator(Ws, ss, sites) ≈ mpo_operator(Wb, sb, sites)
     @test ss[N] == [U1Irrep(0)]
 
     Vt = ℂ^2
     ops = instances(IrrepOperator, Vt)
     st = fill(Vt, 3)
-    Ht = reduce(+, couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2)
-    Wst, sst = irrep_mpo(Ht, st, SVDBondAlgorithm())
-    @test mpo_operator(Wst, sst, st) ≈ instantiate(Ht, st)
+    Ht = opsum(st, (couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2))
+    Wst, sst = irrep_mpo(Ht, SVDBondAlgorithm())
+    @test mpo_operator(Wst, sst, st) ≈ instantiate(Ht)
     @test all(all(==(unit(Trivial)), s) for s in sst)
 end
 
@@ -81,9 +85,9 @@ end
     V = SU2Space(1 // 2 => 1)
     S = spin(V)
     sites = fill(V, 3)
-    H = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
-    Ws, ss = irrep_mpo(H, sites, SVDBondAlgorithm())
-    @test mpo_operator(Ws, ss, sites) ≈ instantiate(H, sites)
+    H = opsum(sites, couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
+    Ws, ss = irrep_mpo(H, SVDBondAlgorithm())
+    @test mpo_operator(Ws, ss, sites) ≈ instantiate(H)
     @test ss[3] == [SU2Irrep(0)]
     @test SU2Irrep(1) in ss[2]      # caterpillar inner line (spin-1 after the first pair)
 end
@@ -92,17 +96,17 @@ end
     V = SU2Space(1 // 2 => 1)
     N = 3
     sites = fill(V, N)
-    H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+    H = opsum(sites, (dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
 
-    _, sb = irrep_mpo(H, sites, BipartiteAlgorithm())
-    _, sfull = irrep_mpo(H, sites, SVDBondAlgorithm())
+    _, sb = irrep_mpo(H, BipartiteAlgorithm())
+    _, sfull = irrep_mpo(H, SVDBondAlgorithm())
 
     # a generous rank keeps everything → identical to the lossless build
-    _, sbig = irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(100)))
+    _, sbig = irrep_mpo(H, SVDBondAlgorithm(truncrank(100)))
     @test [length(s) for s in sbig] == [length(s) for s in sfull]
 
     # rank-1 per bond forces a strictly smaller interior bond (a lossy approximation)
-    Wt, st = irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(1)))
+    Wt, st = irrep_mpo(H, SVDBondAlgorithm(truncrank(1)))
     @test densedim(st, 1) < densedim(sb, 1)
     @test length(st[1]) == 1          # a single retained bond index
 
@@ -110,7 +114,7 @@ end
     # unlike mpo_terms, this needs no intact identity backbone), but no longer the exact one
     Tt = irrep_mpo_tensors(Wt, st, sites)
     Mtrunc = physmatrix(contract3(Tt), N, 2)
-    Mexact = physmatrix(instantiate(H, sites), N, 2)
+    Mexact = physmatrix(instantiate(H), N, 2)
     @test size(Mtrunc) == size(Mexact)
     @test !(Mtrunc ≈ Mexact)
 end
@@ -123,7 +127,7 @@ end
     V = SU2Space(1 // 2 => 1)
     N = 4
     sites = fill(V, N)
-    H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+    H = opsum(sites, (dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
 
     # the bare / positional constructors keep meaning the per-bond-independent sweep
     @test SVDBondAlgorithm().strategy isa IndependentSVD
@@ -134,19 +138,19 @@ end
     # lossless: same operator, and the same per-sector dimensions on the internal bonds. (Bond N is
     # excluded: the independent sweep hardcodes the right boundary to `unit(I)`, the sequential one
     # reports the true total charge — they agree only for charge-0 Hamiltonians, as here.)
-    Wi, si = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = IndependentSVD))
-    Wq, sq = irrep_mpo(H, sites, SVDBondAlgorithm(; sweep = SequentialSVD))
+    Wi, si = irrep_mpo(H, SVDBondAlgorithm(; sweep = IndependentSVD))
+    Wq, sq = irrep_mpo(H, SVDBondAlgorithm(; sweep = SequentialSVD))
     @test [length(s) for s in si[1:(N - 1)]] == [length(s) for s in sq[1:(N - 1)]]
-    @test mpo_operator(Wi, si, sites) ≈ instantiate(H, sites)
-    @test mpo_operator(Wq, sq, sites) ≈ instantiate(H, sites)
+    @test mpo_operator(Wi, si, sites) ≈ instantiate(H)
+    @test mpo_operator(Wq, sq, sites) ≈ instantiate(H)
 
     # truncated: `truncrank(1)` means "one index per bond" for the independent sweep …
-    _, sti = irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(1)))
+    _, sti = irrep_mpo(H, SVDBondAlgorithm(truncrank(1)))
     @test all(length(s) == 1 for s in sti)
     # … whereas the sequential sweep truncates in the basis it was handed, so an aggressive early
     # truncation starves every bond downstream of it (here to nothing at all — with quantum
     # dimensions counted, rank 1 cannot hold the spin-1 channel the next bond needs).
-    _, sts = irrep_mpo(H, sites, SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD))
+    _, sts = irrep_mpo(H, SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD))
     @test [length(s) for s in sts] != [length(s) for s in sti]
     @test all(length(s) <= 1 for s in sts)
 end

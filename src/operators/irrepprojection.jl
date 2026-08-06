@@ -1,35 +1,16 @@
-# Projection: dense symmetric `TensorMap` → symbolic ITO terms
-# ============================================================
-# The inverse of `instantiate`. Writing a Hamiltonian by naming alphabet letters `(c, n)` is
-# fragile — `n` indexes TensorKit's canonical block order, so permuting the sectors of `V` silently
-# permutes every letter and you get a different operator with no error. `project` goes the other
-# way: write the operator down as a `TensorMap` and let the expansion coefficients be computed.
+# Projection: dense symmetric `TensorMap` → symbolic ITO terms, the inverse of `instantiate`. Writing
+# a Hamiltonian by naming letters `(c, n)` is fragile — `n` follows TensorKit's block order — so write
+# the operator down and let the coefficients be computed.
 #
-# Why this needs no linear solve
-# ------------------------------
-# For sites `V_1…V_K` and total charge `tot`, the candidate basis is `α = (ops, tree)`: one letter
-# per site from `instances(IrrepOperator, V_k)` and one caterpillar tree from `caterpillar_trees`,
-# materialized by the forward map as `E_α = _instantiate_term(TermKey(1:K, ops, tree), Vs)`.
-#
-# Writing `E_α = Q_ops ∘ X_tree` as `_embed_caterpillar` builds it: `Q` is a permute of `⊗_k O_k`, so
-# `‖Q‖ = Π_k ‖O_k‖ = 1`; `Q_ops† Q_ops'` contracts only site-local legs and factorizes per site into
-# `Hom(Vect[c'=>1], Vect[c=>1])`, which vanishes unless `c == c'` and is one-dimensional otherwise —
-# fixing that scalar from the K=1 case (where the alphabet is orthonormal) gives `δ/dim(c_k)` per
-# site — and `Tr_q(X† X') = dim(tot)·δ_{tree,tree'}`. So the basis is *orthogonal* with
+# No linear solve is needed. The candidate basis `α = (ops, tree)`, materialised by the forward map as
+# `_instantiate_basis`, is *orthogonal* with a closed-form diagonal, so `c_α = inner(E_α, h) / g`:
 #
 #     inner(E_α, E_β) = δ_ops · δ_tree · dim(tot) / Π_k dim(ops[k].c)   =:  δ_αβ · g(ops, tot)
-#     c_α = inner(E_α, h) / g
 #
-# and the projection is a sequence of inner products, not a solve. `test_irrep_projection.jl` pins
-# both the diagonal and the vanishing off-diagonal, including for fermionic sectors (where the
-# per-site factorization above could in principle pick up braiding data, but does not).
-#
-# Counting candidates gives `Σ_{charges} (Π_k N_k(c_k))·#trees = mult_{⊗_k (V_k⊗V_k')}(tot)`, the
-# dimension of the target homspace, with `N_k(c) = dim(fuse(V_k⊗V_k'), c)` exactly the enumeration
-# range of `instances`. The basis is therefore complete: a symmetric `h` of the accepted shape is
-# *always* exactly in the span, so the only real source of residual is `tol` truncation. The
-# faithfulness check guards against that and against implementation bugs — not against
-# non-representable input, of which there is none.
+# and it is *complete* — the candidate count equals `mult_{⊗_k (V_k⊗V_k')}(tot)`, the dimension of the
+# target homspace — so a symmetric `h` of the accepted shape is always exactly in the span and the only
+# real source of residual is `tol` truncation. `test_irrep_projection.jl` pins the diagonal and the
+# vanishing off-diagonal, fermionic sectors included.
 
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, oneunit
 using LinearAlgebra: norm
@@ -39,11 +20,8 @@ using LinearAlgebra: norm
 # faithfulness check, so the default must only ever discard noise.
 _default_rtol(h::AbstractTensorMap) = 100 * eps(real(float(scalartype(h))))
 
-# Bring `h` into the shape the forward map produces: physical legs plus a trailing total-charge leg.
-# `insertrightunit` defaults to appending at the last domain slot, and the inserted space is
-# `Vect[I](unit(I) => 1)` — bit-identical to what `_embed_field`/`_embed_caterpillar` build for
-# `tot = unit(I)`. For a `TensorMap` it re-wraps the data unchanged, so it is free and exactly
-# norm-preserving.
+# Give `h` the trailing total-charge leg the forward map produces. `insertrightunit` re-wraps the data
+# unchanged, so it is free and exactly norm-preserving.
 function _with_charge_leg(h::AbstractTensorMap, K::Int, ::Type{I}) where {I <: Sector}
     nin = numin(h)
     if nin == K
@@ -89,7 +67,7 @@ function _ito_coefficients(
         for opstup in Iterators.product(letters...), tree in trees
             ncand += 1
             ops = collect(IrrepOperator{I}, opstup)
-            E = _instantiate_term(TermKey{I, Int}(collect(1:K), ops, tree), Vs)
+            E = _instantiate_basis(ops, tree, Vs)
             c = ComplexF64(inner(E, hc) / g)
             # Threshold the component's *norm contribution*: by orthogonality
             # `‖dropped‖² = Σ|c_α|² g_α` exactly, and `g` varies by `dim(tot)/Π dim(c_k)`, so bare
@@ -102,7 +80,7 @@ function _ito_coefficients(
 end
 
 """
-    project(h::AbstractTensorMap, sites; atol = 0, rtol = 100eps) -> TermSum
+    project(h::AbstractTensorMap, sites; atol = 0, rtol = 100eps) -> Terms
 
 Project a symmetric `K`-site operator onto the ITO term basis — the inverse of
 [`instantiate`](@ref). `h` must have one of the two shapes `instantiate` produces, with
@@ -117,12 +95,13 @@ coefficients are exact inner products against an orthogonal, complete basis, so 
 
 Coefficients whose norm contribution falls at or below `max(atol, rtol * norm(h))` are dropped;
 the result is then re-materialized and compared against `h`, and an `ArgumentError` is thrown if
-the residual exceeds that same tolerance. A projected `TermSum` therefore provably represents its
-input. An operator that is zero (or entirely below tolerance) gives an empty `TermSum`.
+the residual exceeds that same tolerance. A projected [`Terms`](@ref) therefore provably represents
+its input. An operator that is zero (or entirely below tolerance) gives an empty bag. Bind it to a
+lattice with [`opsum`](@ref) to compress it.
 
 Every returned term is active on **all** `K` sites: an on-site identity factor comes back as a
 trivial-charge letter, not as a shorter term. So `project ∘ instantiate` is the identity only for
-term sums whose terms all have full support on `sites`.
+operators whose terms all have full support on `sites`.
 
 ```jldoctest
 julia> using TensorKit
@@ -131,9 +110,7 @@ julia> V = SU2Space(1//2 => 1);
 
 julia> h = OpSum.instantiate(couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0)), [V, V]);
 
-julia> H = project(h, [1, 2]);
-
-julia> length(H.terms)
+julia> length(project(h, [1, 2]))
 1
 ```
 
@@ -151,6 +128,9 @@ function project(
     )
     all(i -> sitev[i] < sitev[i + 1], 1:(K - 1)) || throw(
         ArgumentError("project: `sites` must be strictly increasing (sorted and unique), got $sitev")
+    )
+    eltype(sitev) <: Integer || throw(
+        ArgumentError("project: site labels must be lattice indices (`Integer`), got $(eltype(sitev))")
     )
 
     I = sectortype(h)
@@ -177,22 +157,27 @@ function project(
     θ = max(float(atol), float(rtol) * hnorm)
     coeffs, ncand = _ito_coefficients(hc, Vs, tot, θ)
 
-    S = eltype(sitev)
-    terms = Dictionary{TermKey{I, S}, ComplexF64}()
-    local_terms = Dictionary{TermKey{I, Int}, ComplexF64}()
+    # A caterpillar tree *is* its running bond charges plus vertex labels, i.e. the `ITOKey`s.
+    # Candidates are distinct by construction, so nothing accumulates.
+    intsites = Int[Int(s) for s in sitev]
     local_sites = collect(1:K)
+    placed = Term{I}[]
+    local_terms = Term{I}[]
+    sizehint!(placed, length(coeffs))
+    sizehint!(local_terms, length(coeffs))
     for (ops, tree, c) in coeffs
-        # candidates are distinct by construction, so no accumulation is needed
-        insert!(terms, TermKey{I, S}(sitev, ops, tree), c)
-        insert!(local_terms, TermKey{I, Int}(local_sites, ops, tree), c)
+        bonds, verts = bondcharges(tree), vertexlabels(tree)
+        keys = ITOKey{I}[ITOKey{I}(ops[j], bonds[j], verts[j]) for j in 1:K]
+        push!(placed, Term{I}(intsites, keys, c))
+        push!(local_terms, Term{I}(local_sites, keys, c))
     end
 
-    # Faithfulness: recompute the operator from the emitted keys alone. This is a genuinely
+    # Faithfulness: recompute the operator from the emitted terms alone. This is a genuinely
     # independent pass through the forward map, so it also catches a wrong `g` or a misassigned tree.
     resid = if isempty(local_terms)
         hnorm
     else
-        norm(hc - instantiate(TermSum{I, Int, ComplexF64}(local_terms), Vs))
+        norm(hc - instantiate(Terms{I}(local_terms), Vs))
     end
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, ncand)) * hnorm
     resid <= θ + slack || throw(
@@ -202,7 +187,7 @@ function project(
         )
     )
 
-    return TermSum{I, S, ComplexF64}(terms)
+    return Terms{I}(placed)
 end
 
 """
@@ -236,9 +221,9 @@ function project(
 
     I = sectortype(V)
     ts = project(O, (1,); atol, rtol)
-    isempty(ts.terms) && return zero(SiteOperator{I})
-    letters = IrrepOperator{I}[only(k.ops) for k in keys(ts.terms)]
-    coeffs = ComplexF64[v for v in values(ts.terms)]
+    isempty(ts) && return zero(SiteOperator{I})
+    letters = IrrepOperator{I}[only(t.keys).op for t in ts]
+    coeffs = ComplexF64[t.coeff for t in ts]
     return SiteOperator{I}(letters, coeffs)
 end
 

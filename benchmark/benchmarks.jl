@@ -56,21 +56,21 @@ for spec in selected()
         # a time and its (untimed) construction is excluded from the compression measurement.
         g_t["N=$N"] = @benchmarkable $builder($N) samples = p.samples seconds = p.seconds evals = 1
         g_m["N=$N"] = @benchmarkable(
-            irrep_mpo(H, sites, $(BipartiteAlgorithm())),
-            setup = ((H, sites) = $builder($N)),
+            irrep_mpo(H, $(BipartiteAlgorithm())),
+            setup = (H = $builder($N)),
             samples = p.samples, seconds = p.seconds, evals = 1,
         )
         if WITH_SVD
             g_s["N=$N"] = @benchmarkable(
-                irrep_mpo(H, sites, $(SVDBondAlgorithm())),
-                setup = ((H, sites) = $builder($N)),
+                irrep_mpo(H, $(SVDBondAlgorithm())),
+                setup = (H = $builder($N)),
                 samples = min(p.samples, 3), seconds = p.seconds, evals = 1,
             )
         end
         if WITH_INTERNALS
             g_i["N=$N"] = @benchmarkable(
-                OpSum.ITOTermTable(H, sites),
-                setup = ((H, sites) = $builder($N)),
+                OpSum.ITOTermTable(H),
+                setup = (H = $builder($N)),
                 samples = p.samples, seconds = p.seconds, evals = 1,
             )
         end
@@ -81,7 +81,7 @@ end
 # `BenchmarkTools.warmup(SUITE)`, which would re-run the expensive cases.
 for spec in selected()
     N0 = minimum(get(spec.timesizes, :smoke, [8]))
-    H, sites = spec.build(N0)
-    irrep_mpo(H, sites)
-    WITH_SVD && irrep_mpo(H, sites, SVDBondAlgorithm())
+    H = spec.build(N0)
+    irrep_mpo(H)
+    WITH_SVD && irrep_mpo(H, SVDBondAlgorithm())
 end

@@ -1,23 +1,9 @@
-# Term-list symbolic algebra over ITOs
-# =====================================
-# The ITO global algebra is a *sum of sparse, sited terms* (`TermSum` over `TermKey`), not an
-# expression tree. Each term is a set of active sites, one ITO letter per active site, coupled by
-# a caterpillar fusion tree to a total charge, weighted by a reduced coefficient. `op[site]`,
-# `+`, `scale`/`*`, and `couple`/`·` all produce or merge terms; the flat `ITOTermTable`
-# (irreptermtable.jl) is the derived index over the term list that the MPO sweep consumes.
-#
-# Design notes:
-# * Supported term arities: K = length(active sites) ∈ {0, 1, 2, …} — identity, single-site field,
-#   and left-nested (caterpillar) coupling of arbitrarily many sites. On-site products/powers are
-#   deferred; genuine multiplicity (`GenericFusion`, vertices > 1) is deferred.
-# * Each term stores its caterpillar `FusionTree` explicitly (`TermKey.tree`): for K ≥ 3 the
-#   intermediate ("inner line") charges are NOT determined by `(charges, total)`, so the tree is the
-#   single source of truth. `total` is an accessor (`= tree.coupled`).
-# * The scalar identity is materialized structurally as `c * id(V)`, never via `one(::Type{A})`.
+# Term algebra over ITOs: `Term` (one term) → `Terms` (a bag) → `TermSum` (a bag + its lattice).
+# Site labels are lattice indices; on-site products and `GenericFusion` multiplicity are deferred.
 
 using TensorKit
-using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id,
-    Vect, domain, permute, sectors, FusionStyle, UniqueFusion
+using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id, Nsymbol,
+    Vect, domain, permute, sectors, fuse, FusionStyle, UniqueFusion
 import TensorKit: sectortype
 using LinearAlgebra: LinearAlgebra
 using .IrrepTensorOperators: IrrepOperator
@@ -25,8 +11,6 @@ using .IrrepTensorOperators: IrrepOperator
 # sector type of the ITO alphabet
 sectortype(::Type{IrrepOperator{I}}) where {I} = I
 
-# SiteOperator instantiation over ITOs (single-site materialization)
-# --------------------------------------------------------------
 """
     instantiate(O::SiteOperator, V::ElementarySpace)
 
@@ -39,8 +23,6 @@ function instantiate(O::SiteOperator{I}, V::ElementarySpace) where {I}
     return sum(((l, c),) -> c * instantiate(l, V), pairs(O))
 end
 
-# Named accessors
-# ---------------
 const _SPIN_CACHE = Dict{ElementarySpace, Any}()
 
 """
@@ -79,20 +61,11 @@ A scalar (identity) local operator `c·𝟙` over the ITO alphabet; instantiates
 scalarop(c::Number, ::Type{I}) where {I} = SiteOperator{I}(ComplexF64(c))
 scalarop(c::Number, V::ElementarySpace) = scalarop(c, sectortype(V))
 
-# Caterpillar-tree constructors
-# ------------------------------
-# The 4-arg `FusionTree{I}(uncoupled, coupled, isdual, innerlines)` form is used everywhere (the
-# 3-arg form is an abelian-only shortcut that throws for `MultipleFusion`); vertices default to `1`.
-
-# K = 0 identity (empty) tree.
+# The 4-arg `FusionTree` form throughout: the 3-arg one is an abelian-only shortcut that throws for
+# `MultipleFusion`.
 _idtree(::Type{I}) where {I <: Sector} = FusionTree{I}((), unit(I), (), ())
 
-# K = 1 single-leg tree (uncoupled == coupled == c).
-_leaftree(c::I) where {I <: Sector} = FusionTree{I}((c,), c, (false,), ())
-
-# Rebuild a caterpillar tree from its per-active-position running bond charges `bonds`
-# (`[c₁, innerlines…, total]`, length K) and vertex labels `verts` (`[1, μ₂…μ_K]`, length K) — the
-# inverse of `bondcharges`/`vertexlabels`. Used by the trie/MPO round-trips.
+# Inverse of `bondcharges`/`vertexlabels`, and the reason a `Term` need not store a tree.
 function _tree_from_bonds(charges::AbstractVector{I}, bonds::AbstractVector{I}, verts::AbstractVector{Int}) where {I <: Sector}
     K = length(charges)
     K == 0 && return _idtree(I)
@@ -103,180 +76,419 @@ function _tree_from_bonds(charges::AbstractVector{I}, bonds::AbstractVector{I}, 
     return FusionTree{I}(unc, bonds[K], isd, inner, vtx)
 end
 
-# Term normal form
-# ----------------
 """
-    TermKey{I<:Sector, S}
+    Term{I<:Sector}
 
-A fusion-resolved term (hashable key): `sites` (sorted, unique active sites), `ops` (one ITO letter
-per active site, aligned with `sites`), and `tree::FusionTree{I}` — the left-nested (caterpillar)
-coupling tree over the operator charges, whose `coupled` sector is the term's total charge
-(accessor [`total`](@ref)). Storing the tree (rather than just `total`) is required for `K ≥ 3`
-non-abelian terms, where the intermediate inner-line charges are not fixed by `(charges, total)`.
-`K = length(sites)`: 0 = identity, 1 = field, ≥ 2 = caterpillar coupling. Restricted to
-multiplicity-free fusion (all tree vertices `== 1`); `GenericFusion` is deferred.
+A single term: `sites` (ascending, unique), one [`ITOKey`](@ref) each — the letter plus the running
+bond charge and vertex label at that position — and a reduced `coeff`.
+
+`arity(t)` is 0 for the identity, 1 for a field, ≥ 2 for left-nested (caterpillar) coupling, whose
+tree is *derived* from the running bond charges rather than stored ([`tree`](@ref), irrepkey.jl).
+Multiplicity-free fusion only; `GenericFusion` is deferred.
+
+Never mutated, so terms may share the vectors they were built from. `==`/`hash` ignore the
+coefficient, which is what makes summing coincident terms well defined.
 """
-struct TermKey{I <: Sector, S}
-    sites::Vector{S}
-    ops::Vector{IrrepOperator{I}}
-    tree::FusionTree{I}
-    function TermKey{I, S}(
-            sites::Vector{S}, ops::Vector{IrrepOperator{I}}, tree::FusionTree{I}
-        ) where {I, S}
-        @assert length(sites) == length(ops) == length(tree.uncoupled) "sites/ops/tree arity mismatch"
-        @assert all(i -> ops[i].c == tree.uncoupled[i], eachindex(ops)) "tree uncoupled charges must match op charges"
-        @assert all(isone, tree.vertices) "GenericFusion (multiplicity > 1) coupling is deferred"
-        return new{I, S}(sites, ops, tree)
+struct Term{I <: Sector}
+    sites::Vector{Int}
+    keys::Vector{ITOKey{I}}
+    coeff::ComplexF64
+    function Term{I}(sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::ComplexF64) where {I}
+        @assert length(sites) == length(keys) "sites/keys arity mismatch"
+        @assert issorted(sites) && allunique(sites) "a term's sites must be ascending and unique"
+        @assert all(k -> isone(k.vertex), keys) "multiplicity-free fusion only (all vertices == 1)"
+        return new{I}(sites, keys, coeff)
     end
 end
+Term(sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::Number) where {I} =
+    Term{I}(sites, keys, ComplexF64(coeff))
+
+sectortype(::Type{Term{I}}) where {I} = I
 
 """
-    total(k::TermKey)
+    arity(t::Term) -> Int
 
-The total (coupled) charge of a term: `k.tree.coupled`.
+The number of active (charged) sites of `t`.
 """
-total(k::TermKey) = k.tree.coupled
-
-function Base.:(==)(x::TermKey{I, S}, y::TermKey{I, S}) where {I, S}
-    return x.tree == y.tree && x.sites == y.sites && x.ops == y.ops
-end
-function Base.hash(x::TermKey, h::UInt)
-    h = hash(:TermKey, hash(x.tree, h))
-    for (s, o) in zip(x.sites, x.ops)
-        h = hash(o, hash(s, h))
-    end
-    return h
-end
-function Base.show(io::IO, k::TermKey)
-    return print(io, "TermKey(sites=", k.sites, ", ops=", k.ops, ", total=", total(k), ")")
-end
+arity(t::Term) = length(t.sites)
 
 """
-    TermSum{I<:Sector, S, T}
+    ops(t::Term) -> Vector{IrrepOperator}
 
-The ITO global algebra: a sum of `TermKey`s with reduced coefficients (`Dictionary{TermKey, T}`).
-Built by `op[site]`, combined by `+`/`scale`/`*` and `couple`/`·`.
+The alphabet letters of `t`, one per active site, in site order.
 """
-struct TermSum{I <: Sector, S, T}
-    terms::Dictionary{TermKey{I, S}, T}
-end
-TermSum{I, S, T}() where {I, S, T} = TermSum{I, S, T}(Dictionary{TermKey{I, S}, T}())
+ops(t::Term{I}) where {I} = IrrepOperator{I}[k.op for k in t.keys]
 
-# Arithmetic
-# ----------
-function Base.:+(a::TermSum{I, S, T1}, b::TermSum{I, S, T2}) where {I, S, T1, T2}
-    T = promote_type(T1, T2)
-    d = Dictionary{TermKey{I, S}, T}()
-    for (k, v) in pairs(a.terms)
-        setwith!(+, d, k, convert(T, v))
+"""
+    total(t::Term) -> Sector
+
+The total charge `t` couples to: the running bond charge after its last active site, or the unit
+sector for the identity term.
+"""
+total(t::Term{I}) where {I} = isempty(t.keys) ? unit(I) : last(t.keys).bond
+
+"""
+    tree(t::Term) -> FusionTree
+
+The left-nested (caterpillar) coupling tree of `t`, rebuilt from its stored running bond charges and
+vertex labels. Derived, not stored: for a caterpillar the two are the same information (irrepkey.jl).
+"""
+function tree(t::Term{I}) where {I}
+    K = arity(t)
+    K == 0 && return _idtree(I)
+    charges = I[k.op.c for k in t.keys]
+    bonds = I[k.bond for k in t.keys]
+    verts = Int[k.vertex for k in t.keys]
+    return _tree_from_bonds(charges, bonds, verts)
+end
+
+# Coefficient excluded: identity is "same term", so coincident terms can be summed.
+Base.:(==)(x::Term{I}, y::Term{I}) where {I} = x.sites == y.sites && x.keys == y.keys
+Base.hash(t::Term, h::UInt) = hash(t.keys, hash(t.sites, hash(:ITOTerm, h)))
+
+# Total order for the sort-and-merge normal form; the keys distinguish letters *and* couplings.
+function Base.isless(x::Term{I}, y::Term{I}) where {I}
+    x.sites == y.sites || return isless(x.sites, y.sites)
+    return isless(x.keys, y.keys)
+end
+
+VectorInterface.scale(t::Term{I}, α::Number) where {I} =
+    Term{I}(t.sites, t.keys, t.coeff * ComplexF64(α))
+Base.:*(α::Number, t::Term) = scale(t, α)
+Base.:*(t::Term, α::Number) = scale(t, α)
+Base.:/(t::Term, α::Number) = scale(t, inv(α))
+Base.:-(t::Term) = scale(t, -1)
+
+function Base.show(io::IO, t::Term)
+    return print(io, "Term(sites=", t.sites, ", ops=", ops(t), ", total=", total(t), ", coeff=", t.coeff, ")")
+end
+
+"""
+    Terms{I<:Sector}
+
+A bag of [`Term`](@ref)s with no lattice: what `A[i]`, [`couple`](@ref), `dot` and
+[`project`](@ref) return, and what `+`, `-`, `*` and `/` combine. Nothing is deduplicated here — the
+normal form comes later, on the [`TermSum`](@ref). [`opsum`](@ref) makes it compressible.
+"""
+struct Terms{I <: Sector}
+    terms::Vector{Term{I}}
+end
+Terms{I}() where {I <: Sector} = Terms{I}(Term{I}[])
+Terms(t::Term{I}) where {I} = Terms{I}(Term{I}[t])
+
+sectortype(::Type{Terms{I}}) where {I} = I
+
+Base.length(ts::Terms) = length(ts.terms)
+Base.isempty(ts::Terms) = isempty(ts.terms)
+Base.iterate(ts::Terms, args...) = iterate(ts.terms, args...)
+Base.eltype(::Type{Terms{I}}) where {I} = Term{I}
+Base.getindex(ts::Terms, i::Integer) = ts.terms[i]
+Base.firstindex(::Terms) = 1
+Base.lastindex(ts::Terms) = length(ts.terms)
+
+Base.:+(a::Terms{I}, b::Terms{I}) where {I} = Terms{I}(vcat(a.terms, b.terms))
+VectorInterface.scale(ts::Terms{I}, α::Number) where {I} =
+    Terms{I}(Term{I}[scale(t, α) for t in ts.terms])
+Base.:*(α::Number, ts::Terms) = scale(ts, α)
+Base.:*(ts::Terms, α::Number) = scale(ts, α)
+Base.:/(ts::Terms, α::Number) = scale(ts, inv(α))
+Base.:-(ts::Terms) = scale(ts, -1)
+Base.:-(a::Terms{I}, b::Terms{I}) where {I} = a + (-b)
+
+Base.one(::Terms{I}) where {I} = Terms{I}(Term{I}[Term{I}(Int[], ITOKey{I}[], ComplexF64(1))])
+
+# On *copies*: bags are unnormalised, and the operands must not be reordered under the caller.
+Base.isapprox(a::Terms{I}, b::Terms{I}; kwargs...) where {I} =
+    _termsapprox(_canonicalize!(copy(a.terms)), _canonicalize!(copy(b.terms)); kwargs...)
+Base.:(==)(a::Terms{I}, b::Terms{I}) where {I} =
+    _termsequal(_canonicalize!(copy(a.terms)), _canonicalize!(copy(b.terms)))
+
+function Base.show(io::IO, ts::Terms)
+    print(io, "Terms(")
+    join(io, ("$(t.coeff) * $(_termbody(t))" for t in ts.terms), " + ")
+    return print(io, ")")
+end
+_termbody(t::Term) = string("[sites=", t.sites, ", ops=", ops(t), ", total=", total(t), "]")
+
+# `charge => number of letters of that charge on V`
+function _alphabet(V::ElementarySpace, ::Type{I}) where {I <: Sector}
+    W = fuse(V ⊗ V')
+    return Dict{I, Int}(c => dim(W, c) for c in sectors(W))
+end
+
+_tolattice(sites::Vector{<:ElementarySpace}) = sites
+function _tolattice(sites)
+    lat = collect(sites)
+    eltype(lat) <: ElementarySpace || throw(
+        ArgumentError("a lattice must be a vector of `ElementarySpace`s, got $(eltype(lat))")
+    )
+    return lat
+end
+
+# The only place operators and the spaces they are compressed with are confronted; without it a
+# `sites` from a different model silently gives a wrong MPO. `Θ(Σ arity)`, not `Θ(N)`, so that
+# `H + t` stays proportional to `t`.
+function _checkterms(terms::AbstractVector{Term{I}}, lat::Vector{<:ElementarySpace}) where {I}
+    N = length(lat)
+    isempty(terms) && return nothing
+    seen = Dict{eltype(lat), Dict{I, Int}}()
+    for t in terms
+        for (s, key) in zip(t.sites, t.keys)
+            1 <= s <= N || throw(
+                ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
+            )
+            V = lat[s]
+            info = get!(() -> _alphabet(V, I), seen, V)
+            op = key.op
+            nmax = get(info, op.c, 0)
+            1 <= op.n <= nmax || throw(
+                ArgumentError(
+                    "letter $op does not exist on site $s (space $V): that space carries " *
+                        "$nmax operator(s) of charge $(op.c)"
+                )
+            )
+        end
     end
-    for (k, v) in pairs(b.terms)
-        setwith!(+, d, k, convert(T, v))
+    return nothing
+end
+
+"""
+    TermSum{I<:Sector}
+
+The compressible ITO operator: a list of [`Term`](@ref)s plus the `lattice` they live on. The lattice
+is **mandatory** — `instantiate` and `irrep_mpo_tensors` need the space of every site, idle ones
+included, which no term can know — so a `TermSum` comes from [`opsum`](@ref), not from placement, and
+[`irrep_mpo`](@ref) / [`instantiate`](@ref) / [`jordan_mpo_tensors`](@ref) need no `sites`.
+
+Terms are appended as given, so the list is a bag until [`canonicalize!`](@ref) normalises it in place.
+`length(H)`, iteration and `≈` therefore report the *canonical* operator, never the append count
+(`nterms_raw(H)` is that, for tests).
+"""
+struct TermSum{I <: Sector}
+    lattice::Vector{<:ElementarySpace}
+    terms::Vector{Term{I}}
+end
+
+sectortype(::Type{TermSum{I}}) where {I} = I
+
+"""
+    lattice(H::TermSum) -> Vector{<:ElementarySpace}
+
+The physical spaces `H` is defined on, one per site. Always present.
+"""
+lattice(H::TermSum) = H.lattice
+
+"""
+    opsum(sites, terms...) -> TermSum
+
+Bind terms to the lattice `sites` (one physical space per site), in **one pass** over each argument,
+so building an M-term Hamiltonian costs `Θ(M)`:
+
+```julia
+H = opsum(fill(V, N), (J * dot(S[i], S[i + 1]) for i in 1:(N - 1)))
+```
+
+Each argument may be a [`Term`](@ref), a [`Terms`](@ref) bag, another `TermSum` on the same lattice,
+or any iterable of those, nested arbitrarily. Every letter is checked against the space of the site it
+acts on and every site against `1:length(sites)` — the only place operators and spaces are confronted.
+
+`opsum(sites)` is the empty operator; add to it with `+` or [`append!`](@ref).
+"""
+function opsum(sites, args...)
+    lat = _tolattice(sites)
+    # The sector type comes from the lattice, never from the terms: it is always known there, and an
+    # argument may be a one-shot generator that must not be iterated twice to be sniffed.
+    I = _lattice_sectortype(lat)
+    out = Term{I}[]
+    for a in args
+        _collect_terms!(out, a, I)
     end
-    filter!(!iszero, d)
-    return TermSum{I, S, T}(d)
+    _checkterms(out, lat)
+    return TermSum{I}(lat, out)
 end
 
-function VectorInterface.scale(a::TermSum{I, S, T}, α::Number) where {I, S, T}
-    Tn = promote_type(T, typeof(α))
-    d = Dictionary{TermKey{I, S}, Tn}()
-    for (k, v) in pairs(a.terms)
-        iszero(α * v) || insert!(d, k, Tn(α * v))
+_lattice_sectortype(lat::Vector{<:ElementarySpace}) =
+    isempty(lat) ? Trivial : sectortype(first(lat))
+
+_collect_terms!(out::Vector{Term{I}}, t::Term{I}, ::Type{I}) where {I} = push!(out, t)
+_collect_terms!(out::Vector{Term{I}}, ts::Terms{I}, ::Type{I}) where {I} =
+    append!(out, ts.terms)
+_collect_terms!(out::Vector{Term{I}}, H::TermSum{I}, ::Type{I}) where {I} =
+    append!(out, H.terms)
+function _collect_terms!(out::Vector{Term{I}}, itr, ::Type{I}) where {I}
+    for a in itr
+        _collect_terms!(out, a, I)
     end
-    return TermSum{I, S, Tn}(d)
+    return out
 end
-Base.:*(α::Number, a::TermSum) = scale(a, α)
-Base.:*(a::TermSum, α::Number) = scale(a, α)
-Base.:/(a::TermSum, α::Number) = scale(a, inv(α))
-Base.:-(a::TermSum) = scale(a, -1)
-Base.:-(a::TermSum, b::TermSum) = a + (-b)
+# A term over a different symmetry than the lattice is a mistake worth naming.
+_collect_terms!(::Vector{Term{I}}, ::Term{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
+_collect_terms!(::Vector{Term{I}}, ::Terms{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
+_collect_terms!(::Vector{Term{I}}, ::TermSum{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
+_wrongsector(I, J) = throw(
+    ArgumentError("cannot place an operator over $J on a lattice of sector type $I")
+)
 
-function Base.one(::TermSum{I, S, T}) where {I, S, T}
-    d = Dictionary{TermKey{I, S}, T}()
-    insert!(d, TermKey{I, S}(S[], IrrepOperator{I}[], _idtree(I)), one(T))
-    return TermSum{I, S, T}(d)
+TermSum(sites) = opsum(sites)
+TermSum(sites, args...) = opsum(sites, args...)
+
+"""
+    append!(H::TermSum, terms...) -> H
+
+Append terms to `H` **in place**, in one pass — the linear way to accumulate into an existing
+operator. Same argument forms as [`opsum`](@ref).
+"""
+function Base.append!(H::TermSum{I}, args...) where {I}
+    isempty(args) && return H
+    added = Term{I}[]
+    for a in args
+        _collect_terms!(added, a, I)
+    end
+    _checkterms(added, H.lattice)
+    append!(H.terms, added)
+    return H
 end
 
-function Base.show(io::IO, ts::TermSum)
+# Copies, so older values stay valid — but folding it over M terms is quadratic; use `opsum`.
+_addterms(H::TermSum{I}, args...) where {I} =
+    (out = TermSum{I}(H.lattice, copy(H.terms)); append!(out, args...); out)
+Base.:+(H::TermSum, t::Term) = _addterms(H, t)
+Base.:+(H::TermSum, ts::Terms) = _addterms(H, ts)
+Base.:+(t::Term, H::TermSum) = _addterms(H, t)
+Base.:+(ts::Terms, H::TermSum) = _addterms(H, ts)
+function Base.:+(a::TermSum{I}, b::TermSum{I}) where {I}
+    a.lattice == b.lattice ||
+        throw(ArgumentError("cannot add operators defined on different lattices"))
+    return _addterms(a, b)
+end
+# negating first, then `+`, keeps the lattice check
+Base.:-(H::TermSum, x) = H + (-x)
+
+VectorInterface.scale(H::TermSum{I}, α::Number) where {I} =
+    TermSum{I}(H.lattice, Term{I}[scale(t, α) for t in H.terms])
+Base.:*(α::Number, H::TermSum) = scale(H, α)
+Base.:*(H::TermSum, α::Number) = scale(H, α)
+Base.:/(H::TermSum, α::Number) = scale(H, inv(α))
+Base.:-(H::TermSum) = scale(H, -1)
+
+"""
+    nterms_raw(H::TermSum) -> Int
+
+The number of *appended* terms, before coincident ones are summed. For tests; `length(H)` is the
+number of terms the operator actually has.
+"""
+nterms_raw(H::TermSum) = length(H.terms)
+
+Base.length(H::TermSum) = length(canonicalize!(H).terms)
+Base.isempty(H::TermSum) = isempty(canonicalize!(H).terms)
+Base.iterate(H::TermSum, args...) = iterate(canonicalize!(H).terms, args...)
+Base.eltype(::Type{TermSum{I}}) where {I} = Term{I}
+Base.getindex(H::TermSum, i::Integer) = canonicalize!(H).terms[i]
+Base.firstindex(::TermSum) = 1
+Base.lastindex(H::TermSum) = length(H)
+
+"""
+    isapprox(a::TermSum, b::TermSum; kwargs...)
+    a ≈ b
+
+Whether two operators carry the same terms with matching coefficients: the canonical term sets must
+be **equal** (a dropped term is never "approximately" absent) and the coefficients `≈`. Lattices are
+not compared, so an operator reconstructed by [`mpo_terms`](@ref) — which knows the bonds but not the
+spaces — compares equal to the one it came from. This is the faithfulness check.
+"""
+Base.isapprox(a::TermSum{I}, b::TermSum{I}; kwargs...) where {I} =
+    _termsapprox(canonicalize!(a).terms, canonicalize!(b).terms; kwargs...)
+Base.:(==)(a::TermSum{I}, b::TermSum{I}) where {I} =
+    _termsequal(canonicalize!(a).terms, canonicalize!(b).terms)
+
+function Base.show(io::IO, H::TermSum)
+    canonicalize!(H)
     print(io, "TermSum(")
-    join(io, ("$v * $k" for (k, v) in pairs(ts.terms)), " + ")
+    join(io, ("$(t.coeff) * $(_termbody(t))" for t in H.terms), " + ")
     return print(io, ")")
 end
 
-# op[site]  →  a (possibly distributed) TermSum
-# ---------------------------------------------
-function Base.getindex(O::SiteOperator{I}, ind::S, inds::S...) where {I, S}
+function Base.getindex(O::SiteOperator{I}, ind::Integer, inds::Integer...) where {I}
     isempty(inds) ||
         throw(ArgumentError("multi-site placement of an on-site operator is not supported; use `couple`"))
-    d = Dictionary{TermKey{I, S}, ComplexF64}()
+    site = Int(ind)
+    site >= 1 || throw(ArgumentError("site index must be ≥ 1, got $site"))
+    out = Term{I}[]
+    sizehint!(out, length(O))
     for (letter, coeff) in pairs(O)
-        # The pass-through letter is the bare identity: it carries no charge and contributes no
-        # active site, so it places as a K=0 identity term rather than a K=1 field. A *real*
-        # trivial-charge letter (`n ≥ 1`, e.g. from `project(id(V), V)`) is not the same thing and
-        # does place on the site.
-        key = ispassthrough(letter) ?
-            TermKey{I, S}(S[], IrrepOperator{I}[], _idtree(I)) :
-            TermKey{I, S}(S[ind], IrrepOperator{I}[letter], _leaftree(letter.c))
-        setwith!(+, d, key, ComplexF64(coeff))
+        # Pass-through is the bare identity, so it places as a K=0 term. A real trivial-charge
+        # letter (`n ≥ 1`) is a different thing and does place.
+        if ispassthrough(letter)
+            push!(out, Term{I}(Int[], ITOKey{I}[], ComplexF64(coeff)))
+        else
+            push!(
+                out,
+                Term{I}([site], ITOKey{I}[ITOKey{I}(letter, letter.c, 1)], ComplexF64(coeff))
+            )
+        end
     end
-    filter!(!iszero, d)
-    return TermSum{I, S, ComplexF64}(d)
+    return Terms{I}(out)
 end
 
-# Coupling
-# --------
 # Second operand of `dot`: a single-site charged term; returns `(site, op, coeff)`.
-function _single_site_term(b::TermSum{I, S, T}, ctx) where {I, S, T}
-    length(b.terms) == 1 || throw(ArgumentError("$ctx must be a single-term operator"))
-    k, v = only(pairs(b.terms))
-    (length(k.sites) == 1 && length(k.ops) == 1) ||
-        throw(ArgumentError("$ctx must be a single-site charged operator"))
-    return only(k.sites), only(k.ops), v
+function _single_site_term(b::Terms{I}, ctx) where {I}
+    length(b) == 1 || throw(ArgumentError("$ctx must be a single-term operator"))
+    t = only(b.terms)
+    arity(t) == 1 || throw(ArgumentError("$ctx must be a single-site charged operator"))
+    return only(t.sites), only(t.keys).op, t.coeff
 end
 
-# Core of `couple`: extend every term of `a` by every single-site term of `b`, fusing to the total
-# `target(ka, opb)` returns for that pair. Pairs whose charges cannot reach it are dropped, so the
-# result may be empty — callers decide whether that is an error.
-function _couple_terms(a::TermSum{I, S}, b::TermSum{I, S}, target) where {I, S}
-    d = Dictionary{TermKey{I, S}, ComplexF64}()
-    for (ka, va) in pairs(a.terms)
-        isempty(ka.sites) && throw(
+# Extend every term of `a` by every single-site term of `b`, fusing to `target(running total, b's
+# letter)`; unreachable pairs are dropped, so the result may be empty. Extending a caterpillar leaves
+# the earlier running charges alone, so this is an append plus one `Nsymbol` — no tree is built.
+function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
+    out = Term{I}[]
+    sizehint!(out, length(a) * length(b))
+    for ta in a.terms
+        na = arity(ta)
+        na >= 1 || throw(
             ArgumentError("couple: every term of the first operand must carry at least one charged operator")
         )
-        for (kb, vb) in pairs(b.terms)
-            (length(kb.sites) == 1 && length(kb.ops) == 1) || throw(
+        run = last(ta.keys).bond
+        lastsite = last(ta.sites)
+        for tb in b.terms
+            arity(tb) == 1 || throw(
                 ArgumentError("couple: every term of the second operand must be a single-site charged operator")
             )
-            sb, opb = only(kb.sites), only(kb.ops)
-            sb in ka.sites && throw(ArgumentError("couple: operators must act on distinct sites"))
-            maximum(ka.sites) < sb || throw(
+            sb = only(tb.sites)
+            opb = only(tb.keys).op
+            sb == lastsite && throw(ArgumentError("couple: operators must act on distinct sites"))
+            lastsite < sb || throw(
                 ArgumentError(
                     "couple: the second operand must act to the right of the first " *
                         "(left-nested caterpillar; out-of-order coupling is deferred)"
                 )
             )
 
-            # extend the caterpillar by one leg:  (total(a), opb.c) → tot, at a new vertex
-            tot = target(ka, opb)
-            f2s = collect(fusiontrees((total(ka), opb.c), tot, (false, false)))
-            isempty(f2s) && continue    # this pair of charges cannot fuse to `tot`: drop it
-            @assert length(f2s) == 1 "expected a unique coupling channel; multi-channel (GenericFusion) coupling is deferred"
-            tree = TensorKit.join(ka.tree, only(f2s))
+            tot = target(run, opb)::I
+            nsym = Nsymbol(run, opb.c, tot)
+            iszero(nsym) && continue    # this pair of charges cannot fuse to `tot`: drop it
+            @assert isone(nsym) "expected a unique coupling channel; multi-channel (GenericFusion) coupling is deferred"
 
-            key = TermKey{I, S}(S[ka.sites..., sb], IrrepOperator{I}[ka.ops..., opb], tree)
-            setwith!(+, d, key, ComplexF64(va) * ComplexF64(vb))
+            push!(
+                out,
+                Term{I}(
+                    push!(copy(ta.sites), sb),
+                    push!(copy(ta.keys), ITOKey{I}(opb, tot, 1)),
+                    ta.coeff * tb.coeff
+                )
+            )
         end
     end
-    filter!(!iszero, d)
-    return TermSum{I, S, ComplexF64}(d)
+    return Terms{I}(out)
 end
 
 """
-    couple(a::TermSum, b::TermSum; to = unit(I))
-    couple(a::TermSum, b::TermSum, cs::TermSum...; to = unit(I))   # abelian only
+    couple(a::Terms, b::Terms; to = unit(I))
+    couple(a::Terms, b::Terms, cs::Terms...; to = unit(I))   # abelian only
 
-Left-nested (caterpillar) irrep coupling: extend the composite `a` (any K ≥ 1 sites, with its stored
-coupling tree) by one single-site operator `b`, fusing the running total `total(a)` with `b`'s charge
+Left-nested (caterpillar) irrep coupling: extend the composite `a` (any K ≥ 1 sites, with its running
+coupling charges) by one single-site operator `b`, fusing the running total of `a` with `b`'s charge
 to `to` at a new vertex. `to` defaults to the unit sector, which is what a term of a Hamiltonian
 needs — pass it explicitly to build a charged object.
 
@@ -307,27 +519,24 @@ This is the bare fusion coupler — it carries **no** normalization factor (redu
 The Cartesian scalar-product convention lives in [`dot`](@ref), not here. Multi-channel
 (`GenericFusion`) coupling and tree-structured (`via`) coupling are deferred.
 """
-function couple(a::TermSum{I, S}, b::TermSum{I, S}; to = unit(I), via = nothing) where {I, S}
+function couple(a::Terms{I}, b::Terms{I}; to = unit(I), via = nothing) where {I}
     via === nothing ||
         throw(ArgumentError("tree-structured / multi-body coupling (`via`) is deferred"))
-    isempty(a.terms) && throw(ArgumentError("couple: first operand has no terms"))
-    isempty(b.terms) && throw(ArgumentError("couple: second operand has no terms"))
+    isempty(a) && throw(ArgumentError("couple: first operand has no terms"))
+    isempty(b) && throw(ArgumentError("couple: second operand has no terms"))
     tot = to::I
 
     out = _couple_terms(a, b, (_, _) -> tot)
-    isempty(out.terms) &&
+    isempty(out) &&
         throw(ArgumentError("couple: no pair of terms of the operands fuses to $tot"))
     return out
 end
 
-# Variadic coupling, abelian only: with `UniqueFusion` every intermediate charge is the single
-# outcome of fusing the running total with the next operand's charge, so the whole caterpillar is
-# fixed by the charges and there is nothing for the caller to choose. Fold left, letting each pair
-# find its own intermediate, and constrain only the final total to `to`.
+# Abelian only: unique fusion forces every intermediate, so fold left and constrain only the total.
 function couple(
-        a::TermSum{I, S}, b::TermSum{I, S}, c::TermSum{I, S}, rest::TermSum{I, S}...;
+        a::Terms{I}, b::Terms{I}, c::Terms{I}, rest::Terms{I}...;
         to = unit(I), via = nothing
-    ) where {I, S}
+    ) where {I}
     via === nothing ||
         throw(ArgumentError("tree-structured / multi-body coupling (`via`) is deferred"))
     FusionStyle(I) isa UniqueFusion || throw(
@@ -337,21 +546,21 @@ function couple(
                 "`couple` to name each one, e.g. couple(couple(a, b; to = b₂), c; to = t)"
         )
     )
-    isempty(a.terms) && throw(ArgumentError("couple: first operand has no terms"))
+    isempty(a) && throw(ArgumentError("couple: first operand has no terms"))
     tot = to::I
 
     others = (b, c, rest...)
     acc = a
     for (i, nxt) in enumerate(others)
-        isempty(nxt.terms) &&
+        isempty(nxt) &&
             throw(ArgumentError("couple: operand $(i + 1) has no terms"))
         # intermediates are forced; only the last step has to land on `to`
         acc = if i == length(others)
             _couple_terms(acc, nxt, (_, _) -> tot)
         else
-            _couple_terms(acc, nxt, (ka, opb) -> only(total(ka) ⊗ opb.c))
+            _couple_terms(acc, nxt, (ta, opb) -> only(ta ⊗ opb.c))
         end
-        isempty(acc.terms) && throw(
+        isempty(acc) && throw(
             ArgumentError(
                 i == length(others) ?
                     "couple: no chain of the operands fuses to $tot" :
@@ -363,52 +572,69 @@ function couple(
 end
 
 """
-    dot(a::TermSum, b::TermSum)
+    dot(a::Terms, b::Terms)
     a · b
 
 The Cartesian two-body scalar product of two single-site ITO operators: singlet coupling
 `couple(a, b; to = unit(I))` times the Cartesian factor `-√dim(c)` (the identity
-`Sᵢ·Sⱼ = -√3 [S⊗S]⁽⁰⁾` with `-√3 = -√dim(spin-1)`). Order-independent in the two sites. Distinct
-from bare `couple(…; to = unit(I))`, which carries no such factor.
+`Sᵢ·Sⱼ = -√3 [S⊗S]⁽⁰⁾` with `-√3 = -√dim(spin-1)`). Order-independent in the two sites: the sites
+are sorted before coupling, and the Cartesian factor is read off the operator that ends up on the
+left. (The two charges must fuse to the unit sector, i.e. be each other's dual, and dual sectors have
+equal quantum dimension — so `dot(a, b) == dot(b, a)` exactly.)
 
 Unlike [`couple`](@ref) this does not distribute over composite operands: the Cartesian factor
 `-√dim(c)` is per-letter, so it has no meaning for an operator mixing several charges. Use `couple`
 for those.
 """
-function LinearAlgebra.dot(a::TermSum{I}, b::TermSum{I}) where {I}
+function LinearAlgebra.dot(a::Terms{I}, b::Terms{I}) where {I}
     sa, opa, _ = _single_site_term(a, "·: first operand")
-    sb, _, _ = _single_site_term(b, "·: second operand")
+    sb, opb, _ = _single_site_term(b, "·: second operand")
     sa == sb && throw(ArgumentError("·: operators must act on distinct sites"))
-    lo, hi = sa < sb ? (a, b) : (b, a)
-    return scale(couple(lo, hi; to = unit(I)), -sqrt(dim(opa.c)))
+    iszero(Nsymbol(opa.c, opb.c, unit(I))) && throw(
+        ArgumentError(
+            "·: the two operator charges $(opa.c) and $(opb.c) do not fuse to the unit sector, so " *
+                "there is no scalar product; use `couple(a, b; to = …)` for a charged coupling"
+        )
+    )
+    # Sort first, *then* read the Cartesian factor off the left operand, so that the factor cannot
+    # depend on the order the caller wrote the operands in.
+    lo, hi, oplo = sa < sb ? (a, b, opa) : (b, a, opb)
+    return scale(couple(lo, hi; to = unit(I)), -sqrt(dim(oplo.c)))
 end
 
 # Dense-oracle materialization
 # ----------------------------
 """
-    instantiate(ts::TermSum, sites::AbstractVector{<:ElementarySpace})
+    instantiate(H::TermSum)
+    instantiate(ts::Terms, sites::AbstractVector{<:ElementarySpace})
 
-Materialize the term-sum into a TensorKit `TensorMap` over the lattice `sites` (the dense oracle),
-summing each term. Supports identity (K=0), single-site field (K=1), and left-nested (caterpillar)
-coupling of any K ≥ 2 sites.
+Materialize the operator into a TensorKit `TensorMap` over its lattice (the dense oracle), summing
+each term. Supports identity (K=0), single-site field (K=1), and left-nested (caterpillar) coupling
+of any K ≥ 2 sites.
 """
-function instantiate(ts::TermSum{I, S, T}, sites::AbstractVector{<:ElementarySpace}) where {I, S, T}
-    isempty(ts.terms) && throw(ArgumentError("cannot instantiate an empty TermSum"))
-    return sum(pairs(ts.terms)) do (k, v)
-        return v * _instantiate_term(k, sites)
-    end
+function instantiate(H::TermSum)
+    isempty(H) && throw(ArgumentError("cannot instantiate an empty TermSum"))
+    sites = H.lattice
+    length(sites) == 0 && throw(ArgumentError("cannot instantiate over an empty lattice"))
+    return sum(t -> t.coeff * _instantiate_term(t, sites), H.terms)
+end
+instantiate(ts::Terms, sites::AbstractVector{<:ElementarySpace}) = instantiate(opsum(sites, ts))
+
+function _instantiate_term(t::Term, sites)
+    K = arity(t)
+    K == 0 && return foldl(⊗, (id(V) for V in sites))
+    K == 1 && return _embed_field(only(t.keys).op, only(t.sites), sites)
+    return _embed_caterpillar(ops(t), t.sites, tree(t), sites)
 end
 
-function _instantiate_term(k::TermKey{I, S}, sites) where {I, S}
-    N = length(sites)
-    K = length(k.sites)
-    if K == 0
-        return foldl(⊗, (id(sites[j]) for j in 1:N))
-    elseif K == 1
-        return _embed_field(only(k.ops), only(k.sites), sites)
-    else
-        return _embed_caterpillar(k.ops, k.sites, k.tree, sites)
-    end
+# The candidate basis element for a `(letters, tree)` combination on the local lattice `1:K` — the
+# same forward map, entered without building a `Term`, which is what `project` takes inner products
+# against.
+function _instantiate_basis(ops, tree, sites)
+    K = length(ops)
+    K == 0 && return foldl(⊗, (id(V) for V in sites))
+    K == 1 && return _embed_field(only(ops), 1, sites)
+    return _embed_caterpillar(ops, 1:K, tree, sites)
 end
 
 # single charged field embedded on site `p`, identities elsewhere, charge leg to last domain slot
@@ -423,11 +649,8 @@ function _embed_field(op::IrrepOperator, p, sites)
     return permute(full, (cod, dom))
 end
 
-# Caterpillar-coupled K-site block (structural coupler; any reduced factor is in the coeff). The
-# coupler `X` selects the *specific* fusion channel `tree` (setting its single reduced entry to 1 is
-# a normalized isometry). Contraction of the K charge legs uses `permute` + morphism composition
-# (bending the physical in-legs out and back), which generalizes to arbitrary K without a static
-# `@tensor` expression.
+# Caterpillar K-site block; the coupler `X` selects the specific channel `tree`. `permute` +
+# composition rather than `@tensor`, so it generalises to any K.
 function _embed_caterpillar(ops, positions, tree, sites)
     K = length(ops)
     I = typeof(tree.coupled)

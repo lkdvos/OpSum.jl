@@ -66,8 +66,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
 
 end
 
-# A `TermSum` is a bag until `canonicalize!` sorts it and merges coincident terms. Nothing outside may
-# observe the pre-merge append count.
+# A bag until `canonicalize!` merges it; the pre-merge append count must not be observable.
 @testset "append-then-canonicalise" begin
     S = spin(su2)
     sites2 = fill(su2, 2)
@@ -148,7 +147,7 @@ end
     @test lattice(opsum(sites)) == sites
 end
 
-# The container surface a consumer actually touches. All of it goes through the normal form.
+# The container surface a consumer touches; all of it goes through the normal form.
 @testset "container and display surface" begin
     S = spin(su2)
     sites = fill(su2, 3)

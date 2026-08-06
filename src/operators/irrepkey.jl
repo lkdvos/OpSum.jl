@@ -11,41 +11,15 @@
 # `n = 0`), not an enumerated `(c, n)` letter and not `one(A)`; it acts as `id(V)`. Supported term
 # arity K ≥ 0; multi-channel (`GenericFusion`) coupling is deferred.
 #
-# Why a term stores keys and not a fusion tree
-# --------------------------------------------
-# For the left-nested (caterpillar) coupling this package supports, the per-position running bond
-# charges and vertex labels *are* the fusion tree. A `FusionTree` is determined by
-# `(uncoupled, coupled, isdual, innerlines, vertices)`, and each of those is already in the keys:
-#
-#     uncoupled[k]           ==  keys[k].op.c              the letter charge
-#     isdual                 ==  all false                 by construction here
-#     [innerlines..., coupled] == keys[2:K].bond           `bondcharges(f)` reads exactly this
-#     vertices               ==  keys[2:K].vertex          `vertexlabels(f)` likewise
-#
-# so `bondcharges`/`vertexlabels` project a tree onto the keys and `_tree_from_bonds`
-# (irrepalgebra.jl) reconstructs it — the two are one piece of information in two spellings, and a
-# `Term` keeps the keys because that is also what the sweep reads.
-#
-# Two things worth being explicit about:
-#
-# * The *total charge alone would not do*. For K ≥ 3 under a non-abelian symmetry the inner lines are
-#   not determined by `(charges, total)`: several channels fuse to the same total and they are
-#   different operators. The running bond charges carry precisely those inner lines, which is what
-#   makes them a complete substitute where `total` is not.
-# * This rests on the tree *shape* being fixed. A general (non-caterpillar) shape could not be
-#   encoded as one charge per position, which is consistent with `couple`'s tree-structured `via`
-#   argument being deferred.
-#
-# The sweep, in turn, wants the charges rather than a tree because its state at a bond simply *is*
-# the running charge crossing that bond (`ITOKey.bond`); holding a tree would mean decomposing it at
-# every site of every term.
+# Why a `Term` stores keys and not a fusion tree: for a caterpillar the keys *are* the tree —
+# `bondcharges`/`vertexlabels` project one onto them and `_tree_from_bonds` (irrepalgebra.jl) inverts
+# that. `total` alone would not do, since for K ≥ 3 non-abelian several channels reach the same total;
+# and it rests on the shape being fixed, which is why `couple`'s `via` is deferred.
 
 using TensorKit
 using TensorKit: Sector, FusionTree, fusiontrees, unit
 using .IrrepTensorOperators: IrrepOperator
 
-# Pass-through identity symbol
-# ----------------------------
 """
     passthrough(::Type{I}) where {I<:Sector}
 

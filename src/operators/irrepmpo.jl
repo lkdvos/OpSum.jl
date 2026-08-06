@@ -1,15 +1,7 @@
-# Reduced MPO for the ITO automaton: reconstruction + symmetric tensors
-# =====================================================================
-# `irrep_mpo` compresses an ITO `TermSum` into a reduced MPO — site tensors of ITO letters times
-# reduced coefficients, plus per-bond charge sectors — by running a per-bond-sector sweep over the
-# flat `ITOTermTable`. Which bond basis that sweep keeps is the algorithm selector's `BondStrategy`
-# (algorithms.jl); the sweeps themselves are in irrepgraph.jl. Each retained bond index has a single,
-# well-defined charge (`ITOKey.bond`); block-diagonality is checked there. Supported scope: any arity
-# K ≥ 0 active sites per term.
-#
-# This file adds the two consumers of that reduced data:
-# * `mpo_terms`         — reconstruct the original `TermSum` by enumerating MPO paths (faithfulness);
-# * `irrep_mpo_tensors` — assemble the symmetric MPO `TensorMap`s.
+# Reduced MPO for the ITO automaton: `irrep_mpo` compresses a `TermSum` into reduced bond matrices
+# plus per-bond charge sectors, by running a per-bond-sector sweep (irrepgraph.jl, strategy chosen by
+# `algorithms.jl`) over the flat `ITOTermTable`. `mpo_terms` inverts it at the reduced level
+# (faithfulness) and `irrep_mpo_tensors` assembles the symmetric `TensorMap`s. Any arity K ≥ 0.
 
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Vect, ElementarySpace, fusiontrees, permute, dim, unit, isomorphism, @tensor,
@@ -88,12 +80,8 @@ function mpo_terms(
     return opsum(sites, (Term{I}(s, k, c) for (s, k, c) in cols))
 end
 
-# Phase 5: assemble symmetric MPO TensorMaps from the reduced bond data
-# =====================================================================
-# Each site tensor is `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit convention: left virtual ⊗ physical
-# out ← physical in ⊗ right virtual), a symmetric `TensorMap` whose virtual legs `B` are
-# `GradedSpace`s built from the per-sector bond multiplicities. Contracting the chain (trivial
-# boundary bonds) recovers the operator.
+# Site tensors `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit leg convention), virtual legs built from the
+# per-sector bond multiplicities.
 
 # GradedSpace on a bond with the given per-index charges (multiplicity = count per sector).
 function _bond_space(sec::Vector{I}) where {I}
@@ -168,12 +156,8 @@ function irrep_mpo_tensors(
 
         W = zeros(ComplexF64, Bleft ⊗ V ← V ⊗ Bright)
 
-        # Assemble per *letter*, not per entry. The bond coupler κ_letter : Bleft ⊗ Vc ← Bright
-        # collects every reduced coefficient carrying that letter, so the site needs one contraction
-        # per distinct letter — `O(d²)` of them — instead of one per stored bond entry, of which there
-        # are `O(D_L · D_R)`. (The previous form also rebuilt κ, the letter tensor and both fusion
-        # trees per entry, and accumulated via an out-of-place `W = W + Wentry` that reallocated and
-        # rewrote the whole site tensor every time.)
+        # Per *letter*, not per entry: κ_letter collects every reduced coefficient carrying that
+        # letter, so it is `O(d²)` contractions rather than `O(D_L · D_R)`.
         ops = Dictionary{IrrepOperator{I}, Any}()
         couplers = Dictionary{IrrepOperator{I}, Any}()
         f1s = Dictionary{Tuple{I, I, I}, Any}()
@@ -192,10 +176,8 @@ function irrep_mpo_tensors(
                     return ispassthrough(letter) ? isomorphism(ComplexF64, V ← V ⊗ Vc) :
                         instantiate(letter, V)
                 end
-                # κ couples the operator charge into the bond by the (forward) fusion (bL, c) → bR —
-                # running bond FIRST, then the operator charge, matching the left-nested caterpillar
-                # the oracle uses. (Charge-first would agree only for symmetric vertices, e.g. K=2
-                # singlets, and flips the sign at antisymmetric inner vertices like 1⊗1→1 for K ≥ 3.)
+                # Fusion `(bL, c) → bR`: running bond FIRST, matching the caterpillar. Charge-first
+                # flips the sign at antisymmetric inner vertices (1⊗1→1, so K ≥ 3).
                 κ = get!(couplers, letter) do
                     return zeros(ComplexF64, Bleft ⊗ Vect[I](c => 1) ← Bright)
                 end
@@ -214,12 +196,6 @@ function irrep_mpo_tensors(
         return W
     end
 end
-
-# Verification
-# ============
-# The two checks every construction wants, previously hand-rolled in `test/testutils.jl`,
-# `examples/common.jl` and `docs/src/operators.md` — three copies of `islossless` and three of
-# `mpo_tensormap`'s `ncon` network.
 
 """
     islossless(H::TermSum[, alg]) -> Bool

@@ -1,35 +1,16 @@
-# Projection: dense symmetric `TensorMap` → symbolic ITO terms
-# ============================================================
-# The inverse of `instantiate`. Writing a Hamiltonian by naming alphabet letters `(c, n)` is
-# fragile — `n` indexes TensorKit's canonical block order, so permuting the sectors of `V` silently
-# permutes every letter and you get a different operator with no error. `project` goes the other
-# way: write the operator down as a `TensorMap` and let the expansion coefficients be computed.
+# Projection: dense symmetric `TensorMap` → symbolic ITO terms, the inverse of `instantiate`. Writing
+# a Hamiltonian by naming letters `(c, n)` is fragile — `n` follows TensorKit's block order — so write
+# the operator down and let the coefficients be computed.
 #
-# Why this needs no linear solve
-# ------------------------------
-# For sites `V_1…V_K` and total charge `tot`, the candidate basis is `α = (ops, tree)`: one letter
-# per site from `instances(IrrepOperator, V_k)` and one caterpillar tree from `caterpillar_trees`,
-# materialized by the forward map as `E_α = _instantiate_basis(ops, tree, Vs)`.
-#
-# Writing `E_α = Q_ops ∘ X_tree` as `_embed_caterpillar` builds it: `Q` is a permute of `⊗_k O_k`, so
-# `‖Q‖ = Π_k ‖O_k‖ = 1`; `Q_ops† Q_ops'` contracts only site-local legs and factorizes per site into
-# `Hom(Vect[c'=>1], Vect[c=>1])`, which vanishes unless `c == c'` and is one-dimensional otherwise —
-# fixing that scalar from the K=1 case (where the alphabet is orthonormal) gives `δ/dim(c_k)` per
-# site — and `Tr_q(X† X') = dim(tot)·δ_{tree,tree'}`. So the basis is *orthogonal* with
+# No linear solve is needed. The candidate basis `α = (ops, tree)`, materialised by the forward map as
+# `_instantiate_basis`, is *orthogonal* with a closed-form diagonal, so `c_α = inner(E_α, h) / g`:
 #
 #     inner(E_α, E_β) = δ_ops · δ_tree · dim(tot) / Π_k dim(ops[k].c)   =:  δ_αβ · g(ops, tot)
-#     c_α = inner(E_α, h) / g
 #
-# and the projection is a sequence of inner products, not a solve. `test_irrep_projection.jl` pins
-# both the diagonal and the vanishing off-diagonal, including for fermionic sectors (where the
-# per-site factorization above could in principle pick up braiding data, but does not).
-#
-# Counting candidates gives `Σ_{charges} (Π_k N_k(c_k))·#trees = mult_{⊗_k (V_k⊗V_k')}(tot)`, the
-# dimension of the target homspace, with `N_k(c) = dim(fuse(V_k⊗V_k'), c)` exactly the enumeration
-# range of `instances`. The basis is therefore complete: a symmetric `h` of the accepted shape is
-# *always* exactly in the span, so the only real source of residual is `tol` truncation. The
-# faithfulness check guards against that and against implementation bugs — not against
-# non-representable input, of which there is none.
+# and it is *complete* — the candidate count equals `mult_{⊗_k (V_k⊗V_k')}(tot)`, the dimension of the
+# target homspace — so a symmetric `h` of the accepted shape is always exactly in the span and the only
+# real source of residual is `tol` truncation. `test_irrep_projection.jl` pins the diagonal and the
+# vanishing off-diagonal, fermionic sectors included.
 
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, oneunit
 using LinearAlgebra: norm
@@ -39,11 +20,8 @@ using LinearAlgebra: norm
 # faithfulness check, so the default must only ever discard noise.
 _default_rtol(h::AbstractTensorMap) = 100 * eps(real(float(scalartype(h))))
 
-# Bring `h` into the shape the forward map produces: physical legs plus a trailing total-charge leg.
-# `insertrightunit` defaults to appending at the last domain slot, and the inserted space is
-# `Vect[I](unit(I) => 1)` — bit-identical to what `_embed_field`/`_embed_caterpillar` build for
-# `tot = unit(I)`. For a `TensorMap` it re-wraps the data unchanged, so it is free and exactly
-# norm-preserving.
+# Give `h` the trailing total-charge leg the forward map produces. `insertrightunit` re-wraps the data
+# unchanged, so it is free and exactly norm-preserving.
 function _with_charge_leg(h::AbstractTensorMap, K::Int, ::Type{I}) where {I <: Sector}
     nin = numin(h)
     if nin == K
@@ -179,8 +157,7 @@ function project(
     θ = max(float(atol), float(rtol) * hnorm)
     coeffs, ncand = _ito_coefficients(hc, Vs, tot, θ)
 
-    # Emit the surviving candidates as terms: a caterpillar tree *is* its per-position running bond
-    # charges plus vertex labels (`bondcharges`/`vertexlabels`), which is what an `ITOKey` carries.
+    # A caterpillar tree *is* its running bond charges plus vertex labels, i.e. the `ITOKey`s.
     # Candidates are distinct by construction, so nothing accumulates.
     intsites = Int[Int(s) for s in sitev]
     local_sites = collect(1:K)

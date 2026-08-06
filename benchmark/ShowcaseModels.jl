@@ -24,10 +24,8 @@ export mpo_matches_oracle, spectrum, hermiticity_error
 export islossless, mpo_tensormap, spin_ops, fermion_ops, opsum, lattice
 
 # ── Model builders ────────────────────────────────────────────────────────────
-# Each returns a `TermSum` already carrying its lattice, so the physical spaces travel with the
-# operator instead of alongside it in a tuple — `lattice(H)` reads them back. Note the two idioms used
-# throughout: the local operators are built once outside the term loop, and the terms go into `opsum`
-# in one pass rather than being folded together with `+`.
+# Each returns a `TermSum` carrying its own lattice (`lattice(H)` reads it back), built in one
+# `opsum` pass.
 
 const SPIN_HALF = SU2Space(1 // 2 => 1)
 

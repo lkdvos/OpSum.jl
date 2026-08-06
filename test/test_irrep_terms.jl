@@ -10,8 +10,7 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm
 
 # charges of a term's active operators
 charges(t::Term) = [k.op.c for k in t.keys]
-# per-active-position bond charges of a term. Read straight off its keys, and — equivalently, which is
-# the point — off the caterpillar tree those keys reconstruct.
+# per-position bond charges, off the keys and — equivalently, the point — off the tree they rebuild
 termbonds(t::Term) = [k.bond for k in t.keys]
 treebonds(t::Term) = bondcharges(tree(t))
 
@@ -70,10 +69,8 @@ end
         [U1Irrep(1), U1Irrep(2)]
 end
 
-# `dot` sorts its operands and only then reads the Cartesian factor `-√dim(c)` off the left one, so
-# the factor cannot depend on the order they were written in. (The two charges have to fuse to the
-# unit sector, hence be dual, and dual sectors carry equal quantum dimension — so the two readings
-# agree numerically as well as structurally. This pins that.)
+# `dot` sorts before reading `-√dim(c)` off the left operand, so the factor cannot depend on the
+# order written. Dual sectors have equal quantum dimension, so the two readings agree numerically too.
 @testset "dot is order-independent in its operands" begin
     V = Rep[U₁](0 => 1, 1 => 1)
     raise = LO(IrrepOperator(U1Irrep(1), 1))

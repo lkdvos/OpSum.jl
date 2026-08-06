@@ -15,8 +15,7 @@ using TensorKit: dim
 # Wrap a bare alphabet letter as a `SiteOperator`, for comparing against reduced bond-matrix entries.
 LO(x) = SiteOperator(x)
 
-# The single `Term` of a one-term bag or operator. `only` does this directly; the helper stays
-# because it reads better at the call sites and it asserts the "exactly one" part by name.
+# The single `Term` of a one-term bag or operator.
 onlyterm(ts::Terms) = only(ts)
 onlyterm(H::TermSum) = only(H)
 

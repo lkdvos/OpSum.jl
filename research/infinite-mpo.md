@@ -3,10 +3,12 @@
 *What survives from the finite pipeline when the chain becomes infinite, what has to be adapted, and
 why. Companion to `research/persistent-graph-mpo.md`, whose §2 machinery this builds on directly.*
 
-New files: `src/operators/infinitechain.jl` (the lattice descriptor, `translate`, canonicalisation) and
-`src/operators/infinitegraph.jl` (the window construction, identity-channel detection, faithfulness).
-`irrepgraph.jl` gains the canonicalisation described in §3; `irrepmpo.jl` gains the public entry and
-the wrap-around tensor assembly. The sweep itself — `_at_site!`'s five phases — is **unchanged**.
+New files: `src/operators/infinitechain.jl` (the lattice descriptor, `translate`, canonicalisation),
+`src/operators/infinitegraph.jl` (the window construction, identity-channel detection, faithfulness) and
+— for §7 — `src/operators/expterms.jl` (the exponential-decay primitive and its lowering).
+`irrepgraph.jl` gains the canonicalisation described in §3 and the geometric right vertices of §7;
+`irrepmpo.jl` gains the public entries and the wrap-around tensor assembly. The sweep itself —
+`_at_site!`'s five phases — is **unchanged** for finite-range models.
 
 Semantics, fixed once:
 
@@ -39,7 +41,9 @@ The reframe that organises all of it: **the suffix-class structure is a DAG toda
 hash-consing over a finite chain, `sufid[j,t] = intern((site, key, sufid[j+1,t]))`. Finite range on a
 periodic lattice keeps it acyclic (bounded relative offsets ⇒ a finite, `N`-independent name set) and
 needs only a change of *naming*. §7's exponentially decaying terms are what make it genuinely cyclic —
-a finite automaton rather than a DAG — and that is the one place a change of *kind* is required.
+a finite automaton rather than a DAG. That turned out to need less than a change of kind: the cycle is
+always *declared*, so one reserved interned id per loop descriptor cuts it and the consing continues
+above (§7). What it does need is that the cyclic classes be forced into the bond basis.
 
 ## 2. Scope
 
@@ -188,47 +192,123 @@ version of this check reported "never converges" for the stronger version of the
 * Reference numbers: `L = 1` SU(2) Heisenberg is the textbook `[0, 1, 0]`, dense `D = 5`; adding a
   `k`-th neighbour coupling costs one spin-1 channel each, `D = 3k + 2`.
 
-## 7. Exponentially decaying terms — design, not yet built
+## 7. Exponentially decaying terms — built
 
 `Σ_{i<j} λ^{j-i-1} A_i B_j` (optionally with a string operator on the intermediate sites) is the second
 regime. Its Jordan-MPO signature is a scalar `λ` on the **diagonal** of a bond channel, and it cannot be
-enumerated as a flat term list at all.
+enumerated as a flat term list at all. New file: `src/operators/expterms.jl` (the primitive, its
+containers, the explicit expansion, and the lowering); `irrepgraph.jl` gains geometric right vertices;
+`infinitegraph.jl` and `irrepmpo.jl` gain the entry points. Tests: `test/test_exp_decay.jl`.
 
-**Representation.** A primitive alongside the generating `TermSum` — it cannot live in a `K×M` table —
-of the form `expterm(A, B; decay = λ, string = 𝟙)`. Require `|λ| < 1`; `λ = 1` is not summable and must
-error.
+The central claim held: **a geometric channel is a suffix class with a self-loop**, so it is an
+ordinary right vertex and the existing merge / cover / canonicalisation machinery compresses it. The
+design was wrong about two things — what naming it takes (less than expected) and whether the cover
+needs forcing (it does) — and it under-specified the primitive, which is where the scope actually grew.
 
-**A geometric channel is a suffix class with a self-loop.** That is the whole design: make it an
-ordinary right vertex whose name is self-referential (self-edge `λ·passthrough → itself`, exit edge
-`B → exhausted`), and the existing machinery does the rest —
+**Representation.** `expterm(t::TermSum; decay = λ, exitsite, string = nothing)` takes **one fully
+specified representative term** and stretches the gap just before `exitsite` geometrically:
+
+```julia
+expterm(dot(S[1], S[2]); decay = 0.5)                                    # Σ_{i<j} λ^{j-i-1} S_i·S_j
+expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2Sz)                 # with a string operator
+expterm(couple(couple(S[1],S[2];to=1), S[3]); decay = 0.5, exitsite = 3) # two-site entry block
+```
+
+Because the representative is a `TermKey` it already carries the caterpillar tree, so *every* fusion
+channel is named and no charge bookkeeping had to be invented — that is what made multi-site entry and
+exit blocks nearly free, and it is much better than the `expterm(A, B; …)` spelling the sketch
+proposed. `ExpSum` collects channels, `TermSum + ExpSum` gives a `MixedSum`, and `irrep_mpo` takes that
+on an `InfiniteChain` *or* on a finite `sites` vector. The lattice supplies the translation period `P`
+(`L`, or 1 on a finite chain, where the model is the geometric sum truncated to the chain — spelled out
+by `chain_terms`). `λ` counts **per site**; `0 < |λ| < 1` is enforced, and the string is required to be
+charge-neutral, or the running bond charge would drift along it and the loop would not close on itself.
+
+**The naming: no partition refinement.** The sketch expected Hopcroft–Moore, on the grounds that
+bottom-up hash-consing cannot name a cyclic tail. It does not, because cyclic tails only ever come from
+a *declared* primitive: reserving **one interned id per loop descriptor** — `(λ, string transitions,
+exit key, exit-class name, period, δ)`, which fixes the entire cyclic future in closed form — cuts the
+cycle, and ordinary consing works again on top of it. Name equality ⟺ class equality still holds
+(a geometric class can never be bisimilar to a finite one: infinite versus finite support), so
+`_suffix_merge!` and the canonical order need nothing new. Partition refinement only becomes necessary
+if cyclic tails ever become *compositional* — a channel exiting into another channel, i.e. Jordan
+blocks.
+
+Each channel is lowered to a small weighted automaton (`_lower_channels`) whose states are exactly the
+suffix classes it can occupy: `E_b` (entry block partly placed), `W_δ` (mandatory waits when the
+representative's gap exceeds the period), `D_δ` for `δ = L … 1` (**the cyclic core**, `δ` = distance to
+the next legal exit) and `X_b` (exit block partly placed, landing on the exhausted class). Keeping `δ`
+in the state is what makes the phase alignment of an `L > 1` cell fall out: the sweep does no phase
+arithmetic at all. A right vertex is then a `(channel, state)` pair, `_signature!` returns the state's
+name in a disjoint negative id space, and `_rdesc` gained a leading `kind` field. The synthetic
+exhausted class deliberately keeps the ordinary `(0, charge)` signature so that it merges with
+exhausted term classes — that merge *is* the done channel.
+
+**Everything the design table predicted happens** (pinned as bond dimensions in
+`test_exp_decay.jl`):
 
 | case | outcome | mechanism |
 |---|---|---|
 | same `λ`, same exit, different entry | merge | equal suffix class (`_suffix_merge!`) |
-| same `λ`, same entry, different exit | merge | shared left vertex, covered by the min vertex cover |
+| same `λ`, same entry, different exit | two classes, one entry column | shared left vertex, covered by the min vertex cover |
 | different `λ` | stay distinct | correct: the channels are linearly independent |
 
-It also needs no forcing into the bond basis. The channel regenerates itself as the covered-left vertex
-`(link = g, key = λ·passthrough)`, which *is* the fixed point — the same structure that makes the start
-and done channels persist.
+and `L = 1` exponentially decaying Heisenberg costs `[0, 1, 0]`, dense `D = 5` — the channel *replaces*
+the in-flight spin-1 of the nearest-neighbour model rather than adding to it.
 
-**The one change of kind.** Bottom-up hash-consing cannot name a cyclic tail: `_suffix_ids` and
-`_rel_suffix_ids` both terminate because they cons onto an already-interned tail, and a self-reference
-has none. The replacement is **partition refinement** (Hopcroft–Moore), the coinductive dual: start
-with all classes equal and split by `(next-site key, successor class)` until stable, identifying
-classes up to bisimulation. `_suffix_merge!` is already one refinement step per bond — it just refines
-*by a precomputed name* rather than *toward a fixed point*.
+**Forcing the cyclic states into the cover — the design was wrong here.** "It needs no forcing into the
+bond basis" is false. If a cyclic state is left uncovered, its predecessor becomes covered-left, which
+*forwards* the self-edge weight `λ·w` instead of resetting it to 1; the λ powers then ride along the
+bond instead of landing on the diagonal, and a bond that keeps doing that never repeats. König really
+can pick that cover — two equal-size minimum covers exist as soon as a channel shares its entry letter
+with a finite-range term. Measured on that model (`dot(S[1],S[2]) + expterm(dot(S[1],S[2]); decay=λ)`)
+the bad choice *is* made, at the first bond where both classes are live, and then heals one bond later:
+a covered-left predecessor is itself a second predecessor of the cyclic state, which then has two
+pendants and must be covered. So both variants converge on every model in the suite, with identical
+cells and identical bond dimensions. `_forced_cover` makes it structural anyway — `{v} ∪ MVC(G∖v)` is
+minimum among the covers containing `v`, and in the bulk a cyclic state always has a pendant
+predecessor, so forcing is free there and can cost one index only in the window's discarded boundary
+cells.
 
-**Gotcha to remember.** The diagonal must carry the pass-through *letter* weighted by λ, not be an
-empty operator: tensor assembly iterates `pairs(localop)`, so a `SiteOperator` with no letters
-contributes nothing and would be silently dropped. Under `SiteOperator` this is much harder to get
-wrong than it was under `LocalOp` — the bare identity is the `passthrough` sentinel letter rather than
-a letter-less scalar variant, so `scalarop(λ, I)` already *is* `λ · passthrough`.
+**The λ·pass-through trap was real but is structurally avoided.** λ is an *edge weight*, never an
+on-site scalar, so `_vc_component`'s existing `lv.key.op * w` emits the pass-through letter scaled by λ
+— a one-letter `SiteOperator`, which tensor assembly keeps. `test_exp_decay.jl` pins the diagonal
+entry's letter and coefficient directly, because a letter-less entry would have produced a
+correct-looking reduced MPO and a wrong tensor. (`SiteOperator` narrows the trap further than
+`LocalOp` did: the bare identity is the `passthrough` sentinel letter rather than a letter-less scalar
+variant, so the only way to lose the entry now is to emit an *empty* operator.) As a bonus, `|λ| < 1`
+also keeps `_identity_channels` honest: a scaled pass-through is not a *bare* one, so a channel can
+never be mistaken for an identity backbone.
 
-**Out of scope even then**: Jordan blocks (polynomial × exponential decay), sum-of-exponentials fits
-for power laws — which is the only route to `1/r^α` on an infinite lattice, since the exact treatment
-that gives linear bond growth on a finite chain (`examples/long_range.jl`) has no thermodynamic limit —
-and `SVDBondAlgorithm` on channels with a diagonal.
+**Two further things the sketch did not anticipate.**
+
+* *Pruning.* A channel state that can no longer complete inside `1:N` contributes no term, so its edge
+  is dropped when the next graph is built. Without it the last bonds of a finite chain would carry
+  live channel states and the right boundary would not be one-dimensional — this is what makes the
+  finite entry point work at all, and it also cleans up the window's right edge.
+* *Unit-cell invariance does not extend to channels.* A channel's period is part of its declaration, so
+  the same physical all-pairs interaction written on an `L`-site cell needs `L²` channels; their classes
+  collapse to the `L` states `δ = 1 … L`, giving `D = 3L + 2` against the `L = 1` model's 5. The terms
+  are identical (the round-trip test checks every cell size); the bond dimension is not. Measured, the
+  `L` cyclic columns of the bond coefficient matrix are exactly rank 1 with complete-bipartite support,
+  so recombining them needs a *rank*-aware bond choice and the vertex cover is only support-aware — the
+  same blindness that already makes finite `SᶻSᶻ` cost two channels rather than one. Until then, write
+  the smallest cell you can. §8 records the two ways out: an exact symbolic normalisation that covers
+  this case only, and rank-aware bond selection, which covers both.
+
+**Verification** (`test/test_exp_decay.jl`, 330 tests): the `mpo_terms_window` sandwich against the
+explicit expansion (`window_terms` now expands channels) over twelve models; an **explicit truncation**
+oracle — the same interaction written out to `R_max` — with the geometric bond dimension checked
+`R_max`-independent while the truncated one grows as `3R_max + 2`; `contract_open` against
+`instantiate` for four models including a string operator and an `L = 2` cell; the merge table;
+window-size, term-order and unit-cell independence; the finite chain against `chain_terms`; and the
+validation errors.
+
+**Still out of scope**: Jordan blocks (polynomial × exponential decay) — the one case that would
+genuinely need partition refinement; sum-of-exponentials *fitting* for power laws, which is the only
+route to `1/r^α` on an infinite lattice (the exact treatment that gives linear bond growth on a finite
+chain, `examples/long_range.jl`, has no thermodynamic limit) — the primitive is built so that a fit is
+a plain sum of `expterm`s, each costing one channel; and `SVDBondAlgorithm` on channels with a
+diagonal, which throws.
 
 ## 8. Follow-ups
 
@@ -250,5 +330,50 @@ and `SVDBondAlgorithm` on channels with a diagonal.
 * The spread-identity-backbone edge case in `_identity_channels` (§5).
 * A canonically *ordered* `SiteOperator`, which would let `_canonform` go away (§5). The structural
   `==`/`hash` this line used to ask for now exists; only the letter ordering is still insertion-order.
-* Everything in §7.
+* From §7, in rough order of value. The first two both attack the same surplus — the `L` cyclic states
+  of an all-pairs interaction on an `L`-site cell (`D = 3L + 2` against an achievable 5) — from
+  opposite ends, and are worth keeping distinct: the first is exact, cheap and narrow, the second
+  general but with a contract change attached.
+  * **Collapse same-descriptor channels to period 1** — a normalisation pass in `_lower_channels`, no
+    linear algebra involved. The `L` states are proportional *by construction*, not by numerical
+    accident: they are the same declared loop at different phases. So when the `L²` declarations of a
+    cell cover every phase pair with equal `(λ, string, entry/exit letters, coefficient)` *and* the
+    cell's physical spaces are all equal (a letter `(c, n)` only means the same operator at another
+    phase if the space repeats), replace them by a single channel of period 1 and gap 1. `ExpChannel`
+    already carries its own `period`, so channels of mixed period coexist with no change to the sweep,
+    and the merged class is literally the `L = 1` channel. Exact, deterministic, no gauge question.
+    Does nothing for staggered coefficients, phase-dependent letters, or `SᶻSᶻ`.
+  * **Rank-aware bond selection.** The general statement of the same gap, and the only route to the
+    `SᶻSᶻ` case, which is a rank question about *letters* rather than about phases. Measured, the
+    cyclic block is exactly rank 1 with complete-bipartite support (two identical columns, exact
+    zeros elsewhere), so a column-pivoted QR reveals it on the first pivot — SVD's optimality is not
+    needed, and `_irrep_graph_svd` is already the charge-graded sequential QR-style sweep. Four things
+    stand between that and using it here:
+    * it must be a column **merge**, not a column **selection**: identical columns mean the operator
+      contains `prefix ⊗ (suffix₁ + suffix₂)`, so an interpolative decomposition that keeps one column
+      and drops the other is wrong. Consequence: a bond index stops being *a* suffix class. (The
+      geometric structure itself survives fine — the cyclic block is `λ` times the identity, and a
+      basis change conjugates identity to identity, so the `λ`-diagonal is gauge-independent.)
+    * **gauge canonicality**, the real risk. §3 needs bonds `i` and `i + L` *identically labelled*, and
+      `_fixedpoint_cell` compares entry for entry; a factorisation is defined only up to a phase per
+      column and up to pivot tie-breaking, and pivoting is discontinuous in near-ties. Needs a
+      deterministic gauge fix on top (phase of each column's largest entry, a total order on ties) or
+      the cell never converges.
+    * `_identity_channels` detects the two boundary vectors as *bare* pass-through backbones; a
+      rotation smears them across columns and they stop being one-hot. The channels would have to be
+      pinned out of the rotation and only the complement factorised.
+    * the contract shifts from **symbolically exact to tolerance-based** (channel columns differ by
+      factors `λ^k`), and faithfulness would have to move from the `mpo_terms` round-trip to a dense
+      comparison — as `test_irrep_graph.jl` already does for the SVD path.
+    Mechanically, `_irrep_graph_svd` also seeds eagerly (`lazy = false`) where channels need the lazy
+    path, and `SVDBondAlgorithm` throws on infinite chains outright.
+  * **Jordan blocks** (polynomial × exponential decay), i.e. a channel exiting into another channel.
+    That makes the cyclic tails compositional, which is where partition refinement finally earns its
+    keep.
+  * **Sum-of-exponentials fitting** for power laws, layered on top of `expterm` (the representation is
+    ready; only the fit is missing).
+  * A channel's exit-block tail is interned in the channel id space, so it does not merge with an
+    identical *finite* term's tail — a missed merge, never a wrong answer. Sharing one intern table
+    between `_suffix_ids` and the channel names would fix it.
+  * A per-*cell* rather than per-site decay convention, i.e. a period-`L` diagonal.
 * Inherited from `persistent-graph-mpo.md` §5: fermionic/JW strings, `GenericFusion` multi-channel.

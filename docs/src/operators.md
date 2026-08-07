@@ -351,9 +351,54 @@ site tensors that tile — site 1's left virtual space is site `L`'s right virtu
 !!! note
     Terms must be charge-neutral, and `SVDBondAlgorithm` is not available here: it compresses each bond
     independently against a vacuum-terminated layout, with no bond basis that closes on itself. Terms
-    with no support (`K = 0`) are rejected too, since `Σ_n c·𝟙` does not converge. Truly infinite-range
-    couplings — exponentially decaying interactions, and the sum-of-exponentials fits that approximate
-    a power law — are not supported yet; `research/infinite-mpo.md` §7 has the design.
+    with no support (`K = 0`) are rejected too, since `Σ_n c·𝟙` does not converge.
+
+## Exponentially decaying interactions
+
+A term sum can only hold couplings of finite range. [`expterm`](@ref OpSum.expterm) adds the one
+infinite-range family an MPO represents exactly at fixed cost — a geometric decay, which is a scalar
+`λ` on the diagonal of a bond channel:
+
+```math
+\sum_{i<j} \lambda^{\,j-i-1}\, A_i\, S_{i+1}\cdots S_{j-1}\, B_j ,\qquad 0 < |\lambda| < 1 .
+```
+
+You write one **representative term** and say where the stretched gap is; everything else — the
+charges, the caterpillar fusion tree — comes from that term, exactly as for a finite-range coupling:
+
+```@example ops
+using OpSum: expterm
+
+Hexp = 0.5 * couple(Sp[1], Sm[2]) + 0.5 * couple(Sm[1], Sp[2]) +          # nearest neighbour
+    expterm(couple(Sz[1], Sz[2]); decay = 0.6)                            # + geometric Sᶻ tail
+Hgeo = irrep_mpo(Hexp, chain)
+Hgeo.bondsectors
+```
+
+Adding an `expterm` to a term bag gives an [`OpSum.MixedSum`](@ref), which `irrep_mpo` accepts on an
+`InfiniteChain` *or* with a finite vector of sites. A `MixedSum` is latticeless, like the
+[`Terms`](@ref OpSum.Terms) it is built from — a channel is not a term, so `opsum` cannot bind it —
+which is why the finite form takes its sites directly. The lattice fixes the translation period: on an
+`L`-site cell the entry and the exit both step by `L` (and, as above, `H` is a generating set), while on
+a finite chain every site is a possible entry and the operator represented is the geometric sum
+truncated to the chain — [`OpSum.chain_terms`](@ref) writes it out.
+
+* `decay` counts **per site** of the string, so the shortest translate carries `λ` to the power of the
+  representative's own gap and every further period costs `λ^L`. `|λ| ≥ 1` is rejected.
+* `exitsite` (default: the representative's last site) is the first site of the *exit block*. Sites
+  before it form the entry block, so multi-site blocks on either end work:
+  `expterm(couple(couple(A[1], A[2]; to = c), B[4]); decay = λ, exitsite = 4)`.
+* `string` is an on-site operator carried by the stretched gap (default: the identity). It must be
+  charge-neutral — a charged string would make the running bond charge drift along the loop.
+* A **sum of exponentials** is a sum of `expterm`s. Channels with different `λ` are linearly
+  independent, so each costs one bond index; channels sharing `(λ, string, exit)` merge into one.
+
+!!! note
+    A channel's period is part of its declaration, so writing the same interaction on a larger unit
+    cell is not free: on an `L`-site cell an all-pairs geometric coupling needs `L²` channels and costs
+    `L` bond channels instead of one. Write the smallest cell you can. Jordan blocks
+    (polynomial × exponential) and power-law *fitting* are not supported; `research/infinite-mpo.md` §7
+    is the design note.
 
 ## Recommended patterns
 

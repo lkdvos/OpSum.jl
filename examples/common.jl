@@ -12,8 +12,8 @@
 
 using OpSum
 using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, mpo_tensormap, islossless, instantiate,
-    Term, Terms, TermSum, opsum, lattice, spin, spin_ops, fermion_ops, couple, project, matrixunit,
-    BipartiteAlgorithm, SVDBondAlgorithm
+    Term, Terms, TermSum, opsum, lattice, spin, spin_ops, fermion_ops, couple, project,
+    matrixunit, BipartiteAlgorithm, SVDBondAlgorithm
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, eigvals, norm
@@ -41,13 +41,15 @@ using LinearAlgebra: dot, eigvals, norm
 # Nothing is ever converted to a dense array, which matters for fermionic sectors where
 # `convert(Array, t)` is not a well-defined operation.
 #
+# Under an abelian symmetry the operands of `couple` may be written in any site order — the stored
+# form is site-ordered, so an out-of-order leg is inserted and the braiding phase (for fermions, the
+# anticommutation sign) comes with it. Non-abelian coupling still needs increasing site indices, since
+# reordering there would need F-moves. `H'` gives the hermitian-conjugate partner either way.
+#
 # Two builders bundle the conventions that would otherwise be re-derived per page:
 # [`spin_ops`](@ref OpSum.spin_ops) for the U(1)-graded `(Sp, Sm, Sz)` and
 # [`fermion_ops`](@ref OpSum.fermion_ops) for `(c, cd, n)`. Both, like `spin` and `matrixunit`, are
 # memoised, so they can be called inside a term loop.
-#
-# `couple` is strictly left-to-right, so the site indices must increase. For fermions that is not a
-# mere convention: swapping the two sites flips the sign of the term.
 
 # ## Quasi-2D geometry
 #

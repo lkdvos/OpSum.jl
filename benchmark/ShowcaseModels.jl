@@ -75,11 +75,11 @@ end
 
 const FERMION_MODE = Vect[FermionNumber](0 => 1, 1 => 1)
 
-# `couple` is strictly left-to-right, so the h.c. partner of `c†_i c_{i+1}` must be written as
-# `-c_i c†_{i+1}`: anticommuting `c†_{i+1} c_i` into site order costs a sign.
+# `couple` is order-free for abelian sectors, so the h.c. partner of `c†_i c_j` is written as it
+# reads: anticommuting `c†_j c_i` into storage order costs a sign, and `couple` inserts it.
 function _hopping_terms(F, bonds, t)
     return [
-        -t * (couple(F.cd[i], F.c[j]) - couple(F.c[i], F.cd[j]))
+        -t * (couple(F.cd[i], F.c[j]) + couple(F.cd[j], F.c[i]))
             for (i, j) in bonds
     ]
 end

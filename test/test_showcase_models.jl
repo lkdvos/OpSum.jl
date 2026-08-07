@@ -92,6 +92,8 @@ end
 
 @testset "fermionic sign is required" begin
     # Flipping the h.c. sign must break hermiticity -- otherwise the check above proves nothing.
+    # `couple` now supplies the sign for `couple(F.cd[i + 1], F.c[i])`, so getting it wrong takes
+    # deliberately writing the site-ordered spelling with a `+`.
     F = fermion_ops()
     V = ShowcaseModels.FERMION_MODE
     N = 6

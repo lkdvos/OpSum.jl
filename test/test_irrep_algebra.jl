@@ -202,8 +202,15 @@ end
     @test A ≈ ref
 end
 
+# ── Out-of-order coupling ─────────────────────────────────────────────────────
+# The stored form is site-ordered, so an operand acting to the left of an earlier one has its leg
+# *inserted* and the coefficient picks up the braiding phase. That is exactly the fermionic
+# anticommutation sign the caller used to have to supply, so these tests pin it against the site-
+# ordered spelling *and*, where possible, against an independent oracle (hermiticity, and the analytic
+# free-fermion spectrum).
+
 # Spectrum computed block by block, so it is valid for any sector (`convert(Array, t)` is not, for
-# fermionic ones). Used to cross-check the U(1) `spin_ops` ladders against the SU(2) `spin` build.
+# fermionic ones). Also cross-checks the U(1) `spin_ops` ladders against the SU(2) `spin` build.
 function blockspectrum(H)
     O = instantiate(H)
     Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
@@ -215,6 +222,146 @@ function blockspectrum(H)
         end
     end
     return sort!(vals)
+end
+
+function relative_hermiticity_error(H)
+    O = instantiate(H)
+    Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
+    return norm(Oop - Oop') / norm(Oop)
+end
+
+@testset "out-of-order couple inserts the braiding phase" begin
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    F = fermion_ops(Vf)
+
+    # two odd legs swapped: R = -1
+    @test couple(F.cd[2], F.c[1]) ≈ -couple(F.c[1], F.cd[2])
+    @test couple(F.c[2], F.cd[1]) ≈ -couple(F.cd[1], F.c[2])
+    # an even leg (n̂ carries the unit charge) swaps for free
+    @test couple(F.n[2], F.n[1]) ≈ couple(F.n[1], F.n[2])
+    @test couple(F.n[2], F.cd[1]; to = FermionNumber(1)) ≈
+        couple(F.cd[1], F.n[2]; to = FermionNumber(1))
+
+    # bosonic abelian sectors: no phase at all
+    Vu = Rep[U₁](0 => 1, 1 => 1)
+    S = spin_ops(Vu, U1Irrep(1), U1Irrep(0))
+    @test couple(S.Sm[2], S.Sp[1]) ≈ couple(S.Sp[1], S.Sm[2])
+    @test couple(S.Sz[3], S.Sz[1]) ≈ couple(S.Sz[1], S.Sz[3])
+
+    # the inserted leg lands in site order with the running bond charges recomputed
+    t = only(couple(F.cd[2], F.c[1]))
+    @test t.sites == [1, 2]
+    @test bondcharges(tree(t)) == [FermionNumber(-1), unit(FermionNumber)]
+
+    # insertion in the *middle* of an existing caterpillar
+    lhs = couple(couple(F.cd[1], F.c[4]), F.n[2])
+    rhs = couple(couple(F.cd[1], F.n[2]; to = FermionNumber(1)), F.c[4])
+    @test lhs ≈ rhs
+    @test only(lhs).sites == [1, 2, 4]
+
+    # a four-leg permutation: reordering [3,1,4,2] has three inversions among odd legs, so -1
+    @test couple(F.cd[3], F.c[1], F.cd[4], F.c[2]) ≈
+        -couple(F.c[1], F.c[2], F.cd[3], F.cd[4])
+
+    # same site is still an error, whichever order it is written in
+    @test_throws ArgumentError couple(F.cd[2], F.c[2])
+    @test_throws ArgumentError couple(couple(F.cd[1], F.c[3]), F.n[3])
+
+    # non-abelian reordering needs F-moves and is refused
+    Vs = SU2Space(1 // 2 => 1)
+    S2 = spin(Vs)
+    @test_throws ArgumentError couple(couple(S2[1], S2[3]; to = SU2Irrep(1)), S2[2])
+end
+
+@testset "the sign out-of-order couple supplies is the physical one" begin
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    F = fermion_ops(Vf)
+    N, t = 6, 1.0
+    sites = fill(Vf, N)
+
+    # the textbook spelling of a hopping term, hermitian and with the analytic spectrum
+    H = opsum(
+        sites, (-t * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1))
+    )
+    @test relative_hermiticity_error(H) < 1.0e-12
+    ε = [-2t * cos(k * π / (N + 1)) for k in 1:N]
+    exact = sort(
+        [sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0) for m in 0:(2^N - 1)]
+    )
+    @test blockspectrum(H) ≈ exact
+    # the hand-signed spelling it replaces
+    @test H ≈ opsum(
+        sites, (-t * (couple(F.cd[i], F.c[i + 1]) - couple(F.c[i], F.cd[i + 1])) for i in 1:(N - 1))
+    )
+end
+
+@testset "dot accepts either site order, with the swap phase" begin
+    # `dot` couples two legs to the unit sector, which needs no F-move whatever the fusion style, so
+    # it works out of order where the general `couple` reordering does not.
+    Vs = SU2Space(1 // 2 => 1)
+    S = spin(Vs)
+    @test dot(S[3], S[1]) ≈ dot(S[1], S[3])          # integer operator charge: R = +1
+
+    Vu = Rep[U₁](0 => 1, 1 => 1)
+    Su = spin_ops(Vu, U1Irrep(1), U1Irrep(0))
+    @test dot(Su.Sm[3], Su.Sp[1]) ≈ dot(Su.Sp[1], Su.Sm[3])
+
+    # odd fermionic charges anticommute, so `dot` is *not* order-independent there — the previous
+    # implementation sorted the sites and dropped this sign
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    F = fermion_ops(Vf)
+    @test dot(F.cd[3], F.c[1]) ≈ -dot(F.c[1], F.cd[3])
+
+    # half-integer SU(2) operator charges pick it up too (R(½, ½, 0) = -1)
+    spinor = LO(IrrepOperator(SU2Irrep(1 // 2), 1))
+    @test dot(spinor[3], spinor[1]) ≈ -dot(spinor[1], spinor[3])
+
+    @test_throws ArgumentError dot(S[1], S[1])
+end
+
+@testset "adjoint is the hermitian conjugate" begin
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    F = fermion_ops(Vf)
+    N = 4
+    sites = fill(Vf, N)
+
+    T = opsum(sites, (-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1)))
+    @test T + T' ≈ opsum(
+        sites, (-1.0 * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1))
+    )
+    @test relative_hermiticity_error(T + T') < 1.0e-12
+    @test (T')' ≈ T
+    @test lattice(T') == sites
+
+    # a complex amplitude has to be conjugated, and a longer-range hop crosses a site
+    for T2 in (
+            (0.3 + 0.7im) * couple(F.cd[1], F.c[2]),
+            0.5im * couple(F.cd[1], F.c[3]),
+            (1.0 + 0.5im) * couple(F.cd[1], F.cd[2], F.c[3], F.c[4]),
+            2.0im * F.n[2] + scalarop(1.0 + 1.0im, Vf)[1],
+        )
+        Tl = opsum(sites, T2)
+        @test relative_hermiticity_error(Tl + Tl') < 1.0e-12
+        @test (Tl')' ≈ Tl
+    end
+
+    # non-abelian, including a 3-body term with a genuine inner line
+    Vs = SU2Space(1 // 2 => 1)
+    S = spin(Vs)
+    Hs = opsum(fill(Vs, 4), (dot(S[i], S[i + 1]) for i in 1:3))
+    @test Hs' ≈ Hs
+    T3 = opsum(
+        fill(Vs, 3),
+        (0.4 + 0.2im) * couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
+    )
+    @test relative_hermiticity_error(T3 + T3') < 1.0e-12
+    @test (T3')' ≈ T3
+
+    # a charged term's adjoint lives in the dual sector, so it is refused
+    @test_throws ArgumentError opsum(sites, F.cd[1])'
+    @test isempty(opsum(sites)')
+    # and a latticeless bag says what it is missing rather than raising a MethodError
+    @test_throws ArgumentError couple(F.cd[1], F.c[2])'
 end
 
 @testset "operator builders" begin

@@ -5,7 +5,8 @@
 # **no Jordan–Wigner strings appear anywhere** — the odd-parity charge flowing along the virtual
 # bond does that bookkeeping for you.
 #
-# There is exactly one thing you have to get right, and this page is built around it.
+# There is exactly one thing to get right — the anticommutation sign — and this page is built around
+# it, including who supplies it.
 
 using OpSum: OpSum
 include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
@@ -26,39 +27,49 @@ c, cd, nh = F.c, F.cd, F.n     # ``c``, ``c^\dagger``, ``\hat{n}``
 
 BraidingStyle(sectortype(V))
 
-# ## The one sign you have to get right
+# ## The sign, and who supplies it
 #
 # ```math
 # H = -t \sum_i \left( c^\dagger_i c_{i+1} + c^\dagger_{i+1} c_i \right)
 # ```
 #
-# `couple` builds its fusion tree strictly left to right, so there is no way to write
-# ``c^\dagger_{i+1} c_i`` directly — the operator on the *smaller* site index must come first.
-# Anticommuting it into place costs a sign:
+# A term is *stored* in site order, so `couple(cd[i + 1], c[i])` cannot be kept as written: its two
+# legs have to be swapped, and swapping two odd-parity legs costs
 #
 # ```math
-# c^\dagger_{i+1} c_i = - c_i c^\dagger_{i+1}
+# c^\dagger_{i+1} c_i = - c_i c^\dagger_{i+1}.
 # ```
 #
-# so the hermitian conjugate partner enters with a **minus**.
+# Under an abelian symmetry — every fermionic sector is one — `couple` does that swap and inserts the
+# phase itself, so the Hamiltonian is written the way it is printed above. `H'` produces the same
+# partner from the first half.
 
-function hopping(N; t = 1.0, sign = -1.0)
+function hopping(N; t = 1.0)
     return opsum(
         fill(V, N),
-        (
-            -t * (couple(cd[i], c[i + 1]) + sign * couple(c[i], cd[i + 1]))
-                for i in 1:(N - 1)
-        )
+        (-t * (couple(cd[i], c[i + 1]) + couple(cd[i + 1], c[i])) for i in 1:(N - 1))
     )
 end
 
 N = 8
 H = hopping(N)
 
-# Getting the sign wrong is not a subtle error — the operator simply stops being hermitian, which
-# is a cheap and very sharp check:
+forward = opsum(fill(V, N), (-1.0 * couple(cd[i], c[i + 1]) for i in 1:(N - 1)))
+H ≈ forward + forward'
 
-(correct = hermiticity_error(H), wrong = hermiticity_error(hopping(N; sign = +1.0)))
+# Nothing stops you from supplying a sign by hand, and then it is yours to get right: written in
+# storage order the h.c. partner of ``c^\dagger_i c_{i+1}`` is ``-c_i c^\dagger_{i+1}``, and a `+`
+# there is not a subtle error — the operator simply stops being hermitian, which is a cheap and very
+# sharp check.
+
+byhand(N; t = 1.0, sign = -1.0) = opsum(
+    fill(V, N),
+    (-t * (couple(cd[i], c[i + 1]) + sign * couple(c[i], cd[i + 1])) for i in 1:(N - 1))
+)
+
+H ≈ byhand(N)
+#-
+(correct = hermiticity_error(H), wrong = hermiticity_error(byhand(N; sign = +1.0)))
 
 # ## Verification against the exact spectrum
 #
@@ -128,8 +139,8 @@ orbital(i, σ) = 2 * (i - 1) + σ    # σ = 1 for ↑, 2 for ↓
 function hubbard(Nsites; t = 1.0, U = 4.0)
     hop = [
         -t * (
-                couple(cd[orbital(i, σ)], c[orbital(i + 1, σ)]) -
-                couple(c[orbital(i, σ)], cd[orbital(i + 1, σ)])
+                couple(cd[orbital(i, σ)], c[orbital(i + 1, σ)]) +
+                couple(cd[orbital(i + 1, σ)], c[orbital(i, σ)])
             )
             for i in 1:(Nsites - 1) for σ in 1:2
     ]

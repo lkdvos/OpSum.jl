@@ -5,9 +5,12 @@ include(joinpath(pkgdir(OpSum), &quot;examples&quot;, &quot;common.jl&quot;))
 V = SU2Space(1 // 2 =&gt; 1)
 S = spin(V)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">SiteOperator{TensorKitSectors.SU2Irrep}(1.224744871391589 + 0.0im*ITO(Irrep[SU₂](1), n=1))</code></pre><h2 id="Three-body-terms-and-the-channel-constraint"><a class="docs-heading-anchor" href="#Three-body-terms-and-the-channel-constraint">Three-body terms and the channel constraint</a><a id="Three-body-terms-and-the-channel-constraint-1"></a><a class="docs-heading-anchor-permalink" href="#Three-body-terms-and-the-channel-constraint" title="Permalink"></a></h2><p>A three-body scalar built from three rank-1 operators is</p><p class="math-container">\[\left( \vec{S}_1 \times \vec{S}_2 \right) \cdot \vec{S}_3\]</p><p>and in the caterpillar basis it is <code>couple(couple(S[1], S[2]; to = j₁₂), S[3]; to = 0)</code>. The intermediate label <span>$j_{12}$</span> is a genuine degree of freedom, but it is not free: the <em>last</em> inner line must be able to fuse with the final operator charge to reach the total charge. Since each <span>$\vec{S}$</span> carries charge 1, reaching a singlet forces <span>$j_{12} = 1$</span>:</p><pre><code class="language-julia hljs">for j12 in 0:2
     try
-        H = couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(0))
-        r = build(&quot;K=3 j12=$j12&quot;, H, fill(V, 3); quiet = true)
-        println(&quot;  j12=$j12  valid    D_dense=$(r.Ddense)  lossless=$(islossless(H, fill(V, 3)))&quot;)
+        H = opsum(
+            fill(V, 3),
+            couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(0))
+        )
+        r = build(&quot;K=3 j12=$j12&quot;, H; quiet = true)
+        println(&quot;  j12=$j12  valid    D_dense=$(r.Ddense)  lossless=$(islossless(H))&quot;)
     catch e
         println(&quot;  j12=$j12  rejected: &quot;, first(sprint(showerror, e), 72))
     end
@@ -16,11 +19,14 @@ end</code></pre><pre class="documenter-example-output"><code class="nohighlight 
   j12=2  rejected: ArgumentError: couple: no pair of terms of the operands fuses to Irrep[S</code></pre><p>The rejected cases are not a limitation but a consistency check: those operators do not exist as SU(2) scalars.</p><h2 id="Four-body-terms"><a class="docs-heading-anchor" href="#Four-body-terms">Four-body terms</a><a id="Four-body-terms-1"></a><a class="docs-heading-anchor-permalink" href="#Four-body-terms" title="Permalink"></a></h2><p>With four rank-1 operators there are two inner lines, <span>$(j_{12}, j_{123})$</span>. The same reasoning forces <span>$j_{123} = 1$</span>, leaving exactly <strong>three</strong> singlet channels:</p><pre><code class="language-julia hljs">channels = Tuple{Int, Int}[]
 for j12 in 0:2, j123 in 0:3
     try
-        H = couple(
-            couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(j123)),
-            S[4]; to = SU2Irrep(0)
+        H = opsum(
+            fill(V, 4),
+            couple(
+                couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(j123)),
+                S[4]; to = SU2Irrep(0)
+            )
         )
-        r = build(&quot;k4&quot;, H, fill(V, 4); quiet = true)
+        r = build(&quot;k4&quot;, H; quiet = true)
         push!(channels, (j12, j123))
         println(&quot;  (j12=$j12, j123=$j123)  valid    D_dense=$(r.Ddense)&quot;)
     catch
@@ -45,9 +51,9 @@ channels</code></pre><pre class="documenter-example-output"><code class="nohighl
             for i in eachindex(ops), j in eachindex(ops)
     ]
 end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">3×3 Matrix{Float64}:
- 1.0  0.0  0.0
- 0.0  1.0  0.0
- 0.0  0.0  1.0</code></pre><h3 id="A-note-on-ring-exchange"><a class="docs-heading-anchor" href="#A-note-on-ring-exchange">A note on ring exchange</a><a id="A-note-on-ring-exchange-1"></a><a class="docs-heading-anchor-permalink" href="#A-note-on-ring-exchange" title="Permalink"></a></h3><p>The caterpillar tree fixes the <em>site order</em>, so the <span>$j_{12}$</span> channel corresponds to the pairing <span>$(\vec{S}_1\!\cdot\!\vec{S}_2)(\vec{S}_3\!\cdot\!\vec{S}_4)$</span> — the <code>j₁₂ = 0</code> channel is exactly that product. The other two pairings, <span>$(\vec{S}_1\!\cdot\!\vec{S}_3)(\vec{S}_2\!\cdot\!\vec{S}_4)$</span> and <span>$(\vec{S}_1\!\cdot\!\vec{S}_4)(\vec{S}_2\!\cdot\!\vec{S}_3)$</span>, are <em>linear combinations</em> of all three channels, with coefficients given by recoupling (F-move) symbols.</p><p>So a specific physical ring-exchange operator is a particular linear combination of the three channels rather than a single one. Since every combination has the same MPO bond structure, the cost story below is unaffected by which one you pick.</p><h2 id="A-four-body-model-on-a-ladder"><a class="docs-heading-anchor" href="#A-four-body-model-on-a-ladder">A four-body model on a ladder</a><a id="A-four-body-model-on-a-ladder-1"></a><a class="docs-heading-anchor-permalink" href="#A-four-body-model-on-a-ladder" title="Permalink"></a></h2><p>To see multi-body terms in a Hamiltonian rather than in isolation, add plaquette terms to a two-leg ladder. With column-major ordering the four sites of the plaquette at column <span>$x$</span> are the consecutive indices <span>$2x-1, \ldots, 2x+2$</span>, so the <code>j₁₂ = 0</code> channel couples rung <span>$x$</span> to rung <span>$x+1$</span>.</p><pre><code class="language-julia hljs">function plaquette_ladder(Lx; J = 1.0, K = 0.3, j12 = 0)
+ 1.0   0.0   0.0
+ 0.0   1.0  -0.0
+ 0.0  -0.0   1.0</code></pre><h3 id="A-note-on-ring-exchange"><a class="docs-heading-anchor" href="#A-note-on-ring-exchange">A note on ring exchange</a><a id="A-note-on-ring-exchange-1"></a><a class="docs-heading-anchor-permalink" href="#A-note-on-ring-exchange" title="Permalink"></a></h3><p>The caterpillar tree fixes the <em>site order</em>, so the <span>$j_{12}$</span> channel corresponds to the pairing <span>$(\vec{S}_1\!\cdot\!\vec{S}_2)(\vec{S}_3\!\cdot\!\vec{S}_4)$</span> — the <code>j₁₂ = 0</code> channel is exactly that product. The other two pairings, <span>$(\vec{S}_1\!\cdot\!\vec{S}_3)(\vec{S}_2\!\cdot\!\vec{S}_4)$</span> and <span>$(\vec{S}_1\!\cdot\!\vec{S}_4)(\vec{S}_2\!\cdot\!\vec{S}_3)$</span>, are <em>linear combinations</em> of all three channels, with coefficients given by recoupling (F-move) symbols.</p><p>So a specific physical ring-exchange operator is a particular linear combination of the three channels rather than a single one. Since every combination has the same MPO bond structure, the cost story below is unaffected by which one you pick.</p><h2 id="A-four-body-model-on-a-ladder"><a class="docs-heading-anchor" href="#A-four-body-model-on-a-ladder">A four-body model on a ladder</a><a id="A-four-body-model-on-a-ladder-1"></a><a class="docs-heading-anchor-permalink" href="#A-four-body-model-on-a-ladder" title="Permalink"></a></h2><p>To see multi-body terms in a Hamiltonian rather than in isolation, add plaquette terms to a two-leg ladder. With column-major ordering the four sites of the plaquette at column <span>$x$</span> are the consecutive indices <span>$2x-1, \ldots, 2x+2$</span>, so the <code>j₁₂ = 0</code> channel couples rung <span>$x$</span> to rung <span>$x+1$</span>.</p><pre><code class="language-julia hljs">function plaquette_ladder(Lx; J = 1.0, K = 0.3, j12 = 0)
     bonds = ladder_bonds(Lx, 2)
     two_body = [J * dot(S[i], S[j]) for (i, j) in bonds]
     plaquettes = [
@@ -56,21 +62,21 @@ end</code></pre><pre class="documenter-example-output"><code class="nohighlight 
                 S[4x]; to = SU2Irrep(0)
             ) for x in 1:(div(Lx, 2))
     ]
-    return sum(vcat(two_body, plaquettes)), fill(V, 2Lx)
+    return opsum(fill(V, 2Lx), two_body, plaquettes)
 end
 
-H4, sites4 = plaquette_ladder(6)
-res4 = build(&quot;ladder + plaquettes&quot;, H4, sites4)
-islossless(H4, sites4)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">true</code></pre><p>Compare against the pure two-body ladder to isolate what the four-body terms cost:</p><pre><code class="language-julia hljs">let Lx = 6
-    two = build(&quot;ladder only&quot;, sum([dot(S[i], S[j]) for (i, j) in ladder_bonds(Lx, 2)]), fill(V, 2Lx); quiet = true)
+H4 = plaquette_ladder(6)
+res4 = build(&quot;ladder + plaquettes&quot;, H4)
+islossless(H4)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">true</code></pre><p>Compare against the pure two-body ladder to isolate what the four-body terms cost:</p><pre><code class="language-julia hljs">let Lx = 6
+    two_only = opsum(fill(V, 2Lx), (dot(S[i], S[j]) for (i, j) in ladder_bonds(Lx, 2)))
+    two = build(&quot;ladder only&quot;, two_only; quiet = true)
     println(&quot;  two-body only:        D=$(two.D)  D_dense=$(two.Ddense)&quot;)
     println(&quot;  with plaquettes:      D=$(res4.D)  D_dense=$(res4.Ddense)&quot;)
 end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">  two-body only:        D=4  D_dense=8
   with plaquettes:      D=5  D_dense=9</code></pre><p>And the bond dimension still saturates with system size:</p><pre><code class="language-julia hljs">for Lx in (4, 6, 8, 12)
-    H, s = plaquette_ladder(Lx)
-    r = build(&quot;plaq&quot;, H, s; quiet = true)
+    r = build(&quot;plaq&quot;, plaquette_ladder(Lx); quiet = true)
     println(&quot;  Lx=$(rpad(Lx, 3)) N=$(rpad(2Lx, 3))  D=$(rpad(r.D, 3))  D_dense=$(r.Ddense)&quot;)
 end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">  Lx=4   N=8    D=4    D_dense=8
   Lx=6   N=12   D=5    D_dense=9
   Lx=8   N=16   D=5    D_dense=9
-  Lx=12  N=24   D=5    D_dense=9</code></pre><h2 id="Scaling"><a class="docs-heading-anchor" href="#Scaling">Scaling</a><a id="Scaling-1"></a><a class="docs-heading-anchor-permalink" href="#Scaling" title="Permalink"></a></h2><pre><code class="nohighlight hljs">julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full</code></pre><p><img src="../../assets/scaling.png" alt="Bond dimension and construction time versus system size"/></p><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../ladders_and_cylinders/">« Ladders and cylinders</a><a class="docs-footer-nextpage" href="../fermions/">Fermions: free chains and the Hubbard model »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Wednesday 5 August 2026 02:52">Wednesday 5 August 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+  Lx=12  N=24   D=5    D_dense=9</code></pre><h2 id="Scaling"><a class="docs-heading-anchor" href="#Scaling">Scaling</a><a id="Scaling-1"></a><a class="docs-heading-anchor-permalink" href="#Scaling" title="Permalink"></a></h2><pre><code class="nohighlight hljs">julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full</code></pre><p><img src="../../assets/scaling.png" alt="Bond dimension and construction time versus system size"/></p><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../ladders_and_cylinders/">« Ladders and cylinders</a><a class="docs-footer-nextpage" href="../fermions/">Fermions: free chains and the Hubbard model »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 7 August 2026 14:11">Friday 7 August 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

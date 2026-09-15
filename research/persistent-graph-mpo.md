@@ -14,7 +14,7 @@ Non-abelian structure enters only (a) in what makes a bond state distinct (the a
 
 ## 2. The sweep (`_at_site!`, five phases)
 
-Exactly ITensor's `at_site!` (doc §6), sharing phases 1/2/5 between both backends:
+Exactly ITensor's `at_site!`, sharing phases 1/2/5 between both backends:
 
 1. **Suffix-merge** (`_suffix_merge!`) — merge right vertices "equal from site `i+1` on", by grouping
    the live ones on an `O(1)` suffix signature (§2.1).
@@ -27,7 +27,7 @@ Exactly ITensor's `at_site!` (doc §6), sharing phases 1/2/5 between both backen
    fresh left vertices with the outgoing bond index `j` as their `link`, bucketed by `op@(i+1)`; and
    inject the terms whose first active site is `i+1` (§2.2).
 
-**Coefficient flow** matches the transient sweep's covered-U / covered-V rule (handoff §3, doc §6): covered-left forwards its edge weights unchanged and emits the bare letter; covered-right resets the forwarded weight to 1 and folds `key.op × weight` into the block for every uncovered incident left.
+**Coefficient flow** matches the transient sweep's covered-U / covered-V rule: covered-left forwards its edge weights unchanged and emits the bare letter; covered-right resets the forwarded weight to 1 and folds `key.op × weight` into the block for every uncovered incident left.
 Component bond-charge purity is `@assert`ed, exactly as `_irrep_bipartite` does.
 
 Everything is driven off the sparse adjacency lists: no `nU × nV` coefficient matrix is materialised anywhere on the VC path (only `_svd_at_site!` densifies, via `_dense_bond_matrix`, since its per-bond SVD is dense regardless), and `min_vertex_cover_bipartite` takes adjacency lists directly.

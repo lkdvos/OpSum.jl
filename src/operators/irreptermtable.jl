@@ -50,19 +50,18 @@ function _canonicalize!(terms::Vector{Term{I}}) where {I}
 end
 
 # Already in normal form and sorted the same way, so a positional walk is a set comparison.
-function _termsapprox(ta::Vector{Term{I}}, tb::Vector{Term{I}}; kwargs...) where {I}
+function _termscompare(ta::Vector{Term{I}}, tb::Vector{Term{I}}, coeffcmp) where {I}
     length(ta) == length(tb) || return false
     for (x, y) in zip(ta, tb)
         x == y || return false
-        isapprox(x.coeff, y.coeff; kwargs...) || return false
+        coeffcmp(x.coeff, y.coeff) || return false
     end
     return true
 end
 
-function _termsequal(ta::Vector{Term{I}}, tb::Vector{Term{I}}) where {I}
-    length(ta) == length(tb) || return false
-    return all(((x, y),) -> x == y && x.coeff == y.coeff, zip(ta, tb))
-end
+_termsapprox(ta::Vector{Term{I}}, tb::Vector{Term{I}}; kwargs...) where {I} =
+    _termscompare(ta, tb, (x, y) -> isapprox(x, y; kwargs...))
+_termsequal(ta::Vector{Term{I}}, tb::Vector{Term{I}}) where {I} = _termscompare(ta, tb, ==)
 
 # the symbol an inactive (padded) slot carries, matching `_op_at_ito`'s reconstruction
 _padkey(::Type{I}) where {I <: Sector} = ITOKey{I}(passthrough(I), unit(I), 1)

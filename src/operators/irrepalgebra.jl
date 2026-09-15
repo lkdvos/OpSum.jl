@@ -461,6 +461,11 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
     out = Term{I}[]
     sizehint!(out, length(a) * length(b))
     reorder = _canreorder(I)
+    for tb in b.terms
+        arity(tb) == 1 || throw(
+            ArgumentError("couple: every term of the second operand must be a single-site charged operator")
+        )
+    end
     for ta in a.terms
         na = arity(ta)
         na >= 1 || throw(
@@ -468,9 +473,6 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
         )
         run = last(ta.keys).bond
         for tb in b.terms
-            arity(tb) == 1 || throw(
-                ArgumentError("couple: every term of the second operand must be a single-site charged operator")
-            )
             sb = only(tb.sites)
             opb = only(tb.keys).op
 
@@ -542,7 +544,7 @@ costs is inserted with it. For a fermionic sector that phase *is* the anticommut
 couple(cd[i + 1], c[i]) == -couple(c[i], cd[i + 1])       # both spellings are available
 ```
 
-and the hand-written sign that used to be mandatory is now only a way to get it wrong. Under a
+so a hand-written sign is now only a way to get it wrong. Under a
 non-abelian symmetry reordering needs F-moves and still throws: each operand after the first must
 then act to the **right** of every site before it. ([`dot`](@ref) accepts either order for any
 symmetry — with only two legs coupling to the unit sector, no F-move arises.)
@@ -603,24 +605,21 @@ function couple(
 
     others = (b, c, rest...)
     acc = a
-    for (i, nxt) in enumerate(others)
+    for i in 1:(length(others) - 1)
+        nxt = others[i]
         isempty(nxt) &&
             throw(ArgumentError("couple: operand $(i + 1) has no terms"))
-        # intermediates are forced; only the last step has to land on `to`
-        acc = if i == length(others)
-            _couple_terms(acc, nxt, (_, _) -> tot)
-        else
-            _couple_terms(acc, nxt, (ta, opb) -> only(ta ⊗ opb.c))
-        end
+        # intermediates are forced by unique fusion; only the last step has to land on `to`, which is
+        # the 2-arg method's job
+        acc = _couple_terms(acc, nxt, (ta, opb) -> only(ta ⊗ opb.c))
         isempty(acc) && throw(
-            ArgumentError(
-                i == length(others) ?
-                    "couple: no chain of the operands fuses to $tot" :
-                    "couple: no pair of terms of operands 1..$(i + 1) can be coupled"
-            )
+            ArgumentError("couple: no pair of terms of operands 1..$(i + 1) can be coupled")
         )
     end
-    return acc
+    lastop = last(others)
+    isempty(lastop) &&
+        throw(ArgumentError("couple: operand $(length(others) + 1) has no terms"))
+    return couple(acc, lastop; to = tot)
 end
 
 """
@@ -690,24 +689,21 @@ function instantiate(H::TermSum)
 end
 instantiate(ts::Terms, sites::AbstractVector{<:ElementarySpace}) = instantiate(opsum(sites, ts))
 
-function _instantiate_term(t::Term, sites)
-    K = arity(t)
+# Shared forward map for both `_instantiate_term` (from a `Term`) and `_instantiate_basis` (from raw
+# letters/positions/tree, which `project` takes inner products against).
+function _instantiate_generic(ops, positions, tree, sites)
+    K = length(ops)
     # The trailing total-charge leg is `Vect[I](unit(I) => 1)` for every K ≥ 1 term, so a K = 0
     # identity term needs one too — otherwise an operator mixing the two cannot be summed at all.
     K == 0 && return insertrightunit(foldl(⊗, (id(V) for V in sites)))
-    K == 1 && return _embed_field(only(t.keys).op, only(t.sites), sites)
-    return _embed_caterpillar(ops(t), t.sites, tree(t), sites)
+    K == 1 && return _embed_field(only(ops), only(positions), sites)
+    return _embed_caterpillar(ops, positions, tree, sites)
 end
 
-# The candidate basis element for a `(letters, tree)` combination on the local lattice `1:K` — the
-# same forward map, entered without building a `Term`, which is what `project` takes inner products
-# against.
-function _instantiate_basis(ops, tree, sites)
-    K = length(ops)
-    K == 0 && return insertrightunit(foldl(⊗, (id(V) for V in sites)))
-    K == 1 && return _embed_field(only(ops), 1, sites)
-    return _embed_caterpillar(ops, 1:K, tree, sites)
-end
+_instantiate_term(t::Term, sites) = _instantiate_generic(ops(t), t.sites, tree(t), sites)
+
+# The candidate basis element for a `(letters, tree)` combination on the local lattice `1:K`.
+_instantiate_basis(ops, tree, sites) = _instantiate_generic(ops, 1:length(ops), tree, sites)
 
 # single charged field embedded on site `p`, identities elsewhere, charge leg to last domain slot
 function _embed_field(op::IrrepOperator, p, sites)

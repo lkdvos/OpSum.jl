@@ -1,52 +1,15 @@
-# Reduced-MPO sweeps for the ITO automaton
-# ========================================
-# One sweep skeleton with a pluggable bond-basis strategy (algorithms.jl), plus the one strategy that
-# cannot share it.
+# Reduced-MPO sweeps for the ITO automaton. `VertexCover`/`SequentialSVD` run the persistent
+# bipartite-graph sweep `_irrep_graph_sweep`; `IndependentSVD` compresses each bond independently via
+# `_irrep_independent_svd`, sharing only the suffix/prefix interning. Cost is
+# `Θ(M·K) + Θ(Σ_terms span)`, linear in `N` for finite-range models. See
+# `research/persistent-graph-mpo.md` for the design (§2.2's pending/started collision is the
+# invariant most likely to break here) and §1 for the non-abelian mapping.
 #
-# * `VertexCover` (default) and `SequentialSVD` run the *persistent bipartite graph* sweep
-#   `_irrep_graph_sweep` — a port of ITensorMPOConstruction.jl's persistent-graph + `at_site!`
-#   architecture onto OpSum's non-abelian (TensorKit `Sector`) ITO machinery. An explicit bipartite
-#   graph is handed from one site step to the next instead of re-materialising every strand's suffix
-#   path each bond. Four of the five site-step phases are shared; only `_bond_basis!` differs.
-# * `IndependentSVD` compresses every bond on the *raw* prefix/suffix classes, independently of its
-#   neighbours, so it cannot ride the persistent graph — it gets its own pass
-#   (`_irrep_independent_svd`), but shares the class-interning machinery (`_prefix_ids`/`_suffix_ids`)
-#   rather than duplicating it.
+# Fermionic (graded) sectors are supported without Jordan-Wigner strings: TensorKit's braiding
+# carries the anticommutation through the ITO algebra via the odd-parity charge on the virtual bond.
 #
-# Cost of the graph sweep is `Θ(M·K)` to intern the suffix classes plus `Θ(Σ_terms span)` for the
-# sweep, i.e. linear in N for a finite-range model. Two things buy that, and both are load-bearing:
-# suffix classes are named by an interned `O(1)` signature rather than a materialised path
-# (`_suffix_ids`, `_signature!`), and a term's right vertex is created only once it is reachable
-# (`_promote_pending!` and the injection in `_build_next_graph!`). See
-# research/persistent-graph-mpo.md §2 — in particular §2.2, whose pending-versus-started class
-# collision is the invariant a change here is most likely to break.
-#
-# INVARIANT CHECKS. The sector-purity / cover-validity / start-channel checks below guard *silently
-# wrong output*, not crashes: a violated one means the emitted MPO represents a different operator.
-# They are therefore explicit `throw`s (via the `@noinline _invariant` helper, so the message is only
-# built on failure and the check itself costs one comparison), never `@assert`, which `--check-bounds`
-# / `-O3 --inline` builds are entitled to elide.
-#
-# Non-abelian mapping of the persistent graph (see research/itensor-mpograph-construction.md §9):
-# * Right vertices  = suffix classes of the `ITOTermTable`, entering at their term's first active site
-#   and thereafter only merging. ITensor's "term + additive QN flux" becomes "term + running fusion
-#   charge", carried in each site's `ITOKey.bond` (a fusion *outcome*, not a sum).
-# * Left vertices   = `LeftVertex(link, key::ITOKey)` — the incoming bond index plus the on-site ITO
-#   key applied here. Rebuilt each site.
-# * The graph sweep stays SCALAR: reduced coefficients are `ComplexF64`, min-vertex-cover runs on the
-#   scalar adjacency. Non-abelian structure enters only (a) in what makes a bond state distinct (the
-#   augmented `ITOKey` → `bondsectors`) and (b) later, at tensor assembly (`irrep_mpo_tensors`).
-# * Connected components are pure in the outgoing bond charge (`ITOKey.bond`) — checked, see above.
-#
-# Supported arity K ≥ 0 (identity, on-site field, and caterpillar coupling of any number of sites;
-# the suite covers K ≤ 3 and the examples K = 4). The `ITOKey.vertex` multiplicity label is threaded
-# through `LeftVertex.key` but is `1` throughout the multiplicity-free scope, so the reduced `(Ws,
-# bondsectors)` contract is unchanged. `GenericFusion` multi-channel coupling is out of scope.
-#
-# Fermionic (graded) sectors ARE supported: TensorKit's braiding carries the anticommutation through
-# the ITO algebra and the odd-parity charge flowing along the virtual bond does the bookkeeping, so
-# no Jordan–Wigner strings appear. That is why ITensor's fermion/JW slot on `LeftVertex` is omitted —
-# it is subsumed by the sector structure, not missing.
+# Invariant checks below are real `throw`s (via `@noinline _invariant`), never `@assert`, since a
+# violation means silently wrong output, not a crash.
 
 using TensorKit: Sector, Vect, block, sectors, space, dim
 using MatrixAlgebraKit: svd_trunc, trunctol
@@ -159,25 +122,49 @@ suffix path: `_op_at_ito` fills idle sites with a pass-through carrying the runn
 the idle sites *before* the first remaining factor carry the charge accumulated so far. So a suffix
 path is identified by the pair `(sufid[j₀, t], running bond charge)` — see `_signature`.
 """
+# Shared walk/insert-on-miss bookkeeping behind `_suffix_ids`, `_prefix_ids` and `_rel_suffix_ids`.
+# `dir = -1` walks columns `K:-1:1`, writing `id[j, t]` from the already-interned tail `id[j + 1, t]`
+# (a suffix walk: padding only ever trails, so a zero column just has nothing to write and the walk
+# continues past it); `dir = +1` walks `1:K`, writing `id[j + 1, t]` from the head `id[j, t]` and
+# stopping at the first zero (every later column is padding too, so there is nothing left to break
+# out of). `keyfn(j, t, s)` builds the tuple to intern from the current column and its neighbour.
+function _intern_columns!(intern::Dictionary, id::Matrix{Int}, tt::ITOTermTable, M::Int, K::Int, dir::Int, keyfn)
+    nid = 0
+    for t in 1:M
+        for j in (dir < 0 ? (K:-1:1) : (1:K))
+            s = tt.sites[j, t]
+            if iszero(s)
+                if dir < 0
+                    continue
+                else
+                    break
+                end
+            end
+            trans = keyfn(j, t, s)
+            v = get(intern, trans, 0)
+            if iszero(v)
+                nid += 1
+                v = nid
+                insert!(intern, trans, v)
+            end
+            if dir < 0
+                id[j, t] = v
+            else
+                id[j + 1, t] = v
+            end
+        end
+    end
+    return id
+end
+
 function _suffix_ids(tt::ITOTermTable{I}) where {I}
     K, M = arity(tt), nterms(tt)
     sufid = zeros(Int, K + 1, M)      # row K+1 and every padded position stay 0 == exhausted
     intern = Dictionary{Tuple{Int, ITOKey{I}, Int}, Int}()
-    nid = 0
-    for t in 1:M
-        for j in K:-1:1
-            s = tt.sites[j, t]
-            iszero(s) && continue    # padding: the suffix from here on is exhausted
-            trans = (s, tt.keys[j, t], sufid[j + 1, t])
-            id = get(intern, trans, 0)
-            if iszero(id)
-                nid += 1
-                id = nid
-                insert!(intern, trans, id)
-            end
-            sufid[j, t] = id
-        end
-    end
+    _intern_columns!(
+        intern, sufid, tt, M, K, -1,
+        (j, t, s) -> (s, tt.keys[j, t], sufid[j + 1, t])
+    )
     return sufid
 end
 
@@ -200,21 +187,10 @@ function _prefix_ids(tt::ITOTermTable{I}) where {I}
     K, M = arity(tt), nterms(tt)
     preid = zeros(Int, K + 1, M)      # row 1 stays 0 == the empty prefix
     intern = Dictionary{Tuple{Int, Int, ITOKey{I}}, Int}()
-    nid = 0
-    for t in 1:M
-        for j in 1:K
-            s = tt.sites[j, t]
-            iszero(s) && break        # padding: no further factors
-            trans = (preid[j, t], s, tt.keys[j, t])
-            id = get(intern, trans, 0)
-            if iszero(id)
-                nid += 1
-                id = nid
-                insert!(intern, trans, id)
-            end
-            preid[j + 1, t] = id
-        end
-    end
+    _intern_columns!(
+        intern, preid, tt, M, K, 1,
+        (j, t, s) -> (preid[j, t], s, tt.keys[j, t])
+    )
     return preid
 end
 
@@ -236,23 +212,14 @@ function _rel_suffix_ids(tt::ITOTermTable{I}) where {I}
     K, M = arity(tt), nterms(tt)
     relid = zeros(Int, K + 1, M)
     intern = Dictionary{Tuple{Int, ITOKey{I}, Int}, Int}()
-    nid = 0
-    for t in 1:M
-        for j in K:-1:1
-            s = tt.sites[j, t]
-            iszero(s) && continue                     # padding: exhausted from here on
+    _intern_columns!(
+        intern, relid, tt, M, K, -1,
+        function (j, t, s)
             nxt = j < K ? tt.sites[j + 1, t] : 0
             gap = iszero(nxt) ? 0 : nxt - s           # 0 == this is the last factor
-            trans = (gap, tt.keys[j, t], relid[j + 1, t])
-            id = get(intern, trans, 0)
-            if iszero(id)
-                nid += 1
-                id = nid
-                insert!(intern, trans, id)
-            end
-            relid[j, t] = id
+            return (gap, tt.keys[j, t], relid[j + 1, t])
         end
-    end
+    )
     return relid
 end
 
@@ -824,10 +791,10 @@ Renumber the live right vertices into canonical order — ascending in their tra
 
 This is what makes the sweep a deterministic function of the *canonical* graph rather than of its
 construction history. Hopcroft–Karp's matching, and therefore König's cover, depend on the order the
-adjacency lists are scanned in; that order used to be first-encounter (`_merge_edges!`), which is
-perfectly fine for a single left-to-right pass but means two bonds posing isomorphic problems can
-answer them differently. On a finite chain that is invisible (any minimum cover is as good as any
-other). On a periodic lattice it is fatal: the bond basis then converges only up to a permutation of
+adjacency lists are scanned in; without canonicalisation that order is first-encounter (`_merge_edges!`),
+so two bonds posing isomorphic problems can answer them differently. On a finite chain that is
+invisible (any minimum cover is as good as any other). On a periodic lattice it is fatal: the bond
+basis then converges only up to a permutation of
 itself, and the extracted unit cell does not close. Everything downstream is driven off right-vertex
 ids and left-vertex order — `bipartite_connected_components` returns components in first-left-vertex
 order with ascending ids — so canonical ids here plus canonical bond-index order in `_at_site!` pin
@@ -1159,6 +1126,51 @@ function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) w
     return nout, site_dict, secW, nextedges_global
 end
 
+# Shared by `_bond_basis!(..., SequentialSVD)` and `_irrep_independent_svd`'s phase 1: SVD a
+# charge-graded coefficient block `C : Ppre ← Psuf` (with `trunc`) and flatten the retained left
+# singular vectors `U` into a dense `(nrow × r)` matrix grouped by sector, recording the per-column
+# charge `secs`; `Umat[p, col] = block(U, secs[col])[rowdeg[p], localcol]` for every `p` with
+# `rowQ[p] == secs[col]`. Passing `colQ`/`coldeg` (and, where not every column is populated, `colactive`)
+# additionally flattens `R = S · Vᴴ` into `Rmat`, the compressed suffix side `SequentialSVD` forwards
+# onto the next bond; `_irrep_independent_svd` has no next bond to forward to and omits them.
+function _svd_flatten_block(
+        C, trunc, rowQ::Vector{I}, rowdeg::Vector{Int};
+        colQ::Union{Nothing, Vector{I}} = nothing, coldeg::Union{Nothing, Vector{Int}} = nothing,
+        colactive::Union{Nothing, BitVector} = nothing
+    ) where {I}
+    U, S, Vt = svd_trunc(C; trunc)
+    Wb = space(S, 1)   # retained bond space (⊕ charge sectors, truncated multiplicities)
+    T = eltype(U)
+    nrow = length(rowQ)
+    r = sum(q -> dim(Wb, q), sectors(Wb); init = 0)
+    Umat = zeros(T, nrow, r)
+    secs = Vector{I}(undef, r)
+    R = colQ === nothing ? nothing : S * Vt
+    Rmat = colQ === nothing ? nothing : zeros(T, r, length(colQ))
+    col = 0
+    for q in sectors(Wb)
+        Ub = block(U, q)
+        Rb = colQ === nothing ? nothing : block(R, q)
+        for localcol in 1:size(Ub, 2)
+            col += 1
+            secs[col] = q
+            for p in 1:nrow
+                rowQ[p] == q || continue
+                Umat[p, col] = Ub[rowdeg[p], localcol]
+            end
+            if colQ !== nothing
+                for v in eachindex(colQ)
+                    active = colactive === nothing || colactive[v]
+                    (active && colQ[v] == q) || continue
+                    Rmat[col, v] = Rb[localcol, coldeg[v]]
+                end
+            end
+        end
+    end
+    col == r || _invariant("retained bond space does not match its per-sector dimensions")
+    return (; U = Umat, secs, R = Rmat)
+end
+
 # Phases 3 & 4 for [`SequentialSVD`](@ref) (ITensor's `at_site!` with the QR/SVD backend, doc §6 "The
 # QR backend"). Instead of a per-component minimum vertex cover, the WHOLE bond's scalar coefficient
 # matrix is assembled as a charge-graded `TensorMap C : Ppre ← Psuf` (block-diagonal in the bond
@@ -1212,29 +1224,12 @@ function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, strategy::Sequen
         block(C, uCharge[u])[udeg[u], vdeg[v]] += coeff[u, v]
     end
 
-    U, S, Vt = svd_trunc(C; trunc = strategy.trunc)
-    Wb = space(S, 1)                 # retained bond space (⊕ charge sectors, truncated multiplicities)
-    R = S * Vt                       # Wb ← Psuf, forwards the coefficient onto the next bond
-
-    r = sum(q -> dim(Wb, q), sectors(Wb); init = 0)
-    secW = Vector{I}(undef, r)
-    Umat = zeros(ComplexF64, nU, r)  # column m = compressed prefix basis vector
-    Rmat = zeros(ComplexF64, r, nV)  # row m    = suffix expressed in the new basis
-    col = 0
-    for q in sectors(Wb)
-        Ub = block(U, q)
-        Rb = block(R, q)
-        for m in 1:size(Ub, 2)
-            col += 1
-            secW[col] = q
-            for u in 1:nU
-                uCharge[u] == q && (Umat[u, col] = Ub[udeg[u], m])
-            end
-            for v in 1:nV
-                (vactive[v] && vCharge[v] == q) && (Rmat[col, v] = Rb[m, vdeg[v]])
-            end
-        end
-    end
+    flat = _svd_flatten_block(
+        C, strategy.trunc, uCharge, udeg;
+        colQ = vCharge, coldeg = vdeg, colactive = vactive
+    )
+    Umat, secW, Rmat = flat.U, flat.secs, flat.R   # column m = compressed prefix basis vector
+    r = length(secW)
 
     site_dict = Dictionary{CartesianIndex{2}, LOp}()
     nextedges_global = [Tuple{Int, ComplexF64}[] for _ in 1:r]
@@ -1452,29 +1447,9 @@ function _irrep_independent_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
             block(C, preQ[p])[pre_deg[p], suf_deg[s]] += tt.coeffs[t]
         end
 
-        U, S, _ = svd_trunc(C; trunc = truncstrat)
-        Wb = space(S, 1)   # retained bond space (⊕ charge sectors with truncated multiplicities)
-
-        # flatten U into an (npre × r_b) block-diagonal matrix, columns grouped per sector
-        npre = length(preQ)
-        r_b = sum(q -> dim(Wb, q), sectors(Wb); init = 0)
-        Umat = zeros(T, npre, r_b)
-        secs = I[]
-        col = 0
-        for q in sectors(Wb)
-            Ub = block(U, q)              # (pre_mult[q] × Wb_mult[q])
-            for dcol in 1:size(Ub, 2)
-                col += 1
-                push!(secs, q)
-                for p in 1:npre
-                    preQ[p] == q || continue
-                    Umat[p, col] = Ub[pre_deg[p], dcol]
-                end
-            end
-        end
-        col == r_b || _invariant("retained bond space does not match its per-sector dimensions")
-        bond_Us[b] = Umat
-        bond_secs[b] = secs
+        flat = _svd_flatten_block(C, truncstrat, preQ, pre_deg)
+        bond_Us[b] = flat.U
+        bond_secs[b] = flat.secs
     end
 
     # --- 2. Project each vertex operator into the compressed bond bases -----------------------

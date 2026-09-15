@@ -1,36 +1,17 @@
-# Exponentially decaying interactions: the geometric-channel primitive
-# ====================================================================
-# A term sum can only hold interactions of *finite* range: every term is one column of a `K×M`
-# table. An exponentially decaying interaction
+# Exponentially decaying interactions: `Σ_{i<j} λ^{j-i-1} A_i S_{i+1}…S_{j-1} B_j`, `|λ| < 1` — an
+# infinite family of terms, represented as `channels` that the sweep lowers to a single bond index
+# carrying `λ` on its diagonal (see `research/infinite-mpo.md` §7 and `_lower_channels` below).
 #
-#     Σ_{i<j} λ^{j-i-1} A_i S_{i+1} … S_{j-1} B_j ,   |λ| < 1
-#
-# is an infinite family of terms and needs its own representation — a `Terms`-like container of
-# *channels*, each of which the MPO sweep turns into a single bond index carrying `λ` on its
-# diagonal (see `research/infinite-mpo.md` §7 and `_lower_channels` below).
-#
-# A channel is declared by **one fully specified representative term** plus the site at which its
-# exit block starts:
+# A channel is one fully specified representative term plus the site where its exit block starts:
 #
 #     expterm(dot(S[1], S[2]); decay = 0.5)
 #     expterm(couple(couple(A[1], A′[2]; to = c), B[4]); decay = 0.5, exitsite = 4)
 #
-# The representative is an ordinary coupled `Terms` bag, so it already carries the caterpillar fusion
-# tree — every fusion channel is named, and nothing here has to invent charge bookkeeping. The gap
-# *just before* `exitsite` is what gets stretched geometrically; the factors before it are the entry
-# block, those from it on the exit block.
-#
-# Semantics, given a lattice period `P` (`P = L` for an `InfiniteChain`, `P = 1` for a finite chain
-# — every site is then a possible entry):
-#
-#     all translates by multiples of `P` of the representative, with the exit block additionally
-#     pushed right by multiples of `P`, whose support fits in the lattice; the weight of a translate
-#     is `coeff · λ^{number of string sites}`.
-#
-# So `λ` counts **per site**: the shortest translate carries `λ^{g}` with `g` the representative's own
-# gap, and every extra period costs `λ^P`. (A per-cell decay is `λ^(1/P)`.) The string operator, if
-# given, sits on the stretched gap only — idle sites *inside* the entry or exit block stay bare
-# pass-throughs, as they are in the representative.
+# Given lattice period `P` (`L` for an `InfiniteChain`, `1` for a finite chain), a channel represents
+# every translate by multiples of `P` whose support fits the lattice, exit block pushed right along
+# with it; a translate's weight is `coeff · λ^{string sites}`. So `λ` counts per site: the shortest
+# translate carries `λ^g` (`g` = the representative's own gap) and every extra period costs `λ^P`. The
+# string operator, if given, sits only on the stretched gap.
 
 using TensorKit: Sector, unit
 using .IrrepTensorOperators: IrrepOperator
@@ -547,6 +528,31 @@ function _lower_channels(es::ExpSum{I}, P::Int) where {I}
     return ExpChannel{I}[_lower_channel(k, ComplexF64(v), P, names) for (k, v) in entries]
 end
 
+# Build a reverse acyclic chain of `ChannelState`s over `range` (a descending `hi:-1:lo` run of bond
+# positions), each state stepping to the previously built one; at the top of the range (`b+1 == top`)
+# it steps instead to `boundary_target`. Shared by `_lower_channel`'s entry- and exit-block loops,
+# which differ only in the range walked and in what lies past its top.
+function _build_acyclic_chain!(
+        states::Vector{ChannelState{I}}, names::_ChannelNames{I}, bondat, stepkey, slast::Int,
+        range, top::Int, boundary_target::Int
+    ) where {I}
+    idx = Dictionary{Int, Int}()
+    for b in range
+        bond = bondat(b)
+        nkey = stepkey(b + 1, bond)
+        target = b + 1 == top ? boundary_target : idx[b + 1]
+        name = _cons!(names, nkey, iszero(target) ? 0 : states[target].name)
+        push!(
+            states, ChannelState{I}(
+                name, bond, slast - b, false,
+                Tuple{ITOKey{I}, Int, ComplexF64}[(nkey, target, one(ComplexF64))]
+            )
+        )
+        insert!(idx, b, length(states))
+    end
+    return idx
+end
+
 function _lower_channel(
         k::ExpKey{I}, coeff::ComplexF64, P::Int, names::_ChannelNames{I}
     ) where {I}
@@ -570,20 +576,7 @@ function _lower_channel(
     bondat(b::Int) = keys_[count(<=(b), sites)].bond
 
     # exit block: acyclic chain down to the exhausted class
-    xidx = Dictionary{Int, Int}()
-    for b in (slast - 1):-1:sexit
-        bond = bondat(b)
-        nkey = stepkey(b + 1, bond)
-        target = b + 1 == slast ? 0 : xidx[b + 1]
-        name = _cons!(names, nkey, iszero(target) ? 0 : states[target].name)
-        push!(
-            states, ChannelState{I}(
-                name, bond, slast - b, false,
-                Tuple{ITOKey{I}, Int, ComplexF64}[(nkey, target, one(ComplexF64))]
-            )
-        )
-        insert!(xidx, b, length(states))
-    end
+    xidx = _build_acyclic_chain!(states, names, bondat, stepkey, slast, (slast - 1):-1:sexit, slast, 0)
 
     # the loop: transitions are filled in a second pass because they are cyclic; the *names* are not,
     # which is the whole point of naming a loop by its descriptor
@@ -613,20 +606,9 @@ function _lower_channel(
     end
 
     # entry block: acyclic chain into the loop
-    eidx = Dictionary{Int, Int}()
-    for b in (sites[ne] - 1):-1:sites[1]
-        bond = bondat(b)
-        nkey = stepkey(b + 1, bond)
-        target = b + 1 == sites[ne] ? loopidx[δ0] : eidx[b + 1]
-        name = _cons!(names, nkey, states[target].name)
-        push!(
-            states, ChannelState{I}(
-                name, bond, slast - b, false,
-                Tuple{ITOKey{I}, Int, ComplexF64}[(nkey, target, one(ComplexF64))]
-            )
-        )
-        insert!(eidx, b, length(states))
-    end
+    eidx = _build_acyclic_chain!(
+        states, names, bondat, stepkey, slast, (sites[ne] - 1):-1:sites[1], sites[ne], loopidx[δ0]
+    )
 
     start = ne == 1 ? loopidx[δ0] : eidx[sites[1]]
     return ExpChannel{I}(

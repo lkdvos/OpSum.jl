@@ -1,6 +1,7 @@
 # research/
 
-Background notes and algorithm studies that inform OpSum.jl's development. Not part of the package.
+Background notes and algorithm studies that inform OpSum.jl's development.
+Not part of the package.
 
 - [persistent-graph-mpo.md](persistent-graph-mpo.md) — the finite-chain sweep design: `ITOGraph`, the
   five-phase `_at_site!` sweep, interned suffix classes and lazy insertion (which together make it

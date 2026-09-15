@@ -169,9 +169,7 @@ reports the candidates instead of silently picking one.
 Comparing `Ws` needs care. `SiteOperator` does have a structural `==`, but it compares its two parallel
 `letters`/`coeffs` vectors *in order*, and `+` accumulates in insertion order, so two separately built
 copies of the same entry can disagree on letter order — and the fixed-point check compares entries
-built at different points in the sweep. `_canonform` sorts each entry's `letter => coeff` pairs by
-letter before comparing. (Against the older `LocalOp`, which had no structural `==` at all, the first
-version of this check reported "never converges" for the stronger version of the same reason.)
+built at different points in the sweep. `_canonform` sorts each entry's `letter => coeff` pairs by letter before comparing.
 
 ## 6. Verification
 
@@ -200,10 +198,8 @@ enumerated as a flat term list at all. New file: `src/operators/expterms.jl` (th
 containers, the explicit expansion, and the lowering); `irrepgraph.jl` gains geometric right vertices;
 `infinitegraph.jl` and `irrepmpo.jl` gain the entry points. Tests: `test/test_exp_decay.jl`.
 
-The central claim held: **a geometric channel is a suffix class with a self-loop**, so it is an
-ordinary right vertex and the existing merge / cover / canonicalisation machinery compresses it. The
-design was wrong about two things — what naming it takes (less than expected) and whether the cover
-needs forcing (it does) — and it under-specified the primitive, which is where the scope actually grew.
+The central claim: **a geometric channel is a suffix class with a self-loop**, so it is an ordinary
+right vertex and the existing merge / cover / canonicalisation machinery compresses it.
 
 **Representation.** `expterm(t::TermSum; decay = λ, exitsite, string = nothing)` takes **one fully
 specified representative term** and stretches the gap just before `exitsite` geometrically:
@@ -215,17 +211,16 @@ expterm(couple(couple(S[1],S[2];to=1), S[3]); decay = 0.5, exitsite = 3) # two-s
 ```
 
 Because the representative is a `TermKey` it already carries the caterpillar tree, so *every* fusion
-channel is named and no charge bookkeeping had to be invented — that is what made multi-site entry and
-exit blocks nearly free, and it is much better than the `expterm(A, B; …)` spelling the sketch
-proposed. `ExpSum` collects channels, `TermSum + ExpSum` gives a `MixedSum`, and `irrep_mpo` takes that
+channel is named and no charge bookkeeping had to be invented — that is what makes multi-site entry and
+exit blocks nearly free. `ExpSum` collects channels, `TermSum + ExpSum` gives a `MixedSum`, and `irrep_mpo` takes that
 on an `InfiniteChain` *or* on a finite `sites` vector. The lattice supplies the translation period `P`
 (`L`, or 1 on a finite chain, where the model is the geometric sum truncated to the chain — spelled out
 by `chain_terms`). `λ` counts **per site**; `0 < |λ| < 1` is enforced, and the string is required to be
 charge-neutral, or the running bond charge would drift along it and the loop would not close on itself.
 
-**The naming: no partition refinement.** The sketch expected Hopcroft–Moore, on the grounds that
-bottom-up hash-consing cannot name a cyclic tail. It does not, because cyclic tails only ever come from
-a *declared* primitive: reserving **one interned id per loop descriptor** — `(λ, string transitions,
+**The naming: no partition refinement.** Bottom-up hash-consing can name a cyclic tail because cyclic
+tails only ever come from a *declared* primitive: reserving **one interned id per loop descriptor** —
+`(λ, string transitions,
 exit key, exit-class name, period, δ)`, which fixes the entire cyclic future in closed form — cuts the
 cycle, and ordinary consing works again on top of it. Name equality ⟺ class equality still holds
 (a geometric class can never be bisimilar to a finite one: infinite versus finite support), so
@@ -255,9 +250,9 @@ exhausted term classes — that merge *is* the done channel.
 and `L = 1` exponentially decaying Heisenberg costs `[0, 1, 0]`, dense `D = 5` — the channel *replaces*
 the in-flight spin-1 of the nearest-neighbour model rather than adding to it.
 
-**Forcing the cyclic states into the cover — the design was wrong here.** "It needs no forcing into the
-bond basis" is false. If a cyclic state is left uncovered, its predecessor becomes covered-left, which
-*forwards* the self-edge weight `λ·w` instead of resetting it to 1; the λ powers then ride along the
+**Forcing the cyclic states into the cover.** A cyclic state must be forced into the vertex cover: if
+left uncovered, its predecessor becomes covered-left, which *forwards* the self-edge weight `λ·w`
+instead of resetting it to 1; the λ powers then ride along the
 bond instead of landing on the diagonal, and a bond that keeps doing that never repeats. König really
 can pick that cover — two equal-size minimum covers exist as soon as a channel shares its entry letter
 with a finite-range term. Measured on that model (`dot(S[1],S[2]) + expterm(dot(S[1],S[2]); decay=λ)`)
@@ -279,7 +274,7 @@ variant, so the only way to lose the entry now is to emit an *empty* operator.) 
 also keeps `_identity_channels` honest: a scaled pass-through is not a *bare* one, so a channel can
 never be mistaken for an identity backbone.
 
-**Two further things the sketch did not anticipate.**
+**Two further considerations.**
 
 * *Pruning.* A channel state that can no longer complete inside `1:N` contributes no term, so its edge
   is dropped when the next graph is built. Without it the last bonds of a finite chain would carry

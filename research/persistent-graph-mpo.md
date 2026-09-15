@@ -1,60 +1,26 @@
 # Persistent-graph MPO construction — design note
 
-*Outcome of the port described in `research/port-handoff.md`: OpSum's symmetry-reduced MPO
-construction re-implemented on ITensorMPOConstruction.jl's persistent bipartite-graph + `at_site!`
-sweep architecture (see `research/itensor-mpograph-construction.md`), generalized to the non-abelian
-(TensorKit `Sector`) ITO machinery.*
-
-New file: `src/operators/irrepgraph.jl` (included between `irreptermtable.jl` and `irrepmpo.jl`).
-The transient-frontier sweeps `_irrep_bipartite` / `_irrep_svd` are **kept unchanged** as the parity
-oracles and as the pinned SVD backend (see §4).
-
-> **Revised.** As first written, the sweep was `Θ(N·M)` — quadratic for a finite-range model whose bond
-> dimension is `O(1)` — because every term was a live right vertex from bond 1 and each term's full
-> length-`N` path was materialised and sorted up front. §2.1 (interned suffix classes) and §2.2 (lazy
-> insertion) replace both; §2.3 has the numbers. The output contract, and every bond dimension, are
-> unchanged.
+OpSum's symmetry-reduced MPO construction is a persistent bipartite-graph + `at_site!` sweep
+(modeled on ITensorMPOConstruction.jl's architecture), generalized to the non-abelian (TensorKit
+`Sector`) ITO machinery, in `src/operators/irrepgraph.jl` (included between `irreptermtable.jl` and
+`irrepmpo.jl`). The transient-frontier sweeps `_irrep_bipartite` / `_irrep_svd` are **kept unchanged**
+as the parity oracles and as the pinned SVD backend (see §4).
 
 ## 1. Data structures
 
-```julia
-struct LeftVertex{I<:Sector}
-    link::Int          # incoming bond index (row into the previous bond's basis)
-    key::ITOKey{I}     # on-site ITO key (op, running bond charge, vertex) applied at this site
-end                    # ITensor's fermion/JW-string slot is intentionally omitted (no fermions here)
+`LeftVertex` and `ITOGraph` (`src/operators/irrepgraph.jl`) hold the per-bond bipartite graph state:
+fixed suffix-class ids (`sufid`, §2.1), persistent right-vertex bookkeeping (`rrepr`/`rcur`/`rbond`),
+the current bond's adjacency lists (`lefts`/`radj`/`wadj`), and the lazy-insertion bookkeeping
+(`firstsite`/`pend_at`/`pendbysig`/`inserted`, §2.2) — see the struct's docstring for field-level detail.
 
-mutable struct ITOGraph{I<:Sector}
-    tt::ITOTermTable{I}; N::Int
-    # fixed suffix-class machinery (`_suffix_ids`, §2.1):
-    K::Int                 # arity(tt)
-    sufid::Matrix{Int}     # (K+1)×M interned id of each contiguous column suffix j:K (0 == exhausted)
-    # persistent right-vertex state (shrinks via suffix-merge):
-    rrepr::Vector{Int}     # right vertex -> representative term id
-    rcur::Vector{Int}      # monotone cursor: first column j with sites[j, rrepr] > current site
-    rbond::Vector{I}       # running bond charge just past the current site
-    # current bipartite graph (bond i-1 -> i), rebuilt each site:
-    lefts::Vector{LeftVertex{I}}
-    radj::Vector{Vector{Int}}; wadj::Vector{Vector{ComplexF64}}   # adjacency: (right id, scalar weight)
-    nlinks::Int            # incoming bond dimension
-    # lazy insertion (§2.2):
-    lazy::Bool
-    firstsite::Vector{Int}                      # term -> first active site (1 for a K=0 term)
-    pend_at::Vector{Vector{Int}}                # site -> terms entering there
-    pendbysig::Dictionary{Tuple{Int,I},Int}     # pre-start suffix signature -> pending term
-    inserted::BitVector; nremaining::Int
-    rsent::Int; startleft::Int; startidx::Int   # sentinel / start-channel bookkeeping, per bond
-    # per-bond scratch (slot, vlocal, firstleft, remap, siggroups) — see the docstring
-end
-```
-
-The non-abelian mapping (handoff §"the key idea"): a **right vertex is a suffix class** (identified by a
-representative term id; classes enter at their term's first active site and thereafter only merge — §2.2),
-and a **left vertex** is
-`(incoming link, on-site ITOKey)`. `ITOKey.bond` — the running fusion charge *out of* the site — is
-the non-abelian analogue of ITensor's additive QN flux (a fusion *outcome*, not a sum). The graph
-sweep itself stays **scalar**: reduced coefficients are `ComplexF64` and the min-vertex-cover / SVD
-operate on plain matrices. Non-abelian structure enters only (a) in what makes a bond state distinct
-(the augmented `ITOKey` → `bondsectors`) and (b) at tensor assembly (`irrep_mpo_tensors`, unchanged).
+The non-abelian mapping: a **right vertex is a suffix class** (identified by a representative term id;
+classes enter at their term's first active site and thereafter only merge — §2.2), and a **left
+vertex** is `(incoming link, on-site ITOKey)`. `ITOKey.bond` — the running fusion charge *out of* the
+site — is the non-abelian analogue of ITensor's additive QN flux (a fusion *outcome*, not a sum). The
+graph sweep itself stays **scalar**: reduced coefficients are `ComplexF64` and the min-vertex-cover /
+SVD operate on plain matrices. Non-abelian structure enters only (a) in what makes a bond state
+distinct (the augmented `ITOKey` → `bondsectors`) and (b) at tensor assembly (`irrep_mpo_tensors`,
+unchanged).
 
 ## 2. The sweep (`_at_site!`, five phases)
 
@@ -107,7 +73,7 @@ signature is `O(1)` per live right vertex per bond. The same cursor yields the n
 Seeding every term eagerly means every term is a live right vertex from bond 1: each one hangs off the
 identity/start left vertex, and each bond pays the merge, the remap, the forwarding and the next-graph
 bucketing over all of them. That is `Θ(N·M)` — `Θ(N²)` for a finite-range model whose bond dimension is
-`O(1)`, which is exactly the scaling bug this note previously recorded as "total merge work is O(N·M)".
+`O(1)`.
 
 So a term's right vertex is created only once it is reachable: at its first active site
 (`_build_next_graph!` injects it on the start channel with the term's coefficient as the edge weight —
@@ -192,20 +158,6 @@ quarter-second), so a three-digit exponent would be false precision. The long-ra
 its `Θ(N³)` asymptote is expected: the `Θ(M)` class term still outweighs the `Θ(Σ span)` edge term at
 these sizes.
 
-Be careful reading a *before* exponent off the old figure: that figure plots the **total** (term-sum
-assembly + compression) fitted from `N = 8`, where per-call overhead inflates it, so its `~N^2.5` is not
-the compression's exponent. Measuring the parent commit's compression the same way as the table above
-gives only `N^1.34 … N^1.50` over the old sweep sizes (`8 … 256`) — the `Θ(N²)` term simply does not
-dominate yet at those sizes. Extending the parent to `N = 2048` raises the fit to `N^1.60` with a local
-slope of `2.35` across the last octave, which is the honest indication of the quadratic. This is why the
-counts above, not a fitted exponent, are what the claim rests on.
-
-Re-measured on 2026-09-15, on the same host, after the translation-covariance canonicalisation of
-`research/infinite-mpo.md` §3 landed — which is always on and shared with this path, and so was the one
-change with the standing to move these numbers. It did not: finite-range compression came out
-`0.92 … 1.08`, long-range `2.17 … 2.20`, and the bond-dimension profile figure regenerated
-bit-identical.
-
 End-to-end `irrep_mpo` (term table + sweep), same measurement both sides: Heisenberg `N = 512`
 `29.1 ms / 66.2 MB → 3.0 ms / 7.2 MB`; Haldane-Shastry `N = 128` `230 ms / 515 MB → 36 ms / 53 MB`.
 
@@ -270,7 +222,7 @@ nothing while adding a sentinel column for the SVD to carry.
   `bondcharges`/`vertexlabels`/`caterpillar_trees`/`_tree_from_bonds`, `_bond_space`/`_deg_indices`,
   `sparse_from_dict`, `increaseindex!`. `min_vertex_cover_bipartite` gained an adjacency-list method
   (now the primary one; the dense-matrix form is a wrapper for `_irrep_bipartite`).
-- **Follow-ups** (out of scope, as in the handoff): fermionic/JW strings (the omitted `LeftVertex`
+- **Follow-ups** (out of scope): fermionic/JW strings (the omitted `LeftVertex`
   slot), `GenericFusion` multi-channel (vertex > 1), and wiring the sequential SVD backend (§4).
 - **New bottleneck.** With the compression linear, symbolic `TermSum` accumulation is now the dominant
   cost for finite-range models: building an `N = 8192` Heisenberg chain takes ~0.87 s against ~0.06 s

@@ -159,6 +159,70 @@ function unitcell_terms(H::TermSum{I}, L::Int) where {I}
 end
 
 """
+    unitcell_terms(H::MixedSum, L::Int) -> MixedSum
+
+Canonicalise a mixed generating set: the finite-range terms as above, and every exponentially decaying
+channel shifted so that its *entry anchor* (the leftmost site of its representative) lies in `1:L`. The
+same two rules apply to a channel as to a term — charge neutrality, and exactly one representative per
+translation class, since `Σ_n translate(H, n·L)` would otherwise count a channel twice.
+"""
+function unitcell_terms(H::MixedSum{I}, L::Int) where {I}
+    L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
+    d = Dictionary{ExpKey{I}, ComplexF64}()
+    for (k, v) in pairs(H.channels.channels)
+        total(k.term) == unit(I) || throw(
+            ArgumentError(
+                "infinite MPO construction requires charge-neutral terms, got total charge " *
+                    "$(total(k.term)) on the channel with sites $(k.term.sites); charged infinite " *
+                    "MPOs are out of scope"
+            )
+        )
+        ck = translate(k, -L * fld(minimum(k.term.sites) - 1, L))
+        haskey(d, ck) && throw(
+            ArgumentError(
+                "the exponentially decaying channels on sites $(k.term.sites) and " *
+                    "$(ck.term.sites) are $L-translates of each other; the unit-cell generating set " *
+                    "must contain exactly one representative per translation class (`H` means " *
+                    "`Σ_n translate(H, n·$L)`)"
+            )
+        )
+        insert!(d, ck, v)
+    end
+    return MixedSum{I}(unitcell_terms(H.terms, L), ExpSum{I}(d))
+end
+
+# a Hamiltonian of nothing but channels behaves like a `MixedSum` with no terms
+unitcell_terms(H::ExpSum, L::Int) = unitcell_terms(MixedSum(H), L)
+window_terms(H::ExpSum, lat::InfiniteChain, nc::Int) = window_terms(MixedSum(H), lat, nc)
+maxspan(H::ExpSum) = maxspan(MixedSum(H))
+
+"""
+    maxspan(H::MixedSum) -> Int
+
+Range of the *shortest* translates of a mixed generating set: the largest [`termspan`](@ref) over its
+finite terms and [`channelspan`](@ref) over its channels. A channel's actual range is unbounded — this
+is the range over which the sweep has to settle into its periodic fixed point.
+"""
+maxspan(H::MixedSum) = max(
+    maxspan(H.terms), maximum(channelspan, keys(H.channels.channels); init = 0)
+)
+
+"""
+    window_terms(H::MixedSum, lat::InfiniteChain, ncells::Int) -> TermSum
+
+Every finite-range translate that fits inside the window, plus every translate of every channel that
+fits (see [`expand_channels`](@ref)) — the explicit expansion the faithfulness check compares against.
+"""
+function window_terms(H::MixedSum{I}, lat::InfiniteChain, ncells::Int) where {I}
+    N = ncells * length(lat)
+    return opsum(
+        windowlattice(lat, N),
+        _window_bag(H.terms, length(lat), N),
+        expand_channels(H.channels, length(lat), N),
+    )
+end
+
+"""
     window_terms(gen::Terms, lat::InfiniteChain, ncells::Int) -> TermSum
 
 Every `L`-translate of the canonical generating set `gen` whose support lies entirely inside the
@@ -167,8 +231,13 @@ are dropped, so the result is *not* the infinite Hamiltonian truncated to the wi
 agrees with the periodic problem, which is exactly what the window construction reads off.
 """
 function window_terms(gen::Terms{I}, lat::InfiniteChain, ncells::Int) where {I}
-    L = length(lat)
-    N = ncells * L
+    N = ncells * length(lat)
+    return opsum(windowlattice(lat, N), _window_bag(gen, length(lat), N))
+end
+
+# The translates themselves, as an unbound bag — so a mixed generating set can concatenate them with
+# its expanded channels and bind the lattice once.
+function _window_bag(gen::Terms{I}, L::Int, N::Int) where {I}
     out = Term{I}[]
     for t in gen.terms
         lo, hi = minimum(t.sites), maximum(t.sites)
@@ -176,5 +245,5 @@ function window_terms(gen::Terms{I}, lat::InfiniteChain, ncells::Int) where {I}
             push!(out, translate(t, n * L))
         end
     end
-    return opsum(windowlattice(lat, N), Terms{I}(out))
+    return Terms{I}(out)
 end

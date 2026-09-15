@@ -88,10 +88,13 @@ bond `i-1 → i` about to be processed) is `lefts` ↔ right vertices, with per-
 
 Fields split into three groups:
 * fixed suffix-class machinery: `K` (the term table's arity) and `sufid`, the interned id of every
-  *contiguous column suffix* of `tt` — see [`_suffix_ids`](@ref);
+  *contiguous column suffix* of `tt` — see [`_suffix_ids`](@ref) — plus the lowered exponentially
+  decaying `channels` and `lastentry`, the last site at which any of them may still enter;
 * persistent right-vertex state (shrinks via the suffix-merge): `rrepr` (representative term id) plus
   the monotone cursor `rcur`/`rbond` that turns "the suffix path from site `i+1`" into an `O(1)`
-  two-word signature;
+  two-word signature, and `rchan`/`rstate`, which name the *geometric* classes instead: `rchan[r] == 0`
+  is an ordinary term class, `rchan[r] > 0` an automaton state of that channel
+  ([`ExpChannel`](@ref)), and `rchan[r] == -1` the synthetic exhausted class a channel exits onto;
 * the current bipartite graph: `lefts`, `radj`, `wadj`, and `nlinks` (incoming bond dimension);
 * lazy-insertion state (see [`_promote_pending!`](@ref)): `lazy`, `firstsite`, `pend_at`, `pendbysig`,
   `inserted`, `nremaining`, and the per-bond `rsent` (sentinel right-vertex id, 0 if none),
@@ -112,9 +115,13 @@ mutable struct ITOGraph{I <: Sector}
     K::Int                 # arity(tt): rows of tt.sites / tt.keys
     sufid::Matrix{Int}     # (K+1) × M interned id of the column suffix j:K (0 == exhausted)
     relsufid::Matrix{Int}  # (K+1) × M same, interned by shape instead of position (`_rel_suffix_ids`)
-    rrepr::Vector{Int}     # right vertex -> representative term id
+    channels::Vector{ExpChannel{I}}   # lowered exponentially decaying interactions (may be empty)
+    lastentry::Int         # last site at which a channel may still enter (0 if there are none)
+    rrepr::Vector{Int}     # right vertex -> representative term id (0 for a geometric class)
     rcur::Vector{Int}      # right vertex -> first column j with sites[j, rrepr] > current site
     rbond::Vector{I}       # right vertex -> running bond charge just past the current site
+    rchan::Vector{Int}     # right vertex -> 0 term class / >0 channel index / -1 exhausted class
+    rstate::Vector{Int}    # right vertex -> automaton state within `channels[rchan]` (0 otherwise)
     lefts::Vector{LeftVertex{I}}
     radj::Vector{Vector{Int}}
     wadj::Vector{Vector{ComplexF64}}
@@ -250,29 +257,44 @@ function _rel_suffix_ids(tt::ITOTermTable{I}) where {I}
 end
 
 """
-    _rdesc(g::ITOGraph, r, i) -> (distance, shape, charge)
+    _rdesc(g::ITOGraph, r, i) -> (kind, distance, shape, charge)
 
-The canonical, translation-invariant name of right vertex `r` at bond `i`: the distance from the bond
-to its first remaining factor (`0` once the class is exhausted), the shape of the remaining factor
-list ([`_rel_suffix_ids`](@ref)), and the running bond charge. Two classes carry the same name exactly
-when they are translates of each other relative to their bonds, which is what makes the sweep's
-choices comparable from one unit cell to the next.
+The canonical, translation-invariant name of right vertex `r` at bond `i`. For an ordinary term class
+(`kind = 0`) it is the distance from the bond to its first remaining factor (`0` once the class is
+exhausted), the shape of the remaining factor list ([`_rel_suffix_ids`](@ref)), and the running bond
+charge. Two classes carry the same name exactly when they are translates of each other relative to
+their bonds, which is what makes the sweep's choices comparable from one unit cell to the next.
 
-The sentinel is not a suffix class and gets the reserved name `(-1, -1, unit(I))`, which sorts before
+A geometric class (`kind = 1`) is named by its channel-automaton state's interned name, which is
+position-independent by construction ([`ChannelState`](@ref)); the synthetic exhausted class shares
+`kind = 0`'s exhausted name so that it sorts — and merges — with exhausted term classes. The sentinel
+is not a suffix class at all and gets the reserved name `(-1, -1, -1, unit(I))`, which sorts before
 every real one.
 """
 function _rdesc(g::ITOGraph{I}, r::Int, i::Int) where {I}
-    r > length(g.rrepr) && return (-1, -1, unit(I))    # the sentinel
+    r > length(g.rrepr) && return (-1, -1, -1, unit(I))    # the sentinel
+    c = g.rchan[r]
+    c == -1 && return (0, 0, 0, g.rbond[r])                # synthetic exhausted class
+    c > 0 && return (1, 0, g.channels[c].states[g.rstate[r]].name, g.rbond[r])
     t = g.rrepr[r]
     j = g.rcur[r]
     s = j <= g.K ? g.tt.sites[j, t] : 0
-    return (iszero(s) ? 0 : s - i, g.relsufid[j, t], g.rbond[r])
+    return (0, iszero(s) ? 0 : s - i, g.relsufid[j, t], g.rbond[r])
 end
 
 # Advance right vertex `r`'s cursor past every factor at a site `<= i`, accumulating the running bond
 # charge, and return its suffix signature `(interned remaining-factor list, running bond charge)`.
 # Amortised `O(1)`: each cursor advances at most `K` times over the whole sweep.
+#
+# A geometric class has no cursor: its automaton state already *is* the class, so its signature is the
+# state's interned name in a disjoint (negative) id space — `sufid` ids are `>= 0`, so a channel state
+# can never be confused with a term's remaining factor list, nor collide with `pendbysig`. The one
+# deliberate exception is the synthetic exhausted class, which takes the ordinary `(0, charge)`
+# signature so that it merges with exhausted term classes: that merge is the done channel.
 function _signature!(g::ITOGraph{I}, r::Int, i::Int) where {I}
+    c = g.rchan[r]
+    c == -1 && return (0, g.rbond[r])
+    c > 0 && return (-g.channels[c].states[g.rstate[r]].name, g.rbond[r])
     t = g.rrepr[r]
     sites, keys = g.tt.sites, g.tt.keys
     j = g.rcur[r]
@@ -284,6 +306,33 @@ function _signature!(g::ITOGraph{I}, r::Int, i::Int) where {I}
     end
     g.rcur[r] = j
     return (g.sufid[j, t], g.rbond[r])
+end
+
+# Is this right vertex a *cyclic* channel state — one that is live at every bond and has to be forced
+# into the bond basis (see `_vc_component`)?
+function _iscyclic(g::ITOGraph, r::Int)
+    r <= length(g.rchan) || return false          # the sentinel
+    c = g.rchan[r]
+    return c > 0 && g.channels[c].states[g.rstate[r]].cyclic
+end
+
+# Has this right vertex no remaining factors at all? Both an ordinary term class whose cursor has run
+# out and the synthetic class a channel exits onto are "exhausted": they are the same class (equal
+# signatures), which is what makes a channel's exit land on the done channel.
+function _isexhausted(g::ITOGraph, r::Int)
+    g.rchan[r] == -1 && return true
+    return iszero(g.rchan[r]) && iszero(g.sufid[g.rcur[r], g.rrepr[r]])
+end
+
+# Append a right vertex for the geometric class `(chan, state)` (or, with `chan == -1`, the synthetic
+# exhausted class at charge `bond`) and return its id.
+function _push_geometric!(g::ITOGraph{I}, chan::Int, state::Int, bond::I) where {I}
+    push!(g.rrepr, 0)
+    push!(g.rcur, g.K + 1)
+    push!(g.rbond, bond)
+    push!(g.rchan, chan)
+    push!(g.rstate, state)
+    return length(g.rrepr)
 end
 
 # The `ITOKey` term `r`'s class applies at site `i+1`, from the cursor state left by `_signature!(…, i)`
@@ -303,7 +352,7 @@ function _first_sites(tt::ITOTermTable)
 end
 
 """
-    ITOGraph(tt::ITOTermTable{I}, N; lazy = true) -> ITOGraph{I}
+    ITOGraph(tt::ITOTermTable{I}, N; lazy = true, channels = ExpChannel{I}[]) -> ITOGraph{I}
 
 Seed the persistent graph (mirrors ITensor's `MPOGraph(os)`): intern the column suffixes, create the
 right vertices, and bucket the initial left vertices by the site-1 key against the single
@@ -317,39 +366,71 @@ which is the form the `SequentialSVD` strategy uses (its per-bond dense SVD domi
 
 `jordan = true` additionally forces the finish class into every cover (`_force_finish!`), which is
 what Jordan emission needs and what `irrep_mpo` deliberately does not do.
+
+`channels` are lowered exponentially decaying interactions ([`_lower_channels`](@ref)). They are not
+terms and never enter the table: each *enters* on the start channel at every site matching its phase
+(here for site 1, in `_build_next_graph!` for the rest), and thereafter is an ordinary right vertex
+whose class happens to be cyclic. They require `lazy = true`.
 """
-function ITOGraph(tt::ITOTermTable{I}, N::Int; lazy::Bool = true, jordan::Bool = false) where {I}
+function ITOGraph(
+        tt::ITOTermTable{I}, N::Int; lazy::Bool = true, jordan::Bool = false,
+        channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
+    ) where {I}
     M = nterms(tt)
+    (lazy || isempty(channels)) ||
+        throw(ArgumentError("exponentially decaying channels need the lazy sweep"))
     sufid = _suffix_ids(tt)
     relsufid = _rel_suffix_ids(tt)
     firstsite = _first_sites(tt)
+    lastent = maximum(c -> lastentry(c, N), channels; init = 0)
 
     rrepr = Int[]
     rcur = Int[]
     rbond = I[]
+    rchan = Int[]
+    rstate = Int[]
     inserted = falses(M)
     lefts = LeftVertex{I}[]
     radj = Vector{Int}[]
     wadj = Vector{ComplexF64}[]
     buckets = Dictionary{ITOKey{I}, Int}()
 
-    for t in 1:M
-        (lazy && firstsite[t] > 1) && continue
-        key1 = _op_at_ito(tt, t, 1)
-        b = get(buckets, key1, 0)
+    function bucket!(key::ITOKey{I})
+        b = get(buckets, key, 0)
         if iszero(b)
-            push!(lefts, LeftVertex{I}(1, key1))
+            push!(lefts, LeftVertex{I}(1, key))
             push!(radj, Int[])
             push!(wadj, ComplexF64[])
             b = length(lefts)
-            insert!(buckets, key1, b)
+            insert!(buckets, key, b)
         end
+        return b
+    end
+
+    for t in 1:M
+        (lazy && firstsite[t] > 1) && continue
+        b = bucket!(_op_at_ito(tt, t, 1))
         push!(rrepr, t)
         push!(rcur, 1)
         push!(rbond, unit(I))
+        push!(rchan, 0)
+        push!(rstate, 0)
         inserted[t] = true
         push!(radj[b], length(rrepr))
         push!(wadj[b], tt.coeffs[t])
+    end
+
+    # channels whose anchor is site 1 enter right here, on the same start channel a term does
+    for (ci, c) in enumerate(channels)
+        isentry(c, 1, N) || continue
+        b = bucket!(c.entrykey)
+        push!(rrepr, 0)
+        push!(rcur, arity(tt) + 1)
+        push!(rbond, c.states[c.start].bond)
+        push!(rchan, ci)
+        push!(rstate, c.start)
+        push!(radj[b], length(rrepr))
+        push!(wadj[b], c.coeff)
     end
 
     # pending bookkeeping: which site each uninserted term enters at, and its pre-start signature
@@ -364,23 +445,17 @@ function ITOGraph(tt::ITOTermTable{I}, N::Int; lazy::Bool = true, jordan::Bool =
         insert!(pendbysig, (sufid[1, t], unit(I)), t)   # injective: `sufid[1, t]` fixes the term
     end
 
-    # the identity/start channel's left vertex — where the sentinel and every injected term hang off.
-    # A `K=0` term shares this exact `(link, key)`, so the bucket may already exist.
+    # the identity/start channel's left vertex — where the sentinel and every injected term or channel
+    # entry hangs off. A `K=0` term shares this exact `(link, key)`, so the bucket may already exist.
     startleft = 0
-    if nremaining > 0
-        key0 = ITOKey{I}(passthrough(I), unit(I), 1)
-        startleft = get(buckets, key0, 0)
-        if iszero(startleft)
-            push!(lefts, LeftVertex{I}(1, key0))
-            push!(radj, Int[])
-            push!(wadj, ComplexF64[])
-            startleft = length(lefts)
-        end
+    if nremaining > 0 || 1 < lastent
+        startleft = bucket!(ITOKey{I}(passthrough(I), unit(I), 1))
     end
 
-    cap = M + 1   # right-vertex ids are at most one sentinel beyond the real ones
+    cap = length(rrepr) + 1   # right-vertex ids are at most one sentinel beyond the live ones
     return ITOGraph{I}(
-        tt, N, arity(tt), sufid, relsufid, rrepr, rcur, rbond, lefts, radj, wadj, 1,
+        tt, N, arity(tt), sufid, relsufid, channels, lastent,
+        rrepr, rcur, rbond, rchan, rstate, lefts, radj, wadj, 1,
         lazy, firstsite, pend_at, pendbysig, inserted, nremaining, 0, startleft, 0, 0, 0, 0, jordan,
         zeros(Int, cap), zeros(Int, cap), zeros(Int, cap), zeros(Int, cap),
         Dictionary{Tuple{Int, I}, Int}()
@@ -402,6 +477,8 @@ function _suffix_merge!(g::ITOGraph{I}, i::Int) where {I}
     newrepr = Int[]
     newcur = Int[]
     newbond = I[]
+    newchan = Int[]
+    newstate = Int[]
     for r in 1:R
         sig = _signature!(g, r, i)
         b = get(groups, sig, 0)
@@ -409,6 +486,8 @@ function _suffix_merge!(g::ITOGraph{I}, i::Int) where {I}
             push!(newrepr, g.rrepr[r])
             push!(newcur, g.rcur[r])
             push!(newbond, g.rbond[r])
+            push!(newchan, g.rchan[r])
+            push!(newstate, g.rstate[r])
             b = length(newrepr)
             insert!(groups, sig, b)
         end
@@ -418,6 +497,8 @@ function _suffix_merge!(g::ITOGraph{I}, i::Int) where {I}
     g.rrepr = newrepr
     g.rcur = newcur
     g.rbond = newbond
+    g.rchan = newchan
+    g.rstate = newstate
     return remap
 end
 
@@ -549,6 +630,9 @@ end
 # The covered-right sentinel case below is therefore unreachable. It is kept because it costs two
 # comparisons and is the exact dual: an uncovered `L₀` folds `passthrough × 1` into that same block, so
 # a future change to the cover construction cannot silently produce a bond with no identity channel.
+#
+# The one class of right vertex that is *forced* into the cover is a cyclic channel state
+# (`_iscyclic`), for the reason spelled out in `_forced_cover`.
 function _vc_component(
         g::ITOGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int
     ) where {I}
@@ -567,7 +651,7 @@ function _vc_component(
         localadj[k] = Int[vlocal[rid] for rid in radj]
     end
 
-    cUbits, cVbits = min_vertex_cover_bipartite(localadj, nus, nvs)
+    cUbits, cVbits = _forced_cover(g, localadj, nus, nvs, vs)
     if g.jordan && !iszero(g.rfinish)
         pf = findfirst(==(g.rfinish), vs)     # `Θ(|vs|)`, i.e. `Θ(nV)` summed over the components
         pf === nothing || _force_finish!(cUbits, cVbits, localadj, pf)
@@ -650,6 +734,51 @@ function _vc_component(
     return rank, blocks, nextedges, secs, startidx, finishidx, origins
 end
 
+# Minimum vertex cover of one component, with every *cyclic* channel state forced into it.
+#
+# Why force. A cyclic state is live at every bond and re-enters itself. If it is left uncovered, its
+# predecessor becomes covered-left instead, which *forwards* the self-edge weight `λ·w` rather than
+# resetting it to 1 — so the λ powers ride along the bond instead of landing on the channel's diagonal,
+# and a bond that keeps doing that never repeats itself. König genuinely can pick that cover: two
+# equal-size minimum covers exist as soon as the channel's entry letter is shared with a finite-range
+# term (an exp tail alongside the nearest-neighbour term of the same operator), and the matching decides
+# which. Measured on that model the choice is made at the *first* bond where both classes are live, and
+# it heals one bond later — a covered-left predecessor is itself a second predecessor of the cyclic
+# state, which then has two pendants and must be covered. So the sweep converges either way on every
+# model here; what forcing buys is that it does so *structurally*, without resting on that
+# self-healing argument, and two bonds earlier.
+#
+# Why it is free. `{v} ∪ MVC(G ∖ v)` is a minimum cover *among the covers containing `v`*, and in the
+# bulk a cyclic state always has a pendant predecessor (the bond index it came from forwards nothing
+# else), so exchanging that predecessor for the state is never worse — the forced cover is a minimum
+# cover outright. It can cost one extra index only where the state has just been created and its only
+# predecessor is shared, i.e. in the window's discarded boundary cells; no bond dimension in the test
+# suite changes either way. Since a minimum cover keeps no redundant left vertex, removing the forced
+# columns also guarantees the predecessor comes back *uncovered*, which is exactly what folds
+# `λ · pass-through` onto the diagonal.
+function _forced_cover(
+        g::ITOGraph, localadj::Vector{Vector{Int}}, nus::Int, nvs::Int, vs::Vector{Int}
+    )
+    forced = falses(nvs)
+    nforced = 0
+    @inbounds for p in 1:nvs
+        if _iscyclic(g, vs[p])
+            forced[p] = true
+            nforced += 1
+        end
+    end
+    if iszero(nforced)
+        cUbits, cVbits = min_vertex_cover_bipartite(localadj, nus, nvs)
+        return cUbits, cVbits
+    end
+    residual = Vector{Vector{Int}}(undef, nus)
+    @inbounds for k in 1:nus
+        residual[k] = filter(p -> !forced[p], localadj[k])
+    end
+    cUbits, cVbits = min_vertex_cover_bipartite(residual, nus, nvs)
+    return cUbits, cVbits .| forced
+end
+
 """
     _promote_pending!(g, i)
 
@@ -672,6 +801,7 @@ function _promote_pending!(g::ITOGraph{I}, i::Int) where {I}
     iszero(lv) && _invariant("pending terms with no start channel to inject them on")
     promoted = false
     for r in eachindex(g.rrepr)
+        iszero(g.rchan[r]) || continue     # geometric classes have no factor list to collide with
         t = get(g.pendbysig, (g.sufid[g.rcur[r], g.rrepr[r]], g.rbond[r]), 0)
         (iszero(t) || g.inserted[t]) && continue
         g.inserted[t] = true
@@ -716,6 +846,7 @@ function _canonicalise_rights!(g::ITOGraph{I}, i::Int) where {I}
                 newid[perm[p]] = p
             end
             g.rrepr, g.rcur, g.rbond = g.rrepr[perm], g.rcur[perm], g.rbond[perm]
+            g.rchan, g.rstate = g.rchan[perm], g.rstate[perm]
             for radj in g.radj
                 @inbounds for k in eachindex(radj)
                     radj[k] = newid[radj[k]]
@@ -755,13 +886,16 @@ function _prepare_bond!(g::ITOGraph{I}, i::Int) where {I}
     # suffix merge just made signatures unique, so there is at most one such right vertex.
     g.rfinish = 0
     @inbounds for r in eachindex(g.rrepr)
-        if iszero(g.sufid[g.rcur[r], g.rrepr[r]]) && g.rbond[r] == unit(I)
+        # `_isexhausted` rather than a bare `sufid` lookup: a channel's right vertex has no
+        # representative term (`rrepr == 0`), so indexing the table with it is out of bounds — and the
+        # synthetic class a channel exits onto is exhausted without having a cursor at all
+        if _isexhausted(g, r) && g.rbond[r] == unit(I)
             g.rfinish = r
             break
         end
     end
 
-    if g.nremaining > 0
+    if g.nremaining > 0 || i < g.lastentry
         nV += 1
         g.rsent = nV
         _grow_scratch!(g, nV)
@@ -809,11 +943,23 @@ end
 #
 # This is also where lazy insertion *injects*: a term whose first active site is `i+1` gets its right
 # vertex here, hanging off the start channel with the term's coefficient as the edge weight — exactly
-# the weight the eager sweep would have been carrying along that channel since bond 0.
+# the weight the eager sweep would have been carrying along that channel since bond 0. An exponentially
+# decaying channel enters the same way, but at *every* site matching its phase rather than once.
+#
+# A geometric right vertex is the one place where a class has more than one successor: its automaton
+# state carries a transition per string letter (continue, weight `λ·c`) and, at `δ = 1`, one for the exit
+# factor. Each becomes its own left-vertex bucket, so a single forwarded edge fans out into several — the
+# continuation is what puts `λ · pass-through` on the channel's diagonal, and the exit is what lets it
+# reach the done channel. Transitions whose target could no longer complete inside `1:N` are dropped:
+# those translates do not exist on this lattice, and pruning them is what keeps the last bond of a finite
+# chain one-dimensional.
 function _build_next_graph!(
         g::ITOGraph{I}, i::Int, nout::Int,
         nextedges_global::Vector{Vector{Tuple{Int, ComplexF64}}}
     ) where {I}
+    # `_next_key` is right for a term class *and* for the synthetic exhausted class (whose cursor is
+    # past the end, so it returns the bare pass-through at the running charge — the class's own
+    # transition onto itself). Only a live channel state has several successors, handled below.
     nextkeys = [_next_key(g, r, i) for r in eachindex(g.rrepr)]
     buckets = Dictionary{Tuple{Int, ITOKey{I}}, Int}()
     next_lefts = LeftVertex{I}[]
@@ -832,11 +978,40 @@ function _build_next_graph!(
         return b
     end
 
+    # a class the sweep has to reach may not exist as a right vertex yet: the automaton's successor
+    # states and the exhausted class a channel exits onto are created here, on demand, and reused
+    geom = Dictionary{Tuple{Int, Int}, Int}()
+    exhausted = Dictionary{I, Int}()
+    for r in eachindex(g.rrepr)
+        if g.rchan[r] > 0
+            insert!(geom, (g.rchan[r], g.rstate[r]), r)
+        elseif g.rchan[r] == -1 || _isexhausted(g, r)
+            haskey(exhausted, g.rbond[r]) || insert!(exhausted, g.rbond[r], r)
+        end
+    end
+    function geomvertex!(chan::Int, state::Int, bond::I)
+        iszero(state) && return get!(() -> _push_geometric!(g, -1, 0, bond), exhausted, bond)
+        return get!(() -> _push_geometric!(g, chan, state, bond), geom, (chan, state))
+    end
+
     for j in 1:nout
         for (rid, w) in nextedges_global[j]
-            b = bucket!(j, nextkeys[rid])
-            push!(next_radj[b], rid)
-            push!(next_wadj[b], w)
+            chan = g.rchan[rid]
+            if chan > 0
+                c = g.channels[chan]
+                for (key, target, tw) in c.states[g.rstate[rid]].trans
+                    bond = iszero(target) ? key.bond : c.states[target].bond
+                    minremain = iszero(target) ? 0 : c.states[target].minremain
+                    i + 1 + minremain <= g.N || continue
+                    b = bucket!(j, key)
+                    push!(next_radj[b], geomvertex!(chan, target, bond))
+                    push!(next_wadj[b], w * tw)
+                end
+            else
+                b = bucket!(j, nextkeys[rid])
+                push!(next_radj[b], rid)
+                push!(next_wadj[b], w)
+            end
         end
     end
 
@@ -844,9 +1019,10 @@ function _build_next_graph!(
         startidx = g.startidx
         # Guarded here rather than inside the loop below: `g.startleft` is rebuilt off `startidx` even
         # when no term enters at `i+1`, so a missing start channel has to be caught either way.
-        # `nremaining > 0` means the sentinel existed at this bond, which forces a start channel. When
-        # it is 0 every term is already inserted, `pend_at[i+1]` is a no-op and no channel is needed.
-        (iszero(g.nremaining) || !iszero(startidx)) ||
+        # `nremaining > 0` (or an entry still to come) means the sentinel existed at this bond, which
+        # forces a start channel. Otherwise every term is already inserted and no channel can still
+        # enter, so `pend_at[i+1]` and the channel loop below are both no-ops.
+        ((iszero(g.nremaining) && i + 1 > g.lastentry) || !iszero(startidx)) ||
             _invariant("terms remain to the right of site $i with no start channel to enter on")
         for t in g.pend_at[i + 1]
             g.inserted[t] && continue         # already promoted into a colliding class
@@ -855,13 +1031,24 @@ function _build_next_graph!(
             push!(g.rrepr, t)
             push!(g.rcur, 1)
             push!(g.rbond, unit(I))
+            push!(g.rchan, 0)
+            push!(g.rstate, 0)
             b = bucket!(startidx, g.tt.keys[1, t])
             push!(next_radj[b], length(g.rrepr))
             push!(next_wadj[b], g.tt.coeffs[t])
         end
+        # every channel whose phase matches site `i+1` enters there, on the same start channel — and
+        # keeps doing so at every later matching site, which is why it is live at every bulk bond
+        for (ci, c) in enumerate(g.channels)
+            isentry(c, i + 1, g.N) || continue
+            b = bucket!(startidx, c.entrykey)
+            st = c.states[c.start]
+            push!(next_radj[b], geomvertex!(ci, c.start, st.bond))
+            push!(next_wadj[b], c.coeff)
+        end
         # the start channel has to survive even when it forwards nothing, so that the next bond's
-        # sentinel (and the terms after that) still have a left vertex to hang off
-        g.startleft = g.nremaining > 0 ?
+        # sentinel (and the terms or channel entries after that) still have a left vertex to hang off
+        g.startleft = (g.nremaining > 0 || i + 1 < g.lastentry) ?
             bucket!(startidx, ITOKey{I}(passthrough(I), unit(I), 1)) : 0
     end
 
@@ -1106,9 +1293,15 @@ _resolve_trunc(s::SequentialSVD) = SequentialSVD(something(s.trunc, trunctol(rto
 The persistent-graph reduced-MPO sweep, run with a bond-basis `strategy` ([`VertexCover`](@ref) or
 [`SequentialSVD`](@ref)). Produces the `(Ws::Vector{SparseMatrixCSC{SiteOperator{I}, Int}},
 bondsectors::Vector{Vector{I}})` contract that `mpo_terms` / `irrep_mpo_tensors` consume.
+
+`channels` are lowered exponentially decaying interactions ([`_lower_channels`](@ref)), which live
+alongside the term table rather than in it; a model may consist of nothing else.
 """
-function _irrep_graph_sweep(tt::ITOTermTable, N::Int, strategy::GraphStrategy)
-    Ws, bondsectors, _, _ = _irrep_graph_channels(tt, N, strategy, false)
+function _irrep_graph_sweep(
+        tt::ITOTermTable{I}, N::Int, strategy::GraphStrategy;
+        channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
+    ) where {I}
+    Ws, bondsectors, _, _ = _irrep_graph_channels(tt, N, strategy, false; channels)
     return (Ws, bondsectors)
 end
 
@@ -1127,13 +1320,15 @@ this is a separate entry point rather than extra return values on `_irrep_graph_
 the bond basis, and `irrep_mpo` promises the unconstrained minimum.
 """
 function _irrep_graph_channels(
-        tt::ITOTermTable{I}, N::Int, strategy::GraphStrategy, jordan::Bool
+        tt::ITOTermTable{I}, N::Int, strategy::GraphStrategy, jordan::Bool;
+        channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
     ) where {I}
     LOp = SiteOperator{I}
-    nterms(tt) == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[], Int[], Int[])
+    (nterms(tt) == 0 && isempty(channels)) &&
+        return (SparseMatrixCSC{LOp, Int}[], Vector{I}[], Int[], Int[])
 
     strategy = _resolve_trunc(strategy)
-    g = ITOGraph(tt, N; lazy = _graph_lazy(strategy), jordan)
+    g = ITOGraph(tt, N; lazy = _graph_lazy(strategy), jordan, channels)
     Ws = Vector{SparseMatrixCSC{LOp, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)
     starts = zeros(Int, N)
@@ -1334,9 +1529,26 @@ Run the reduced-MPO compression of `tt` over `N` sites with the given bond-basis
 the single entry point `irrep_mpo` (irrepmpo.jl) dispatches to; the strategy decides whether that is
 the persistent-graph sweep or the independent per-bond pass.
 """
-_irrep_sweep(tt::ITOTermTable, N::Int, strategy::GraphStrategy) = _irrep_graph_sweep(tt, N, strategy)
+_irrep_sweep(
+    tt::ITOTermTable{I}, N::Int, strategy::GraphStrategy;
+    channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
+) where {I} = _irrep_graph_sweep(tt, N, strategy; channels)
+
 function _irrep_sweep(tt::ITOTermTable, N::Int, strategy::IndependentSVD)
     return _irrep_independent_svd(tt, N, strategy.trunc)
+end
+
+# An SVD bond basis is a mixture of prefix states; a geometric channel is a bond index with a diagonal
+# rather than a column of one, so there is nothing to mix it into.
+function _irrep_sweep(
+        ::ITOTermTable{I}, ::Int, ::IndependentSVD; channels::Vector{ExpChannel{I}}
+    ) where {I}
+    return isempty(channels) || throw(
+        ArgumentError(
+            "IndependentSVD cannot compress an exponentially decaying interaction: it needs the " *
+                "whole bond coefficient matrix up front. Use BipartiteAlgorithm() (the default)."
+        )
+    )
 end
 
 """

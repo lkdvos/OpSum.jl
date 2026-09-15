@@ -318,14 +318,16 @@ diagonal, which throws.
   cover and the canonicalisation — i.e. everything that could be wrong — so as an oracle it is much
   weaker than the `mpo_terms_window` round-trip and the `contract_open` dense check, which is what §6
   ended up resting on. Revisit only if the unrolling cost ever shows up in a profile.
-* **Performance of the canonicalisation is unmeasured.** §3 adds an `O(live)` name build plus a
-  possible sort per bond (`_canonicalise_rights!`) and an `O(D log D)` sort plus a block-dictionary
-  rebuild per bond (`_canonicalise_bond!`) to the *shared* default path. Asymptotically that is a log
-  factor on an already-dominated term for a finite-range model and `Θ(N² log N)` against an intrinsic
-  `Θ(N³)` for an all-to-all one, so it should not move the exponents — but no benchmark was run, so the
-  concrete timings and fitted exponents in `persistent-graph-mpo.md` §2.3, and the checked-in figures
-  under `docs/src/assets/`, date from before it. Re-run `benchmark/run.jl --sweep ci` before trusting
-  them.
+* **Performance of the canonicalisation — measured, and it costs nothing detectable.** §3 adds an
+  `O(live)` name build plus a possible sort per bond (`_canonicalise_rights!`) and an `O(D log D)` sort
+  plus a block-dictionary rebuild per bond (`_canonicalise_bond!`) to the *shared* default path.
+  Asymptotically that is a log factor on an already-dominated term for a finite-range model and
+  `Θ(N² log N)` against an intrinsic `Θ(N³)` for an all-to-all one, so it should not move the exponents.
+  The `--sweep full` run of 2026-09-15 (same host as the previous figures, so the code change is
+  isolated) confirms it: finite-range compression fits `0.92 … 1.08`, long-range `2.17 … 2.20` — both
+  within run-to-run noise — and `docs/src/assets/profile.png` regenerated bit-identical, so no bond
+  dimension anywhere changed. `persistent-graph-mpo.md` §2.3 and the checked-in figures are current
+  again.
 * Global vs per-bond cover minimality on a cycle (§3).
 * The spread-identity-backbone edge case in `_identity_channels` (§5).
 * A canonically *ordered* `SiteOperator`, which would let `_canonform` go away (§5). The structural

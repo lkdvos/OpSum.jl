@@ -18,11 +18,19 @@ of the (gitignored) `benchmark/results.json` and `benchmark/results.metrics.json
 
 | | |
 |---|---|
-| generated | 2026-07-27 |
+| generated | 2026-09-15 |
 | sweep | `full` |
 | Julia | 1.12.6 |
 | source | the code commit this branch's figures accompany, with a clean working tree |
 | host | `ccqlin038.flatironinstitute.org` (Flatiron CCQ workstation) |
+
+Refreshed after the translation-covariance canonicalisation landed (#28), which is always on and shared
+with the finite path. Same host as the previous figures, so the comparison isolates the code change.
+Nothing moved beyond run-to-run noise. The ten finite-range compression fits came out `0.92 … 1.08`
+and the two long-range ones `2.17 … 2.20`, against the bands quoted below; the low end is `0.08` under
+the previously observed floor, which is why that band is widened here rather than left as it stood.
+`profile.png` regenerated **bit-identical** — the deterministic corroboration that no bond dimension
+anywhere changed.
 
 The exact commit is recorded in the regenerated JSON (`git_commit`, plus `git_dirty` — trust the numbers
 only when that is `false`); it is deliberately not pinned here, since a rebase or an amended message
@@ -30,7 +38,7 @@ would silently invalidate it while the figures stayed correct.
 
 Timings are wall-clock on a shared machine, so treat the absolute numbers as indicative and the fitted
 exponents as good to about one decimal: repeating the sweep moves the finite-range compression fits
-within `1.0 … 1.14` and the long-range ones over `1.9 … 2.24`. Bond dimensions are deterministic and
+within `0.92 … 1.14` and the long-range ones over `1.9 … 2.24`. Bond dimensions are deterministic and
 machine-independent.
 
 ## What the figures show

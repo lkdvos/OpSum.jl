@@ -183,11 +183,11 @@ Fitted exponents of the `mpo_bipartite` benchmark group (`--sweep full`, OLS in 
 
 | | after |
 |---|---|
-| the ten finite-range models | **`≈ N^1.0 … N^1.15`** |
-| `haldane_shastry`, `powerlaw_a3` | **`≈ N^2`** over `N = 8 … 256` — the `Θ(N³)` bound is the asymptote |
+| the ten finite-range models | **`≈ N^0.9 … N^1.15`** |
+| `haldane_shastry`, `powerlaw_a3` | **`≈ N^2`** over `N = 8 … 384` — the `Θ(N³)` bound is the asymptote |
 
 Those are rounded deliberately. Repeating the sweep on a shared machine moves the finite-range fits
-within `1.0 … 1.14` and the long-range ones over `1.9 … 2.24` (only seven points, and the largest is a
+within `0.92 … 1.14` and the long-range ones over `1.9 … 2.24` (only seven points, and the largest is a
 quarter-second), so a three-digit exponent would be false precision. The long-range fit sitting below
 its `Θ(N³)` asymptote is expected: the `Θ(M)` class term still outweighs the `Θ(Σ span)` edge term at
 these sizes.
@@ -199,6 +199,12 @@ gives only `N^1.34 … N^1.50` over the old sweep sizes (`8 … 256`) — the `�
 dominate yet at those sizes. Extending the parent to `N = 2048` raises the fit to `N^1.60` with a local
 slope of `2.35` across the last octave, which is the honest indication of the quadratic. This is why the
 counts above, not a fitted exponent, are what the claim rests on.
+
+Re-measured on 2026-09-15, on the same host, after the translation-covariance canonicalisation of
+`research/infinite-mpo.md` §3 landed — which is always on and shared with this path, and so was the one
+change with the standing to move these numbers. It did not: finite-range compression came out
+`0.92 … 1.08`, long-range `2.17 … 2.20`, and the bond-dimension profile figure regenerated
+bit-identical.
 
 End-to-end `irrep_mpo` (term table + sweep), same measurement both sides: Heisenberg `N = 512`
 `29.1 ms / 66.2 MB → 3.0 ms / 7.2 MB`; Haldane-Shastry `N = 128` `230 ms / 515 MB → 36 ms / 53 MB`.

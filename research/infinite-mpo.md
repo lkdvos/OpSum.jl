@@ -3,7 +3,7 @@
 *What survives from the finite pipeline when the chain becomes infinite, what has to be adapted, and why.
 Companion to `research/persistent-graph-mpo.md`, whose §2 machinery this builds on directly.*
 
-New files: `src/operators/infinitechain.jl` (the lattice descriptor, `translate`, canonicalisation), `src/operators/infinitegraph.jl` (the window construction, identity-channel detection, faithfulness) and — for §7 — `src/operators/expterms.jl` (the exponential-decay primitive and its lowering).
+New files: `src/operators/infinite/infinitechain.jl` (the lattice descriptor, `translate`, canonicalisation), `src/operators/infinite/infinitegraph.jl` (the window construction, identity-channel detection, faithfulness) and — for §7 — `src/operators/infinite/expterms.jl` (the exponential-decay primitive and its lowering).
 `irrepgraph.jl` gains the canonicalisation described in §3 and the geometric right vertices of §7; `irrepmpo.jl` gains the public entries and the wrap-around tensor assembly.
 The sweep itself — `_at_site!`'s five phases — is **unchanged** for finite-range models.
 
@@ -151,7 +151,7 @@ Comparing `Ws` needs care.
 
 `Σ_{i<j} λ^{j-i-1} A_i B_j` (optionally with a string operator on the intermediate sites) is the second regime.
 Its Jordan-MPO signature is a scalar `λ` on the **diagonal** of a bond channel, and it cannot be enumerated as a flat term list at all.
-New file: `src/operators/expterms.jl` (the primitive, its containers, the explicit expansion, and the lowering); `irrepgraph.jl` gains geometric right vertices; `infinitegraph.jl` and `irrepmpo.jl` gain the entry points.
+New file: `src/operators/infinite/expterms.jl` (the primitive, its containers, the explicit expansion, and the lowering); `irrepgraph.jl` gains geometric right vertices; `infinitegraph.jl` and `irrepmpo.jl` gain the entry points.
 Tests: `test/test_exp_decay.jl`.
 
 The central claim: **a geometric channel is a suffix class with a self-loop**, so it is an ordinary right vertex and the existing merge / cover / canonicalisation machinery compresses it.

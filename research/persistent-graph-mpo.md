@@ -1,11 +1,11 @@
 # Persistent-graph MPO construction — design note
 
-OpSum's symmetry-reduced MPO construction is a persistent bipartite-graph + `at_site!` sweep (modeled on ITensorMPOConstruction.jl's architecture), generalized to the non-abelian (TensorKit `Sector`) ITO machinery, in `src/operators/irrepgraph.jl` (included between `irreptermtable.jl` and `irrepmpo.jl`).
+OpSum's symmetry-reduced MPO construction is a persistent bipartite-graph + `at_site!` sweep (modeled on ITensorMPOConstruction.jl's architecture), generalized to the non-abelian (TensorKit `Sector`) ITO machinery, in `src/operators/compression/irrepgraph.jl` (the core sweep; split across `irrepinterning.jl`, `irrepgraph_vc.jl` and `irrepgraph_svd.jl` — see below), included between `irreptermtable.jl` and `irrepmpo.jl`.
 The transient-frontier sweeps `_irrep_bipartite` / `_irrep_svd` are **kept unchanged** as the parity oracles and as the pinned SVD backend (see §4).
 
 ## 1. Data structures
 
-`LeftVertex` and `ITOGraph` (`src/operators/irrepgraph.jl`) hold the per-bond bipartite graph state: fixed suffix-class ids (`sufid`, §2.1), persistent right-vertex bookkeeping (`rrepr`/`rcur`/`rbond`), the current bond's adjacency lists (`lefts`/`radj`/`wadj`), and the lazy-insertion bookkeeping (`firstsite`/`pend_at`/`pendbysig`/`inserted`, §2.2) — see the struct's docstring for field-level detail.
+`LeftVertex` and `ITOGraph` (`src/operators/compression/irrepgraph.jl`) hold the per-bond bipartite graph state: fixed suffix-class ids (`sufid`, §2.1), persistent right-vertex bookkeeping (`rrepr`/`rcur`/`rbond`), the current bond's adjacency lists (`lefts`/`radj`/`wadj`), and the lazy-insertion bookkeeping (`firstsite`/`pend_at`/`pendbysig`/`inserted`, §2.2) — see the struct's docstring for field-level detail.
 
 The non-abelian mapping: a **right vertex is a suffix class** (identified by a representative term id; classes enter at their term's first active site and thereafter only merge — §2.2), and a **left vertex** is `(incoming link, on-site ITOKey)`.
 `ITOKey.bond` — the running fusion charge *out of* the site — is the non-abelian analogue of ITensor's additive QN flux (a fusion *outcome*, not a sum).

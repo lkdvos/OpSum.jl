@@ -648,42 +648,31 @@ function _legcharges(b::Terms{I}, which::Int) where {I}
     return cs
 end
 
-# Whether `d` can still reach `tot` by fusing one charge from each of `legs[i:end]`. Memoised on
-# `(charge, position)`, which is all it depends on, so a long chain costs one walk and not one per
-# pair of terms.
+# One charge from each of `legs[i:end]`, every way round: the charge tuples a caterpillar over the
+# remaining operands could carry.
+_tails(legs::Vector{Vector{I}}, i::Int) where {I <: Sector} =
+    Iterators.product(view(legs, i:lastindex(legs))...)
+
+# Whether `d` can still reach `tot` by fusing one charge from each of `legs[i:end]` — that is,
+# whether any caterpillar tree over those charges exists, which is TensorKit's question, not ours.
+# Memoised on `(charge, position)`, which is all it depends on, so a long chain costs one enumeration
+# per position and not one per pair of terms. Past the last leg the product is a single empty tuple,
+# so the base case `d == tot` needs no special handling.
 function _reaches(
         d::I, legs::Vector{Vector{I}}, i::Int, tot::I, memo::Dict{Tuple{I, Int}, Bool}
     ) where {I <: Sector}
-    i > length(legs) && return d == tot
     return get!(memo, (d, i)) do
-        for c in legs[i], e in d ⊗ c
-            _reaches(e, legs, i + 1, tot, memo) && return true
-        end
-        return false
+        any(cs -> !isempty(caterpillar_trees((d, cs...), tot)), _tails(legs, i))
     end
 end
 
-# Every legal tuple of intermediate channels, one per vertex except the last (which is `tot`).
+# Every legal tuple of intermediate channels, one per vertex except the last (which is `tot`). A
+# channel tuple *is* a caterpillar tree's `innerlines`, so the enumeration is
+# [`caterpillar_trees`](@ref) over (the accumulator's running total, one letter per later operand).
 function _channeltuples(starts::Vector{I}, legs::Vector{Vector{I}}, tot::I) where {I <: Sector}
-    n = length(legs) - 1
-    out = NTuple{n, I}[]
-    buf = Vector{I}(undef, n)
-    for s in starts
-        _walkchannels!(out, buf, s, legs, 1, tot)
-    end
-    return unique!(out)
-end
-
-function _walkchannels!(out, buf, d::I, legs, i, tot) where {I <: Sector}
-    if i > length(legs) - 1
-        # last vertex: its charge is `tot`, so there is nothing to name — only to check
-        any(c -> !iszero(Nsymbol(d, c, tot)), legs[end]) &&
-            push!(out, ntuple(k -> buf[k], length(buf)))
-        return out
-    end
-    for c in legs[i], e in d ⊗ c
-        buf[i] = e
-        _walkchannels!(out, buf, e, legs, i + 1, tot)
+    out = NTuple{length(legs) - 1, I}[]
+    for (s, cs) in Iterators.product(starts, _tails(legs, 1)), f in caterpillar_trees((s, cs...), tot)
+        f.innerlines in out || push!(out, f.innerlines)
     end
     return out
 end

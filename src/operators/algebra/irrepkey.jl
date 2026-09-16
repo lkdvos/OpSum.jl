@@ -1,20 +1,12 @@
-# Charge-augmented alphabet + caterpillar fusion helpers
-# ======================================================
-# The alphabet symbol `ITOKey = (op, bond_charge_out, vertex)` of the charge-augmented ITO
-# automaton, together with the pass-through identity that fills idle sites and the caterpillar
-# fusion-tree helpers (`bondcharges`, `vertexlabels`, `caterpillar_trees`). Prefixes agreeing on
-# the full `ITOKey` share automaton state, so the automaton is block-diagonal in the bond charge.
-# This is the alphabet the flat `ITOTermTable` / `irrep_mpo` per-sector bipartite + SVD pipeline
-# consumes.
+# Charge-augmented alphabet + caterpillar fusion helpers: `ITOKey = (op, bond_charge_out, vertex)`,
+# the alphabet the flat `ITOTermTable`/`irrep_mpo` pipeline consumes. Prefixes agreeing on the full
+# `ITOKey` share automaton state, so the automaton is block-diagonal in the bond charge. Idle sites
+# get a distinguished pass-through symbol (trivial charge, `n = 0`) rather than an enumerated `(c,n)`
+# letter or `one(A)`.
 #
-# Idle sites are filled with a distinguished pass-through identity symbol (trivial charge, index
-# `n = 0`), not an enumerated `(c, n)` letter and not `one(A)`; it acts as `id(V)`. Supported term
-# arity K ≥ 0; multi-channel (`GenericFusion`) coupling is deferred.
-#
-# Why a `Term` stores keys and not a fusion tree: for a caterpillar the keys *are* the tree —
-# `bondcharges`/`vertexlabels` project one onto them and `_tree_from_bonds` (irrepalgebra.jl) inverts
-# that. `total` alone would not do, since for K ≥ 3 non-abelian several channels reach the same total;
-# and it rests on the shape being fixed, which is why `couple`'s `via` is deferred.
+# `Term` stores keys, not a fusion tree, because for a caterpillar the keys *are* the tree
+# (`bondcharges`/`vertexlabels` project one onto them; `_tree_from_bonds` in irrepalgebra.jl inverts
+# it) — `total` alone would not do, since for `K ≥ 3` non-abelian several channels reach the same total.
 
 using TensorKit
 using TensorKit: Sector, FusionTree, fusiontrees, unit

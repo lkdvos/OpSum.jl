@@ -1,33 +1,15 @@
-# Reduced MPO for an infinite chain with a repeating unit cell
-# ============================================================
-# A `TermSum` over a unit cell of `L` sites stands for `Σ_{n ∈ ℤ} translate(H, n·L)` (see
-# `infinitechain.jl`). The compression problem is *per bond* exactly the one the finite sweep already
-# solves — at bond `j` the crossing translates are a finite set, bounded by the interaction range `R`
-# — with one structural difference: the bond basis is no longer vacuum-terminated on either side, it
-# has to close on itself (`V_0 ≅ V_L`), and the start *and* done channels are live at every bond.
+# Reduced MPO for an infinite chain with a repeating unit cell: a `TermSum` over `L` sites stands for
+# `Σ_{n∈ℤ} translate(H, n·L)`. Per bond this is the finite sweep's problem with one difference: the
+# bond basis has to close on itself (`V_0 ≅ V_L`), so both identity channels are live at every bond.
+# See `research/infinite-mpo.md` for the design.
 #
-# ## The window construction (this file's `_infinite_window`)
+# `_infinite_window` unrolls `2P+1` cells (`P·L ≥ R`), runs the unchanged finite sweep, and reads the
+# middle cell off — exact in the bulk since every crossing (or collision-prone pending) translate lies
+# entirely inside the window. Closure is checked, not assumed: bond `offset` and bond `offset+L` must
+# agree as ordered bases and the extracted cell must equal the next one entry for entry.
 #
-# Unroll `2P+1` cells with `P·L ≥ R`, generate every translate whose support fits inside the window,
-# run the *unchanged* finite sweep, and read the middle cell off. This is exact in the bulk: with `R`
-# sites of padding on each side, every translate crossing a bulk bond — and every still-pending
-# translate a bulk-bond `_promote_pending!` could collide with — lies entirely inside the window, so
-# the bipartite graph at a bulk bond is bit-for-bit the periodic one. What the padding buys is
-# precisely that the sweep's two boundary conventions (the vacuum seed, and the `i == N` coefficient
-# folding) are `R` sites away and cannot reach the cell being extracted.
-#
-# The construction is only meaningful if the extracted cell actually closes, which is checked rather
-# than assumed: bond `offset` and bond `offset+L` must agree as *ordered* bases, and the extracted
-# cell must equal the next cell entry for entry. That check is also the practical statement that the
-# sweep is translation-covariant.
-#
-# ## The identity channels
-#
-# An infinite MPO is only usable with its two boundary vectors, so the construction reports which
-# bond index is the start channel and which is the done channel. Both are bare pass-through
-# backbones; they are told apart by *direction*, on the assembled cell rather than inside the cover:
-# nothing enters the start channel except the start channel, and nothing leaves the done channel
-# except the done channel.
+# The two identity channels are found on the assembled cell by direction: nothing enters the start
+# channel but itself, nothing leaves the done channel but itself.
 
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Sector, unit, block, oneunit, ncon, removeunit, permute, @tensor

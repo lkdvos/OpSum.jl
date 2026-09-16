@@ -1,13 +1,9 @@
-# Named operator sets, and memoisation of the ones that cost something
-# ====================================================================
-# Two three-line derivations were re-written by hand across the tests, the examples and the benchmark
-# models: the `Sp`/`Sm`/`Sz` block for a U(1)-graded spin site, and the `(c, cd, n)` triple for a
-# fermionic mode. Both are pure *convention* — which sector is "up", how the ladder normalisation
-# goes — and a convention with nine copies is a convention with nine chances to differ.
+# Named operator sets: the `Sp`/`Sm`/`Sz` block for a U(1)-graded spin site and the `(c, cd, n)`
+# triple for a fermionic mode, as pure conventions (which sector is "up", ladder normalisation) that
+# should live in one place rather than be re-derived per model.
 #
-# They live here rather than in irrepprojection.jl because they are built out of `matrixunit`, which
-# needs `project`. `matrixunit` and `spin` are memoised (utility/memo.jl), so calling either of these
-# inside a term loop costs a dictionary lookup rather than a fresh projection.
+# Built out of `matrixunit`/`spin` (irrepprojection.jl), not colocated there since those need
+# `project`; both are memoised (utility/memo.jl), so calling these inside a term loop is cheap.
 
 using TensorKit: ElementarySpace, Sector, sectortype, dual, removeunit
 

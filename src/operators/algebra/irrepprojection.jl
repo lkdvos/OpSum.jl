@@ -1,16 +1,14 @@
-# Projection: dense symmetric `TensorMap` → symbolic ITO terms, the inverse of `instantiate`. Writing
-# a Hamiltonian by naming letters `(c, n)` is fragile — `n` follows TensorKit's block order — so write
-# the operator down and let the coefficients be computed.
+# Projection: dense symmetric `TensorMap` → symbolic ITO terms, the inverse of `instantiate`. Naming
+# letters `(c, n)` directly is fragile since `n` follows TensorKit's block order, so operators are
+# built as tensors and projected back instead.
 #
-# No linear solve is needed. The candidate basis `α = (ops, tree)`, materialised by the forward map as
-# `_instantiate_basis`, is *orthogonal* with a closed-form diagonal, so `c_α = inner(E_α, h) / g`:
+# No linear solve needed: the candidate basis `α = (ops, tree)` is orthogonal with a closed-form
+# diagonal, so `c_α = inner(E_α, h) / g` where
 #
-#     inner(E_α, E_β) = δ_ops · δ_tree · dim(tot) / Π_k dim(ops[k].c)   =:  δ_αβ · g(ops, tot)
+#     inner(E_α, E_β) = δ_ops · δ_tree · dim(tot) / Π_k dim(ops[k].c)  =:  δ_αβ · g(ops, tot)
 #
-# and it is *complete* — the candidate count equals `mult_{⊗_k (V_k⊗V_k')}(tot)`, the dimension of the
-# target homspace — so a symmetric `h` of the accepted shape is always exactly in the span and the only
-# real source of residual is `tol` truncation. `test_irrep_projection.jl` pins the diagonal and the
-# vanishing off-diagonal, fermionic sectors included.
+# and complete (candidate count = target homspace dimension), so a symmetric `h` of the accepted shape
+# is always exactly in the span; the only residual is `tol` truncation.
 
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, oneunit
 using LinearAlgebra: norm

@@ -1,24 +1,16 @@
-# On-site operators: a sparse combination of alphabet letters
-# ============================================================
-# `SiteOperator{I}` is what you get from `project`, `matrixunit`, `spin` and `scalarop`, and it is also
-# the element type of the reduced MPO's bond matrices. It is a small ordered map
-# `IrrepOperator{I} => ComplexF64`, nothing more.
+# On-site operators: a sparse combination of alphabet letters. `SiteOperator{I}` is what `project`,
+# `matrixunit`, `spin` and `scalarop` return, and the element type of the reduced MPO's bond matrices
+# — a small ordered map `IrrepOperator{I} => ComplexF64`, stored as two parallel vectors rather than a
+# `Dict` (one or two letters in every realistic case, so linear scan beats hashing and keeps ordering
+# deterministic).
 #
-# The bare identity is *not* a special field: it is the `passthrough` sentinel letter
-# (`IrrepOperator{I}(unit(I), 0)`), which already means "acts as `id(V)`, carries no charge" and
-# already instantiates to `id(V)`. So `scalarop(c, I)` is literally `c · passthrough`, and every
-# consumer branches on `ispassthrough` — a predicate that has to exist anyway for the idle sites of
-# the sweep — instead of on a separate scalar slot.
+# The bare identity is not a special field: it is the `passthrough` sentinel letter
+# (`IrrepOperator{I}(unit(I), 0)`), which already means "acts as `id(V)`, carries no charge". So
+# `scalarop(c, I)` is literally `c · passthrough`, and every consumer branches on `ispassthrough`
+# rather than a separate scalar slot.
 #
-# Entries are two parallel vectors rather than a `Dict`: an on-site operator has one or two letters
-# in every realistic case (`Sz` has two, `spin` has one), and linear scan over a two-element vector
-# beats hashing while keeping the ordering deterministic.
-#
-# This replaces the `LocalOp{T,A}` sum type over `Sum`/`Prod`/`Pow`/`Kron`/`Fun`. Only `Sum` was ever
-# constructed; `Prod`/`Pow` threw and `Kron`/`Fun` were unreachable. A symbolic on-site *product*
-# would need structure constants for the alphabet — for ITOs, the decomposition of a product of two
-# irreducible tensor operators on one site, which is 6j data rather than a rewrite of this type — so
-# the supported route is to build the product as a `TensorMap` and `project` it back.
+# There is no symbolic on-site product: it would need structure constants for the alphabet (6j data,
+# for ITOs), so the supported route is to build the product as a `TensorMap` and `project` it back.
 
 using TensorKit: Sector, sectortype
 using LinearAlgebra: LinearAlgebra

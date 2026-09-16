@@ -1,19 +1,15 @@
 # Jordan-form MPO emission: one `SparseBlockTensorMap` per site, virtual legs `SumSpace`s with one
-# level per bond index, reordered into upper-triangular (start channel, rest, finish channel) form —
-# what MPSKit's `JordanMPOTensor` / `FiniteMPOHamiltonian` consume. `irrep_mpo_tensors` (irrepmpo.jl)
-# emits the dense-bond shape instead.
+# level per bond index, reordered (start channel, rest, finish channel) — what MPSKit's
+# `JordanMPOTensor`/`FiniteMPOHamiltonian` consume. `irrep_mpo_tensors` (irrepmpo.jl) emits the dense
+# shape instead.
 #
-# THE JORDAN PADDING TRADE. Both identity channels are emitted at every internal bond even where the
-# cover spent no index on them, so the result is minimal *among Jordan-form MPOs* and at most `+2` per
-# bond over `irrep_mpo`'s unconstrained minimum (in practice `+1` at the first internal bond and `+1`
-# at the last). Padded channels are pure identity chains and cannot change the operator: the padded
-# start is reachable only from the left boundary and emits nothing into the finish, and the padded
-# finish chain is reachable from nothing. The one thing that *does* touch the cover is `_force_finish!`
-# (irrepgraph.jl), so the finish channel emits `1 · id` rather than a weighted letter.
+# Both identity channels are padded in at every internal bond even where the cover spent no index on
+# them, so the result is minimal *among Jordan-form MPOs*, at most `+2` per bond over `irrep_mpo`'s
+# unconstrained minimum — padded channels are pure identity chains and cannot change the operator.
+# `_force_finish!` (irrepgraph.jl) is the one thing that touches the cover for this path.
 
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, SumSpace, eachspace
-using TensorKit: BraidingTensor, Vect, ElementarySpace, fusiontrees, unit, isomorphism,
-    tensormaptype, @tensor
+using TensorKit: BraidingTensor, Vect, ElementarySpace, unit, tensormaptype
 using .IrrepTensorOperators: IrrepOperator
 
 """
@@ -80,21 +76,6 @@ function _jordan_bond(sec::Vector{I}, s::Int, f::Int) where {I}
     push!(newsec, unit(I))                    # slot end — the finish channel, live or padded
     iszero(f) || (pos[f] = length(newsec))
     return pos, newsec
-end
-
-# One letter's site tensor, fusing `(bL, c) → bR` (running bond first, as in `irrep_mpo_tensors`).
-# Memoised per `(letter, bL, bR)`, so the trees and the contraction are paid once per distinct triple.
-function _jordan_letter_block(letter::IrrepOperator{I}, V, bL::I, bR::I) where {I}
-    c = letter.c
-    Vc = Vect[I](c => 1)
-    # pass-through (c = unit) keeps the trivial charge leg so the bond contraction is uniform
-    O = ispassthrough(letter) ? isomorphism(ComplexF64, V ← V ⊗ Vc) : instantiate(letter, V)
-    κ = zeros(ComplexF64, Vect[I](bL => 1) ⊗ Vc ← Vect[I](bR => 1))
-    f1 = only(fusiontrees((bL, c), bR, (false, false)))
-    f2 = only(fusiontrees((bR,), bR, (false,)))
-    κ[f1, f2][1, 1, 1] = 1
-    @tensor blk[bl o; ii br] := O[o; ii cc] * κ[bl cc; br]
-    return blk
 end
 
 """
@@ -188,7 +169,7 @@ function jordan_mpo_tensors(
             end
             blk = nothing
             for (letter, coeff) in pairs(op)
-                B = get!(() -> _jordan_letter_block(letter, V, bL, bR), blocks, (letter, bL, bR))
+                B = get!(() -> _letter_block(letter, V, bL, bR), blocks, (letter, bL, bR))
                 blk = blk === nothing ? coeff * B : blk + coeff * B
             end
             W[row, 1, 1, col] = blk

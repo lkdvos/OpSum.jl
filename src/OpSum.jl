@@ -25,7 +25,7 @@ using LinearAlgebra: LinearAlgebra
 
 # Algorithm selectors (shared by the dense and irrep pipelines)
 # -------------------------------------------------------------
-include("algorithms.jl")
+include("operators/compression/algorithms.jl")
 
 # Utility
 # -------
@@ -37,23 +37,30 @@ include("utility/memo.jl")
 include("datastructures/bipartite.jl")
 include("datastructures/connectedcomponents.jl")
 
-# Operators
-# ---------
-include("operators/operatorbasis.jl")
+# Operators — symbolic algebra
+# -----------------------------
+include("operators/algebra/operatorbasis.jl")
 
-include("operators/irreptensoroperators.jl")
+include("operators/algebra/irreptensoroperators.jl")
 using .IrrepTensorOperators: IrrepOperator
-include("operators/irrepkey.jl")
-include("operators/siteoperator.jl")
-include("operators/irrepalgebra.jl")
-include("operators/irrepprojection.jl")
-include("operators/builders.jl")
-include("operators/irreptermtable.jl")
-include("operators/expterms.jl")
-include("operators/irrepgraph.jl")
-include("operators/infinitechain.jl")
-include("operators/infinitegraph.jl")
-include("operators/irrepmpo.jl")
-include("operators/jordanmpo.jl")
+include("operators/algebra/irrepkey.jl")
+include("operators/algebra/siteoperator.jl")
+include("operators/algebra/irrepalgebra.jl")
+include("operators/algebra/irrepinstantiate.jl")
+include("operators/algebra/irrepprojection.jl")
+include("operators/algebra/builders.jl")
+
+# Operators — compression to a reduced MPO
+# ------------------------------------------
+include("operators/compression/irreptermtable.jl")
+include("operators/infinite/expterms.jl")
+include("operators/compression/irrepinterning.jl")
+include("operators/compression/irrepgraph.jl")
+include("operators/compression/irrepgraph_vc.jl")
+include("operators/compression/irrepgraph_svd.jl")
+include("operators/infinite/infinitechain.jl")
+include("operators/infinite/infinitegraph.jl")
+include("operators/compression/irrepmpo.jl")
+include("operators/compression/jordanmpo.jl")
 
 end

@@ -112,9 +112,11 @@ function irrep_mpo(
 end
 
 # a Hamiltonian of nothing but channels
-irrep_mpo(H::ExpSum, lattice) = irrep_mpo(MixedSum(H), lattice)
-irrep_mpo(H::ExpSum, lattice, alg::BipartiteAlgorithm) = irrep_mpo(MixedSum(H), lattice, alg)
-irrep_mpo(H::ExpSum, lattice, alg::SVDBondAlgorithm) = irrep_mpo(MixedSum(H), lattice, alg)
+function irrep_mpo(
+        H::ExpSum, lattice, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
+    )
+    return irrep_mpo(MixedSum(H), lattice, alg)
+end
 
 function irrep_mpo(::MixedSum, ::Any, ::SVDBondAlgorithm)
     throw(
@@ -221,6 +223,33 @@ function _add_coupler_coeff!(κ, f1, f2, dL::Int, dR::Int, coeff)
     return κ
 end
 
+# The on-site tensor for one ITO letter: `V ← V ⊗ Vect[I](c => 1)`. Pass-through (c = unit) carries a
+# trivial charge leg so the bond contraction below is uniform (`instantiate` would drop it, returning
+# bare `id(V)`).
+function _letter_optensor(letter::IrrepOperator{I}, V) where {I}
+    Vc = Vect[I](letter.c => 1)
+    return ispassthrough(letter) ? isomorphism(ComplexF64, V ← V ⊗ Vc) : instantiate(letter, V)
+end
+
+# One letter's site-tensor block for a single `(bL, bR)` bond-charge pair, coefficient `1`: the on-site
+# tensor coupled `(bL, c) → bR` (running bond first, matching the caterpillar). Built from the same
+# `_add_coupler_coeff!`/`_add_bond_entry!` primitives `_mpo_tensors` uses to batch many bond entries
+# into one shared, bond-space-sized coupler before a single `@tensor`; here the coupler and result
+# instead span only the single-index spaces `Vect[I](bL/bR => 1)`, since a caller with no bond
+# degeneracy to batch over (i.e. `jordan_mpo_tensors`) wants one already-contracted block per
+# `(letter, bL, bR)` triple.
+function _letter_block(letter::IrrepOperator{I}, V, bL::I, bR::I) where {I}
+    c = letter.c
+    O = _letter_optensor(letter, V)
+    f1 = only(fusiontrees((bL, c), bR, (false, false)))
+    f2 = only(fusiontrees((bR,), bR, (false,)))
+    κ = zeros(ComplexF64, Vect[I](bL => 1) ⊗ Vect[I](c => 1) ← Vect[I](bR => 1))
+    _add_coupler_coeff!(κ, f1, f2, 1, 1, ComplexF64(1))
+    blk = zeros(ComplexF64, Vect[I](bL => 1) ⊗ V ← V ⊗ Vect[I](bR => 1))
+    _add_bond_entry!(blk, O, κ)
+    return blk
+end
+
 """
     irrep_mpo_tensors(Ws, bondsectors, sites) -> Vector{<:AbstractTensorMap}
 
@@ -300,13 +329,7 @@ function _mpo_tensors(
             bR, dR = secR[r], degR[r]
             for (letter, coeff) in pairs(localop)
                 c = letter.c
-                # V ← V ⊗ Vect[c]; pass-through (c = unit) carries a trivial charge leg so the
-                # bond contraction is uniform (instantiate would drop it, returning bare id(V)).
-                get!(ops, letter) do
-                    Vc = Vect[I](c => 1)
-                    return ispassthrough(letter) ? isomorphism(ComplexF64, V ← V ⊗ Vc) :
-                        instantiate(letter, V)
-                end
+                get!(() -> _letter_optensor(letter, V), ops, letter)
                 # Fusion `(bL, c) → bR`: running bond FIRST, matching the caterpillar. Charge-first
                 # flips the sign at antisymmetric inner vertices (1⊗1→1, so K ≥ 3).
                 κ = get!(couplers, letter) do

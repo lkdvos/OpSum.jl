@@ -461,6 +461,11 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
     out = Term{I}[]
     sizehint!(out, length(a) * length(b))
     reorder = _canreorder(I)
+    for tb in b.terms
+        arity(tb) == 1 || throw(
+            ArgumentError("couple: every term of the second operand must be a single-site charged operator")
+        )
+    end
     for ta in a.terms
         na = arity(ta)
         na >= 1 || throw(
@@ -468,9 +473,6 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
         )
         run = last(ta.keys).bond
         for tb in b.terms
-            arity(tb) == 1 || throw(
-                ArgumentError("couple: every term of the second operand must be a single-site charged operator")
-            )
             sb = only(tb.sites)
             opb = only(tb.keys).op
 
@@ -542,7 +544,7 @@ costs is inserted with it. For a fermionic sector that phase *is* the anticommut
 couple(cd[i + 1], c[i]) == -couple(c[i], cd[i + 1])       # both spellings are available
 ```
 
-and the hand-written sign that used to be mandatory is now only a way to get it wrong. Under a
+so a hand-written sign is now only a way to get it wrong. Under a
 non-abelian symmetry reordering needs F-moves and still throws: each operand after the first must
 then act to the **right** of every site before it. ([`dot`](@ref) accepts either order for any
 symmetry — with only two legs coupling to the unit sector, no F-move arises.)
@@ -603,24 +605,21 @@ function couple(
 
     others = (b, c, rest...)
     acc = a
-    for (i, nxt) in enumerate(others)
+    for i in 1:(length(others) - 1)
+        nxt = others[i]
         isempty(nxt) &&
             throw(ArgumentError("couple: operand $(i + 1) has no terms"))
-        # intermediates are forced; only the last step has to land on `to`
-        acc = if i == length(others)
-            _couple_terms(acc, nxt, (_, _) -> tot)
-        else
-            _couple_terms(acc, nxt, (ta, opb) -> only(ta ⊗ opb.c))
-        end
+        # intermediates are forced by unique fusion; only the last step has to land on `to`, which is
+        # the 2-arg method's job
+        acc = _couple_terms(acc, nxt, (ta, opb) -> only(ta ⊗ opb.c))
         isempty(acc) && throw(
-            ArgumentError(
-                i == length(others) ?
-                    "couple: no chain of the operands fuses to $tot" :
-                    "couple: no pair of terms of operands 1..$(i + 1) can be coupled"
-            )
+            ArgumentError("couple: no pair of terms of operands 1..$(i + 1) can be coupled")
         )
     end
-    return acc
+    lastop = last(others)
+    isempty(lastop) &&
+        throw(ArgumentError("couple: operand $(length(others) + 1) has no terms"))
+    return couple(acc, lastop; to = tot)
 end
 
 """
@@ -670,96 +669,4 @@ function LinearAlgebra.dot(a::Terms{I}, b::Terms{I}) where {I}
     )
     R = Rsymbol(opa.c, opb.c, unit(I))
     return scale(couple(b, a; to = unit(I)), -sqrt(dim(opb.c)) * R)
-end
-
-# Dense-oracle materialization
-# ----------------------------
-"""
-    instantiate(H::TermSum)
-    instantiate(ts::Terms, sites::AbstractVector{<:ElementarySpace})
-
-Materialize the operator into a TensorKit `TensorMap` over its lattice (the dense oracle), summing
-each term. Supports identity (K=0), single-site field (K=1), and left-nested (caterpillar) coupling
-of any K ≥ 2 sites.
-"""
-function instantiate(H::TermSum)
-    isempty(H) && throw(ArgumentError("cannot instantiate an empty TermSum"))
-    sites = H.lattice
-    length(sites) == 0 && throw(ArgumentError("cannot instantiate over an empty lattice"))
-    return sum(t -> t.coeff * _instantiate_term(t, sites), H.terms)
-end
-instantiate(ts::Terms, sites::AbstractVector{<:ElementarySpace}) = instantiate(opsum(sites, ts))
-
-function _instantiate_term(t::Term, sites)
-    K = arity(t)
-    # The trailing total-charge leg is `Vect[I](unit(I) => 1)` for every K ≥ 1 term, so a K = 0
-    # identity term needs one too — otherwise an operator mixing the two cannot be summed at all.
-    K == 0 && return insertrightunit(foldl(⊗, (id(V) for V in sites)))
-    K == 1 && return _embed_field(only(t.keys).op, only(t.sites), sites)
-    return _embed_caterpillar(ops(t), t.sites, tree(t), sites)
-end
-
-# The candidate basis element for a `(letters, tree)` combination on the local lattice `1:K` — the
-# same forward map, entered without building a `Term`, which is what `project` takes inner products
-# against.
-function _instantiate_basis(ops, tree, sites)
-    K = length(ops)
-    K == 0 && return insertrightunit(foldl(⊗, (id(V) for V in sites)))
-    K == 1 && return _embed_field(only(ops), 1, sites)
-    return _embed_caterpillar(ops, 1:K, tree, sites)
-end
-
-# single charged field embedded on site `p`, identities elsewhere, charge leg to last domain slot
-function _embed_field(op::IrrepOperator, p, sites)
-    N = length(sites)
-    loc = instantiate(op, sites[p])                # V_p ← V_p ⊗ V_c
-    full = foldl(⊗, (j == p ? loc : id(sites[j]) for j in 1:N))
-    cod = ntuple(identity, N)
-    charge_global = N + (p + 1)
-    dom_wo_charge = (ntuple(m -> N + m, p)..., ntuple(m -> N + p + 1 + m, N - p)...)
-    dom = (dom_wo_charge..., charge_global)
-    return permute(full, (cod, dom))
-end
-
-# Caterpillar K-site block; the coupler `X` selects the specific channel `tree`. `permute` +
-# composition rather than `@tensor`, so it generalises to any K.
-function _embed_caterpillar(ops, positions, tree, sites)
-    K = length(ops)
-    I = typeof(tree.coupled)
-    Os = [instantiate(ops[k], sites[positions[k]]) for k in 1:K]   # V ← V ⊗ Vc_k
-    Vcs = [domain(Os[k])[2] for k in 1:K]
-    tot = tree.coupled
-    X = zeros(ComplexF64, foldl(⊗, Vcs) ← Vect[I](tot => 1))       # (Vc_1⊗…⊗Vc_K) ← Vect[tot]
-    fcouple = FusionTree{I}((tot,), tot, (false,), ())
-    X[tree, fcouple] .= 1
-
-    P = foldl(⊗, Os)                                               # (o_1..o_K) ← (i_1,c_1,…,i_K,c_K)
-    # bend physical in-legs into the codomain, leaving only the charge legs in the domain
-    codP = (ntuple(k -> k, K)..., ntuple(k -> K + 2k - 1, K)...)   # o_1..o_K, i_1..i_K
-    domP = ntuple(k -> K + 2k, K)                                  # c_1..c_K
-    PX = permute(P, (codP, domP)) * X                              # (o.., i..) ← (tot)
-    # split back into codomain (o_1..o_K) and domain (i_1..i_K, tot)
-    Wblock = permute(PX, (ntuple(k -> k, K), (ntuple(k -> K + k, K)..., 2K + 1)))
-    return _embed_block(Wblock, positions, sites)
-end
-
-# embed a K-site block on `positions` into the full lattice, reordering to site order with the
-# total-charge leg last in the domain. `Wblock` codomain = (o over positions), domain = (i over
-# positions, total-charge).
-function _embed_block(Wblock, positions, sites)
-    N = length(sites)
-    K = length(positions)
-    idle = [k for k in 1:N if !(k in positions)]
-    full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(sites[k]) for k in idle))
-
-    cod_src = (positions..., idle...)
-    p_cod = ntuple(j -> findfirst(==(j), cod_src), N)
-
-    dom_src = (positions..., idle...)
-    charge_global = N + (K + 1)                    # charge leg sits after the K active in-legs
-    site_global(j) = let pos = findfirst(==(j), dom_src)
-        pos <= K ? N + pos : N + pos + 1           # idle in-legs shift by 1 past the charge leg
-    end
-    p_dom = (ntuple(j -> site_global(j), N)..., charge_global)
-    return permute(full, (p_cod, p_dom))
 end

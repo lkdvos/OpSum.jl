@@ -28,7 +28,7 @@ using LinearAlgebra: dot, eigvals, norm
 # So the examples go the other way round: write the operator down as a `TensorMap` and let
 # [`project`](@ref OpSum.project) expand it in the alphabet. `matrixunit(V, out, in)` is the shorthand for
 # ``|out⟩⟨in|``. Both live in OpSum itself, so there is nothing to define here — see
-# `src/operators/irrepprojection.jl`. Two properties matter for the pages that follow:
+# `src/operators/algebra/irrepprojection.jl`. Two properties matter for the pages that follow:
 #
 #  * the expansion is a `SiteOperator`, so ordinary arithmetic reads the way you would write it on
 #    paper (`Sᶻ = (n↑ - n↓)/2`), and `A[i]` places the whole expansion on site `i`;

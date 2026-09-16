@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate, spin, couple, matrixunit, SiteOperator, TermSum, opsum, lattice
+using OpSum: instantiate, spin, couple, matrixunit, SiteOperator, opsum
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, nonzero_keys, nonzero_pairs, eachspace
@@ -29,23 +29,32 @@ function reference_models()
 
     return [
         # SU(2) Heisenberg: the case where Jordan padding has to reproduce the textbook bond dim 3
-        "heisenberg N=4" => opsum(fill(Vs, 4), (dot(S[i], S[i + 1]) for i in 1:3)),
+        "heisenberg N=4" => (opsum(dot(S[i], S[i + 1]) for i in 1:3), FiniteChain(Vs, 4)),
         # decoupled pairs: two disconnected trivial-charge channels at the middle bond
-        "singlet pairs N=4" => opsum(fill(Vs, 4), dot(S[1], S[2]), dot(S[3], S[4])),
+        "singlet pairs N=4" =>
+            (opsum(dot(S[1], S[2]), dot(S[3], S[4])), FiniteChain(Vs, 4)),
         # a genuine 3-body term, so the caterpillar inner line rides the bond
-        "K=3 SU(2) N=3" => opsum(
-            fill(Vs, 3), couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
+        "K=3 SU(2) N=3" => (
+            opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))),
+            FiniteChain(Vs, 3),
         ),
-        "U(1) hopping N=4" => opsum(
-            fill(Vu, 4),
-            (dot(raise[i], lower[i + 1]) + dot(lower[i], raise[i + 1]) for i in 1:3)
+        "U(1) hopping N=4" => (
+            opsum(
+                dot(raise[i], lower[i + 1]) + dot(lower[i], raise[i + 1]) for i in 1:3
+            ),
+            FiniteChain(Vu, 4),
         ),
         fermionic_model(),
         # on-site terms: the only source of a D block, and of a finish channel at an early bond
-        "trivial chain + field N=4" => opsum(
-            fill(Vt, 4),
-            (couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:3),
-            0.5 * LO(ops[2])[2],
+        "trivial chain + field N=4" => (
+            opsum(
+                (
+                    couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial))
+                        for i in 1:3
+                ),
+                0.5 * LO(ops[2])[2],
+            ),
+            FiniteChain(Vt, 4),
         ),
     ]
 end
@@ -58,14 +67,13 @@ function fermionic_model()
     vac, occ = FermionNumber(0), FermionNumber(1)
     c, cd, n = matrixunit(V, vac, occ), matrixunit(V, occ, vac), matrixunit(V, occ, occ)
     H = opsum(
-        fill(V, 4),
         (
             couple(cd[i], c[i + 1]) - couple(c[i], cd[i + 1]) + 2 * couple(n[i], n[i + 1])
                 for i in 1:3
         ),
         (0.3 * (couple(cd[i], c[i + 2]) - couple(c[i], cd[i + 2])) for i in 1:2),
     )
-    return "t-V fermions N=4" => H
+    return "t-V fermions N=4" => (H, FiniteChain(V, 4))
 end
 
 # The two the *dense* oracle runs on: the SU(2) coupling and the fermionic braiding. Contracting an
@@ -104,8 +112,8 @@ function check_jordan_structure(Ws)
     return nothing
 end
 
-@testset "Jordan structure — $name" for (name, H) in reference_models()
-    Ws = jordan_mpo_tensors(H)
+@testset "Jordan structure — $name" for (name, (H, sites)) in reference_models()
+    Ws = jordan_mpo_tensors(H, sites)
     @test Ws isa Vector{<:SparseBlockTensorMap}
     check_jordan_structure(Ws)
 end
@@ -113,10 +121,10 @@ end
 @testset "Jordan padding costs at most the two identity channels" begin
     # `irrep_mpo` is minimal among all MPOs with its sparsity pattern; the Jordan form is minimal
     # among *Jordan-form* MPOs, and the gap is exactly the padded start/finish channels.
-    for (_, H) in reference_models()
-        N = length(lattice(H))
-        _, secs = irrep_mpo(H)
-        Ws = jordan_mpo_tensors(H)
+    for (_, (H, sites)) in reference_models()
+        N = length(sites)
+        _, secs = irrep_mpo(H, sites)
+        Ws = jordan_mpo_tensors(H, sites)
         for i in 1:(N - 1)
             @test length(secs[i]) <= size(Ws[i], 4) <= length(secs[i]) + 2
         end
@@ -128,9 +136,10 @@ end
     V = SU2Space(1 // 2 => 1)
     S = spin(V)
     N = 6
-    H = opsum(fill(V, N), (dot(S[i], S[i + 1]) for i in 1:(N - 1)))
-    @test map(length, last(irrep_mpo(H))) == [2, 3, 3, 3, 2, 1]
-    Ws = jordan_mpo_tensors(H)
+    sites = FiniteChain(V, N)
+    H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
+    @test map(length, irrep_mpo(H, sites).bondsectors) == [2, 3, 3, 3, 2, 1]
+    Ws = jordan_mpo_tensors(H, sites)
     @test [size(W, 4) for W in Ws] == [3, 3, 3, 3, 3, 1]
     @test [size(W, 1) for W in Ws] == [1, 3, 3, 3, 3, 3]
 end
@@ -139,15 +148,15 @@ end
     V = SU2Space(1 // 2 => 1)
     S = spin(V)
     # a non-scalar total charge has no identity at the right boundary
-    @test_throws ArgumentError jordan_mpo_tensors(
-        opsum(fill(V, 3), (S[i] for i in 1:3))
-    )
+    @test_throws ArgumentError jordan_mpo_tensors(opsum(S[i] for i in 1:3), FiniteChain(V, 3))
     # an empty operator has no bond structure at all
-    @test_throws ArgumentError jordan_mpo_tensors(opsum(fill(V, 3)))
+    @test_throws ArgumentError jordan_mpo_tensors(Terms{SU2Irrep}(), FiniteChain(V, 3))
+    # an infinite chain is not a Jordan-form target
+    @test_throws ArgumentError jordan_mpo_tensors(opsum(dot(S[1], S[2])), InfiniteChain([V]))
     # a truncation aggressive enough to empty a bond cannot carry the identity corners
-    H = opsum(fill(V, 4), (dot(S[i], S[i + 1]) for i in 1:3))
+    H = opsum(dot(S[i], S[i + 1]) for i in 1:3)
     alg = SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD)
-    @test_throws ArgumentError jordan_mpo_tensors(H, alg)
+    @test_throws ArgumentError jordan_mpo_tensors(H, FiniteChain(V, 4), alg)
 end
 
 # ── The MPSKit seam ───────────────────────────────────────────────────────────
@@ -167,8 +176,8 @@ function to_jordan(W)
     return O
 end
 
-@testset "MPSKit round trip — $name" for (name, H) in reference_models()
-    Ws = jordan_mpo_tensors(H)
+@testset "MPSKit round trip — $name" for (name, (H, sites)) in reference_models()
+    Ws = jordan_mpo_tensors(H, sites)
 
     # `JordanMPOTensor(::SparseBlockTensorMap)` consumes the bulk tensors unmodified
     for i in 2:(length(Ws) - 1)
@@ -179,7 +188,7 @@ end
 
     Hmpo = FiniteMPOHamiltonian(map(to_jordan, Ws))
     @test Hmpo isa FiniteMPOHamiltonian
-    @test length(Hmpo) == length(lattice(H))
+    @test length(Hmpo) == length(sites)
     # Site by site, the round trip through MPSKit's block split is lossless. This is the sharp test of
     # the ordering, and cheaper than contracting the chain: the A/B/C/D accessors *silently drop* an
     # entry that sits outside the Jordan pattern, so a misplacement shows up here as a missing block.
@@ -188,9 +197,9 @@ end
     end
 end
 
-@testset "same operator as the dense oracle — $name" for (name, H) in oracle_models()
-    Ws = jordan_mpo_tensors(H)
-    @test mpo_tensormap(map(TensorMap, Ws)) ≈ instantiate(H)
+@testset "same operator as the dense oracle — $name" for (name, (H, sites)) in oracle_models()
+    Ws = jordan_mpo_tensors(H, sites)
+    @test mpo_tensormap(map(TensorMap, Ws)) ≈ instantiate(H, sites)
 end
 
 @testset "MPSKit DMRG ground state matches exact diagonalization" begin
@@ -198,10 +207,10 @@ end
     S = spin(V)
     N = 6
     sites = fill(V, N)
-    H = opsum(sites, (dot(S[i], S[i + 1]) for i in 1:(N - 1)))
-    Hmpo = FiniteMPOHamiltonian(map(to_jordan, jordan_mpo_tensors(H)))
+    H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
+    Hmpo = FiniteMPOHamiltonian(map(to_jordan, jordan_mpo_tensors(H, sites)))
 
-    exact = spectrum(H)[1]
+    exact = spectrum(H, sites)[1]
     # half-integer *and* integer spins: an odd bond of a spin-½ chain carries the former
     ψ = FiniteMPS(randn, ComplexF64, N, V, SU2Space(0 => 8, 1 // 2 => 8, 1 => 8, 3 // 2 => 4))
     ψ, = find_groundstate(ψ, Hmpo, DMRG(; maxiter = 50, verbosity = 0))

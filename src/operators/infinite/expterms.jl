@@ -117,8 +117,8 @@ A Hamiltonian with both finite-range terms and exponentially decaying ones: a [`
 an [`ExpSum`](@ref). Produced by adding the two, and accepted by `irrep_mpo` on an
 [`InfiniteChain`](@ref) or with an explicit `sites` vector.
 
-Latticeless, like the `Terms` it is built from: on an infinite chain the lattice comes from the chain,
-and the finite entry point takes its `sites` argument.
+Latticeless, like the `Terms` it is built from — the lattice is supplied at
+[`irrep_mpo`](@ref), as for any other operator.
 
 ```julia
 H = dot(S[1], S[2]) + expterm(dot(S[1], S[2]); decay = 0.4)

@@ -211,8 +211,8 @@ end
 
 # Spectrum computed block by block, so it is valid for any sector (`convert(Array, t)` is not, for
 # fermionic ones). Also cross-checks the U(1) `spin_ops` ladders against the SU(2) `spin` build.
-function blockspectrum(H)
-    O = instantiate(H)
+function blockspectrum(H, sites)
+    O = instantiate(H, sites)
     Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
     vals = Float64[]
     for (c, b) in blocks(Oop)
@@ -224,8 +224,8 @@ function blockspectrum(H)
     return sort!(vals)
 end
 
-function relative_hermiticity_error(H)
-    O = instantiate(H)
+function relative_hermiticity_error(H, sites)
+    O = instantiate(H, sites)
     Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
     return norm(Oop - Oop') / norm(Oop)
 end
@@ -281,17 +281,17 @@ end
 
     # the textbook spelling of a hopping term, hermitian and with the analytic spectrum
     H = opsum(
-        sites, (-t * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1))
+        (-t * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1))
     )
-    @test relative_hermiticity_error(H) < 1.0e-12
+    @test relative_hermiticity_error(H, sites) < 1.0e-12
     ε = [-2t * cos(k * π / (N + 1)) for k in 1:N]
     exact = sort(
         [sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0) for m in 0:(2^N - 1)]
     )
-    @test blockspectrum(H) ≈ exact
+    @test blockspectrum(H, sites) ≈ exact
     # the hand-signed spelling it replaces
     @test H ≈ opsum(
-        sites, (-t * (couple(F.cd[i], F.c[i + 1]) - couple(F.c[i], F.cd[i + 1])) for i in 1:(N - 1))
+        (-t * (couple(F.cd[i], F.c[i + 1]) - couple(F.c[i], F.cd[i + 1])) for i in 1:(N - 1))
     )
 end
 
@@ -325,13 +325,13 @@ end
     N = 4
     sites = fill(Vf, N)
 
-    T = opsum(sites, (-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1)))
-    @test T + T' ≈ opsum(
-        sites, (-1.0 * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1))
+    T = opsum(-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1))
+    Td = adjoint(T, sites)
+    @test T + Td ≈ opsum(
+        -1.0 * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1)
     )
-    @test relative_hermiticity_error(T + T') < 1.0e-12
-    @test (T')' ≈ T
-    @test lattice(T') == sites
+    @test relative_hermiticity_error(T + Td, sites) < 1.0e-12
+    @test adjoint(Td, sites) ≈ T
 
     # a complex amplitude has to be conjugated, and a longer-range hop crosses a site
     for T2 in (
@@ -340,27 +340,29 @@ end
             (1.0 + 0.5im) * couple(F.cd[1], F.cd[2], F.c[3], F.c[4]),
             2.0im * F.n[2] + scalarop(1.0 + 1.0im, Vf)[1],
         )
-        Tl = opsum(sites, T2)
-        @test relative_hermiticity_error(Tl + Tl') < 1.0e-12
-        @test (Tl')' ≈ Tl
+        Tl = opsum(T2)
+        Tld = adjoint(Tl, sites)
+        @test relative_hermiticity_error(Tl + Tld, sites) < 1.0e-12
+        @test adjoint(Tld, sites) ≈ Tl
     end
 
     # non-abelian, including a 3-body term with a genuine inner line
     Vs = SU2Space(1 // 2 => 1)
     S = spin(Vs)
-    Hs = opsum(fill(Vs, 4), (dot(S[i], S[i + 1]) for i in 1:3))
-    @test Hs' ≈ Hs
+    ssites = fill(Vs, 4)
+    Hs = opsum(dot(S[i], S[i + 1]) for i in 1:3)
+    @test adjoint(Hs, ssites) ≈ Hs
     T3 = opsum(
-        fill(Vs, 3),
         (0.4 + 0.2im) * couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
     )
-    @test relative_hermiticity_error(T3 + T3') < 1.0e-12
-    @test (T3')' ≈ T3
+    T3d = adjoint(T3, ssites)
+    @test relative_hermiticity_error(T3 + T3d, ssites) < 1.0e-12
+    @test adjoint(T3d, ssites) ≈ T3
 
     # a charged term's adjoint lives in the dual sector, so it is refused
-    @test_throws ArgumentError opsum(sites, F.cd[1])'
-    @test isempty(opsum(sites)')
-    # and a latticeless bag says what it is missing rather than raising a MethodError
+    @test_throws ArgumentError adjoint(opsum(F.cd[1]), sites)
+    @test isempty(adjoint(Terms{FermionNumber}(), sites))
+    # and the postfix form says what it is missing rather than raising a MethodError
     @test_throws ArgumentError couple(F.cd[1], F.c[2])'
 end
 
@@ -375,19 +377,18 @@ end
         )
         L = 4
         S = spin(su2)
-        Hsu2 = opsum(fill(su2, L), (dot(S[i], S[i + 1]) for i in 1:(L - 1)))
+        Hsu2 = opsum((dot(S[i], S[i + 1]) for i in 1:(L - 1)))
         Vu = Vect[U1Irrep](c => 1 for c in u1secs)
         F = spin_ops(Vu, u1secs)
         Hu1 = opsum(
-            fill(Vu, L),
             (
                 couple(F.Sz[i], F.Sz[i + 1]) +
                     (couple(F.Sp[i], F.Sm[i + 1]) + couple(F.Sm[i], F.Sp[i + 1])) / 2
                     for i in 1:(L - 1)
             )
         )
-        @test blockspectrum(Hsu2) ≈ blockspectrum(Hu1)
-        @test islossless(Hu1)
+        @test blockspectrum(Hsu2, fill(su2, L)) ≈ blockspectrum(Hu1, fill(Vu, L))
+        @test islossless(Hu1, fill(Vu, L))
     end
 
     # the two-sector form is the block it replaces

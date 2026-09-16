@@ -13,16 +13,16 @@ using TensorKit: BraidingTensor, Vect, ElementarySpace, unit, tensormaptype
 using .IrrepTensorOperators: IrrepOperator
 
 """
-    jordan_mpo_tensors(H::TermSum[, alg]) -> Vector{<:SparseBlockTensorMap}
+    jordan_mpo_tensors(h, lat[, alg]) -> Vector{<:SparseBlockTensorMap}
 
-Compress `H` into a reduced MPO (as [`irrep_mpo`](@ref)) and emit it in **Jordan form**: one
+Compress `h` over the lattice `lat` into a reduced MPO (as [`irrep_mpo`](@ref)) and emit it in **Jordan form**: one
 `BlockTensorKit.SparseBlockTensorMap` per site, `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, whose virtual legs
 are `SumSpace`s carrying one level `Vect[I](charge => 1)` per bond index, ordered as
 
     (start channel, everything else, finish channel)
 
 with the identity at `(1, 1)` and `(end, end)`. The boundary bonds `B_0` and `B_N` are
-one-dimensional and trivially charged, so `H` must have total charge `unit(I)`.
+one-dimensional and trivially charged, so `h` must have total charge `unit(I)`.
 
 Diagonal pass-through entries with unit coefficient are emitted as `TensorKit.BraidingTensor`s, which
 is what lets a consumer store them as scalars rather than dense blocks.
@@ -37,16 +37,26 @@ every bond; a truncation aggressive enough to empty a bond is rejected, since a 
 zero-dimensional bond cannot carry its identity corners.
 """
 function jordan_mpo_tensors(
-        H::TermSum, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
+        h::Terms, latarg,
+        alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
     )
-    tt = ITOTermTable(H)
+    lat = _tolattice(latarg)
+    lat isa FiniteChain || throw(
+        ArgumentError(
+            "jordan_mpo_tensors is defined on a finite chain; got a $(typeof(lat))"
+        )
+    )
+    _checklattice(h, lat)
+    tt = ITOTermTable(h, length(lat))
     N = nvertices(tt)
     Ws, bondsectors, starts, finishes = _irrep_channels(tt, N, bondstrategy(alg))
     isempty(Ws) && throw(
-        ArgumentError("cannot emit a Jordan MPO for an empty `TermSum`: it has no bond structure")
+        ArgumentError("cannot emit a Jordan MPO for an empty operator: it has no bond structure")
     )
-    return jordan_mpo_tensors(Ws, bondsectors, starts, finishes, lattice(H))
+    return jordan_mpo_tensors(Ws, bondsectors, starts, finishes, lat)
 end
+
+jordan_mpo_tensors(t::Term, lat, args...) = jordan_mpo_tensors(Terms(t), lat, args...)
 
 # Reorder one internal bond; `s`/`f` are the start/finish indices (`0` if the cover spent none).
 # Slots `1`/`end` are *reserved* for them live or not, so padding needs no separate bookkeeping.

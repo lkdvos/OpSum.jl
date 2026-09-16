@@ -23,8 +23,8 @@ An operator on a **single** site, not yet placed on the lattice: a sparse combin
 alphabet letters, `Σₖ coeffs[k] · letters[k]`.
 
 Obtained from [`project`](@ref), [`matrixunit`](@ref), [`spin`](@ref) or [`scalarop`](@ref), and
-combined with ordinary arithmetic (`+ - * /`). Place it on the lattice with `A[i]`, which produces a
-[`TermSum`](@ref).
+combined with ordinary arithmetic (`+ - * /`). Place it on a site with `A[i]`, which produces a
+[`Terms`](@ref) bag.
 
 The identity is represented as the `passthrough` sentinel letter, so `scalarop(c, I)` is `c` times
 that letter rather than a distinct kind of object.

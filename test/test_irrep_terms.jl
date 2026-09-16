@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate, Term, Terms, TermSum, total, passthrough, ispassthrough,
+using OpSum: instantiate, Term, Terms, total, passthrough, ispassthrough,
     bondcharges, caterpillar_trees, spin, scalarop, couple, opsum, tree
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit

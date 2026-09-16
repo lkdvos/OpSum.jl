@@ -1,24 +1,30 @@
-# The dense-tensor correctness oracle: instantiate(H::TermSum) and its embed helpers, the inverse of `project`.
+# The dense-tensor correctness oracle: instantiate(h::Terms, lat) and its embed helpers, the inverse
+# of `project`. The lattice enters here, as it does at `irrep_mpo`, and for the same reason: the term
+# algebra itself never needs a physical space.
 
 using TensorKit
 using TensorKit: ElementarySpace, FusionTree, unit, dim, id, Vect, domain, permute, insertrightunit
 using .IrrepTensorOperators: IrrepOperator
 
 """
-    instantiate(H::TermSum)
-    instantiate(ts::Terms, sites::AbstractVector{<:ElementarySpace})
+    instantiate(h::Terms, lat)
 
-Materialize the operator into a TensorKit `TensorMap` over its lattice (the dense oracle), summing
-each term. Supports identity (K=0), single-site field (K=1), and left-nested (caterpillar) coupling
-of any K ≥ 2 sites.
+Materialize the operator into a TensorKit `TensorMap` over the lattice `lat` — a
+[`FiniteChain`](@ref) or a bare vector of spaces — summing each term (the dense oracle). Supports
+identity (K=0), single-site field (K=1), and left-nested (caterpillar) coupling of any K ≥ 2 sites.
+
+Like [`irrep_mpo`](@ref), this is a point where the operator meets the spaces, so the letters are
+checked against them here.
 """
-function instantiate(H::TermSum)
-    isempty(H) && throw(ArgumentError("cannot instantiate an empty TermSum"))
-    sites = H.lattice
-    length(sites) == 0 && throw(ArgumentError("cannot instantiate over an empty lattice"))
-    return sum(t -> t.coeff * _instantiate_term(t, sites), H.terms)
+function instantiate(h::Terms, sites)
+    lat = _tolattice(sites)
+    isempty(lat) && throw(ArgumentError("cannot instantiate over an empty lattice"))
+    isempty(h) && throw(ArgumentError("cannot instantiate an empty operator"))
+    _checklattice(h, lat)
+    spaces = lat.spaces
+    return sum(t -> t.coeff * _instantiate_term(t, spaces), h.terms)
 end
-instantiate(ts::Terms, sites::AbstractVector{<:ElementarySpace}) = instantiate(opsum(sites, ts))
+instantiate(t::Term, sites) = instantiate(Terms(t), sites)
 
 # Shared forward map for both `_instantiate_term` (from a `Term`) and `_instantiate_basis` (from raw
 # letters/positions/tree, which `project` takes inner products against).

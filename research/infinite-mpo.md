@@ -19,7 +19,7 @@ irrep_mpo(H, InfiniteChain(spaces))   represents   Σ_{n ∈ ℤ} translate(H, n
 
 | Layer | Verdict |
 |---|---|
-| `Term` / `Terms` / `TermSum` / `couple` / `dot` / `scale` | **verbatim.** A `Term` stores plain `Int` sites, which already range over all of ℤ. The generating set stays a latticeless `Terms` bag — the `InfiniteChain` names the space of every site by wraparound, so there is nothing for `opsum` to bind. |
+| `Term` / `Terms` / `couple` / `dot` / `scale` | **verbatim.** A `Term` stores plain `Int` sites, which already range over all of ℤ. The generating set is a `Terms` bag like any other operator — every operator is latticeless, and the `InfiniteChain` handed to `irrep_mpo` names the space of every site by wraparound. |
 | `project` / `instantiate` / `matrixunit` | **verbatim.** Purely local. |
 | `ITOKey`, `passthrough`, caterpillar helpers | **verbatim.** |
 | `min_vertex_cover_bipartite` (Hopcroft–Karp + König) | **verbatim.** |
@@ -144,7 +144,7 @@ Comparing `Ws` needs care.
 * **`contract_open`** caps both boundary bonds with one-hot maps onto the two channels and contracts the tiled tensors down to an operator, compared against `instantiate` of the terms the MPO claims to generate — the infinite counterpart of `examples/common.jl`'s `mpo_tensormap`, which can only `removeunit` a one-dimensional vacuum.
 * **Unit-cell invariance** is the sharp translation-covariance test: the same model written on cells of 1, 2, 3 and 4 sites must give the *same* MPO site for site.
   `L = 1` is the hardest case, `L > 1` with range `> L` the next hardest.
-* **Order independence**: building the same Hamiltonian from a shuffled term list gives a different `TermSum` insertion order, hence different right-vertex ids — and now an identical MPO.
+* **Order independence**: building the same Hamiltonian from a shuffled term list gives a different insertion order in the bag, hence different right-vertex ids — and now an identical MPO.
 * Reference numbers: `L = 1` SU(2) Heisenberg is the textbook `[0, 1, 0]`, dense `D = 5`; adding a `k`-th neighbour coupling costs one spin-1 channel each, `D = 3k + 2`.
 
 ## 7. Exponentially decaying terms — built
@@ -157,7 +157,7 @@ Tests: `test/test_exp_decay.jl`.
 The central claim: **a geometric channel is a suffix class with a self-loop**, so it is an ordinary right vertex and the existing merge / cover / canonicalisation machinery compresses it.
 
 **Representation.**
-`expterm(t::TermSum; decay = λ, exitsite, string = nothing)` takes **one fully specified representative term** and stretches the gap just before `exitsite` geometrically:
+`expterm(t::Terms; decay = λ, exitsite, string = nothing)` takes **one fully specified representative term** and stretches the gap just before `exitsite` geometrically:
 
 ```julia
 expterm(dot(S[1], S[2]); decay = 0.5)                                    # Σ_{i<j} λ^{j-i-1} S_i·S_j
@@ -166,7 +166,7 @@ expterm(couple(couple(S[1],S[2];to=1), S[3]); decay = 0.5, exitsite = 3) # two-s
 ```
 
 Because the representative is a `TermKey` it already carries the caterpillar tree, so *every* fusion channel is named and no charge bookkeeping had to be invented — that is what makes multi-site entry and exit blocks nearly free.
-`ExpSum` collects channels, `TermSum + ExpSum` gives a `MixedSum`, and `irrep_mpo` takes that on an `InfiniteChain` *or* on a finite `sites` vector.
+`ExpSum` collects channels, `Terms + ExpSum` gives a `MixedSum`, and `irrep_mpo` takes that on an `InfiniteChain` *or* a `FiniteChain`.
 The lattice supplies the translation period `P` (`L`, or 1 on a finite chain, where the model is the geometric sum truncated to the chain — spelled out by `chain_terms`).
 `λ` counts **per site**; `0 < |λ| < 1` is enforced, and the string is required to be charge-neutral, or the running bond charge would drift along it and the loop would not close on itself.
 

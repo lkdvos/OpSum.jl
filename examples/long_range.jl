@@ -32,21 +32,19 @@ S = spin(V)
 function haldane_shastry(N; J = 1.0)
     pref = J * π^2 / N^2
     return opsum(
-        fill(V, N),
-        (
-            (pref / sin(π * (m - n) / N)^2) * dot(S[n], S[m])
-                for n in 1:(N - 1) for m in (n + 1):N
-        )
+        (pref / sin(π * (m - n) / N)^2) * dot(S[n], S[m])
+            for n in 1:(N - 1) for m in (n + 1):N
     )
 end
+chain(N) = FiniteChain(V, N)
 
 N = 16
 H_hs = haldane_shastry(N)
-res_hs = build("Haldane-Shastry", H_hs)
+res_hs = build("Haldane-Shastry", H_hs, chain(N))
 
 # Even with every pair coupled, the compression is still exact:
 
-islossless(H_hs)
+islossless(H_hs, chain(N))
 
 # ## Linear growth
 #
@@ -55,7 +53,7 @@ islossless(H_hs)
 # smaller side — giving ``\min(b, N-b)`` multiplets, maximised at the middle of the chain.
 
 for L in (10, 20, 40, 60, 80)
-    r = build("HS N=$L", haldane_shastry(L); quiet = true)
+    r = build("HS N=$L", haldane_shastry(L), chain(L); quiet = true)
     println(
         "  N=$(rpad(L, 3))  nterms=$(rpad(L * (L - 1) ÷ 2, 5))  D=$(rpad(r.D, 4))",
         "  D_dense=$(rpad(r.Ddense, 5))  3N/2+2 = $(3L ÷ 2 + 2)"
@@ -67,7 +65,7 @@ end
 # construction.
 
 all(
-    build("hs", haldane_shastry(L); quiet = true).Ddense == 3L ÷ 2 + 2
+    build("hs", haldane_shastry(L), chain(L); quiet = true).Ddense == 3L ÷ 2 + 2
         for L in (10, 20, 30, 40)
 )
 
@@ -82,16 +80,13 @@ all(
 
 function powerlaw(N; α = 3.0, J = 1.0)
     return opsum(
-        fill(V, N),
-        (
-            (J * abs(m - n)^(-α)) * dot(S[n], S[m])
-                for n in 1:(N - 1) for m in (n + 1):N
-        )
+        (J * abs(m - n)^(-α)) * dot(S[n], S[m])
+            for n in 1:(N - 1) for m in (n + 1):N
     )
 end
 
 for α in (1.0, 2.0, 3.0, 6.0)
-    r = build("powerlaw α=$α", powerlaw(24; α); quiet = true)
+    r = build("powerlaw α=$α", powerlaw(24; α), chain(24); quiet = true)
     println("  α=$(rpad(α, 4))  D=$(rpad(r.D, 4))  D_dense=$(r.Ddense)")
 end
 
@@ -107,12 +102,12 @@ end
 
 using MatrixAlgebraKit: truncrank
 
-let H = powerlaw(6; α = 3.0), sites_c = lattice(H)
-    oracle = instantiate(H)
-    exact = build("powerlaw exact", H; quiet = true)
+let H = powerlaw(6; α = 3.0), sites_c = chain(6)
+    oracle = instantiate(H, sites_c)
+    exact = build("powerlaw exact", H, sites_c; quiet = true)
     println("  exact:            D_dense=$(exact.Ddense)   rel. error 0")
     for k in (8, 6, 4, 2, 1)
-        Ws, secs = irrep_mpo(H, SVDBondAlgorithm(truncrank(k)))
+        Ws, secs = irrep_mpo(H, sites_c, SVDBondAlgorithm(truncrank(k)))
         O = mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites_c))
         err = norm(O - oracle) / norm(oracle)
         D = maximum(b -> sum(dim(c) for c in secs[b]), eachindex(secs))

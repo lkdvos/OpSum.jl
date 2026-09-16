@@ -1,4 +1,4 @@
-# Reduced MPO for an infinite chain with a repeating unit cell: a `TermSum` over `L` sites stands for
+# Reduced MPO for an infinite chain with a repeating unit cell: a generating `Terms` bag over `L` sites stands for
 # `Σ_{n∈ℤ} translate(H, n·L)`. Per bond this is the finite sweep's problem with one difference: the
 # bond basis has to close on itself (`V_0 ≅ V_L`), so both identity channels are live at every bond.
 # See `research/infinite-mpo.md` for the design.
@@ -235,7 +235,7 @@ function _infinite_window(
     for attempt in 1:3
         attempt == 1 || (nc *= 2)
         N = nc * L
-        tt = ITOTermTable(window_terms(_finitepart(gen), lat, nc))
+        tt = ITOTermTable(window_terms(_finitepart(gen), lat, nc), N)
         Ws, bondsectors = _irrep_sweep(
             tt, N, VertexCover(); channels = _lower_channels(_geometricpart(gen), L)
         )
@@ -274,7 +274,7 @@ function tile(H::InfiniteMPO{I}, ncells::Int) where {I}
 end
 
 """
-    mpo_terms_window(H::InfiniteMPO, lat::InfiniteChain, ncells::Int) -> TermSum
+    mpo_terms_window(H::InfiniteMPO, lat::InfiniteChain, ncells::Int) -> Terms
 
 Reconstruct the terms an infinite MPO generates inside a window of `ncells` unit cells: tile the cell,
 then enumerate the paths that enter on the start channel and leave on the done channel.
@@ -299,7 +299,7 @@ function mpo_terms_window(H::InfiniteMPO{I}, lat::InfiniteChain, ncells::Int) wh
     L = length(H)
     Ws, secs = tile(H, ncells)
     return mpo_terms(
-        Ws, secs, windowlattice(lat, ncells * L); leftidx = H.start[L], rightidx = H.done[L]
+        Ws, secs; leftidx = H.start[L], rightidx = H.done[L]
     )
 end
 

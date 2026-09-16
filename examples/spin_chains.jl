@@ -28,26 +28,32 @@ include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 #
 # Note the two idioms used here and throughout. `S = spin(V)` is hoisted out of the loop (it is
 # memoised, so this is taste rather than necessity), and the terms are handed to
-# [`opsum`](@ref OpSum.opsum) together with the lattice, in one pass. `opsum` is what turns a bag of
-# terms into a compressible operator: it attaches the physical spaces — checking every letter against
-# the site it sits on — so nothing downstream needs a second `sites` argument.
+# [`opsum`](@ref OpSum.opsum) in one pass — it is the linear accumulator, where folding `+` would
+# copy on every step.
+#
+# What `opsum` returns is a [`Terms`](@ref OpSum.Terms) bag, and it is **latticeless**: nothing in the
+# term algebra needs a physical space, and the compression itself needs only the number of sites. The
+# lattice is a separate object, handed to [`irrep_mpo`](@ref OpSum.irrep_mpo) (and to `instantiate`,
+# `islossless`, `adjoint`) where it is actually needed — which is also the one place every letter is
+# checked against the space of the site it sits on.
 
 V = SU2Space(1 // 2 => 1)
 S = spin(V)
 
-heisenberg(N; J = 1.0) = opsum(fill(V, N), (J * dot(S[i], S[i + 1]) for i in 1:(N - 1)))
+heisenberg(N; J = 1.0) = opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
+su2chain(N) = FiniteChain(V, N)          # `FiniteChain(V, N)` replaces `fill(V, N)`
 
 N = 8
 H_heis = heisenberg(N)
-res_heis = build("Heisenberg SU(2)", H_heis)
+res_heis = build("Heisenberg SU(2)", H_heis, su2chain(N))
 
 # The compression is lossless — the reduced MPO reconstructs every original term exactly:
 
-islossless(H_heis)
+islossless(H_heis, su2chain(N))
 
 # and contracting the assembled tensors reproduces the dense operator:
 
-mpo_matches_oracle(heisenberg(4))
+mpo_matches_oracle(heisenberg(4), su2chain(4))
 
 # The bulk bond carries an identity-in channel, an identity-out channel and one open spin-1
 # multiplet: ``1 + 1 + 3 = 5`` in dense terms, but only 3 symmetry-resolved indices.
@@ -81,26 +87,24 @@ length(Sz)
 
 function xxz(N; J = 1.0, Δ = 1.0)
     return opsum(
-        fill(Vu, N),
-        (
-            J / 2 * couple(Sp[i], Sm[i + 1]) +
-                J / 2 * couple(Sm[i], Sp[i + 1]) +
-                J * Δ * couple(Sz[i], Sz[i + 1])
-                for i in 1:(N - 1)
-        )
+        J / 2 * couple(Sp[i], Sm[i + 1]) +
+            J / 2 * couple(Sm[i], Sp[i + 1]) +
+            J * Δ * couple(Sz[i], Sz[i + 1])
+            for i in 1:(N - 1)
     )
 end
+u1chain(N) = FiniteChain(Vu, N)
 
 H_xxz = xxz(N)
-res_xxz = build("XXZ U(1)", H_xxz)
+res_xxz = build("XXZ U(1)", H_xxz, u1chain(N))
 
-islossless(H_xxz)
+islossless(H_xxz, u1chain(N))
 
 # At ``\Delta = 1`` the XXZ chain *is* the Heisenberg chain. The two builds live on different
 # spaces with different symmetry groups, so the sharpest available check is that they have the
 # same spectrum:
 
-spectrum(heisenberg(6)) ≈ spectrum(xxz(6))
+spectrum(heisenberg(6), su2chain(6)) ≈ spectrum(xxz(6), u1chain(6))
 
 # The same operator, but not the same MPO. The SU(2) build needs 3 symmetry-resolved indices where
 # the U(1) build needs 6, because a single spin-1 multiplet replaces three separate abelian channels
@@ -129,7 +133,7 @@ h_bond = instantiate(
     [Vu, Vu],
 )
 
-H_proj = opsum(fill(Vu, N), (project(h_bond, [i, i + 1]) for i in 1:(N - 1)))
+H_proj = opsum(project(h_bond, [i, i + 1]) for i in 1:(N - 1))
 
 # `project` re-materializes its own output and compares it against the input, so a faithful result
 # is checked rather than assumed. Summed over bonds it reproduces the hand-written chain, term for
@@ -152,15 +156,14 @@ H_proj ≈ H_xxz
 
 function j1j2(N; J1 = 1.0, J2 = 0.5)
     return opsum(
-        fill(V, N),
         (J1 * dot(S[i], S[i + 1]) for i in 1:(N - 1)),
         (J2 * dot(S[i], S[i + 2]) for i in 1:(N - 2)),
     )
 end
 
 H_j1j2 = j1j2(N)
-res_j1j2 = build("J1-J2 SU(2)", H_j1j2)
-islossless(H_j1j2)
+res_j1j2 = build("J1-J2 SU(2)", H_j1j2, su2chain(N))
+islossless(H_j1j2, su2chain(N))
 
 # ## Bond dimension is independent of system size
 #
@@ -168,12 +171,12 @@ islossless(H_j1j2)
 # can straddle a single cut, not by how long the chain is.
 
 for L in (8, 16, 32, 64)
-    r = build("h", heisenberg(L); quiet = true)
+    r = build("h", heisenberg(L), su2chain(L); quiet = true)
     println("  Heisenberg  N=$(lpad(L, 3))  D=$(r.D)  D_dense=$(r.Ddense)")
 end
 
 for L in (8, 16, 32, 64)
-    r = build("j", j1j2(L); quiet = true)
+    r = build("j", j1j2(L), su2chain(L); quiet = true)
     println("  J1-J2       N=$(lpad(L, 3))  D=$(r.D)  D_dense=$(r.Ddense)")
 end
 
@@ -189,9 +192,9 @@ end
 #
 # ![Bond dimension and construction time versus system size](../assets/scaling.png)
 #
-# The time panel above is the whole pipeline: symbolic term-sum assembly *plus* MPO compression.
+# The time panel above is the whole pipeline: symbolic term accumulation *plus* MPO compression.
 # Splitting the two (`--figure phases`) shows where the work actually goes — for a finite-range model
 # the compression is linear in ``N``, because each term is an open channel only on the bonds it
-# actually straddles, so the total is dominated by the term-sum accumulation:
+# actually straddles, so the total is dominated by the term accumulation:
 #
 # ![Term-sum assembly versus MPO compression](../assets/phases.png)

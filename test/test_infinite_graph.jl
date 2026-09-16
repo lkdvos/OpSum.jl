@@ -26,7 +26,7 @@ const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
     S = spin(VSU2)
     # the same two-site term at four different positions
     H = sum([dot(S[i], S[i + 2]) for i in 1:4])
-    tt = ITOTermTable(opsum(fill(VSU2, 8), H))
+    tt = ITOTermTable(opsum(H), 8)
     rel = _rel_suffix_ids(tt)
     abs_ = _suffix_ids(tt)
     K, M = arity(tt), nterms(tt)
@@ -57,7 +57,7 @@ end
         gen = unitcell_terms(H, L)
         ncells = 12
         N = ncells * L
-        tt = ITOTermTable(window_terms(gen, InfiniteChain(spaces), ncells))
+        tt = ITOTermTable(window_terms(gen, InfiniteChain(spaces), ncells), N)
         g = ITOGraph(tt, N)
         names = map(1:N) do i
             _at_site!(g, i)
@@ -83,7 +83,7 @@ end
         R = maxspan(gen)
         ncells = 14
         N = ncells * L
-        tt = ITOTermTable(window_terms(gen, InfiniteChain(spaces), ncells))
+        tt = ITOTermTable(window_terms(gen, InfiniteChain(spaces), ncells), N)
         Ws, secs = _irrep_sweep(tt, N, VertexCover())
 
         c = _fixedpoint_cell(Ws, secs, L, R)
@@ -166,7 +166,7 @@ end
     S = spin(VSU2)
     for N in (4, 6, 8)
         H = sum([dot(S[i], S[i + 1]) for i in 1:(N - 1)])
-        _, secs = OpSum.irrep_mpo(opsum(fill(VSU2, N), H))
+        _, secs = OpSum.irrep_mpo(opsum(H), FiniteChain(VSU2, N))
         dense = [sum(dim, sec) for sec in secs]
         @test dense[1] == 4                       # spin-1 channel + identity
         @test all(==(5), dense[2:(N - 2)])        # bulk

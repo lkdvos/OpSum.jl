@@ -1,7 +1,11 @@
-# Reduced MPO for the ITO automaton: `irrep_mpo` compresses a `TermSum` into reduced bond matrices
-# plus per-bond charge sectors, by running a per-bond-sector sweep (irrepgraph.jl, strategy chosen by
-# `algorithms.jl`) over the flat `ITOTermTable`. `mpo_terms` inverts it at the reduced level
-# (faithfulness) and `irrep_mpo_tensors` assembles the symmetric `TensorMap`s. Any arity K ≥ 0.
+# Reduced MPO for the ITO automaton: `irrep_mpo` compresses a latticeless `Terms` bag over a lattice
+# into reduced bond matrices plus per-bond charge sectors, by running a per-bond-sector sweep
+# (irrepgraph.jl, strategy chosen by `algorithms.jl`) over the flat `ITOTermTable`. `mpo_terms`
+# inverts it at the reduced level (faithfulness) and `irrep_mpo_tensors` assembles the symmetric
+# `TensorMap`s. Any arity K ≥ 0.
+#
+# This is the one place a lattice enters the finite pipeline, so it is where the letters are checked
+# against the spaces of the sites they act on.
 
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Vect, ElementarySpace, fusiontrees, permute, dim, unit, isomorphism, @tensor,
@@ -9,65 +13,80 @@ using TensorKit: Vect, ElementarySpace, fusiontrees, permute, dim, unit, isomorp
 using .IrrepTensorOperators: IrrepOperator
 
 """
-    irrep_mpo(H::TermSum[, alg]) -> (Ws, bondsectors)
+    FiniteMPO{I<:Sector}
 
-Compress the ITO Hamiltonian `H` over the `N = length(lattice(H))` sites it is defined on into a
-reduced MPO. The lattice travels with `H` (see [`opsum`](@ref)), which is also where every letter was
-checked against the space of the site it acts on.
+A reduced MPO for an open chain of `length(Ws)` sites, as [`irrep_mpo`](@ref) returns it.
 
-Returns `Ws::Vector{SparseMatrixCSC{SiteOperator{I}, Int}}` (one reduced bond
-matrix per site; entries are ITO letters times reduced coefficients) and `bondsectors::Vector{
-Vector{I}}` where `bondsectors[i]` gives the bond charge of each bond index to the right of site
-`i` (so `size(Ws[i], 2) == length(bondsectors[i])`). The left boundary (bond 0) is a single
-trivial-charge index.
+`Ws[i]` is the reduced bond matrix of site `i` (`Ws[i] : bond i-1 → bond i`, entries are ITO letters
+times reduced coefficients) and `bondsectors[i]` gives the bond charge of each bond index to the
+*right* of site `i`, so `length(bondsectors[i])` is the reduced bond dimension there and
+`sum(dim, bondsectors[i])` the dense-equivalent one. Bond `0` is the one-dimensional trivial-charge
+left boundary.
+
+It destructures as `Ws, bondsectors = irrep_mpo(h, lat)`, exactly like an [`InfiniteMPO`](@ref).
+"""
+struct FiniteMPO{I <: Sector}
+    Ws::Vector{SparseMatrixCSC{SiteOperator{I}, Int}}
+    bondsectors::Vector{Vector{I}}
+end
+
+Base.length(H::FiniteMPO) = length(H.Ws)
+
+# iterate/destructure as `(Ws, bondsectors)`, the same contract as `InfiniteMPO`
+Base.iterate(H::FiniteMPO, state::Int = 1) =
+    state == 1 ? (H.Ws, 2) : state == 2 ? (H.bondsectors, 3) : nothing
+
+function Base.show(io::IO, H::FiniteMPO{I}) where {I}
+    D = [sum(dim, sec; init = 0) for sec in H.bondsectors]
+    return print(io, "FiniteMPO{", I, "}(N = ", length(H), ", D = ", D, ")")
+end
+
+"""
+    irrep_mpo(h, lat[, alg]) -> FiniteMPO | InfiniteMPO
+
+Compress the ITO Hamiltonian `h` over the lattice `lat` into a reduced MPO.
+
+`h` is a latticeless [`Terms`](@ref) bag — straight out of `couple`, `dot`, `project` or
+[`opsum`](@ref) — or a [`MixedSum`](@ref) when it carries exponentially decaying channels
+(see [`expterm`](@ref)). `lat` is a [`FiniteChain`](@ref) (or a bare vector of spaces, which is
+converted) or an [`InfiniteChain`](@ref):
+
+```julia
+irrep_mpo(h, FiniteChain(V, N))        # -> FiniteMPO
+irrep_mpo(h, InfiniteChain([V]))       # -> InfiniteMPO
+```
+
+On a `FiniteChain` the operator is `h` as written, on `N = length(lat)` sites. On an `InfiniteChain`
+of `L` sites `h` is a **generating set**: the operator represented is `Σ_{n ∈ ℤ} translate(h, n·L)`,
+so each translation class must appear exactly once (see [`unitcell_terms`](@ref)).
+
+This is where the lattice meets the operator, so it is also where every letter is checked against
+the space of the site it acts on, and every site of a finite chain against `1:N`.
 
 `alg` is the algorithm selector: `BipartiteAlgorithm()` (the default, lossless minimum vertex cover)
 or `SVDBondAlgorithm(trunc; sweep)`, whose `sweep` picks between the two truncation semantics
-(`IndependentSVD`, the default and the historical behaviour, versus `SequentialSVD`). Each selector
-names a [`BondStrategy`](@ref); the sweeps live in irrepgraph.jl.
+(`IndependentSVD`, the default, versus `SequentialSVD`). Each selector names a
+[`BondStrategy`](@ref); the sweeps live in irrepgraph.jl. `SVDBondAlgorithm` is available on a
+`FiniteChain` only.
 """
-function irrep_mpo(H::TermSum, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm())
-    tt = ITOTermTable(H)
-    return _irrep_sweep(tt, nvertices(tt), bondstrategy(alg))
+function irrep_mpo(
+        h::Terms, lat::FiniteChain,
+        alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
+    )
+    _checklattice(h, lat)
+    N = length(lat)
+    tt = ITOTermTable(h, N)
+    return FiniteMPO(_irrep_sweep(tt, nvertices(tt), bondstrategy(alg))...)
 end
 
-"""
-    irrep_mpo(H, chain::InfiniteChain[, alg]) -> InfiniteMPO
-
-Compress the ITO Hamiltonian of an *infinite* chain with a repeating unit cell of
-`L = length(chain)` sites. `H` is the generating set: the operator represented is
-`Σ_{n ∈ ℤ} translate(H, n·L)`, so each translation class must appear exactly once in `H` (see
-[`unitcell_terms`](@ref)).
-
-`H` is normally a latticeless [`Terms`](@ref) bag — straight out of `couple`, `dot` or `project` — for
-the same reason `unitcell_terms` returns one: the chain already names the space of *every* site, by
-wraparound, so there is no separate lattice to bind. A `TermSum` is accepted too, and its lattice is
-then required to agree with the chain site by site. Either way the letters are checked against those
-spaces when the window is built.
-
-Returns an [`InfiniteMPO`](@ref): `L` reduced bond matrices and `L` bond-charge lists with bond `0`
-identified with bond `L`, plus the indices of the two identity channels (the boundary vectors). It
-destructures as `Ws, bondsectors = irrep_mpo(H, chain)`, matching the finite contract, and feeds
-`irrep_mpo_tensors(H_inf, chain)` directly.
-
-Only `BipartiteAlgorithm` (the default, lossless) is supported: `SVDBondAlgorithm` compresses each
-bond of a finite chain independently against a hard-coded vacuum-terminated bond layout and has no
-notion of a bond basis that closes on itself.
-"""
 function irrep_mpo(
         gen::Terms, chain::InfiniteChain, ::BipartiteAlgorithm = BipartiteAlgorithm()
     )
+    _checklattice(gen, chain)
     return _infinite_window(unitcell_terms(gen, length(chain)), chain)
 end
 
-function irrep_mpo(
-        H::TermSum{I}, chain::InfiniteChain, alg::BipartiteAlgorithm = BipartiteAlgorithm()
-    ) where {I}
-    _check_chain_lattice(H, chain)
-    return irrep_mpo(Terms{I}(H.terms), chain, alg)
-end
-
-function irrep_mpo(::Union{Terms, TermSum}, ::InfiniteChain, ::SVDBondAlgorithm)
+function irrep_mpo(::Terms, ::InfiniteChain, ::SVDBondAlgorithm)
     throw(
         ArgumentError(
             "SVDBondAlgorithm does not extend to infinite chains: it compresses each bond " *
@@ -78,44 +97,36 @@ function irrep_mpo(::Union{Terms, TermSum}, ::InfiniteChain, ::SVDBondAlgorithm)
 end
 
 """
-    irrep_mpo(H::MixedSum, chain::InfiniteChain[, alg]) -> InfiniteMPO
-    irrep_mpo(H::MixedSum, sites[, alg]) -> (Ws, bondsectors)
+    irrep_mpo(H::MixedSum, lat[, alg]) -> FiniteMPO | InfiniteMPO
 
 Compress a Hamiltonian carrying **exponentially decaying** interactions alongside its finite-range
 terms (see [`expterm`](@ref)). Each channel becomes a single bond index with `λ` on its diagonal, so
 its cost is independent of the interaction range.
 
 The lattice fixes the translation period of a channel: on an [`InfiniteChain`](@ref) of `L` sites its
-entry and exit step by `L` (and `H` is a generating set, as for a plain `Terms`), while on a finite
-`sites` vector every site is a possible entry, i.e. the operator represented is the whole geometric sum
-truncated to the chain — `chain_terms(H, length(sites))` spells it out. Only `BipartiteAlgorithm` (the
-default) is supported.
-
-A `MixedSum` is latticeless, like the [`Terms`](@ref) bag it is built from, so the finite form takes
-its `sites` explicitly.
+entry and exit step by `L` (and `H` is a generating set, as for a plain `Terms`), while on a
+[`FiniteChain`](@ref) every site is a possible entry, i.e. the operator represented is the whole
+geometric sum truncated to the chain — `chain_terms(H, length(lat))` spells it out. Only
+`BipartiteAlgorithm` (the default) is supported.
 """
 function irrep_mpo(
         H::MixedSum, chain::InfiniteChain, ::BipartiteAlgorithm = BipartiteAlgorithm()
     )
+    _checklattice(H.terms, chain)
     return _infinite_window(unitcell_terms(H, length(chain)), chain)
 end
 
 function irrep_mpo(
-        H::MixedSum, sites::AbstractVector{<:ElementarySpace},
-        ::BipartiteAlgorithm = BipartiteAlgorithm()
+        H::MixedSum, lat::FiniteChain, ::BipartiteAlgorithm = BipartiteAlgorithm()
     )
-    N = length(sites)
-    return _irrep_sweep(
-        ITOTermTable(opsum(sites, H.terms)), N, VertexCover();
-        channels = _lower_channels(H.channels, 1)
+    _checklattice(H.terms, lat)
+    N = length(lat)
+    return FiniteMPO(
+        _irrep_sweep(
+            ITOTermTable(H.terms, N), N, VertexCover();
+            channels = _lower_channels(H.channels, 1)
+        )...
     )
-end
-
-# a Hamiltonian of nothing but channels
-function irrep_mpo(
-        H::ExpSum, lattice, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
-    )
-    return irrep_mpo(MixedSum(H), lattice, alg)
 end
 
 function irrep_mpo(::MixedSum, ::Any, ::SVDBondAlgorithm)
@@ -128,15 +139,28 @@ function irrep_mpo(::MixedSum, ::Any, ::SVDBondAlgorithm)
     )
 end
 
+# A Hamiltonian of nothing but channels, or a single bare term.
+irrep_mpo(H::ExpSum, lat, args...) = irrep_mpo(MixedSum(H), lat, args...)
+irrep_mpo(t::Term, lat, args...) = irrep_mpo(Terms(t), lat, args...)
+
+# Anything that names one space per site is a lattice: a bare vector, a tuple, a generator.
+# `_tolattice` converts it or says why it is not one, so this never recurses — every lattice it
+# returns is a `FiniteChain` or an `InfiniteChain`, which the methods above claim.
+irrep_mpo(h, sites, args...) = irrep_mpo(h, _tolattice(sites), args...)
+
 """
-    mpo_terms(Ws, bondsectors, sites; leftidx = 1, rightidx = nothing) -> TermSum
+    mpo_terms(Ws, bondsectors; leftidx = 1, rightidx = nothing) -> Terms
+    mpo_terms(H::FiniteMPO; kwargs...) -> Terms
+
 Reconstruct the operator generated by a reduced MPO (inverse of `irrep_mpo` at the reduced level):
 enumerate every path through the bond matrices, multiply the reduced coefficients along it, and read
 the active ITO letters (skipping pass-through) together with their outgoing bond charges — which are
-exactly the caterpillar running bonds a term carries. `sites` is the lattice to hand back, since the
-bond data names charges but not physical spaces. For the lossless bipartite compression this recovers
-the original operator exactly: `mpo_terms(irrep_mpo(H)..., lattice(H)) ≈ H` is the faithfulness
-check, which [`islossless`](@ref) packages up.
+exactly the caterpillar running bonds a term carries.
+
+No lattice is involved on either side: the bond data names charges but not physical spaces, and the
+result is a latticeless [`Terms`](@ref) bag. For the lossless bipartite compression this recovers the
+original operator exactly: `mpo_terms(irrep_mpo(h, lat)) ≈ h` is the faithfulness check, which
+[`islossless`](@ref) packages up.
 
 `leftidx` and `rightidx` are the boundary vectors. The finite defaults (`1`, and "accept any final
 index", which is what a vacuum-terminated chain needs since its last bond is one-dimensional) become
@@ -144,12 +168,11 @@ the two identity channels for an infinite MPO tiled over a window — see `mpo_t
 """
 function mpo_terms(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
-        bondsectors::Vector{Vector{I}},
-        sites;
+        bondsectors::Vector{Vector{I}};
         leftidx::Int = 1, rightidx::Union{Nothing, Int} = nothing
     ) where {I}
     N = length(Ws)
-    N == 0 && return opsum(sites)
+    N == 0 && return Terms{I}()
 
     cols = Tuple{Vector{Int}, Vector{ITOKey{I}}, ComplexF64}[]
     function walk(i, leftidx, coeff, sites, keys)
@@ -181,8 +204,10 @@ function mpo_terms(
     end
     walk(1, leftidx, ComplexF64(1), Int[], ITOKey{I}[])
 
-    return opsum(sites, (Term{I}(s, k, c) for (s, k, c) in cols))
+    return Terms{I}(Term{I}[Term{I}(s, k, c) for (s, k, c) in cols])
 end
+
+mpo_terms(H::FiniteMPO; kwargs...) = mpo_terms(H.Ws, H.bondsectors; kwargs...)
 
 # Site tensors `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit leg convention), virtual legs built from the
 # per-sector bond multiplicities.
@@ -251,7 +276,8 @@ function _letter_block(letter::IrrepOperator{I}, V, bL::I, bR::I) where {I}
 end
 
 """
-    irrep_mpo_tensors(Ws, bondsectors, sites) -> Vector{<:AbstractTensorMap}
+    irrep_mpo_tensors(H::FiniteMPO, lat) -> Vector{<:AbstractTensorMap}
+    irrep_mpo_tensors(Ws, bondsectors, lat) -> Vector{<:AbstractTensorMap}
 
 Assemble the symmetric MPO from the reduced bond matrices + bond sectors (from `irrep_mpo`). Site
 tensor `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit convention); the boundary bonds `B_0`, `B_N` are
@@ -264,6 +290,7 @@ function irrep_mpo_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
         bondsectors::Vector{Vector{I}}, sites
     ) where {I}
+    lat = _tolattice(sites)
     # Every internal bond is shared by two site tensors, so build its graded space and degeneracy
     # indices once rather than twice (as `Bright`/`degR` of site i and `Bleft`/`degL` of site i+1).
     # `bsecs[i]` is the bond to the *left* of site i; `bsecs[1]` is the trivial left boundary.
@@ -273,8 +300,10 @@ function irrep_mpo_tensors(
     for i in 1:N
         bsecs[i + 1] = bondsectors[i]
     end
-    return _mpo_tensors(Ws, bsecs, sites)
+    return _mpo_tensors(Ws, bsecs, lat)
 end
+
+irrep_mpo_tensors(H::FiniteMPO, lat) = irrep_mpo_tensors(H.Ws, H.bondsectors, lat)
 
 """
     irrep_mpo_tensors(H::InfiniteMPO, lattice::InfiniteChain) -> Vector{<:AbstractTensorMap}
@@ -352,10 +381,10 @@ function _mpo_tensors(
 end
 
 """
-    islossless(H::TermSum[, alg]) -> Bool
+    islossless(h, lat[, alg]) -> Bool
 
-Whether the compressed MPO reproduces `H` exactly: reconstruct the operator the reduced MPO generates
-with [`mpo_terms`](@ref) and compare it against `H` with `≈`, i.e. term *set* exactly and coefficients
+Whether the compressed MPO reproduces `h` exactly: reconstruct the operator the reduced MPO generates
+with [`mpo_terms`](@ref) and compare it against `h` with `≈`, i.e. term *set* exactly and coefficients
 approximately.
 
 This is the primary correctness check for a construction — cheap, purely symbolic, independent of `N`,
@@ -364,9 +393,9 @@ and valid for fermionic sectors, where densifying is not a well-defined operatio
 Only meaningful for lossless compression: after a truncating [`SVDBondAlgorithm`](@ref) `false` is the
 expected answer rather than a bug.
 """
-function islossless(H::TermSum, args...)
-    Ws, secs = irrep_mpo(H, args...)
-    return mpo_terms(Ws, secs, lattice(H)) ≈ H
+function islossless(h::Terms, lat, args...)
+    Ws, secs = irrep_mpo(h, lat, args...)
+    return mpo_terms(Ws, secs) ≈ h
 end
 
 """
@@ -377,8 +406,8 @@ Contract a chain of MPO site tensors — as [`irrep_mpo_tensors`](@ref) returns 
 [`instantiate`](@ref)'s leg convention: codomain `o₁…o_N`, domain `i₁…i_N` and the trailing
 total-charge leg. The trivial left boundary bond is dropped.
 
-The tensor-level oracle, `mpo_tensormap(irrep_mpo_tensors(irrep_mpo(H)..., lattice(H))) ≈
-instantiate(H)`. Exponential in `N`, so small systems only — but it stays inside TensorKit and never
+The tensor-level oracle, `mpo_tensormap(irrep_mpo_tensors(irrep_mpo(h, lat), lat)) ≈
+instantiate(h, lat)`. Exponential in `N`, so small systems only — but it stays inside TensorKit and never
 materialises a dense array, so unlike `convert(Array, ·)` it is valid for fermionic sectors.
 """
 function mpo_tensormap(Ts::AbstractVector)

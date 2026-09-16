@@ -21,56 +21,52 @@ export siteindex, cylinder_bonds, ladder_bonds
 export bonddim, densedim, maxbonddim, maxdensedim, build
 export mpo_matches_oracle, spectrum, hermiticity_error
 # ...and OpSum's own verification helpers and operator builders, so a dependent needs one `using`.
-export islossless, mpo_tensormap, spin_ops, fermion_ops, opsum, lattice
+export islossless, mpo_tensormap, spin_ops, fermion_ops, opsum, FiniteChain
 
 # ── Model builders ────────────────────────────────────────────────────────────
-# Each returns a `TermSum` carrying its own lattice (`lattice(H)` reads it back), built in one
-# `opsum` pass.
+# A term bag is latticeless, so each builder returns the pair `(h, lat)` the compression needs: the
+# terms, accumulated in one `opsum` pass, and the `FiniteChain` they are to be compressed over.
 
 const SPIN_HALF = SU2Space(1 // 2 => 1)
 
 function heisenberg_su2(N; J = 1.0)
     S = spin(SPIN_HALF)
-    return opsum(fill(SPIN_HALF, N), (J * dot(S[i], S[i + 1]) for i in 1:(N - 1)))
+    return opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1)), FiniteChain(SPIN_HALF, N)
 end
 
 function j1j2_su2(N; J1 = 1.0, J2 = 0.5)
     S = spin(SPIN_HALF)
-    return opsum(
-        fill(SPIN_HALF, N),
+    h = opsum(
         (J1 * dot(S[i], S[i + 1]) for i in 1:(N - 1)),
         (J2 * dot(S[i], S[i + 2]) for i in 1:(N - 2)),
     )
+    return h, FiniteChain(SPIN_HALF, N)
 end
 
 function haldane_shastry(N; J = 1.0)
     S = spin(SPIN_HALF)
     pref = J * π^2 / N^2
-    return opsum(
-        fill(SPIN_HALF, N),
-        (
-            (pref / sin(π * (m - n) / N)^2) * dot(S[n], S[m])
-                for n in 1:(N - 1) for m in (n + 1):N
-        )
+    h = opsum(
+        (pref / sin(π * (m - n) / N)^2) * dot(S[n], S[m])
+            for n in 1:(N - 1) for m in (n + 1):N
     )
+    return h, FiniteChain(SPIN_HALF, N)
 end
 
 function powerlaw_su2(N; α = 3.0, J = 1.0)
     S = spin(SPIN_HALF)
-    return opsum(
-        fill(SPIN_HALF, N),
-        (
-            (J * abs(m - n)^(-α)) * dot(S[n], S[m])
-                for n in 1:(N - 1) for m in (n + 1):N
-        )
+    h = opsum(
+        (J * abs(m - n)^(-α)) * dot(S[n], S[m])
+            for n in 1:(N - 1) for m in (n + 1):N
     )
+    return h, FiniteChain(SPIN_HALF, N)
 end
 
 function cylinder_su2(N; Ly = 4, periodic_y = true, J = 1.0)
     N % Ly == 0 || throw(ArgumentError("cylinder: N=$N must be a multiple of Ly=$Ly"))
     S = spin(SPIN_HALF)
     bonds = cylinder_bonds(div(N, Ly), Ly; periodic_y)
-    return opsum(fill(SPIN_HALF, N), (J * dot(S[i], S[j]) for (i, j) in bonds))
+    return opsum(J * dot(S[i], S[j]) for (i, j) in bonds), FiniteChain(SPIN_HALF, N)
 end
 
 const FERMION_MODE = Vect[FermionNumber](0 => 1, 1 => 1)
@@ -87,17 +83,17 @@ end
 function free_fermions(N; t = 1.0)
     F = fermion_ops()
     bonds = [(i, i + 1) for i in 1:(N - 1)]
-    return opsum(fill(FERMION_MODE, N), _hopping_terms(F, bonds, t))
+    return opsum(_hopping_terms(F, bonds, t)), FiniteChain(FERMION_MODE, N)
 end
 
 function tv_chain(N; t = 1.0, Vint = 2.0)
     F = fermion_ops()
     bonds = [(i, i + 1) for i in 1:(N - 1)]
-    return opsum(
-        fill(FERMION_MODE, N),
+    h = opsum(
         _hopping_terms(F, bonds, t),
         (Vint * couple(F.n[i], F.n[j]) for (i, j) in bonds),
     )
+    return h, FiniteChain(FERMION_MODE, N)
 end
 
 # Fermi-Hubbard with one spin-orbital per site, `(i, σ) -> 2(i-1) + σ`. Every operator is then a
@@ -121,7 +117,7 @@ function hubbard(N; t = 1.0, U = 4.0, Ly = nothing)
             for (i, j) in sitebonds for σ in 1:2
     )
     int = (U * couple(F.n[orbital(i, 1)], F.n[orbital(i, 2)]) for i in 1:Nsites)
-    return opsum(fill(FERMION_MODE, N), hop, int)
+    return opsum(hop, int), FiniteChain(FERMION_MODE, N)
 end
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -131,7 +127,7 @@ struct ModelSpec
     label::String
     family::Symbol                        # :spin1d | :longrange | :quasi2d | :fermionic
     params::Dict{String, Any}
-    build::Function                       # N -> H (bound to its lattice)
+    build::Function                       # N -> (h, lat)
     timesizes::Dict{Symbol, Vector{Int}}  # :smoke | :ci | :full
     dimsizes::Dict{Symbol, Vector{Int}}
 end
@@ -156,7 +152,7 @@ sweeps(smoke, ci, full) = Dict(:smoke => smoke, :ci => ci, :full => full)
 # metric sweeps run to roughly twice the size.
 #
 # NOTE on reading the timing figures: with the compression linear, the plotted *total* for a
-# finite-range model is now dominated by the symbolic `TermSum` accumulation, not by `irrep_mpo`. The
+# finite-range model is now dominated by the symbolic term accumulation, not by `irrep_mpo`. The
 # `phases` figure breaks the two apart, and it is the one to look at when judging the compression.
 const MODELS = ModelSpec[
     ModelSpec(
@@ -241,11 +237,11 @@ modelbykey(key) = MODELS[findfirst(m -> m.key == key, MODELS)]
 Deterministic (timing-free) MPO statistics for one model at one size.
 """
 function model_metrics(spec::ModelSpec, N::Int)
-    H = spec.build(N)
-    Ws, secs = irrep_mpo(H)
+    h, lat = spec.build(N)
+    Ws, secs = irrep_mpo(h, lat)
     return (
         size = N,
-        nterms = length(H),
+        nterms = length(h),
         nbonds = length(secs),
         maxdensedim = maxdensedim(secs),
         maxmultdim = maxbonddim(secs),

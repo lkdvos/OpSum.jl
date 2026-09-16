@@ -5,14 +5,17 @@ module OpSum
 
 # on-site operators: build them once, outside any loop
 export IrrepOperator, spin, scalarop, project, matrixunit, spin_ops, fermion_ops
-# term algebra: place, couple, then bind to a lattice with `opsum`
-export Term, Terms, TermSum, couple, opsum, lattice, canonicalize!
+# term algebra: place and couple. Latticeless — the lattice is supplied at `irrep_mpo`
+export Term, Terms, couple, opsum, canonicalize!
+# lattices: the two things an operator can be compressed over
+export AbstractLattice, FiniteChain, InfiniteChain
 # MPO construction
 export irrep_mpo, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
+export FiniteMPO, InfiniteMPO
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
-# infinite chains: a generating term set tiled over a repeating unit cell
-export InfiniteChain
+# exponentially decaying interactions
+export expterm, ExpSum, MixedSum
 # verification
 export islossless, mpo_tensormap
 
@@ -36,6 +39,10 @@ include("utility/memo.jl")
 # ---------------
 include("datastructures/bipartite.jl")
 include("datastructures/connectedcomponents.jl")
+
+# Lattices
+# --------
+include("operators/lattices.jl")
 
 # Operators — symbolic algebra
 # -----------------------------

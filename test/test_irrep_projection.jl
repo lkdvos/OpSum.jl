@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: project, matrixunit, instantiate, spin, scalarop, couple, irrep_mpo, opsum,
-    irrep_mpo_tensors, mpo_terms, Term, Terms, TermSum, total, ops, tree, bondcharges,
+    irrep_mpo_tensors, mpo_terms, Term, Terms, total, ops, tree, bondcharges,
     caterpillar_trees, _instantiate_basis
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
@@ -354,27 +354,27 @@ end
     hbond = instantiate(dot(spin(V)[1], spin(V)[2]), [V, V])
     for (label, h) in (("S·S", hbond), ("S·S + identity", hbond + 0.3 * insertrightunit(id(V ⊗ V))))
         @testset "$label" begin
-            H = opsum(sites, (project(h, [i, i + 1]) for i in 1:(N - 1)))
+            H = opsum((project(h, [i, i + 1]) for i in 1:(N - 1)))
 
-            Ws, secs = irrep_mpo(H)
+            Ws, secs = irrep_mpo(H, sites)
             @test length(secs) == N
 
             # faithful at the reduced level
-            back = mpo_terms(Ws, secs, sites)
+            back = mpo_terms(Ws, secs)
             @test back ≈ H
 
             # and the assembled tensors contract to the operator
             T = irrep_mpo_tensors(Ws, secs, sites)
             @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
                 T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
-            @test physmatrix(Op, N, d) ≈ physmatrix(instantiate(H), N, d)
+            @test physmatrix(Op, N, d) ≈ physmatrix(instantiate(H, sites), N, d)
         end
     end
 
     # the projected Heisenberg chain is the Heisenberg chain
-    H = opsum(sites, (project(hbond, [i, i + 1]) for i in 1:(N - 1)))
-    Href = opsum(sites, (dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
-    @test physmatrix(instantiate(H), N, d) ≈ physmatrix(instantiate(Href), N, d)
+    H = opsum((project(hbond, [i, i + 1]) for i in 1:(N - 1)))
+    Href = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+    @test physmatrix(instantiate(H, sites), N, d) ≈ physmatrix(instantiate(Href, sites), N, d)
 end
 
 @testset "tolerance" begin
@@ -394,7 +394,7 @@ end
     hrand = randn(ComplexF64, ℂ^2 ⊗ ℂ^2 ← ℂ^2 ⊗ ℂ^2)
     @test_throws ArgumentError project(hrand, [1, 2]; rtol = 0.5)
 
-    # a zero operator projects to an empty TermSum rather than throwing
+    # a zero operator projects to an empty term bag rather than throwing
     @test isempty(project(zero(h), [1, 2]))
     @test iszero(project(zero(id(V)), V))
 end

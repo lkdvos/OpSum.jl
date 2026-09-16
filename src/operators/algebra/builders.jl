@@ -117,20 +117,22 @@ _resite(ts::Terms{I}, sites::AbstractVector{Int}) where {I} =
     Terms{I}(Term{I}[Term{I}(Int[sites[s] for s in t.sites], t.keys, t.coeff) for t in ts.terms])
 
 """
-    adjoint(H::TermSum) -> TermSum
-    H'
+    adjoint(h::Terms, lat) -> Terms
 
-The hermitian conjugate of `H`, so that `H + H'` is hermitian and `(H')' ≈ H`:
+The hermitian conjugate of `h`, so that `h + adjoint(h, lat)` is hermitian:
 
 ```julia
 F = fermion_ops()
-T = opsum(fill(V, N), (-t * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1)))
-H = T + T'                                 # ≡ -t Σᵢ (c†ᵢcᵢ₊₁ + c†ᵢ₊₁cᵢ)
+T = opsum(-t * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1))
+lat = FiniteChain(V, N)
+H = T + adjoint(T, lat)                    # ≡ -t Σᵢ (c†ᵢcᵢ₊₁ + c†ᵢ₊₁cᵢ)
 ```
 
-Defined on a `TermSum` and not on a [`Terms`](@ref) bag because it needs the physical spaces: the
-adjoint of an alphabet letter is generally a *combination* of the dual charge's letters, which only
-the space knows. Bind the lattice with [`opsum`](@ref) first.
+This is the one operation on a term bag that genuinely needs the physical spaces — the adjoint of an
+alphabet letter is generally a *combination* of the dual charge's letters, which only the space knows
+— so it takes a lattice, and there is no postfix `h'`. A [`FiniteChain`](@ref), an
+[`InfiniteChain`](@ref) or a bare vector of spaces all work; only the spaces of the sites `h`
+actually touches are read.
 
 Every term must have total charge `unit(I)` — the case a Hamiltonian term is in. A charged term's
 adjoint lives in the dual charge sector, which is a different object than this signature can return.
@@ -138,10 +140,11 @@ adjoint lives in the dual charge sector, which is a different object than this s
 Each distinct term *shape* costs one projection, memoised, so conjugating a whole Hamiltonian is
 `O(number of distinct shapes)` rather than `O(number of terms)`.
 """
-function Base.adjoint(H::TermSum{I}) where {I}
-    sites = lattice(H)
+function Base.adjoint(h::Terms{I}, latarg) where {I}
+    lat = _tolattice(latarg)
+    _checklattice(h, lat)
     out = Term{I}[]
-    for t in H
+    for t in h
         K = arity(t)
         if iszero(K)
             push!(out, Term{I}(Int[], ITOKey{I}[], conj(t.coeff)))
@@ -154,21 +157,21 @@ function Base.adjoint(H::TermSum{I}) where {I}
                     "term of the same operator. Conjugate charge-neutral terms only."
             )
         )
-        Vs = [sites[s] for s in t.sites]
+        Vs = [lat[s] for s in t.sites]
         local_adj = _cached(_ADJOINT_CACHE, (t.keys, Vs)) do
             blk = _instantiate_term(Term{I}(collect(1:K), t.keys, ComplexF64(1)), Vs)
             return project(removeunit(blk, 2K + 1)', 1:K)
         end
         append!(out, scale(_resite(local_adj, t.sites), conj(t.coeff)).terms)
     end
-    return TermSum{I}(sites, out)
+    return Terms{I}(out)
 end
 
-# `ts'` is the natural thing to reach for, and a bare MethodError would not say what is missing.
+# `h'` is the natural thing to reach for, and a bare MethodError would not say what is missing.
 Base.adjoint(::Terms) = throw(
     ArgumentError(
-        "adjoint: a `Terms` bag has no lattice, and the adjoint of an alphabet letter is a " *
-            "combination of the dual charge's letters that only the physical space determines. " *
-            "Bind the lattice first: `opsum(sites, ts)'`"
+        "adjoint: the adjoint of an alphabet letter is a combination of the dual charge's letters " *
+            "that only the physical space determines, so it needs a lattice and there is no " *
+            "postfix `h'`. Write `adjoint(h, lat)`."
     )
 )

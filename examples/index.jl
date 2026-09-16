@@ -44,12 +44,12 @@ using LinearAlgebra: dot
 
 V = SU2Space(1 // 2 => 1)          # one spin-½ per site
 N = 8
-sites = fill(V, N)
+chain = FiniteChain(V, N)          # the lattice: one space per site
 
 S = spin(V)                        # the SU(2) rank-1 vector operator
-H = opsum(sites, (dot(S[i], S[i + 1]) for i in 1:(N - 1)))   # terms + the lattice they live on
+H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))     # the terms, accumulated in one pass
 
-Ws, sectors = irrep_mpo(H)         # reduced bond matrices + per-bond charge sectors
+Ws, sectors = irrep_mpo(H, chain)  # reduced bond matrices + per-bond charge sectors
 
 # The bond dimension: `sectors[b]` lists the irrep labels on the bond to the right of site `b`, so
 # its length is the number of symmetry-resolved indices, and the quantum-dimension-weighted sum is
@@ -61,9 +61,13 @@ bulk = 4
 # Three multiplets — identity-in, identity-out, and one open spin-1 channel — where a dense MPO
 # needs five states.
 #
+# A term bag is latticeless: nothing in the term algebra needs a physical space, and the compression
+# itself needs only the number of sites. So the lattice is handed to `irrep_mpo`, which is also the
+# one place every letter is checked against the space of the site it acts on.
+#
 # The compression is exact, which `mpo_terms` verifies by reconstructing the original term sum:
 
-back = mpo_terms(Ws, sectors, sites)
+back = mpo_terms(Ws, sectors)
 back ≈ H
 
 # ## Examples

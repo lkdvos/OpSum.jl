@@ -8,7 +8,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 
 # Reference models
 # ================
-# Each is `(name, generating TermSum, unit-cell spaces)`. `H` is a *generating set*: the operator is
+# Each is `(name, generating term bag, unit-cell spaces)`. `H` is a *generating set*: the operator is
 # `Σ_n translate(H, n·L)`, so a nearest-neighbour chain on a two-site cell needs both bonds written
 # out, and on a one-site cell exactly one.
 
@@ -84,7 +84,7 @@ function faithful(H, spaces; ncells = 5)
     R = maxspan(gen)
     N = ncells * L
     N > R + 1 || error("window too small for the guard")
-    # iterating a TermSum canonicalises it, so coincident terms are already summed; `Term`'s `==`
+    # iterating a term bag canonicalises it, so coincident terms are already summed; `Term`'s `==`
     # and `hash` ignore the coefficient, which is what makes it the dictionary key here
     got = Dict(t => t.coeff for t in mpo_terms_window(irrep_mpo(H, chain), chain, ncells))
     want = Dict(t => t.coeff for t in window_terms(gen, chain, ncells))
@@ -270,7 +270,7 @@ end
         Ts = irrep_mpo_tensors(Hinf, lat)
         tiled = [Ts[mod1(j, L)] for j in 1:N]
         O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.done[L])
-        oracle = instantiate(mpo_terms_window(Hinf, lat, ncells))
+        oracle = instantiate(mpo_terms_window(Hinf, lat, ncells), sites)
         @test O ≈ oracle || (println("  $name mismatch"); false)
     end
 end

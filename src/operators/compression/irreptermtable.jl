@@ -3,22 +3,15 @@
 using TensorKit: Sector, unit
 
 """
-    canonicalize!(H::TermSum) -> H
+    canonicalize!(ts::Terms) -> ts
 
-Put `H` in normal form **in place**: sort its terms (by sites, then keys, so coincident ones become
+Put `ts` in normal form **in place**: sort its terms (by sites, then keys, so coincident ones become
 adjacent), sum coincident ones, drop cancelled ones.
 
 Assumes nothing about its input, so no flag can fall out of step with the terms. It is idempotent, but
 a repeat call re-sorts rather than returning early — hence the sweep normalises once, at the
-[`ITOTermTable`](@ref) boundary.
-"""
-canonicalize!(H::TermSum) = (_canonicalize!(H.terms); H)
-
-"""
-    canonicalize!(ts::Terms) -> ts
-
-The same normal form on a bag of terms. Bags are not normalised as they are built, so this is what
-`≈` and `==` on them go through.
+[`ITOTermTable`](@ref) boundary. Bags are not normalised as they are built, so everything that
+observes the term set (`length`, iteration, `≈`, `==`, `show`) goes through this.
 """
 canonicalize!(ts::Terms) = (_canonicalize!(ts.terms); ts)
 
@@ -91,15 +84,18 @@ nterms(tt::ITOTermTable) = length(tt.coeffs)
 nvertices(tt::ITOTermTable) = tt.nvertices
 
 """
-    ITOTermTable(H::TermSum)
+    ITOTermTable(ts::Terms, N::Int)
 
-Materialise `H` in normal form ([`canonicalize!`](@ref)) as the flat table the MPO sweep consumes, on
-the `N = length(lattice(H))` sites it is defined over.
+Materialise `ts` in normal form ([`canonicalize!`](@ref)) as the flat table the MPO sweep consumes, on
+`N` sites.
+
+`N` is the *only* thing the sweep needs from the lattice — no physical space appears anywhere in the
+compression — which is why a term bag stays latticeless until the MPO is assembled.
 """
-function ITOTermTable(H::TermSum{I}) where {I}
-    canonicalize!(H)
-    terms = H.terms
-    N = length(lattice(H))
+function ITOTermTable(ts::Terms{I}, N::Integer) where {I}
+    canonicalize!(ts)
+    terms = ts.terms
+    N = Int(N)
     M = length(terms)
     # `arity(tt) ≥ 1`: the sweeps index row 1 unconditionally.
     K = max(1, maximum(arity, terms; init = 0))

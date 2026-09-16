@@ -1,4 +1,5 @@
-# Term algebra over ITOs: `Term` (one term) → `Terms` (a bag) → `TermSum` (a bag + its lattice).
+# Term algebra over ITOs: `Term` (one term) → `Terms` (a bag, the operator). Latticeless: the
+# physical spaces are supplied where the MPO is formed, not here.
 # Site labels are lattice indices; on-site products and `GenericFusion` multiplicity are deferred.
 
 using TensorKit
@@ -167,27 +168,49 @@ end
 """
     Terms{I<:Sector}
 
-A bag of [`Term`](@ref)s with no lattice: what `A[i]`, [`couple`](@ref), `dot` and
-[`project`](@ref) return, and what `+`, `-`, `*` and `/` combine. Nothing is deduplicated here — the
-normal form comes later, on the [`TermSum`](@ref). [`opsum`](@ref) makes it compressible.
+The compressible ITO operator: a bag of [`Term`](@ref)s, with **no lattice**. What `A[i]`,
+[`couple`](@ref), `dot` and [`project`](@ref) return, what `+`, `-`, `*` and `/` combine, and what
+[`opsum`](@ref) accumulates in one pass.
+
+Nothing in the term algebra, and nothing in the MPO sweep, needs a physical space — the sweep needs
+only the site *count* — so the lattice is supplied where the MPO is formed:
+`irrep_mpo(h, lat)`, `instantiate(h, lat)`, `islossless(h, lat)`, `adjoint(h, lat)`.
+
+Terms are appended as given, so the bag is unnormalised until [`canonicalize!`](@ref) puts it in
+normal form in place. `length(ts)`, iteration, indexing and `≈` all go through that, so they report
+the *canonical* operator and never the append count (`nterms_raw(ts)` is that, for tests).
 """
 struct Terms{I <: Sector}
     terms::Vector{Term{I}}
 end
 Terms{I}() where {I <: Sector} = Terms{I}(Term{I}[])
+Terms(terms::Vector{Term{I}}) where {I} = Terms{I}(terms)
 Terms(t::Term{I}) where {I} = Terms{I}(Term{I}[t])
 
 sectortype(::Type{Terms{I}}) where {I} = I
 
-Base.length(ts::Terms) = length(ts.terms)
-Base.isempty(ts::Terms) = isempty(ts.terms)
-Base.iterate(ts::Terms, args...) = iterate(ts.terms, args...)
-Base.eltype(::Type{Terms{I}}) where {I} = Term{I}
-Base.getindex(ts::Terms, i::Integer) = ts.terms[i]
-Base.firstindex(::Terms) = 1
-Base.lastindex(ts::Terms) = length(ts.terms)
+"""
+    nterms_raw(ts::Terms) -> Int
 
+The number of *appended* terms, before coincident ones are summed. For tests; `length(ts)` is the
+number of terms the operator actually has.
+"""
+nterms_raw(ts::Terms) = length(ts.terms)
+
+# Everything that observes the term set normalises first, so an append count can never be mistaken
+# for the number of terms the operator has.
+Base.length(ts::Terms) = length(canonicalize!(ts).terms)
+Base.isempty(ts::Terms) = isempty(canonicalize!(ts).terms)
+Base.iterate(ts::Terms, args...) = iterate(canonicalize!(ts).terms, args...)
+Base.eltype(::Type{Terms{I}}) where {I} = Term{I}
+Base.getindex(ts::Terms, i::Integer) = canonicalize!(ts).terms[i]
+Base.firstindex(::Terms) = 1
+Base.lastindex(ts::Terms) = length(ts)
+
+# Copies, so older values stay valid — but folding it over M terms is quadratic; use `opsum`.
 Base.:+(a::Terms{I}, b::Terms{I}) where {I} = Terms{I}(vcat(a.terms, b.terms))
+Base.:+(a::Terms{I}, t::Term{I}) where {I} = Terms{I}(vcat(a.terms, [t]))
+Base.:+(t::Term{I}, a::Terms{I}) where {I} = Terms{I}(vcat([t], a.terms))
 VectorInterface.scale(ts::Terms{I}, α::Number) where {I} =
     Terms{I}(Term{I}[scale(t, α) for t in ts.terms])
 Base.:*(α::Number, ts::Terms) = scale(ts, α)
@@ -195,16 +218,26 @@ Base.:*(ts::Terms, α::Number) = scale(ts, α)
 Base.:/(ts::Terms, α::Number) = scale(ts, inv(α))
 Base.:-(ts::Terms) = scale(ts, -1)
 Base.:-(a::Terms{I}, b::Terms{I}) where {I} = a + (-b)
+Base.:-(a::Terms{I}, t::Term{I}) where {I} = a + (-t)
 
 Base.one(::Terms{I}) where {I} = Terms{I}(Term{I}[Term{I}(Int[], ITOKey{I}[], ComplexF64(1))])
 
-# On *copies*: bags are unnormalised, and the operands must not be reordered under the caller.
+"""
+    isapprox(a::Terms, b::Terms; kwargs...)
+    a ≈ b
+
+Whether two operators carry the same terms with matching coefficients: the canonical term sets must
+be **equal** (a dropped term is never "approximately" absent) and the coefficients `≈`. No lattice is
+involved, so an operator reconstructed by [`mpo_terms`](@ref) — which knows the bonds but not the
+physical spaces — compares equal to the one it came from. This is the faithfulness check.
+"""
 Base.isapprox(a::Terms{I}, b::Terms{I}; kwargs...) where {I} =
-    _termsapprox(_canonicalize!(copy(a.terms)), _canonicalize!(copy(b.terms)); kwargs...)
+    _termsapprox(canonicalize!(a).terms, canonicalize!(b).terms; kwargs...)
 Base.:(==)(a::Terms{I}, b::Terms{I}) where {I} =
-    _termsequal(_canonicalize!(copy(a.terms)), _canonicalize!(copy(b.terms)))
+    _termsequal(canonicalize!(a).terms, canonicalize!(b).terms)
 
 function Base.show(io::IO, ts::Terms)
+    canonicalize!(ts)
     print(io, "Terms(")
     join(io, ("$(t.coeff) * $(_termbody(t))" for t in ts.terms), " + ")
     return print(io, ")")
@@ -217,25 +250,44 @@ function _alphabet(V::ElementarySpace, ::Type{I}) where {I <: Sector}
     return Dict{I, Int}(c => dim(W, c) for c in sectors(W))
 end
 
-_tolattice(sites::Vector{<:ElementarySpace}) = sites
+_tolattice(lat::AbstractLattice) = lat
+_tolattice(sites::AbstractVector{<:ElementarySpace}) = FiniteChain(sites)
 function _tolattice(sites)
+    # Guard on iterability first: without it a misplaced argument (an algorithm selector, say) is
+    # `collect`ed and fails deep inside Base instead of naming what was wrong.
+    applicable(iterate, sites) || _notalattice(sites)
     lat = collect(sites)
-    eltype(lat) <: ElementarySpace || throw(
-        ArgumentError("a lattice must be a vector of `ElementarySpace`s, got $(eltype(lat))")
-    )
-    return lat
+    eltype(lat) <: ElementarySpace || _notalattice(sites)
+    return FiniteChain(lat)
 end
 
-# The only place operators and the spaces they are compressed with are confronted; without it a
-# `sites` from a different model silently gives a wrong MPO. `Θ(Σ arity)`, not `Θ(N)`, so that
-# `H + t` stays proportional to `t`.
-function _checkterms(terms::AbstractVector{Term{I}}, lat::Vector{<:ElementarySpace}) where {I}
-    N = length(lat)
+_notalattice(sites) = throw(
+    ArgumentError(
+        "a lattice must be a `FiniteChain`, an `InfiniteChain`, or an iterable of " *
+            "`ElementarySpace`s (one per site), got $(typeof(sites))"
+    )
+)
+
+# The one place operators and the spaces they are compressed with are confronted; without it a
+# lattice from a different model silently gives a wrong MPO. Every entry point that takes a lattice
+# runs it, which is where it moved to when `opsum` stopped taking one — still exactly one place per
+# call, and still before any output is produced.
+#
+# `Θ(Σ arity)`, not `Θ(N)`. On an `InfiniteChain` there is no site range to check (a generating term
+# legitimately reaches past the cell) and `lat[s]` wraps.
+function _checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) where {I}
     isempty(terms) && return nothing
+    # An operator over a different symmetry than the lattice would otherwise fail deep inside the
+    # alphabet lookup, on a charge of the wrong type.
+    J = _lattice_sectortype(lat)
+    J === I || throw(
+        ArgumentError("cannot compress an operator over $I on a lattice of sector type $J")
+    )
+    N = _maxsite(lat)
     seen = Dict{eltype(lat), Dict{I, Int}}()
     for t in terms
         for (s, key) in zip(t.sites, t.keys)
-            1 <= s <= N || throw(
+            (N === nothing || 1 <= s <= N) || throw(
                 ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
             )
             V = lat[s]
@@ -253,160 +305,99 @@ function _checkterms(terms::AbstractVector{Term{I}}, lat::Vector{<:ElementarySpa
     return nothing
 end
 
-"""
-    TermSum{I<:Sector}
-
-The compressible ITO operator: a list of [`Term`](@ref)s plus the `lattice` they live on. The lattice
-is **mandatory** — `instantiate` and `irrep_mpo_tensors` need the space of every site, idle ones
-included, which no term can know — so a `TermSum` comes from [`opsum`](@ref), not from placement, and
-[`irrep_mpo`](@ref) / [`instantiate`](@ref) / [`jordan_mpo_tensors`](@ref) need no `sites`.
-
-Terms are appended as given, so the list is a bag until [`canonicalize!`](@ref) normalises it in place.
-`length(H)`, iteration and `≈` therefore report the *canonical* operator, never the append count
-(`nterms_raw(H)` is that, for tests).
-"""
-struct TermSum{I <: Sector}
-    lattice::Vector{<:ElementarySpace}
-    terms::Vector{Term{I}}
-end
-
-sectortype(::Type{TermSum{I}}) where {I} = I
+_checklattice(ts::Terms, lat::AbstractLattice) = _checklattice(ts.terms, lat)
 
 """
-    lattice(H::TermSum) -> Vector{<:ElementarySpace}
+    opsum(terms...) -> Terms
 
-The physical spaces `H` is defined on, one per site. Always present.
-"""
-lattice(H::TermSum) = H.lattice
-
-"""
-    opsum(sites, terms...) -> TermSum
-
-Bind terms to the lattice `sites` (one physical space per site), in **one pass** over each argument,
-so building an M-term Hamiltonian costs `Θ(M)`:
+Accumulate terms into one operator, in **one pass** over each argument, so building an `M`-term
+Hamiltonian costs `Θ(M)`:
 
 ```julia
-H = opsum(fill(V, N), (J * dot(S[i], S[i + 1]) for i in 1:(N - 1)))
+h = opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
 ```
 
-Each argument may be a [`Term`](@ref), a [`Terms`](@ref) bag, another `TermSum` on the same lattice,
-or any iterable of those, nested arbitrarily. Every letter is checked against the space of the site it
-acts on and every site against `1:length(sites)` — the only place operators and spaces are confronted.
+Each argument may be a [`Term`](@ref), a [`Terms`](@ref) bag, or any iterable of those, nested
+arbitrarily. The result is latticeless: the lattice is supplied where the MPO is formed
+([`irrep_mpo`](@ref)), which is also where every letter is checked against the space of the site it
+acts on.
 
-`opsum(sites)` is the empty operator; add to it with `+` or [`append!`](@ref).
+`opsum` is the linear route; `+` *copies*, so folding it over `M` terms is quadratic.
+[`append!`](@ref) adds to an existing bag, also in one pass.
 """
-function opsum(sites, args...)
-    lat = _tolattice(sites)
-    # The sector type comes from the lattice, never from the terms: it is always known there, and an
-    # argument may be a one-shot generator that must not be iterated twice to be sniffed.
-    I = _lattice_sectortype(lat)
-    out = Term{I}[]
+function opsum(args...)
+    isempty(args) && throw(
+        ArgumentError(
+            "opsum() has no terms, so the symmetry sector cannot be inferred; write `Terms{I}()` " *
+                "for the empty operator"
+        )
+    )
+    out = nothing
     for a in args
-        _collect_terms!(out, a, I)
+        out = _collect_any(out, a)
     end
-    _checkterms(out, lat)
-    return TermSum{I}(lat, out)
+    out === nothing && throw(
+        ArgumentError(
+            "opsum: every argument was empty, so the symmetry sector cannot be inferred; write " *
+                "`Terms{I}()` for the empty operator"
+        )
+    )
+    return Terms(out)
 end
 
-_lattice_sectortype(lat::Vector{<:ElementarySpace}) =
-    isempty(lat) ? Trivial : sectortype(first(lat))
+# `opsum` no longer binds a lattice. A bare vector of spaces as the first argument is the old
+# signature, so name the replacement instead of failing on the element type.
+opsum(::AbstractLattice, args...) = _nolattice()
+opsum(::AbstractVector{<:ElementarySpace}, args...) = _nolattice()
+_nolattice() = throw(
+    ArgumentError(
+        "opsum no longer takes a lattice: a term bag is latticeless, and the lattice is supplied " *
+            "where the MPO is formed. Write `opsum(terms...)` and pass the lattice to " *
+            "`irrep_mpo(h, lat)` / `instantiate(h, lat)` / `islossless(h, lat)`."
+    )
+)
+
+# Establishing `I`: the accumulator is `nothing` until the first term fixes the sector type. Only
+# that one step is dynamically dispatched; everything after it runs through the typed collector, so
+# `opsum` stays `Θ(M)` with the same constants as when the lattice supplied `I`.
+_collect_any(::Nothing, t::Term{I}) where {I} = Term{I}[t]
+_collect_any(::Nothing, ts::Terms{I}) where {I} = copy(ts.terms)
+function _collect_any(::Nothing, itr)
+    out = nothing
+    for a in itr
+        out = _collect_any(out, a)
+    end
+    return out
+end
+_collect_any(out::Vector{Term{I}}, a) where {I} = (_collect_terms!(out, a, I); out)
 
 _collect_terms!(out::Vector{Term{I}}, t::Term{I}, ::Type{I}) where {I} = push!(out, t)
 _collect_terms!(out::Vector{Term{I}}, ts::Terms{I}, ::Type{I}) where {I} =
     append!(out, ts.terms)
-_collect_terms!(out::Vector{Term{I}}, H::TermSum{I}, ::Type{I}) where {I} =
-    append!(out, H.terms)
 function _collect_terms!(out::Vector{Term{I}}, itr, ::Type{I}) where {I}
     for a in itr
         _collect_terms!(out, a, I)
     end
     return out
 end
-# A term over a different symmetry than the lattice is a mistake worth naming.
+# A term over a different symmetry than the one already accumulated is a mistake worth naming.
 _collect_terms!(::Vector{Term{I}}, ::Term{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
 _collect_terms!(::Vector{Term{I}}, ::Terms{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
-_collect_terms!(::Vector{Term{I}}, ::TermSum{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
 _wrongsector(I, J) = throw(
-    ArgumentError("cannot place an operator over $J on a lattice of sector type $I")
+    ArgumentError("cannot combine an operator over $J with one over $I")
 )
 
-TermSum(sites) = opsum(sites)
-TermSum(sites, args...) = opsum(sites, args...)
-
 """
-    append!(H::TermSum, terms...) -> H
+    append!(ts::Terms, terms...) -> ts
 
-Append terms to `H` **in place**, in one pass — the linear way to accumulate into an existing
+Append terms to `ts` **in place**, in one pass — the linear way to accumulate into an existing
 operator. Same argument forms as [`opsum`](@ref).
 """
-function Base.append!(H::TermSum{I}, args...) where {I}
-    isempty(args) && return H
-    added = Term{I}[]
+function Base.append!(ts::Terms{I}, args...) where {I}
     for a in args
-        _collect_terms!(added, a, I)
+        _collect_terms!(ts.terms, a, I)
     end
-    _checkterms(added, H.lattice)
-    append!(H.terms, added)
-    return H
-end
-
-# Copies, so older values stay valid — but folding it over M terms is quadratic; use `opsum`.
-_addterms(H::TermSum{I}, args...) where {I} =
-    (out = TermSum{I}(H.lattice, copy(H.terms)); append!(out, args...); out)
-Base.:+(H::TermSum, t::Term) = _addterms(H, t)
-Base.:+(H::TermSum, ts::Terms) = _addterms(H, ts)
-Base.:+(t::Term, H::TermSum) = _addterms(H, t)
-Base.:+(ts::Terms, H::TermSum) = _addterms(H, ts)
-function Base.:+(a::TermSum{I}, b::TermSum{I}) where {I}
-    a.lattice == b.lattice ||
-        throw(ArgumentError("cannot add operators defined on different lattices"))
-    return _addterms(a, b)
-end
-# negating first, then `+`, keeps the lattice check
-Base.:-(H::TermSum, x) = H + (-x)
-
-VectorInterface.scale(H::TermSum{I}, α::Number) where {I} =
-    TermSum{I}(H.lattice, Term{I}[scale(t, α) for t in H.terms])
-Base.:*(α::Number, H::TermSum) = scale(H, α)
-Base.:*(H::TermSum, α::Number) = scale(H, α)
-Base.:/(H::TermSum, α::Number) = scale(H, inv(α))
-Base.:-(H::TermSum) = scale(H, -1)
-
-"""
-    nterms_raw(H::TermSum) -> Int
-
-The number of *appended* terms, before coincident ones are summed. For tests; `length(H)` is the
-number of terms the operator actually has.
-"""
-nterms_raw(H::TermSum) = length(H.terms)
-
-Base.length(H::TermSum) = length(canonicalize!(H).terms)
-Base.isempty(H::TermSum) = isempty(canonicalize!(H).terms)
-Base.iterate(H::TermSum, args...) = iterate(canonicalize!(H).terms, args...)
-Base.eltype(::Type{TermSum{I}}) where {I} = Term{I}
-Base.getindex(H::TermSum, i::Integer) = canonicalize!(H).terms[i]
-Base.firstindex(::TermSum) = 1
-Base.lastindex(H::TermSum) = length(H)
-
-"""
-    isapprox(a::TermSum, b::TermSum; kwargs...)
-    a ≈ b
-
-Whether two operators carry the same terms with matching coefficients: the canonical term sets must
-be **equal** (a dropped term is never "approximately" absent) and the coefficients `≈`. Lattices are
-not compared, so an operator reconstructed by [`mpo_terms`](@ref) — which knows the bonds but not the
-spaces — compares equal to the one it came from. This is the faithfulness check.
-"""
-Base.isapprox(a::TermSum{I}, b::TermSum{I}; kwargs...) where {I} =
-    _termsapprox(canonicalize!(a).terms, canonicalize!(b).terms; kwargs...)
-Base.:(==)(a::TermSum{I}, b::TermSum{I}) where {I} =
-    _termsequal(canonicalize!(a).terms, canonicalize!(b).terms)
-
-function Base.show(io::IO, H::TermSum)
-    canonicalize!(H)
-    print(io, "TermSum(")
-    join(io, ("$(t.coeff) * $(_termbody(t))" for t in H.terms), " + ")
-    return print(io, ")")
+    return ts
 end
 
 function Base.getindex(O::SiteOperator{I}, ind::Integer, inds::Integer...) where {I}

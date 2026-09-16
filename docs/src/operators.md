@@ -8,28 +8,33 @@ material through concrete models; [Reference](@ref) lists every docstring.
 ## The shape of the pipeline
 
 ```
-TensorMap ──project──► SiteOperator ──A[i]──► TermSum ──irrep_mpo──► (Ws, bondsectors)
-(what you                (on-site,    (placed and                    │
- write down)              unplaced)    coupled)                      ▼
-                                          │              irrep_mpo_tensors
-                                          └──instantiate──► TensorMap (dense oracle)
+TensorMap ──project──► SiteOperator ──A[i]──► Terms ──irrep_mpo(h, lat)──► FiniteMPO
+(what you                (on-site,    (placed and       ▲                     │
+ write down)              unplaced)    coupled)     FiniteChain               ▼
+                                          │         InfiniteChain    irrep_mpo_tensors
+                                          └──instantiate(h, lat)──► TensorMap (dense oracle)
 ```
 
-Three types carry the whole interface:
+An operator is **latticeless**.
+Nothing in the term algebra needs a physical space, and the compression itself needs only the
+*number* of sites — so the lattice is supplied where the MPO is formed, not where the terms are
+written.
+Four types carry the whole interface:
 
 | Type | What it is | How you get one |
 |---|---|---|
 | [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`spin_ops`](@ref OpSum.spin_ops), [`fermion_ops`](@ref OpSum.fermion_ops), [`scalarop`](@ref OpSum.scalarop) |
-| [`Terms`](@ref OpSum.Terms) | a bag of [`Term`](@ref OpSum.Term)s, not yet on a lattice | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, [`project`](@ref OpSum.project), `+`, `*` |
-| [`TermSum`](@ref OpSum.TermSum) | those terms **plus the lattice** — the compressible Hamiltonian | [`opsum`](@ref OpSum.opsum), `H'`, `+`, `append!` |
-| `(Ws, bondsectors)` | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
+| [`Terms`](@ref OpSum.Terms) | the compressible operator: a bag of [`Term`](@ref OpSum.Term)s, no lattice | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, [`project`](@ref OpSum.project), [`opsum`](@ref OpSum.opsum), `+`, `*`, `append!` |
+| [`FiniteChain`](@ref OpSum.FiniteChain) / [`InfiniteChain`](@ref OpSum.InfiniteChain) | the lattice: one physical space per site | `FiniteChain(V, N)`, `InfiniteChain([V])` |
+| [`FiniteMPO`](@ref OpSum.FiniteMPO) / [`InfiniteMPO`](@ref OpSum.InfiniteMPO) | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
 list.
 The full surface is `IrrepOperator`, `spin`, `spin_ops`, `fermion_ops`, `scalarop`, `project`,
-`matrixunit`, `islossless`, `mpo_tensormap`, `Term`, `Terms`, `TermSum`, `couple`, `opsum`,
-`lattice`, `canonicalize!`, `irrep_mpo`, `irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`,
-`instantiate`,
+`matrixunit`, `islossless`, `mpo_tensormap`, `Term`, `Terms`, `couple`, `opsum`,
+`canonicalize!`, `AbstractLattice`, `FiniteChain`, `InfiniteChain`, `irrep_mpo`,
+`irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`, `instantiate`, `FiniteMPO`, `InfiniteMPO`,
+`expterm`, `ExpSum`, `MixedSum`,
 `BipartiteAlgorithm`, `SVDBondAlgorithm` and the bond-basis strategies `VertexCover`,
 `IndependentSVD`, `SequentialSVD`.
 
@@ -116,8 +121,8 @@ Vf = Vect[FermionNumber](0 => 1, 1 => 1)
 vac, occ = FermionNumber(0), FermionNumber(1)
 
 nhat = matrixunit(Vf, occ, occ)                    # equivalently:
-nhat2 = project(OpSum.instantiate(nhat, Vf), Vf)   # project the dense form back
-norm(OpSum.instantiate(nhat, Vf) - OpSum.instantiate(nhat2, Vf))
+nhat2 = project(instantiate(nhat, Vf), Vf)       # project the dense form back
+norm(instantiate(nhat, Vf) - instantiate(nhat2, Vf))
 ```
 
 Nothing is ever converted to a dense `Array`, which matters for fermionic sectors where
@@ -130,7 +135,7 @@ letters, and a scalar multiple of the identity is [`scalarop`](@ref OpSum.scalar
 ## Placing and coupling
 
 `A[i]` places an on-site operator on site `i`, distributing over its letters, and gives a one-term
-`TermSum`.
+[`Terms`](@ref OpSum.Terms) bag.
 `couple(a, b; to = c)` fuses two of them into a two-site term with total charge `c`:
 
 ```@example ops
@@ -192,7 +197,7 @@ For the SU(2) scalar product ``\vec{S}_i \cdot \vec{S}_j`` use `dot`, which is
 ```@example ops
 using LinearAlgebra: dot
 
-heisenberg(N; J = 1.0) = opsum(fill(Vsu2, N), (J * dot(S[i], S[i + 1]) for i in 1:(N - 1)))
+heisenberg(N; J = 1.0) = opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
 H = heisenberg(6)
 ```
 
@@ -202,17 +207,19 @@ Use `couple` for those.
 
 ### The hermitian-conjugate partner
 
-`H'` ([`adjoint`](@ref Base.adjoint(::OpSum.TermSum))) builds it, so a hopping amplitude only has to
-be written once:
+`adjoint(h, lat)` builds it, so a hopping amplitude only has to be written once:
 
 ```@example ops
-T = opsum(fill(Vf, 2), -1.0 * couple(cdag[1], cop[2]))
-T + T' ≈ opsum(fill(Vf, 2), -1.0 * (couple(cdag[1], cop[2]) + couple(cdag[2], cop[1])))
+flat = FiniteChain(Vf, 2)
+T = opsum(-1.0 * couple(cdag[1], cop[2]))
+T + adjoint(T, flat) ≈ opsum(-1.0 * (couple(cdag[1], cop[2]) + couple(cdag[2], cop[1])))
 ```
 
-It is defined on a `TermSum` and not on a `Terms` bag, because it needs the physical spaces — the
-adjoint of an alphabet letter is generally a combination of the dual charge's letters, which only the
-space knows.
+This is the **one** term-level operation that genuinely needs the physical spaces — the adjoint of an
+alphabet letter is generally a combination of the dual charge's letters, which only the space knows —
+so it takes a lattice, and there is no postfix `h'` (that method throws, pointing here).
+Only the spaces of the sites `h` actually touches are read, so a `FiniteChain`, an `InfiniteChain` or
+a bare vector of spaces all work.
 Every term must be charge-neutral: a charged term's adjoint lives in the dual sector.
 
 ## Projecting a whole block
@@ -223,15 +230,15 @@ It need not factorize into ``A_i B_j``; a
 generic block works:
 
 ```@example ops
-hbond = OpSum.instantiate(
+hbond = instantiate(
     (1 / 2) * couple(Sp[1], Sm[2]) +
         (1 / 2) * couple(Sm[1], Sp[2]) +
         couple(Sz[1], Sz[2]),
     [V, V],
 )
 
-sites = fill(V, 6)
-Hxxz = opsum(sites, (project(hbond, [i, i + 1]) for i in 1:5))
+sites = FiniteChain(V, 6)
+Hxxz = opsum(project(hbond, [i, i + 1]) for i in 1:5)
 length(Hxxz)
 ```
 
@@ -263,43 +270,61 @@ the input, throwing if the result is not faithful.
 ## Building the MPO
 
 ```@example ops
-using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms
-
-Ws, secs = irrep_mpo(Hxxz)
+mpo = irrep_mpo(Hxxz, sites)
+Ws, secs = mpo                    # a FiniteMPO destructures as the pair
 map(length, secs)
 ```
 
 `Ws[i]` is the sparse bond matrix at site `i` and `secs[i]` lists the charge of each bond index to
 its right, so `length(secs[i])` is the reduced bond dimension and `sum(dim, secs[i])` the
 dense-equivalent one.
-`irrep_mpo_tensors(Ws, secs, sites)` assembles symmetric `TensorMap`s in the
+`irrep_mpo_tensors(mpo, sites)` assembles symmetric `TensorMap`s in the
 MPSKit leg convention ``B_{i-1} \otimes V_i \leftarrow V_i \otimes B_i``.
 
-The second argument selects the bond algorithm: `BipartiteAlgorithm()` (default, lossless minimum
-vertex cover) or `SVDBondAlgorithm(trunc)` with a `MatrixAlgebraKit` truncation strategy.
+The optional third argument selects the bond algorithm: `BipartiteAlgorithm()` (default, lossless
+minimum vertex cover) or `SVDBondAlgorithm(trunc)` with a `MatrixAlgebraKit` truncation strategy.
 
-### The lattice travels with the operator
+### Where the lattice enters, and why there
 
-Note that `irrep_mpo` took no `sites`: a [`TermSum`](@ref OpSum.TermSum) already carries the lattice,
-because [`opsum`](@ref OpSum.opsum) attached it.
-That is deliberate — `instantiate` and
-`irrep_mpo_tensors` need the space of *every* site, idle ones included, which no individual term can
-know, so there is no useful state in which an operator is compressible but latticeless.
+`irrep_mpo` is the first thing in the pipeline handed a lattice, and that is not an oversight — it is
+the first thing that needs one.
+Three tiers:
 
-`opsum` is also the only place where the operators and the spaces you are compressing them with are
-ever confronted: every letter is checked against the space of the site it sits on, and every term
-against `1:length(sites)`.
+| needs | what |
+|---|---|
+| site indices and charges only | `couple`, `dot`, `opsum`, `canonicalize!`, `≈` |
+| the site **count** `N` (or the cell period `L`) | the whole sweep: `irrep_mpo`, `mpo_terms` |
+| the **spaces** | letter validation, `adjoint`, `instantiate`, `irrep_mpo_tensors` |
+
+The compression never looks at a physical space: it reads `N` off the lattice and works on charges
+and site indices alone.
+So `irrep_mpo` is also exactly where the operator and the spaces you are compressing it with are
+confronted — every letter is checked against the space of the site it sits on, and every term of a
+`FiniteChain` against `1:N`:
 
 ```@example ops
-lattice(Hxxz) == sites
+try
+    irrep_mpo(Hxxz, FiniteChain(V, 3))       # a term reaches past site 3
+catch e
+    println(sprint(showerror, e))
+end
 ```
 
-Placement, coupling and `project` all work without a lattice — they return a
-[`Terms`](@ref OpSum.Terms) bag — so the natural shape for a model builder is to end in `opsum`:
+`instantiate` and `islossless` run the same check, so an operator never reaches a numerical result
+through spaces it was not validated against.
+A lattice argument may be a `FiniteChain`, an `InfiniteChain`, or any iterable naming one
+`ElementarySpace` per site (a `Vector`, a tuple, a generator), which is converted.
+
+The natural shape for a model builder is therefore to return the terms and let the caller pick the
+lattice:
 
 ```julia
-heisenberg(N; J = 1.0) = opsum(fill(Vsu2, N), (J * dot(S[i], S[i + 1]) for i in 1:(N - 1)))
+heisenberg(N; J = 1.0) = opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
+
+irrep_mpo(heisenberg(64), FiniteChain(Vsu2, 64))
 ```
+
+`FiniteChain(V, N)` is the uniform chain, and replaces the `fill(V, N)` idiom.
 
 `SVDBondAlgorithm` has two truncation semantics, chosen by its `sweep` keyword.
 They agree exactly
@@ -311,8 +336,8 @@ when `trunc === nothing`, and differ only once truncation bites:
 | `SequentialSVD` | `k` retained indices **after upstream truncation** — each bond is compressed in the basis the previous bond left behind, so an aggressive early truncation can starve the downstream bonds |
 
 ```julia
-irrep_mpo(H, SVDBondAlgorithm(truncrank(8)))                        # per-bond
-irrep_mpo(H, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
+irrep_mpo(h, lat, SVDBondAlgorithm(truncrank(8)))                        # per-bond
+irrep_mpo(h, lat, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
 ```
 
 ### Jordan form, for an MPO library
@@ -331,7 +356,7 @@ one level per bond index, and the bond indices reordered into upper-triangular (
 ```
 
 ```@example ops
-Wsj = jordan_mpo_tensors(Hxxz)
+Wsj = jordan_mpo_tensors(Hxxz, sites)
 map(W -> size(W, 4), Wsj)
 ```
 
@@ -364,11 +389,11 @@ Hinf = irrep_mpo(
 )
 ```
 
-Note there is no `opsum` here.
-The chain already names the space of *every* site, by wraparound, so a
-generating set stays a latticeless [`Terms`](@ref OpSum.Terms) bag — exactly what `couple` returns.
-A
-lattice-bound `TermSum` works too, and is then required to agree with the chain site by site.
+The call has the same shape as the finite one: the operator is a latticeless
+[`Terms`](@ref OpSum.Terms) bag — exactly what `couple` returns — and the lattice says which chain to
+tile it over.
+The only difference is what comes back, an [`InfiniteMPO`](@ref OpSum.InfiniteMPO) rather than a
+[`FiniteMPO`](@ref OpSum.FiniteMPO).
 
 The argument is a **generating set**, not the Hamiltonian: the operator represented is
 ``\sum_{n \in \mathbb{Z}} \mathrm{translate}(H, nL)``, so each translation class must appear exactly
@@ -380,8 +405,8 @@ same class twice and is rejected; on a two-site cell they are different bonds an
 Hinf.bondsectors, Hinf.start, Hinf.done
 ```
 
-An [`OpSum.InfiniteMPO`](@ref) holds `L` bond matrices and `L` bond-charge lists, with bond `0`
-identified with bond `L`, so `Ws, secs = Hinf` destructures exactly like the finite output.
+An [`InfiniteMPO`](@ref OpSum.InfiniteMPO) holds `L` bond matrices and `L` bond-charge lists, with
+bond `0` identified with bond `L`, so `Ws, secs = Hinf` destructures exactly like a `FiniteMPO`.
 It also
 carries the two boundary vectors as bond indices: `start[j]` is the channel on which nothing has begun
 and `done[j]` the one on which everything has finished.
@@ -413,19 +438,16 @@ using OpSum: expterm
 
 Hexp = 0.5 * couple(Sp[1], Sm[2]) + 0.5 * couple(Sm[1], Sp[2]) +          # nearest neighbour
     expterm(couple(Sz[1], Sz[2]); decay = 0.6)                            # + geometric Sᶻ tail
-Hgeo = irrep_mpo(Hexp, chain)
+Hgeo = irrep_mpo(Hexp, chain)                    # or a FiniteChain
 Hgeo.bondsectors
 ```
 
-Adding an `expterm` to a term bag gives an [`OpSum.MixedSum`](@ref), which `irrep_mpo` accepts on an
-`InfiniteChain` *or* with a finite vector of sites.
-A `MixedSum` is latticeless, like the
-[`Terms`](@ref OpSum.Terms) it is built from — a channel is not a term, so `opsum` cannot bind it —
-which is why the finite form takes its sites directly.
+Adding an `expterm` to a term bag gives a [`MixedSum`](@ref OpSum.MixedSum), which `irrep_mpo`
+accepts on either lattice, exactly like a plain `Terms` bag.
 The lattice fixes the translation period: on an
 `L`-site cell the entry and the exit both step by `L` (and, as above, `H` is a generating set), while on
-a finite chain every site is a possible entry and the operator represented is the geometric sum
-truncated to the chain — [`OpSum.chain_terms`](@ref) writes it out.
+a [`FiniteChain`](@ref OpSum.FiniteChain) every site is a possible entry and the operator represented
+is the geometric sum truncated to the chain — [`OpSum.chain_terms`](@ref) writes it out.
 
 * `decay` counts **per site** of the string, so the shortest translate carries `λ` to the power of the
   representative's own gap and every further period costs `λ^L`.
@@ -472,14 +494,13 @@ families of terms need no `vcat`:
 
 ```julia
 Sop = spin(Vphys)
-H = opsum(
-    fill(Vphys, N),
+h = opsum(
     (J1 * dot(Sop[i], Sop[j]) for (i, j) in nn_bonds),
     (J2 * dot(Sop[i], Sop[j]) for (i, j) in nnn_bonds),
 )
 ```
 
-`H + term` and `append!(H, terms)` also work, and `append!` is likewise one pass.
+`h + term` and `append!(h, terms)` also work, and `append!` is likewise one pass.
 But `+` *copies* the
 accumulated list, so folding it — `for t in terms; H = H + t; end` — is quadratic.
 That is fine for a
@@ -515,20 +536,20 @@ Three checks, in increasing cost:
 
 ```@example ops
 # 1. Faithfulness — cheap, symbolic, valid at any N and for any sector including fermionic.
-#    `islossless` does the reconstruct-and-compare in one call: `≈` on two term sums compares the
+#    `islossless` does the reconstruct-and-compare in one call: `≈` on two term bags compares the
 #    canonical term sets exactly and the coefficients approximately.
-islossless(Hxxz)
+islossless(Hxxz, sites)
 ```
 
 ```@example ops
 # 2. Tensor assembly — contract the MPO with `mpo_tensormap` and compare against the dense oracle.
 #    Exponential in N, but it stays inside TensorKit, so it is valid for fermions too.
-mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ OpSum.instantiate(Hxxz)
+mpo_tensormap(irrep_mpo_tensors(mpo, sites)) ≈ instantiate(Hxxz, sites)
 ```
 
 3. **Spectrum** — the physics check, and the only honest route for fermions against an external
    reference.
-   Diagonalize `OpSum.instantiate(H)` block by block, repeating each eigenvalue
+   Diagonalize `instantiate(h, lat)` block by block, repeating each eigenvalue
    `dim(c)` times so spectra are comparable across symmetry groups.
    `examples/common.jl` has a
    `spectrum` helper; a `hermiticity_error` check is the sharpest detector of a wrong fermionic sign.
@@ -544,6 +565,12 @@ compression.
 | `couple: no pair of terms of the operands fuses to …` | the requested total charge is unreachable from the operands' charges |
 | `couple: every term of the second operand must be a single-site charged operator` | the right operand has a scalar (identity) part, or spans several sites |
 | `project: sites must be strictly increasing` | sorted-unique labels are a downstream invariant; `project` will not permute `h` for you, since that needs braiding and flips fermionic signs |
+| `opsum no longer takes a lattice` | the old `opsum(sites, terms...)`; write `opsum(terms...)` and pass the lattice to `irrep_mpo` / `instantiate` / `islossless` |
+| `a term acts on site …, outside the lattice 1:N` | the operator reaches past the `FiniteChain` it is being compressed over |
+| `letter … does not exist on site …` | the lattice's space at that site carries no operator of that charge — operator and lattice do not match |
+| `cannot compress an operator over I on a lattice of sector type J` | operator and lattice carry different symmetries |
+| `a lattice must be a FiniteChain, an InfiniteChain, or an iterable of ElementarySpaces` | the lattice slot got something else — often an algorithm selector passed one argument too early |
+| `adjoint: … there is no postfix h'` | `h'` needs the physical spaces; write `adjoint(h, lat)` |
 | `project: unsupported operator space` | domain ≠ codomain, or a charge leg that is dual or has degeneracy > 1 |
 | `project: the projected term sum is not faithful` | `atol`/`rtol` discarded real weight — lower them |
 | `GenericFusion … deferred` | sectors with fusion multiplicity > 1 are out of scope |

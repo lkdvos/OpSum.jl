@@ -11,6 +11,7 @@ include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 
 V = SU2Space(1 // 2 => 1)
 S = spin(V)
+chain(N) = FiniteChain(V, N)
 
 # ## Three-body terms and the channel constraint
 #
@@ -27,12 +28,11 @@ S = spin(V)
 
 for j12 in 0:2
     try
-        H = opsum(
-            fill(V, 3),
-            couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(0))
+        H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(0)))
+        r = build("K=3 j12=$j12", H, chain(3); quiet = true)
+        println(
+            "  j12=$j12  valid    D_dense=$(r.Ddense)  lossless=$(islossless(H, chain(3)))"
         )
-        r = build("K=3 j12=$j12", H; quiet = true)
-        println("  j12=$j12  valid    D_dense=$(r.Ddense)  lossless=$(islossless(H))")
     catch e
         println("  j12=$j12  rejected: ", first(sprint(showerror, e), 72))
     end
@@ -50,13 +50,12 @@ channels = Tuple{Int, Int}[]
 for j12 in 0:2, j123 in 0:3
     try
         H = opsum(
-            fill(V, 4),
             couple(
                 couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(j123)),
                 S[4]; to = SU2Irrep(0)
             )
         )
-        r = build("k4", H; quiet = true)
+        r = build("k4", H, chain(4); quiet = true)
         push!(channels, (j12, j123))
         println("  (j12=$j12, j123=$j123)  valid    D_dense=$(r.Ddense)")
     catch
@@ -71,12 +70,12 @@ channels
 let sites4 = fill(V, 4)
     ops = [
         instantiate(
-                couple(
-                    couple(couple(S[1], S[2]; to = SU2Irrep(a)), S[3]; to = SU2Irrep(b)),
-                    S[4]; to = SU2Irrep(0)
-                ),
-                sites4
-            ) for (a, b) in channels
+            couple(
+                couple(couple(S[1], S[2]; to = SU2Irrep(a)), S[3]; to = SU2Irrep(b)),
+                S[4]; to = SU2Irrep(0)
+            ),
+            sites4
+        ) for (a, b) in channels
     ]
     [
         round(real(dot(ops[i], ops[j]) / (norm(ops[i]) * norm(ops[j]))); digits = 10)
@@ -108,22 +107,22 @@ function plaquette_ladder(Lx; J = 1.0, K = 0.3, j12 = 0)
     two_body = [J * dot(S[i], S[j]) for (i, j) in bonds]
     plaquettes = [
         K * couple(
-                couple(couple(S[4x - 3], S[4x - 2]; to = SU2Irrep(j12)), S[4x - 1]; to = SU2Irrep(1)),
-                S[4x]; to = SU2Irrep(0)
-            ) for x in 1:(div(Lx, 2))
+            couple(couple(S[4x - 3], S[4x - 2]; to = SU2Irrep(j12)), S[4x - 1]; to = SU2Irrep(1)),
+            S[4x]; to = SU2Irrep(0)
+        ) for x in 1:(div(Lx, 2))
     ]
-    return opsum(fill(V, 2Lx), two_body, plaquettes)
+    return opsum(two_body, plaquettes)
 end
 
 H4 = plaquette_ladder(6)
-res4 = build("ladder + plaquettes", H4)
-islossless(H4)
+res4 = build("ladder + plaquettes", H4, chain(12))
+islossless(H4, chain(12))
 
 # Compare against the pure two-body ladder to isolate what the four-body terms cost:
 
 let Lx = 6
-    two_only = opsum(fill(V, 2Lx), (dot(S[i], S[j]) for (i, j) in ladder_bonds(Lx, 2)))
-    two = build("ladder only", two_only; quiet = true)
+    two_only = opsum(dot(S[i], S[j]) for (i, j) in ladder_bonds(Lx, 2))
+    two = build("ladder only", two_only, chain(2Lx); quiet = true)
     println("  two-body only:        D=$(two.D)  D_dense=$(two.Ddense)")
     println("  with plaquettes:      D=$(res4.D)  D_dense=$(res4.Ddense)")
 end
@@ -131,7 +130,7 @@ end
 # And the bond dimension still saturates with system size:
 
 for Lx in (4, 6, 8, 12)
-    r = build("plaq", plaquette_ladder(Lx); quiet = true)
+    r = build("plaq", plaquette_ladder(Lx), chain(2Lx); quiet = true)
     println("  Lx=$(rpad(Lx, 3)) N=$(rpad(2Lx, 3))  D=$(rpad(r.D, 3))  D_dense=$(r.Ddense)")
 end
 

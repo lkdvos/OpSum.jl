@@ -42,7 +42,7 @@ xxz(i, j; Δ = 1.0) =
     0.5 * couple(Sp[i], Sm[j]) + 0.5 * couple(Sm[i], Sp[j]) + Δ * couple(Sz[i], Sz[j])
 A3, B3 = LO.(instances(IrrepOperator, VTR)[2:3])
 
-# Every model here is a *generating set* on a cell of `length(spaces)` sites, as for a plain `TermSum`.
+# Every model here is a *generating set* on a cell of `length(spaces)` sites, as for a plain `Terms` bag.
 function reference_models()
     return [
         ("pure exp SU2 L=1", MixedSum(expterm(dot(S[1], S[2]); decay = 0.5)), [VSU2]),
@@ -298,7 +298,7 @@ end
         Ts = irrep_mpo_tensors(Hinf, lat)
         tiled = [Ts[mod1(j, L)] for j in 1:N]
         O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.done[L])
-        oracle = instantiate(mpo_terms_window(Hinf, lat, ncells))
+        oracle = instantiate(mpo_terms_window(Hinf, lat, ncells), sites)
         @test O ≈ oracle || (println("  $name mismatch"); false)
     end
 end
@@ -319,9 +319,9 @@ end
     for (name, H, sites) in cases
         N = length(sites)
         Ws, secs = irrep_mpo(H, sites)
-        @test length(secs[N]) == 1                      # vacuum-terminated, as for a finite TermSum
-        want = Dict(t => t.coeff for t in opsum(sites, chain_terms(H, N)))
-        got = Dict(t => t.coeff for t in mpo_terms(Ws, secs, sites))
+        @test length(secs[N]) == 1                      # vacuum-terminated, as on a FiniteChain
+        want = Dict(t => t.coeff for t in opsum(chain_terms(H, N)))
+        got = Dict(t => t.coeff for t in mpo_terms(Ws, secs))
         @test length(got) == length(want)
         @test all(
             haskey(want, t) && want[t] ≈ v for (t, v) in got
@@ -329,7 +329,7 @@ end
     end
 
     # and the terms it stands for are exactly the pairs that fit
-    ts = opsum(fill(VSU2, 4), chain_terms(MixedSum(expterm(dot(S[1], S[2]); decay = 0.5)), 4))
+    ts = opsum(chain_terms(MixedSum(expterm(dot(S[1], S[2]); decay = 0.5)), 4))
     @test sort([t.sites for t in ts]) ==
         [[1, 2], [1, 3], [1, 4], [2, 3], [2, 4], [3, 4]]
     @test only(t.coeff for t in ts if t.sites == [1, 4]) ≈
@@ -345,9 +345,8 @@ end
     @test (a.start, a.done) == (b.start, b.done)
     @test _entriesequal(only(a.Ws), only(b.Ws))
 
-    # a plain term bag binds its lattice with `opsum`; a `MixedSum` cannot (a channel is not a term),
-    # so its finite entry point takes the sites directly
-    Wa, sa = irrep_mpo(opsum(fill(VSU2, 5), H))
+    # both flavours take the same lattice argument at the same place
+    Wa, sa = irrep_mpo(opsum(H), fill(VSU2, 5))
     Wb, sb = irrep_mpo(MixedSum(H), fill(VSU2, 5))
     @test sa == sb
     @test all(i -> _entriesequal(Wa[i], Wb[i]), 1:5)
@@ -393,7 +392,7 @@ end
     @test channelspan(only(keys(e.channels))) == 1
     @test maxspan(e) == 1
 
-    # scaling and adding behave like a TermSum's
+    # scaling and adding behave like a term bag's
     @test only(values((2 * e).channels)) ≈ 2 * only(values(e.channels))
     @test isempty((e - e).channels)
     H = dot(S[1], S[2]) + e

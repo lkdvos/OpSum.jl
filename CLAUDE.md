@@ -37,6 +37,13 @@ See `benchmark/FIGURES.md` for how the checked-in figures under `docs/src/assets
 OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into efficient, symmetry-reduced matrix-product-operator (MPO) representations.
 The pipeline is: symbolic term algebra → flat term list → per-bond-sector bipartite/SVD compression → reduced MPO tensors.
 
+0. **Lattices** — `src/operators/lattices.jl`
+   - `AbstractLattice`, with `FiniteChain(spaces)` / `FiniteChain(V, N)` and `InfiniteChain(spaces)` / `InfiniteChain(V)`.
+     They differ in exactly two observable ways: whether `getindex` wraps, and whether a site outside `1:length` is an error.
+   - A lattice is supplied **where the MPO is formed**, never where terms are written, because that is where it is first needed. Three tiers:
+     the term algebra needs only site indices and charges; the whole sweep needs only `N` (`ITOTermTable` reads `length(lat)` and nothing else — no `ElementarySpace` appears anywhere in `irrepgraph*.jl`); only letter validation, `adjoint`, `instantiate` and `irrep_mpo_tensors` need the *spaces*.
+   - So `irrep_mpo(h, lat)` is also the one place operators and spaces are confronted (`_checklattice`), which is what `opsum` used to do. Any iterable of one space per site is accepted and converted by `_tolattice`.
+
 1. **Symbolic operator algebra** — `src/operators/algebra/`
    - `SiteOperator{I}` (`siteoperator.jl`): an operator on one site, as a small ordered map from alphabet letter to `ComplexF64` coefficient (two parallel vectors).
      Consume it with `pairs(op)`.
@@ -49,11 +56,10 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
      `irrepkey.jl` has the full argument, including why `total` alone would not do.
      `==`/`hash` ignore the coefficient, which is what makes summing coincident terms well defined.
      Never mutated, so terms freely share their vectors.
-   - `Terms{I}` — a *bag* of them, with no lattice: what `op[site]`, `couple`, `dot` and `project` return, and what `+`/`-`/`*`/`/` combine.
-     Nothing is deduplicated here.
-   - `TermSum{I}` — a bag **plus the lattice**, which is mandatory: `instantiate` and `irrep_mpo_tensors` need the space of every site, idle ones included, so there is no useful latticeless-but-compressible state.
-     Built by `opsum(sites, terms...)`, which makes **one pass** over each argument (iterables nest) and is the only place letters are checked against the space of the site they sit on.
-     `H + t` and `append!(H, t)` also work; `+` copies, so folding it is quadratic — `opsum`/`append!` are the linear routes.
+   - `Terms{I}` — a *bag* of them, and **the compressible operator**: what `op[site]`, `couple`, `dot` and `project` return, and what `+`/`-`/`*`/`/` combine.
+     It carries **no lattice**, by design: nothing in the term algebra needs a physical space, and the sweep needs only the site *count* (see `Lattices` below).
+     Accumulated by `opsum(terms...)`, which makes **one pass** over each argument (iterables nest); `h + t` and `append!(h, t)` also work, but `+` copies, so folding it is quadratic — `opsum`/`append!` are the linear routes.
+     Nothing is deduplicated on the way in: `canonicalize!` takes the normal form, and everything that observes the term set (`length`, iteration, `≈`, `show`) goes through it.
    - **`couple` is order-free under an abelian symmetry.**
      Storage is site-ordered, so an operand acting to the left of an earlier one has its leg *inserted* by `_couple_terms`: the running bond charges from the insertion point rightwards are recomputed (forced, by unique fusion) and the coefficient picks up `Rsymbol(c_a, c_b, c_a ⊗ c_b)` per leg it braids past — for fermionic sectors, exactly the anticommutation sign the caller used to hand-write.
      Gated on `_canreorder(I)` = `UniqueFusion` **and** `SymmetricBraiding`; non-abelian reordering needs F-moves and still throws.
@@ -68,17 +74,17 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
    - `matrixunit(V, out, in)`: `|out⟩⟨in|` as a `SiteOperator`, for abelian/fermionic spaces.
    - **Operator builders** — `src/operators/algebra/builders.jl`: `spin_ops(V, sectors)` → `(; Sp, Sm, Sz)` for a U(1)-graded spin-`s` site (`sectors` in **descending `m`**, because a `Vect[U₁]` spin site is as often labelled by particle number as by `m` and inferring would be a silent guess); `fermion_ops([V][, vac, occ])` → `(; c, cd, n)`.
      `spin` and `matrixunit` are memoised per space/sectors (`src/utility/memo.jl`), so building them wherever reads best costs nothing — safe because both are pure and `SiteOperator` has no in-place API.
-   - **Hermitian conjugation** — `Base.adjoint(H::TermSum)`, i.e. `H'` (also `builders.jl`), goes *through* the forward map: materialise the term's `K`-site block, adjoint it, `project` it back, rather than symbolically, because a letter's adjoint carries the dual charge and re-expressing the caterpillar coupler over dual charges is B-symbol data.
+   - **Hermitian conjugation** — `Base.adjoint(h::Terms, lat)` (also `builders.jl`) goes *through* the forward map: materialise the term's `K`-site block, adjoint it, `project` it back, rather than symbolically, because a letter's adjoint carries the dual charge and re-expressing the caterpillar coupler over dual charges is B-symbol data.
      Correct by construction (`project` checks its own faithfulness) and memoised per `(keys, spaces)`, so it costs one projection per distinct term *shape*.
      Requires total charge `unit(I)`.
-     Not defined on a latticeless `Terms` — that method throws, pointing at `opsum`.
+     It is the one term-level operation that genuinely needs the physical spaces, hence the lattice argument; there is no postfix `h'` (that method throws, pointing at `adjoint(h, lat)`).
    - Every projected term has full support on all `K` sites: an on-site identity factor appears as a trivial-charge letter, not a shorter term.
 
 3. **Normal form + flat term storage** — `src/operators/compression/irreptermtable.jl`
-   - `canonicalize!(H)`: the single place the normal form is taken — sort the terms, sum coincident ones, drop cancelled ones, **in place**.
+   - `canonicalize!(ts)`: the single place the normal form is taken — sort the terms, sum coincident ones, drop cancelled ones, **in place**.
      It assumes nothing about its input (no flag records whether a list is already normalised, so nothing can fall out of step with the terms) and is idempotent, just not free the second time — which is why the sweep takes the normal form once, at the `ITOTermTable` boundary.
-     Everything that observes the term set (`length`, iteration, `≈`, `==`, `show`) goes through it, so an append count is never mistaken for the number of terms; `nterms_raw(H)` is the raw count, for tests.
-   - `ITOTermTable{I}`: the canonical list materialised as the `K×M` matrices the sweeps index into, plus `nvertices`; idle sites reconstruct the pass-through symbol's running bond charge via `_op_at_ito`.
+     Everything that observes the term set (`length`, iteration, `≈`, `==`, `show`) goes through it, so an append count is never mistaken for the number of terms; `nterms_raw(ts)` is the raw count, for tests.
+   - `ITOTermTable{I}(ts, N)`: the canonical list materialised as the `K×M` matrices the sweeps index into, plus `nvertices`; idle sites reconstruct the pass-through symbol's running bond charge via `_op_at_ito`.
      The `ITOKey` alphabet and caterpillar fusion helpers live in `irrepkey.jl`.
      Prefix/suffix *classes* of the columns are interned by `_prefix_ids`/`_suffix_ids` (`irrepgraph.jl`), shared by every sweep.
 
@@ -94,13 +100,13 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
      `research/persistent-graph-mpo.md` §2 is the design note; §2.2 documents the pending↔started suffix-class **collision**, the one invariant a change here is likely to break (`test/test_irrep_graph.jl` guards it in all three sectors).
 
 6. **MPO construction** — `src/operators/compression/irrepmpo.jl`
-   - `irrep_mpo(H::TermSum[, alg])`: symmetric reduced MPO from a `TermSum` via the per-bond-*sector* sweep over an `ITOTermTable` (the lattice travels with `H`); returns reduced bond matrices + per-bond charge sectors.
+   - `irrep_mpo(h, lat[, alg])`: symmetric reduced MPO via the per-bond-*sector* sweep over an `ITOTermTable`. Returns a `FiniteMPO` on a `FiniteChain` and an `InfiniteMPO` on an `InfiniteChain`; both hold `Ws` + `bondsectors` and destructure as that pair, so `Ws, secs = irrep_mpo(h, lat)` works either way.
      `alg` is `BipartiteAlgorithm()` (default) or `SVDBondAlgorithm(trunc; sweep)`; each names a `BondStrategy` (`src/operators/compression/algorithms.jl`) that `_irrep_sweep` dispatches on — `VertexCover` (min-vertex-cover, the default), `IndependentSVD` (`truncrank(k)` = k per bond; the `SVDBondAlgorithm` default) or `SequentialSVD` (k after upstream truncation).
-   - The two verification helpers are public and live here too: `islossless(H[, alg])` is `mpo_terms(irrep_mpo(H)..., lattice(H)) ≈ H`, and `mpo_tensormap(Ts)` contracts a chain of site tensors into `instantiate`'s convention.
-   - `mpo_terms(Ws, secs, sites)` reconstructs the operator (faithfulness check) — it takes the lattice because the bond data names charges but not spaces — and `irrep_mpo_tensors` assembles the symmetric `TensorMap`s (one contraction per distinct on-site letter per site, not per bond entry).
+   - The two verification helpers are public and live here too: `islossless(h, lat[, alg])` is `mpo_terms(irrep_mpo(h, lat)...) ≈ h`, and `mpo_tensormap(Ts)` contracts a chain of site tensors into `instantiate`'s convention.
+   - `mpo_terms(Ws, secs)` reconstructs the operator (faithfulness check) and takes **no** lattice: the bond data names charges but not spaces, and the result is a latticeless `Terms` bag. `irrep_mpo_tensors(mpo, lat)` assembles the symmetric `TensorMap`s (one contraction per distinct on-site letter per site, not per bond entry).
 
 7. **Jordan-form emission** — `src/operators/compression/jordanmpo.jl`
-   - `jordan_mpo_tensors(H[, alg])`: the same compressed MPO as `irrep_mpo_tensors`, but emitted as one `BlockTensorKit.SparseBlockTensorMap` per site — one *level* per bond index — with the bond indices reordered `(start channel, everything else, finish channel)` and identity at `(1,1)` / `(end,end)`.
+   - `jordan_mpo_tensors(h, lat[, alg])`: the same compressed MPO as `irrep_mpo_tensors`, but emitted as one `BlockTensorKit.SparseBlockTensorMap` per site — one *level* per bond index — with the bond indices reordered `(start channel, everything else, finish channel)` and identity at `(1,1)` / `(end,end)`.
      This is the shape MPSKit's `JordanMPOTensor` / `FiniteMPOHamiltonian` consume; OpSum does **not** depend on MPSKit (BlockTensorKit is the shared layer, and the only new dependency).
    - The two identity channels come from the sweep (`_irrep_channels`, `g.startidx` / `g.finishidx`), and are *padded* at bonds where the cover spent no index on them.
      The emitted MPO is therefore minimal among Jordan-form MPOs, `≤ +2` per bond over `irrep_mpo`'s unconstrained minimum — in practice `+1` at the first internal bond and `+1` at the last, since both padded channels are pure identity chains that cannot change the operator.
@@ -108,13 +114,13 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
    - Diagonal unit pass-throughs are emitted as `TensorKit.BraidingTensor`s, which is how a consumer keeps them out of dense storage — and, for a fermionic bond charge crossing a site, is what carries the sign.
 
 8. **Infinite chains** — `src/operators/infinite/infinitechain.jl`, `infinitegraph.jl`
-   - `irrep_mpo(H, InfiniteChain(spaces))` represents `Σ_n translate(H, n·L)`, so `H` is a *generating set* (one representative per translation class — `unitcell_terms` enforces that, plus charge neutrality).
+   - `irrep_mpo(h, InfiniteChain(spaces))` represents `Σ_n translate(h, n·L)`, so `h` is a *generating set* (one representative per translation class — `unitcell_terms` enforces that, plus charge neutrality).
      It unrolls a window, runs the **unchanged** sweep and searches for the first cell that has reached the translation-invariant fixed point (`_infinite_window`/`_fixedpoint_cell`), returning an `InfiniteMPO` with the two identity-channel indices.
      `research/infinite-mpo.md` is the design note; §3's canonicalisation (`_rel_suffix_ids`/`_rdesc`, `_canonicalise_rights!`/`_canonicalise_bond!`) is always-on and shared with the finite path — without it the cell does not close.
 
 9. **Exponentially decaying interactions** — `src/operators/infinite/expterms.jl`
    - `expterm(t::Terms; decay = λ, exitsite, string)` stretches the gap before `t`'s exit block geometrically: one *representative* term (which already carries the caterpillar tree, so all fusion channels are named) stands for `Σ λ^{#string sites} …`.
-     `Terms + ExpSum` gives a `MixedSum` — latticeless, like the bag it is built from — which `irrep_mpo` accepts on an `InfiniteChain` (period `L`) or with an explicit `sites` vector (period 1, i.e. the geometric sum truncated to the chain — `chain_terms` spells it out).
+     `Terms + ExpSum` gives a `MixedSum` — latticeless, like everything else — which `irrep_mpo` accepts on either lattice: an `InfiniteChain` (period `L`) or a `FiniteChain` (period 1, i.e. the geometric sum truncated to the chain — `chain_terms` spells it out).
    - Each channel lowers to a small weighted automaton (`_lower_channels`) whose states *are* its suffix classes, with the cyclic core named by an interned loop descriptor; the sweep then treats it as an ordinary right vertex (`ITOGraph.rchan`/`rstate`) whose diagonal is `λ·pass-through`.
      Two things are load-bearing: cyclic states are **forced** into the vertex cover (`_forced_cover`, else λ accumulates instead of landing on the diagonal), and λ must ride as an *edge weight* so the emitted entry carries a letter — tensor assembly iterates `pairs(op)`, so a letter-less `SiteOperator` is silently dropped.
      `research/infinite-mpo.md` §7 is the design note, including what it costs (a channel's period is part of its declaration, so a bigger cell is not free).
@@ -126,9 +132,9 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
 - **Invariant checks are real `throw`s, never `@assert`**: the sector-purity / cover-validity checks guard *silently wrong output*, and `@assert` is strippable.
   They go through the `@noinline _invariant` helper so the cost is one never-taken branch.
 - **`VectorInterface` integration**: the algebra types implement `VectorInterface` norms/inner products for truncation/compression.
-- **Instantiation**: `instantiate(op, V)` materializes symbolic ITOs into `TensorMap`s; `instantiate(H::TermSum)` (or `instantiate(ts::Terms, sites)`) is the correctness oracle in tests, kept separate in `src/operators/algebra/irrepinstantiate.jl` since it's needed for verification only, never to build or combine terms.
+- **Instantiation**: `instantiate(op, V)` materializes symbolic ITOs into `TensorMap`s; `instantiate(h::Terms, lat)` is the correctness oracle in tests, kept separate in `src/operators/algebra/irrepinstantiate.jl` since it's needed for verification only, never to build or combine terms.
   `project` is its inverse.
-- **Faithfulness is `≈`**: `islossless(H)` — i.e. `mpo_terms(irrep_mpo(H)..., lattice(H)) ≈ H` — compares canonical term *sets* exactly and coefficients approximately, ignoring the lattice.
+- **Faithfulness is `≈`**: `islossless(h, lat)` — i.e. `mpo_terms(irrep_mpo(h, lat)...) ≈ h` — compares canonical term *sets* exactly and coefficients approximately. No lattice is involved in the comparison, which is why the reconstructed bag compares equal.
 - **`couple` distributes**: both operands may be composite (several terms, e.g. from `project`); pairs whose charges cannot fuse to `to` are dropped, and it is an error if none do.
   `dot` does *not* distribute — its `-√dim(c)` factor is per-letter.
 - **Build local operators wherever reads best.**

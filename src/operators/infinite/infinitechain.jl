@@ -12,59 +12,6 @@
 using TensorKit: Sector, ElementarySpace, unit
 
 """
-    InfiniteChain(spaces::AbstractVector)
-
-An infinite chain with a repeating unit cell of `L = length(spaces)` sites, carrying one physical
-space per site of the cell. Site `i` of the infinite lattice has space `spaces[mod1(i, L)]`, for any
-`i ∈ ℤ` — `getindex` wraps, so it is the lattice of the whole chain and not just of the cell.
-
-This is *not* the lattice a generating `TermSum` carries. That one only has to be long enough to host
-the generating terms, which reach up to `R` sites past the cell (`dot(S[1], S[2])` on a one-site cell
-needs two spaces); the cell length `L` comes from here.
-"""
-struct InfiniteChain{S <: ElementarySpace}
-    spaces::Vector{S}
-    function InfiniteChain(spaces::AbstractVector{S}) where {S <: ElementarySpace}
-        isempty(spaces) && throw(ArgumentError("an InfiniteChain needs at least one site per unit cell"))
-        return new{S}(collect(spaces))
-    end
-end
-InfiniteChain(V::ElementarySpace) = InfiniteChain([V])
-
-Base.length(lat::InfiniteChain) = length(lat.spaces)
-Base.getindex(lat::InfiniteChain, i::Integer) = lat.spaces[mod1(Int(i), length(lat))]
-Base.eltype(::Type{InfiniteChain{S}}) where {S} = S
-Base.iterate(lat::InfiniteChain, args...) = iterate(lat.spaces, args...)
-sectortype(lat::InfiniteChain) = sectortype(eltype(lat.spaces))
-
-Base.show(io::IO, lat::InfiniteChain) = print(io, "InfiniteChain(", lat.spaces, ")")
-
-"""
-    windowlattice(lat::InfiniteChain, N::Int) -> Vector{<:ElementarySpace}
-
-The first `N` sites of the infinite lattice as a finite lattice, for binding an unrolled window with
-[`opsum`](@ref).
-"""
-windowlattice(lat::InfiniteChain, N::Int) = [lat[i] for i in 1:N]
-
-# `opsum` checked every letter against the space of the site it sits on — but against *H's* lattice,
-# which is only as long as the generating terms reach. The cell is declared separately, so the two can
-# disagree; that would compress the operator on the wrong spaces, silently.
-function _check_chain_lattice(H::TermSum, chain::InfiniteChain)
-    lat = lattice(H)
-    for i in eachindex(lat)
-        lat[i] == chain[i] || throw(
-            ArgumentError(
-                "site $i carries space $(lat[i]) in the operator's lattice but $(chain[i]) in the " *
-                    "unit cell (site $(mod1(i, length(chain))) of $(length(chain))); the generating " *
-                    "set must be written on the same chain it is tiled over"
-            )
-        )
-    end
-    return nothing
-end
-
-"""
     translate(t::Term, Δ) -> Term
 
 Shift a term by `Δ` sites. Only the sites change: the letters, their running bond charges and the
@@ -80,8 +27,6 @@ window its operand was bound to.
 """
 translate(ts::Terms{I}, Δ) where {I} =
     iszero(Δ) ? ts : Terms{I}([translate(t, Δ) for t in ts.terms])
-translate(H::TermSum{I}, Δ) where {I} =
-    iszero(Δ) ? Terms{I}(copy(H.terms)) : Terms{I}([translate(t, Δ) for t in H.terms])
 
 """
     termspan(t::Term) -> Int
@@ -97,7 +42,7 @@ The interaction range `R` of a term bag or sum: the largest [`termspan`](@ref) o
 what sets how much padding an unrolled window needs, and how many unit cells the sweep can take to
 reach its fixed point.
 """
-maxspan(ts::Union{Terms, TermSum}) = maximum(termspan, ts.terms; init = 0)
+maxspan(ts::Terms) = maximum(termspan, ts.terms; init = 0)
 
 """
     unitcell_terms(ts, L::Int) -> Terms
@@ -105,7 +50,7 @@ maxspan(ts::Union{Terms, TermSum}) = maximum(termspan, ts.terms; init = 0)
 Canonicalise a generating term bag for a unit cell of `L` sites: shift each term so that its
 *leftmost* active site lies in `1:L`.
 
-The result is a latticeless [`Terms`](@ref) bag rather than a `TermSum`: a canonical term's leftmost
+The result is a [`Terms`](@ref) bag whose leftmost
 site is in `1:L` but its rightmost may reach `L + R`, so there is no `L`-site lattice to bind it to.
 Its input is latticeless for the same reason — on an infinite chain the [`InfiniteChain`](@ref) names
 the space of every site, so a generating set carries no lattice of its own.
@@ -149,13 +94,6 @@ function unitcell_terms(ts::Terms{I}, L::Int) where {I}
         insert!(seen, ct, length(out))
     end
     return Terms{I}(out)
-end
-
-# A lattice-bound operator is accepted too, as long as its lattice agrees with the chain: `opsum`
-# already checked its letters against it, so disagreeing spaces would mean the two checks were run
-# against different chains.
-function unitcell_terms(H::TermSum{I}, L::Int) where {I}
-    return unitcell_terms(Terms{I}(H.terms), L)
 end
 
 """
@@ -208,7 +146,7 @@ maxspan(H::MixedSum) = max(
 )
 
 """
-    window_terms(H::MixedSum, lat::InfiniteChain, ncells::Int) -> TermSum
+    window_terms(H::MixedSum, lat::InfiniteChain, ncells::Int) -> Terms
 
 Every finite-range translate that fits inside the window, plus every translate of every channel that
 fits (see [`expand_channels`](@ref)) — the explicit expansion the faithfulness check compares against.
@@ -216,23 +154,22 @@ fits (see [`expand_channels`](@ref)) — the explicit expansion the faithfulness
 function window_terms(H::MixedSum{I}, lat::InfiniteChain, ncells::Int) where {I}
     N = ncells * length(lat)
     return opsum(
-        windowlattice(lat, N),
         _window_bag(H.terms, length(lat), N),
         expand_channels(H.channels, length(lat), N),
     )
 end
 
 """
-    window_terms(gen::Terms, lat::InfiniteChain, ncells::Int) -> TermSum
+    window_terms(gen::Terms, lat::InfiniteChain, ncells::Int) -> Terms
 
 Every `L`-translate of the canonical generating set `gen` whose support lies entirely inside the
-window `1:(ncells*L)`, bound to that window's lattice. Translates that would stick out of either end
+window `1:(ncells*L)`. Translates that would stick out of either end
 are dropped, so the result is *not* the infinite Hamiltonian truncated to the window — only its bulk
 agrees with the periodic problem, which is exactly what the window construction reads off.
 """
 function window_terms(gen::Terms{I}, lat::InfiniteChain, ncells::Int) where {I}
     N = ncells * length(lat)
-    return opsum(windowlattice(lat, N), _window_bag(gen, length(lat), N))
+    return _window_bag(gen, length(lat), N)
 end
 
 # The translates themselves, as an unbound bag — so a mixed generating set can concatenate them with

@@ -8,7 +8,7 @@
 
 using OpSum
 using OpSum: IrrepTensorOperators, instantiate, irrep_mpo, irrep_mpo_tensors, mpo_terms,
-    mpo_tensormap, islossless, jordan_mpo_tensors, opsum, couple, spin, spin_ops, fermion_ops,
+    mpo_tensormap, islossless, jordan_mpo_tensors, opsum, couple, couple_channels, spin, spin_ops, fermion_ops,
     matrixunit, scalarop, project, expterm, MixedSum, FiniteChain, InfiniteChain
 using TensorKit
 using TensorKit: FermionParity, FermionNumber, U1Irrep, SU2Irrep, removeunit, numind
@@ -19,8 +19,10 @@ report(label, h, lat) = let m = irrep_mpo(h, lat)
     D = maximum(length, m.bondsectors)
     Dd = maximum(s -> sum(dim, s), m.bondsectors)
     ok = islossless(h, lat)
-    println(rpad(label, 42), " nterms=", lpad(length(h), 5),
-        "  D=", lpad(D, 3), "  D_dense=", lpad(Dd, 4), "  lossless=", ok)
+    println(
+        rpad(label, 42), " nterms=", lpad(length(h), 5),
+        "  D=", lpad(D, 3), "  D_dense=", lpad(Dd, 4), "  lossless=", ok
+    )
     return m
 end
 
@@ -79,16 +81,20 @@ akltish(N; β = 1 / 3) = opsum(project(bond + β * (bond * bond), [i, i + 1]) fo
 report("2.2 bilinear-biquadratic (spin-1)", akltish(4), FiniteChain(V1, 4))
 
 # ── Tier 3 · arity and fusion channels ─────────────────────────────────────────────────────────
-# 3.1 non-abelian: nest, naming every channel
-chirality = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
+# 3.1 non-abelian, but the singlet forces j₁₂ = 1 — so the variadic form folds it too
+@assert couple_channels(S[1], S[2], S[3]; to = SU2Irrep(0)) == [(SU2Irrep(1),)]
+chirality = couple(S[1], S[2], S[3])
+@assert chirality ≈ couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
 report("3.1 three-body chirality", opsum(chirality), FiniteChain(V½, 3))
-# 3.2 four-body: two inner lines
+# 3.2 four-body: two inner lines, and here the channels are a genuine choice (three of them), so
+# the variadic form refuses and `couple_channels` is how you enumerate them
+@assert length(couple_channels(S[1], S[2], S[3], S[4])) == 3
 plaquette = couple(
     couple(couple(S[1], S[2]; to = SU2Irrep(0)), S[3]; to = SU2Irrep(1)),
     S[4]; to = SU2Irrep(0),
 )
 report("3.2 four-body plaquette", opsum(plaquette), FiniteChain(V½, 4))
-# 3.3 abelian: every channel is forced, so the whole chain folds variadically
+# 3.3 abelian: every channel is forced by construction, so the whole chain folds variadically
 Vf = Vect[FermionNumber](0 => 1, 1 => 1)
 F = fermion_ops(Vf)
 report(
@@ -163,8 +169,10 @@ let oracle = instantiate(powerlaw(6), FiniteChain(V½, 6)), l6 = FiniteChain(V½
     for k in (8, 4, 2)
         Wt, st = irrep_mpo(powerlaw(6), l6, SVDBondAlgorithm(truncrank(k)))
         err = norm(mpo_tensormap(irrep_mpo_tensors(Wt, st, l6)) - oracle) / norm(oracle)
-        println("     truncrank($k): D_dense=", maximum(s -> sum(dim, s), st),
-            "  rel.err=", round(err; sigdigits = 3))
+        println(
+            "     truncrank($k): D_dense=", maximum(s -> sum(dim, s), st),
+            "  rel.err=", round(err; sigdigits = 3)
+        )
     end
 end
 
@@ -189,8 +197,14 @@ report("9.2 correlator Sᶻ₁Sᶻ₄", opsum(couple(Sops.Sz[1], Sops.Sz[4])), l
 # 9.3 a *charged* operator: fine for irrep_mpo, refused by the Jordan emission
 chg = opsum(F.cd[2])
 report("9.3 charged: c†₂", chg, FiniteChain(Vf, 4))
-println("     jordan_mpo_tensors on it: ",
-    try (jordan_mpo_tensors(chg, FiniteChain(Vf, 4)); "accepted") catch; "refused" end)
+println(
+    "     jordan_mpo_tensors on it: ",
+    try
+        (jordan_mpo_tensors(chg, FiniteChain(Vf, 4)); "accepted")
+    catch
+        "refused"
+    end
+)
 # 9.4 a string: every site of a run is active
 report("9.4 string n₁n₂n₃n₄", opsum(couple(F.n[1], F.n[2], F.n[3], F.n[4])), FiniteChain(Vf, 4))
 
@@ -198,7 +212,9 @@ report("9.4 string n₁n₂n₃n₄", opsum(couple(F.n[1], F.n[2], F.n[3], F.n[4
 Wj = jordan_mpo_tensors(heisenberg(6), FiniteChain(V½, 6))
 println(rpad("10.2 Jordan form bond sizes", 42), " ", map(W -> size(W, 4), Wj))
 Ti = irrep_mpo_tensors(inf1, InfiniteChain([V½]))
-println(rpad("10.3 infinite tensors tile", 42), " ",
-    space(Ti[1], 1) == space(Ti[end], 4)')
+println(
+    rpad("10.3 infinite tensors tile", 42), " ",
+    space(Ti[1], 1) == space(Ti[end], 4)'
+)
 
 println("\nPROGRESSION OK")

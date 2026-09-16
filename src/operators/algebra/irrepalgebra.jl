@@ -220,7 +220,34 @@ Base.:-(ts::Terms) = scale(ts, -1)
 Base.:-(a::Terms{I}, b::Terms{I}) where {I} = a + (-b)
 Base.:-(a::Terms{I}, t::Term{I}) where {I} = a + (-t)
 
-Base.one(::Terms{I}) where {I} = Terms{I}(Term{I}[Term{I}(Int[], ITOKey{I}[], ComplexF64(1))])
+"""
+    one(::Terms{I})
+    one(::Type{Terms{I}})
+
+The identity operator: the single term with no active sites. `zero` is the empty bag.
+"""
+Base.one(::Type{Terms{I}}) where {I} =
+    Terms{I}(Term{I}[Term{I}(Int[], ITOKey{I}[], ComplexF64(1))])
+Base.one(::Terms{I}) where {I} = one(Terms{I})
+
+"""
+    zero(::Terms{I})
+    zero(::Type{Terms{I}})
+    empty(::Terms{I})
+
+A fresh operator with no terms, ready to [`append!`](@ref) into.
+"""
+Base.zero(::Type{Terms{I}}) where {I} = Terms{I}()
+Base.zero(::Terms{I}) where {I} = Terms{I}()
+Base.empty(::Terms{I}) where {I} = Terms{I}()
+
+"""
+    copy(ts::Terms) -> Terms
+
+A shallow copy that owns its own term vector, so `append!` and [`canonicalize!`](@ref) on the copy
+leave `ts` alone. The [`Term`](@ref)s themselves are never mutated, so they are shared.
+"""
+Base.copy(ts::Terms{I}) where {I} = Terms{I}(copy(ts.terms))
 
 """
     isapprox(a::Terms, b::Terms; kwargs...)
@@ -482,7 +509,11 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
                 )
             )
 
-            tot = target(run, opb)::I
+            tgt = target(run, opb)
+            # `nothing`: no channel of this pair can reach the requested total, so drop it — the
+            # same outcome as a charge pair that cannot fuse at all.
+            tgt === nothing && continue
+            tot = tgt::I
             nsym = Nsymbol(run, opb.c, tot)
             iszero(nsym) && continue    # this pair of charges cannot fuse to `tot`: drop it
             @assert isone(nsym) "expected a unique coupling channel; multi-channel (GenericFusion) coupling is deferred"
@@ -520,7 +551,7 @@ end
 
 """
     couple(a::Terms, b::Terms; to = unit(I))
-    couple(a::Terms, b::Terms, cs::Terms...; to = unit(I))   # abelian only
+    couple(a::Terms, b::Terms, cs::Terms...; to = unit(I))   # channels must be forced
 
 Left-nested (caterpillar) irrep coupling: extend the composite `a` (any K ≥ 1 sites, with its running
 coupling charges) by one single-site operator `b`, fusing the running total of `a` with `b`'s charge
@@ -545,19 +576,28 @@ distributes over every pair of terms, and pairs whose charges cannot fuse to `to
 an error if *no* pair fuses. Each term of `a` must carry at least one charged operator, and each
 term of `b` must be a single charged site.
 
-For ``K ≥ 3`` the intermediate channels matter. Under an **abelian** symmetry (`UniqueFusion`: `U₁`,
-`ℤₙ`, `FermionNumber`, `Trivial`, products thereof) every intermediate is forced by the charges, so
-the variadic form does the whole chain for you:
+For ``K ≥ 3`` the intermediate channels matter, and the variadic form takes the ones the charges
+force — it errors only where a channel is a genuine choice, whatever the symmetry. Under an
+**abelian** symmetry (`UniqueFusion`: `U₁`, `ℤₙ`, `FermionNumber`, `Trivial`, products thereof)
+every intermediate is forced, so the whole chain folds:
 
 ```julia
 couple(cd[1], c[2], cd[3], c[4])        # a charge-neutral four-fermion term
 ```
 
-Under a non-abelian symmetry the intermediates are genuine freedom and the variadic form throws:
-nest instead, naming each channel, so the choice is explicit and readable back off the term:
+Under a non-abelian symmetry some are still forced — three rank-1 operators reach a singlet only
+through ``j_{12} = 1`` — and those fold too:
 
 ```julia
-couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
+couple(S[1], S[2], S[3])                # j₁₂ = 1 is the only singlet channel
+```
+
+Where the channels *are* free the error lists them and you nest, naming each one, so the choice is
+explicit and readable back off the term ([`couple_channels`](@ref) is the same list as a value):
+
+```julia
+couple_channels(S[1], S[2], S[3], S[4])                                  # [(0,1), (1,1), (2,1)]
+couple(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(1)), S[4])
 ```
 
 This is the bare fusion coupler — it carries **no** normalization factor (reduced coeff `= va·vb`).
@@ -577,40 +617,182 @@ function couple(a::Terms{I}, b::Terms{I}; to = unit(I), via = nothing) where {I}
     return out
 end
 
-# Abelian only: unique fusion forces every intermediate, so fold left and constrain only the total.
+# The charges an operand contributes to a coupling: the running total of each of the accumulator's
+# terms, and the single letter's charge for each later operand. Only the charges matter to the
+# channel arithmetic, so duplicates collapse.
+function _startcharges(a::Terms{I}) where {I}
+    isempty(a) && throw(ArgumentError("couple: first operand has no terms"))
+    cs = I[]
+    for t in a
+        arity(t) >= 1 || throw(
+            ArgumentError("couple: every term of the first operand must carry at least one charged operator")
+        )
+        c = total(t)
+        c in cs || push!(cs, c)
+    end
+    return cs
+end
+
+function _legcharges(b::Terms{I}, which::Int) where {I}
+    isempty(b) && throw(ArgumentError("couple: operand $which has no terms"))
+    cs = I[]
+    for t in b
+        arity(t) == 1 || throw(
+            ArgumentError(
+                "couple: operand $which must be a single-site charged operator in every term"
+            )
+        )
+        c = only(t.keys).op.c
+        c in cs || push!(cs, c)
+    end
+    return cs
+end
+
+# Whether `d` can still reach `tot` by fusing one charge from each of `legs[i:end]`. Memoised on
+# `(charge, position)`, which is all it depends on, so a long chain costs one walk and not one per
+# pair of terms.
+function _reaches(
+        d::I, legs::Vector{Vector{I}}, i::Int, tot::I, memo::Dict{Tuple{I, Int}, Bool}
+    ) where {I <: Sector}
+    i > length(legs) && return d == tot
+    return get!(memo, (d, i)) do
+        for c in legs[i], e in d ⊗ c
+            _reaches(e, legs, i + 1, tot, memo) && return true
+        end
+        return false
+    end
+end
+
+# Every legal tuple of intermediate channels, one per vertex except the last (which is `tot`).
+function _channeltuples(starts::Vector{I}, legs::Vector{Vector{I}}, tot::I) where {I <: Sector}
+    n = length(legs) - 1
+    out = NTuple{n, I}[]
+    buf = Vector{I}(undef, n)
+    for s in starts
+        _walkchannels!(out, buf, s, legs, 1, tot)
+    end
+    return unique!(out)
+end
+
+function _walkchannels!(out, buf, d::I, legs, i, tot) where {I <: Sector}
+    if i > length(legs) - 1
+        # last vertex: its charge is `tot`, so there is nothing to name — only to check
+        any(c -> !iszero(Nsymbol(d, c, tot)), legs[end]) &&
+            push!(out, ntuple(k -> buf[k], length(buf)))
+        return out
+    end
+    for c in legs[i], e in d ⊗ c
+        buf[i] = e
+        _walkchannels!(out, buf, e, legs, i + 1, tot)
+    end
+    return out
+end
+
+"""
+    couple_channels(a::Terms, ops::Terms...; to = unit(I)) -> Vector{NTuple{N, I}}
+
+The intermediate coupling channels a caterpillar [`couple`](@ref) of these operands may legally use,
+as one tuple of `N = length(ops) - 1` charges per channel — the `to` of each nested `couple` except
+the outermost, which is `to` itself. `N == 0` (two operands) gives `[()]` when they fuse at all and
+`[]` when they do not.
+
+This is the query behind the variadic `couple`: that form needs no channel argument exactly when
+this returns a single tuple, and its error lists what this returns when it does not. Use it to
+enumerate the independent operators of a given arity instead of discovering them by trial:
+
+```julia
+couple_channels(S[1], S[2], S[3]; to = SU2Irrep(0))      # [(1,)] — forced
+couple_channels(S[1], S[2], S[3], S[4])                  # [(0,1), (1,1), (2,1)] — three singlets
+```
+
+Composite operands (several terms, e.g. from [`project`](@ref)) contribute every charge they carry,
+so the result is the union over their letters.
+"""
+function couple_channels(a::Terms{I}, rest::Terms{I}...; to = unit(I)) where {I}
+    isempty(rest) &&
+        throw(ArgumentError("couple_channels: needs at least two operands"))
+    tot = to::I
+    starts = _startcharges(a)
+    legs = Vector{I}[_legcharges(o, i + 1) for (i, o) in enumerate(rest)]
+    return _channeltuples(starts, legs, tot)
+end
+
+# The vertex charge at one fold step, when the charges force it: of the fusion products of the
+# running charge with this operand's letter, keep those that can still reach `tot`. `nothing` drops
+# the pair; more than one is a real choice, which only nesting can name. Under unique fusion
+# `run ⊗ c` is a singleton, so this can only ever drop, never complain.
+function _forcedchannel(
+        run::I, c::I, legs::Vector{Vector{I}}, i::Int, tot::I, starts::Vector{I},
+        memo::Dict{Tuple{I, Int}, Bool}
+    ) where {I <: Sector}
+    hit = nothing
+    for d in run ⊗ c
+        _reaches(d, legs, i, tot, memo) || continue
+        hit === nothing || _ambiguouschannels(starts, legs, tot)
+        hit = d
+    end
+    return hit
+end
+
+# Variadic coupling: fold left, taking each intermediate channel the charges force. Under an abelian
+# symmetry that is every one of them; under a non-abelian one it is exactly the cases where naming
+# the channel would add nothing, which is why this is not gated on the fusion style.
 function couple(
         a::Terms{I}, b::Terms{I}, c::Terms{I}, rest::Terms{I}...;
         to = unit(I), via = nothing
     ) where {I}
     via === nothing ||
         throw(ArgumentError("tree-structured / multi-body coupling (`via`) is deferred"))
-    FusionStyle(I) isa UniqueFusion || throw(
+    FusionStyle(I) isa GenericFusion && throw(
         ArgumentError(
-            "couple: variadic coupling needs an abelian symmetry (unique fusion), but $I has " *
-                "$(FusionStyle(I)) — the intermediate channels are a real choice there. Nest " *
-                "`couple` to name each one, e.g. couple(couple(a, b; to = b₂), c; to = t)"
+            "couple: multi-channel (GenericFusion) coupling is deferred, and $I has " *
+                "$(FusionStyle(I))"
         )
     )
-    isempty(a) && throw(ArgumentError("couple: first operand has no terms"))
     tot = to::I
 
     others = (b, c, rest...)
+    starts = _startcharges(a)
+    legs = Vector{I}[_legcharges(o, i + 1) for (i, o) in enumerate(others)]
+    memo = Dict{Tuple{I, Int}, Bool}()
+
     acc = a
     for i in 1:(length(others) - 1)
-        nxt = others[i]
-        isempty(nxt) &&
-            throw(ArgumentError("couple: operand $(i + 1) has no terms"))
-        # intermediates are forced by unique fusion; only the last step has to land on `to`, which is
-        # the 2-arg method's job
-        acc = _couple_terms(acc, nxt, (ta, opb) -> only(ta ⊗ opb.c))
-        isempty(acc) && throw(
-            ArgumentError("couple: no pair of terms of operands 1..$(i + 1) can be coupled")
+        acc = _couple_terms(
+            acc, others[i],
+            (run, opb) -> _forcedchannel(run, opb.c, legs, i + 1, tot, starts, memo)
         )
+        isempty(acc) && _nochannel(starts, legs, tot, i + 1)
     end
-    lastop = last(others)
-    isempty(lastop) &&
-        throw(ArgumentError("couple: operand $(length(others) + 1) has no terms"))
-    return couple(acc, lastop; to = tot)
+    return couple(acc, last(others); to = tot)
+end
+
+@noinline function _nochannel(
+        starts::Vector{I}, legs::Vector{Vector{I}}, tot::I, upto::Int
+    ) where {I}
+    return throw(
+        ArgumentError(
+            "couple: no terms of operands 1..$upto can be coupled towards $tot — the charges " *
+                "admit $(length(_channeltuples(starts, legs, tot))) channel tuple(s) to $tot " *
+                "(`couple_channels` lists them)"
+        )
+    )
+end
+
+# Only reached when a channel is a genuine choice, so the enumeration is paid for in the error and
+# nowhere else.
+@noinline function _ambiguouschannels(starts::Vector{I}, legs::Vector{Vector{I}}, tot::I) where {I}
+    channels = _channeltuples(starts, legs, tot)
+    example = isempty(channels) ? "j₁₂" : string(first(first(channels)))
+    return throw(
+        ArgumentError(
+            "couple: the intermediate channels are a genuine choice here, so the variadic form " *
+                "cannot pick one — $(length(channels)) tuple(s) couple these operands to $tot, " *
+                "namely $(channels). Nest `couple` to name each channel, e.g. " *
+                "couple(couple(a, b; to = $(example)), c; to = $tot); " *
+                "`couple_channels` returns the legal tuples."
+        )
+    )
 end
 
 """

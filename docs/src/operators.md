@@ -24,7 +24,7 @@ Four types carry the whole interface:
 | Type | What it is | How you get one |
 |---|---|---|
 | [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`spin_ops`](@ref OpSum.spin_ops), [`fermion_ops`](@ref OpSum.fermion_ops), [`scalarop`](@ref OpSum.scalarop) |
-| [`Terms`](@ref OpSum.Terms) | the compressible operator: a bag of [`Term`](@ref OpSum.Term)s, no lattice | `A[i]`, [`couple`](@ref OpSum.couple), `dot`, [`project`](@ref OpSum.project), [`opsum`](@ref OpSum.opsum), `+`, `*`, `append!` |
+| [`Terms`](@ref OpSum.Terms) | the compressible operator: a bag of [`Term`](@ref OpSum.Term)s, no lattice | `A[i]`, [`couple`](@ref OpSum.couple), [`couple_channels`](@ref OpSum.couple_channels), `dot`, [`project`](@ref OpSum.project), [`opsum`](@ref OpSum.opsum), `+`, `*`, `append!`, `copy`, `zero`, `one` |
 | [`FiniteChain`](@ref OpSum.FiniteChain) / [`InfiniteChain`](@ref OpSum.InfiniteChain) | the lattice: one physical space per site | `FiniteChain(V, N)`, `InfiniteChain([V])` |
 | [`FiniteMPO`](@ref OpSum.FiniteMPO) / [`InfiniteMPO`](@ref OpSum.InfiniteMPO) | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
@@ -168,10 +168,11 @@ Four rules govern `couple`:
    If the charges cannot
    reach `to` you get an error rather than a silently empty result, which is what makes the default
    safe: `couple(Sp[1], Sp[2])` throws instead of quietly vanishing.
-4. **Three or more sites: abelian folds, non-abelian nests.**
+4. **Three or more sites: the variadic form takes every channel the charges force.**
+   It errors only where a channel is a genuine choice — not because of the symmetry.
    Under an abelian symmetry
    (`UniqueFusion` — `U₁`, `ℤₙ`, `FermionNumber`, `Trivial`, products thereof) every intermediate
-   charge is forced, so there is nothing to choose and the variadic form does the whole chain:
+   charge is forced, so there is never anything to choose and the whole chain folds:
 
 ```@example ops
 using OpSum: total
@@ -184,11 +185,29 @@ H4 = couple(cdag[1], cop[2], cdag[3], cop[4])       # charge-neutral four-fermio
 total(only(H4))
 ```
 
-Under a non-abelian symmetry the intermediates are real freedom, so the variadic form throws and you
-nest, naming each channel — which also means the choice reads back off the term:
+Under a non-abelian symmetry some intermediates are forced too, and those fold just the same: three
+rank-1 operators reach a singlet only through ``j_{12} = 1``.
+[`couple_channels`](@ref OpSum.couple_channels) is the query that says so, and it is the way to
+enumerate the independent operators of a given arity rather than discovering them by trial:
 
 ```@example ops
-chirality = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
+couple_channels(S[1], S[2], S[3]; to = SU2Irrep(0))     # one tuple: nothing to name
+```
+
+```@example ops
+chirality = couple(S[1], S[2], S[3])                    # so this is unambiguous
+```
+
+Where the channels *are* free there is a real choice, and `couple` refuses to make it for you: the
+error lists the legal tuples, and you nest to name each one — which also means the choice reads back
+off the term.
+
+```@example ops
+couple_channels(S[1], S[2], S[3], S[4])                 # three singlet channels
+```
+
+```@example ops
+ring = couple(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(1)), S[4])
 ```
 
 For the SU(2) scalar product ``\vec{S}_i \cdot \vec{S}_j`` use `dot`, which is
@@ -501,6 +520,8 @@ h = opsum(
 ```
 
 `h + term` and `append!(h, terms)` also work, and `append!` is likewise one pass.
+`append!` mutates, so start it from a bag you own: `zero(h)` (or `empty(h)`, or `Terms{I}()`) for a
+fresh one, `copy(h)` to extend an existing operator without disturbing it.
 But `+` *copies* the
 accumulated list, so folding it — `for t in terms; H = H + t; end` — is quadratic.
 That is fine for a

@@ -110,6 +110,23 @@ end
     @test c ≈ opsum(terms[[1, 2, 4]])
     @test a ≈ opsum(terms[1:2])
 
+    # the non-mutating container protocol: `copy` owns its vector, so the mutating routes
+    # (`append!`, `canonicalize!`) cannot reach back into the original
+    d = append!(copy(a), terms[3])
+    @test length(a) == 2 && length(d) == 3
+    @test a ≈ opsum(terms[1:2])
+    @test d ≈ opsum(terms[1:3])
+    @test copy(a) ≈ a
+    @test copy(a).terms !== a.terms
+
+    # `zero` / `empty` are fresh empty bags; `one` is the no-site term, at instance and type level
+    @test isempty(zero(a)) && isempty(empty(a)) && isempty(zero(Terms{SU2Irrep}))
+    @test ref ≈ append!(zero(ref), terms)
+    @test zero(a) !== zero(a)
+    @test one(Terms{SU2Irrep}) ≈ one(a)
+    @test length(one(a)) == 1 && isempty(only(one(a)).sites)
+    @test ref + zero(ref) ≈ ref
+
     # mixed arity: the table reports the true maximum
     mixed = opsum(
         dot(S[1], S[2]),

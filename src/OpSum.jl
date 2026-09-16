@@ -6,7 +6,7 @@ module OpSum
 # on-site operators: build them once, outside any loop
 export IrrepOperator, spin, scalarop, project, matrixunit, spin_ops, fermion_ops
 # term algebra: place and couple. Latticeless — the lattice is supplied at `irrep_mpo`
-export Term, Terms, couple, opsum, canonicalize!
+export Term, Terms, couple, couple_channels, opsum, canonicalize!
 # lattices: the two things an operator can be compressed over
 export AbstractLattice, FiniteChain, InfiniteChain
 # MPO construction

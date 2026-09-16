@@ -19,6 +19,7 @@ ParallelTestRunner = "2.2.0"
 TensorKit = "0.17"
 Test = "1.10"
 VectorInterface = "0.5.0, 0.6"
+julia = "1.10"
 
 [sources]
 OpSum = {path = ".."}

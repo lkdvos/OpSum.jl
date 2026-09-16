@@ -1,19 +1,6 @@
 # Pure ITOTermTable interning helpers: contiguous column suffixes/prefixes, and the
 # translation-invariant suffix naming, shared by every sweep backend in irrepgraph*.jl.
 
-"""
-    _suffix_ids(tt::ITOTermTable{I}) -> Matrix{Int}
-
-Intern every term's *contiguous column suffixes*. `tt.sites` columns are ascending and zero-padded, so
-a term's active factors at sites `> i` are always a suffix `j₀:K` of its column; `sufid[j, t]` is a
-dense integer id for the factor list `j:K` of term `t`, with `0` for the exhausted suffix. Built
-bottom-up in `Θ(M·K)` — the replacement for materialising a length-`N` path per term.
-
-Equality of ids is equality of the remaining factor list. That is *not* by itself equality of the
-suffix path: `_op_at_ito` fills idle sites with a pass-through carrying the running bond charge, and
-the idle sites *before* the first remaining factor carry the charge accumulated so far. So a suffix
-path is identified by the pair `(sufid[j₀, t], running bond charge)` — see `_signature`.
-"""
 # Shared walk/insert-on-miss bookkeeping behind `_suffix_ids`, `_prefix_ids` and `_rel_suffix_ids`.
 # `dir = -1` walks columns `K:-1:1`, writing `id[j, t]` from the already-interned tail `id[j + 1, t]`
 # (a suffix walk: padding only ever trails, so a zero column just has nothing to write and the walk
@@ -49,6 +36,19 @@ function _intern_columns!(intern::Dictionary, id::Matrix{Int}, tt::ITOTermTable,
     return id
 end
 
+"""
+    _suffix_ids(tt::ITOTermTable{I}) -> Matrix{Int}
+
+Intern every term's *contiguous column suffixes*. `tt.sites` columns are ascending and zero-padded, so
+a term's active factors at sites `> i` are always a suffix `j₀:K` of its column; `sufid[j, t]` is a
+dense integer id for the factor list `j:K` of term `t`, with `0` for the exhausted suffix. Built
+bottom-up in `Θ(M·K)` — the replacement for materialising a length-`N` path per term.
+
+Equality of ids is equality of the remaining factor list. That is *not* by itself equality of the
+suffix path: `_op_at_ito` fills idle sites with a pass-through carrying the running bond charge, and
+the idle sites *before* the first remaining factor carry the charge accumulated so far. So a suffix
+path is identified by the pair `(sufid[j₀, t], running bond charge)` — see `_signature`.
+"""
 function _suffix_ids(tt::ITOTermTable{I}) where {I}
     K, M = arity(tt), nterms(tt)
     sufid = zeros(Int, K + 1, M)      # row K+1 and every padded position stay 0 == exhausted

@@ -128,9 +128,16 @@ end
     # tree coupling deferred to Phase 3
     @test_throws ArgumentError couple(a, b; to = SU2Irrep(0), via = :tree)
     @test_throws ArgumentError couple(a, b, c; to = SU2Irrep(0), via = :tree)
-    # variadic coupling needs unique fusion; SU(2) intermediates are a real choice
-    @test_throws ArgumentError couple(a, b, c; to = SU2Irrep(0))
-    @test_throws ArgumentError couple(a, b, c)
+    # variadic coupling names no channel, so it needs every channel to be forced: four rank-1
+    # operators leave (j₁₂, j₁₂₃) free, and the error says so rather than picking one
+    d = spin(V)[4]
+    @test_throws ArgumentError couple(a, b, c, d)
+    err = try
+        couple(a, b, c, d)
+    catch e
+        sprint(showerror, e)
+    end
+    @test occursin("genuine choice", err) && occursin("couple_channels", err)
     # coupling a scalar (no charge leg) is invalid
     @test_throws ArgumentError instantiate(couple(scalarop(1, V)[1], b; to = SU2Irrep(0)), [V, V, V])
     # same-site coupling invalid
@@ -157,6 +164,44 @@ end
     cc = matrixunit(Vf, FermionNumber(0), FermionNumber(1))
     cd = matrixunit(Vf, FermionNumber(1), FermionNumber(0))
     @test total(only(couple(cd[1], cc[2]))) == unit(FermionNumber)
+end
+
+# The channels are taken when the charges force them, whatever the fusion style — so a non-abelian
+# variadic couple is legal exactly where naming the channel would add nothing.
+@testset "forced channels, non-abelian" begin
+    V = SU2Space(1 // 2 => 1)
+    S = spin(V)
+    zero_, one_ = SU2Irrep(0), SU2Irrep(1)
+
+    # three rank-1 operators reach a singlet only through j₁₂ = 1, so the fold is unambiguous
+    @test couple_channels(S[1], S[2], S[3]; to = zero_) == [(one_,)]
+    @test couple(S[1], S[2], S[3]) ≈ couple(couple(S[1], S[2]; to = one_), S[3]; to = zero_)
+    @test couple(S[1], S[2], S[3]; to = zero_) ≈ couple(S[1], S[2], S[3])
+    @test bondcharges(tree(only(couple(S[1], S[2], S[3])))) == [one_, one_, zero_]
+
+    # four leave two of the three (j₁₂, j₁₂₃) tuples genuinely free
+    @test couple_channels(S[1], S[2], S[3], S[4]) ==
+        [(SU2Irrep(0), one_), (one_, one_), (SU2Irrep(2), one_)]
+    @test_throws ArgumentError couple(S[1], S[2], S[3], S[4])
+    # every tuple the query returns is a real operator, and nesting builds it
+    for (j12, j123) in couple_channels(S[1], S[2], S[3], S[4])
+        t = couple(couple(couple(S[1], S[2]; to = j12), S[3]; to = j123), S[4])
+        @test length(t) == 1
+        @test bondcharges(tree(only(t))) == [one_, j12, j123, zero_]
+    end
+
+    # two operands: nothing to name, so the query reports one empty tuple, or none at all
+    @test couple_channels(S[1], S[2]) == [()]
+    @test isempty(couple_channels(S[1], S[2]; to = SU2Irrep(5)))
+    @test_throws ArgumentError couple(S[1], S[2], S[3]; to = SU2Irrep(5))
+    @test_throws ArgumentError couple_channels(S[1])
+
+    # the query agrees with the abelian case, where every channel is forced by construction
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    cc = matrixunit(Vf, FermionNumber(0), FermionNumber(1))
+    cd = matrixunit(Vf, FermionNumber(1), FermionNumber(0))
+    @test couple_channels(cd[1], cc[2], cd[3], cc[4]) ==
+        [(unit(FermionNumber), FermionNumber(1))]
 end
 
 @testset "variadic coupling (abelian)" begin

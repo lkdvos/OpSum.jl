@@ -23,46 +23,52 @@ chain(N) = FiniteChain(V, N)
 #
 # and in the caterpillar basis it is `couple(couple(S[1], S[2]; to = j₁₂), S[3]; to = 0)`. The
 # intermediate label ``j_{12}`` is a genuine degree of freedom, but it is not free: the *last* inner
-# line must be able to fuse with the final operator charge to reach the total charge. Since each
-# ``\vec{S}`` carries charge 1, reaching a singlet forces ``j_{12} = 1``:
+# line must be able to fuse with the final operator charge to reach the total charge.
+# `couple_channels` answers which labels survive that constraint, so there is no need to guess:
 
-for j12 in 0:2
-    try
-        H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(0)))
-        r = build("K=3 j12=$j12", H, chain(3); quiet = true)
-        println(
-            "  j12=$j12  valid    D_dense=$(r.Ddense)  lossless=$(islossless(H, chain(3)))"
-        )
-    catch e
-        println("  j12=$j12  rejected: ", first(sprint(showerror, e), 72))
-    end
+couple_channels(S[1], S[2], S[3]; to = SU2Irrep(0))
+
+# Since each ``\vec{S}`` carries charge 1, reaching a singlet forces ``j_{12} = 1``. One channel
+# means there is nothing left to name, so the variadic `couple` builds the operator directly:
+
+H3 = opsum(couple(S[1], S[2], S[3]))
+build("K=3 chirality", H3, chain(3))
+H3 ≈ opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
+
+# The labels the query leaves out are not a limitation but a consistency check: those operators do
+# not exist as SU(2) scalars, and asking for one is an error rather than a silently empty operator.
+
+try
+    couple(couple(S[1], S[2]; to = SU2Irrep(0)), S[3]; to = SU2Irrep(0))
+catch e
+    println("  j12=0  rejected: ", sprint(showerror, e))
 end
-
-# The rejected cases are not a limitation but a consistency check: those operators do not exist as
-# SU(2) scalars.
 
 # ## Four-body terms
 #
 # With four rank-1 operators there are two inner lines, ``(j_{12}, j_{123})``. The same reasoning
 # forces ``j_{123} = 1``, leaving exactly **three** singlet channels:
 
-channels = Tuple{Int, Int}[]
-for j12 in 0:2, j123 in 0:3
-    try
-        H = opsum(
-            couple(
-                couple(couple(S[1], S[2]; to = SU2Irrep(j12)), S[3]; to = SU2Irrep(j123)),
-                S[4]; to = SU2Irrep(0)
-            )
-        )
-        r = build("k4", H, chain(4); quiet = true)
-        push!(channels, (j12, j123))
-        println("  (j12=$j12, j123=$j123)  valid    D_dense=$(r.Ddense)")
-    catch
-        nothing
-    end
+channels = couple_channels(S[1], S[2], S[3], S[4]; to = SU2Irrep(0))
+
+# Three channels, so here there *is* something to name, and the variadic form refuses rather than
+# choosing for you — its error lists exactly the tuples above:
+
+try
+    couple(S[1], S[2], S[3], S[4])
+catch e
+    println(sprint(showerror, e))
 end
-channels
+
+# Nesting is how you say which one you mean:
+
+for (j12, j123) in channels
+    H = opsum(
+        couple(couple(couple(S[1], S[2]; to = j12), S[3]; to = j123), S[4]; to = SU2Irrep(0))
+    )
+    r = build("k4", H, chain(4); quiet = true)
+    println("  (j12=$(j12.j), j123=$(j123.j))  valid    D_dense=$(r.Ddense)")
+end
 
 # These three are not merely distinct labels — they are **mutually orthogonal operators**, i.e. a
 # complete orthogonal basis for four-body SU(2)-invariant interactions on four ordered sites:
@@ -70,10 +76,7 @@ channels
 let sites4 = fill(V, 4)
     ops = [
         instantiate(
-            couple(
-                couple(couple(S[1], S[2]; to = SU2Irrep(a)), S[3]; to = SU2Irrep(b)),
-                S[4]; to = SU2Irrep(0)
-            ),
+            couple(couple(couple(S[1], S[2]; to = a), S[3]; to = b), S[4]; to = SU2Irrep(0)),
             sites4
         ) for (a, b) in channels
     ]

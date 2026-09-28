@@ -12,7 +12,7 @@
 
 using OpSum
 using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, mpo_tensormap, islossless, instantiate,
-    Term, Terms, opsum, FiniteChain, InfiniteChain, spin, spin_ops, fermion_ops, couple, project,
+    Term, Terms, opsum, FiniteChain, InfiniteChain, spin, spin_ops, fermion_ops, couple, couple_channels, project,
     matrixunit, expterm, BipartiteAlgorithm, SVDBondAlgorithm
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
@@ -34,9 +34,10 @@ using LinearAlgebra: dot, eigvals, norm
 #    paper (`Sᶻ = (n↑ - n↓)/2`), and `A[i]` places the whole expansion on site `i`;
 #  * `couple(A[i], B[j])` distributes over composite operands and drops letter pairs whose charges
 #    cannot fuse to the total, so nothing has to be expanded by hand. The total defaults to the unit
-#    sector — what a Hamiltonian term needs — and `to` names it otherwise. Under an abelian symmetry
-#    the variadic `couple(A[i], B[j], C[k], …)` folds a whole chain, since every intermediate charge
-#    is forced; non-abelian chains nest so each channel is named.
+#    sector — what a Hamiltonian term needs — and `to` names it otherwise. The variadic
+#    `couple(A[i], B[j], C[k], …)` folds a whole chain wherever the charges force every intermediate
+#    — always under an abelian symmetry, and often enough under a non-abelian one. Where a channel
+#    is a genuine choice it refuses and you nest to name it; `couple_channels` lists the legal ones.
 #
 # Nothing is ever converted to a dense array, which matters for fermionic sectors where
 # `convert(Array, t)` is not a well-defined operation.

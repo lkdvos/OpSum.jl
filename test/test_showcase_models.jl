@@ -21,9 +21,14 @@ const EXPECTED = Dict{String, Any}(
     "cylinder_ly3" => (dense = _ -> 3 * 3 + 2, mult = _ -> 3 + 2),
     "cylinder_ly4" => (dense = _ -> 3 * 4 + 2, mult = _ -> 4 + 2),
     "cylinder_ly6" => (dense = _ -> 3 * 6 + 2, mult = _ -> 6 + 2),
+    "alternating_spin" => (dense = _ -> 5, mult = _ -> 3),
     "free_fermions" => (dense = _ -> 4, mult = _ -> 4),
+    "kitaev_chain" => (dense = _ -> 4, mult = _ -> 4),
     "tv_chain" => (dense = _ -> 5, mult = _ -> 5),
     "hubbard_1d" => (dense = _ -> 7, mult = _ -> 7),
+    # One physical site per site instead of two spin-orbitals, and the spin doublet carries qdim 2,
+    # so the reduced and dense-equivalent figures differ here where the abelian encoding's do not.
+    "hubbard_su2" => (dense = _ -> 10, mult = _ -> 6),
     # Long-range: every pair couples, so the cover keeps ~one open spin-1 channel per site on the
     # smaller side of each cut.
     "haldane_shastry" => (dense = N -> 3 * (N ÷ 2) + 2, mult = N -> N ÷ 2 + 2),
@@ -133,6 +138,25 @@ end
     U = 4.0
     Ht, latt = ShowcaseModels.hubbard(2Nsites; t = 0.0, U)
     @test sort(unique(round.(spectrum(Ht, latt); digits = 8))) ≈ U .* collect(0:Nsites)
+end
+
+@testset "the two Hubbard encodings agree" begin
+    # `hubbard_su2` is the only model whose bond is written out as fusion-tree matrix elements by
+    # hand, so it is the only one where a wrong Clebsch-Gordan factor would go unnoticed. The check
+    # that catches it: the same physics in the spin-orbital encoding, which shares no code with it —
+    # `hubbard` places single-letter operators with `couple`, `hubbard_su2` `project`s a block.
+    for Nsites in (2, 3)
+        hsu2, latsu2 = ShowcaseModels.hubbard_su2(Nsites; t = 1.0, U = 4.0)
+        horb, latorb = ShowcaseModels.hubbard(2Nsites; t = 1.0, U = 4.0)
+        a, b = spectrum(hsu2, latsu2), spectrum(horb, latorb)
+        @test length(a) == 4^Nsites          # the spin doublet's qdim must be unfolded
+        @test a ≈ b
+    end
+
+    # ... and the t = 0 limit fixes the on-site term's normalisation independently of the hopping.
+    U = 4.0
+    h0, lat0 = ShowcaseModels.hubbard_su2(3; t = 0.0, U)
+    @test sort(unique(round.(spectrum(h0, lat0); digits = 8))) ≈ U .* collect(0:3)
 end
 
 @testset "SU(2) and U(1) agree on the Heisenberg spectrum" begin

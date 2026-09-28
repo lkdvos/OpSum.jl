@@ -76,16 +76,25 @@ back ≈ H
 #
 # - [Shared utilities](https://lkdvos.github.io/OpSum.jl/dev/examples/common/) — naming alphabet
 #   letters, coupling composite operators, lattice geometry, and the verification helpers.
+# - [Getting started](https://lkdvos.github.io/OpSum.jl/dev/examples/getting_started/) — one bond,
+#   then one Hamiltonian, with every step of the pipeline named.
 # - [Spin chains](https://lkdvos.github.io/OpSum.jl/dev/examples/spin_chains/) — Heisenberg, XXZ and
 #   ``J_1``–``J_2``: how symmetry and interaction range set the bond dimension.
-# - [Long-range interactions](https://lkdvos.github.io/OpSum.jl/dev/examples/long_range/) —
-#   Haldane–Shastry and power laws, the one family whose bond dimension grows with ``N``.
-# - [Ladders and cylinders](https://lkdvos.github.io/OpSum.jl/dev/examples/ladders_and_cylinders/) —
-#   quasi-2D geometries, where the bond dimension tracks the circumference and not the length.
 # - [Multi-body interactions](https://lkdvos.github.io/OpSum.jl/dev/examples/multibody/) — three- and
 #   four-body couplings, and the fusion channels that label them.
-# - [Fermions](https://lkdvos.github.io/OpSum.jl/dev/examples/fermions/) — free chains and the
-#   Fermi–Hubbard model, with no Jordan–Wigner strings anywhere.
+# - [Fermions](https://lkdvos.github.io/OpSum.jl/dev/examples/fermions/) — free chains, pairing and
+#   the Fermi–Hubbard model, with no Jordan–Wigner strings anywhere.
+# - [Lattices and geometry](https://lkdvos.github.io/OpSum.jl/dev/examples/lattices/) — non-uniform
+#   chains, ladders and cylinders, where the bond dimension tracks the circumference not the length.
+# - [Long-range interactions](https://lkdvos.github.io/OpSum.jl/dev/examples/long_range/) —
+#   Haldane–Shastry and power laws, the one family whose bond dimension grows with ``N``, and
+#   truncation as a workflow.
+# - [Infinite chains](https://lkdvos.github.io/OpSum.jl/dev/examples/infinite/) — repeating unit
+#   cells, and what a generating set means.
+# - [Exponentially decaying interactions](https://lkdvos.github.io/OpSum.jl/dev/examples/exponential_decay/)
+#   — the one infinite-range family that is exact at fixed cost.
+# - [Handing the MPO to MPSKit](https://lkdvos.github.io/OpSum.jl/dev/examples/mpskit/) — DMRG on a
+#   compressed MPO, and where the finite and infinite paths diverge.
 #
 # Construction time and bond dimension across system size are measured by the benchmark harness in
 # `benchmark/` and plotted with `scripts/plot_benchmarks.jl`.

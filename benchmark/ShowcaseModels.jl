@@ -22,6 +22,7 @@ export bonddim, densedim, maxbonddim, maxdensedim, build
 export mpo_matches_oracle, spectrum, hermiticity_error
 # ...and OpSum's own verification helpers and operator builders, so a dependent needs one `using`.
 export islossless, mpo_tensormap, spin_ops, fermion_ops, opsum, FiniteChain
+export spin, matrixunit, project, couple
 
 # ── Model builders ────────────────────────────────────────────────────────────
 # A term bag is latticeless, so each builder returns the pair `(h, lat)` the compression needs: the
@@ -41,6 +42,19 @@ function j1j2_su2(N; J1 = 1.0, J2 = 0.5)
         (J2 * dot(S[i], S[i + 2]) for i in 1:(N - 2)),
     )
     return h, FiniteChain(SPIN_HALF, N)
+end
+
+const SPIN_ONE = SU2Space(1 => 1)
+
+# The case `FiniteChain(V, N)` cannot express: a *non-uniform* lattice, one space per site. Nothing
+# about the term algebra changes — only the lattice the MPO is formed over — which is the point.
+function alternating_spin(N; J = 1.0)
+    iseven(N) || throw(ArgumentError("alternating_spin: N=$N must be even"))
+    spaces = [isodd(i) ? SPIN_HALF : SPIN_ONE for i in 1:N]
+    Sa, Sb = spin(SPIN_HALF), spin(SPIN_ONE)
+    op(i) = isodd(i) ? Sa : Sb
+    h = opsum(J * dot(op(i)[i], op(i + 1)[i + 1]) for i in 1:(N - 1))
+    return h, FiniteChain(spaces)
 end
 
 function haldane_shastry(N; J = 1.0)
@@ -96,6 +110,23 @@ function tv_chain(N; t = 1.0, Vint = 2.0)
     return h, FiniteChain(FERMION_MODE, N)
 end
 
+const KITAEV_MODE = Vect[FermionParity](0 => 1, 1 => 1)
+
+# Pairing does not conserve particle number, so this chain is graded by `FermionParity` alone — the
+# symmetry is the user's choice, not the package's. `c†ᵢc†ⱼ` is charge-neutral there (1 ⊗ 1 = 0),
+# which is exactly what a U(1)-graded space would refuse.
+function kitaev_chain(N; t = 1.0, Δ = 0.5)
+    odd, even = FermionParity(1), FermionParity(0)
+    c = matrixunit(KITAEV_MODE, even, odd)
+    cd = matrixunit(KITAEV_MODE, odd, even)
+    bonds = [(i, i + 1) for i in 1:(N - 1)]
+    h = opsum(
+        (-t * (couple(cd[i], c[j]) + couple(cd[j], c[i])) for (i, j) in bonds),
+        (Δ * (couple(cd[i], cd[j]) + couple(c[j], c[i])) for (i, j) in bonds),
+    )
+    return h, FiniteChain(KITAEV_MODE, N)
+end
+
 # Fermi-Hubbard with one spin-orbital per site, `(i, σ) -> 2(i-1) + σ`. Every operator is then a
 # single alphabet letter, and the on-site `U n↑n↓` becomes an ordinary two-site term between the
 # two orbitals of the same physical site. `N` counts *orbitals*, so it must be even.
@@ -118,6 +149,46 @@ function hubbard(N; t = 1.0, U = 4.0, Ly = nothing)
     )
     int = (U * couple(F.n[orbital(i, 1)], F.n[orbital(i, 2)]) for i in 1:Nsites)
     return opsum(hop, int), FiniteChain(FERMION_MODE, N)
+end
+
+# Fermi-Hubbard with SU(2) spin: non-abelian *and* fermionic at once, one physical site per site
+# instead of two spin-orbitals. The site space is graded by `(n, j, parity)`.
+const HUBBARD_SU2 = ProductSector{Tuple{U1Irrep, SU2Irrep, FermionParity}}
+const HUBBARD_SU2_SITE =
+    Vect[HUBBARD_SU2]((0, 0, 0) => 1, (1, 1 // 2, 1) => 1, (2, 0, 0) => 1)
+
+const HUB_VAC = HUBBARD_SU2((0, 0, 0))
+const HUB_SINGLE = HUBBARD_SU2((1, 1 // 2, 1))
+const HUB_DOUBLE = HUBBARD_SU2((2, 0, 0))
+
+# `Σ_σ c†_{1σ} c_{2σ}` on a bond. This is the one operator in the registry that cannot be assembled
+# from `matrixunit`: that needs one-dimensional sectors, and the singly-occupied sector here has
+# quantum dimension 2 (it *is* the spin-½ doublet). So the bond is written as a `TensorMap` in the
+# fusion-tree basis and handed to `project`, which is the general route. The four reduced elements
+# are the Clebsch-Gordan factors of the doubly-occupied channel; what makes them trustworthy rather
+# than merely transcribed is that `test_showcase_models.jl` checks this model's spectrum against the
+# spin-orbital encoding above, which shares no code with it.
+function hubbard_su2_hop()
+    V = HUBBARD_SU2_SITE
+    t = zeros(ComplexF64, V ⊗ V ← V ⊗ V)
+    leg(a, b, c) = only(fusiontrees((a, b), c, (false, false)))
+    three = HUBBARD_SU2((3, 1 // 2, 1))
+    t[leg(HUB_VAC, HUB_SINGLE, HUB_SINGLE), leg(HUB_SINGLE, HUB_VAC, HUB_SINGLE)] .= 1
+    t[leg(HUB_SINGLE, HUB_DOUBLE, three), leg(HUB_DOUBLE, HUB_SINGLE, three)] .= -1
+    t[leg(HUB_VAC, HUB_DOUBLE, HUB_DOUBLE), leg(HUB_SINGLE, HUB_SINGLE, HUB_DOUBLE)] .= sqrt(2)
+    t[leg(HUB_SINGLE, HUB_SINGLE, HUB_DOUBLE), leg(HUB_DOUBLE, HUB_VAC, HUB_DOUBLE)] .= sqrt(2)
+    return t
+end
+
+function hubbard_su2(N; t = 1.0, U = 4.0)
+    hop = hubbard_su2_hop()
+    bond = -t * (hop + hop')
+    nupndn = matrixunit(HUBBARD_SU2_SITE, HUB_DOUBLE, HUB_DOUBLE)   # dim-1 sector: reachable
+    h = opsum(
+        (project(bond, [i, i + 1]) for i in 1:(N - 1)),
+        (U * nupndn[i] for i in 1:N),
+    )
+    return h, FiniteChain(HUBBARD_SU2_SITE, N)
 end
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -168,6 +239,12 @@ const MODELS = ModelSpec[
         sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 4096; n = 10)),
     ),
     ModelSpec(
+        "alternating_spin", "Alternating spin-1/2 / spin-1", :spin1d, Dict("J" => 1.0),
+        alternating_spin,
+        sweeps([4, 8], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 2048; n = 9, mult = 2)),
+        sweeps([4, 8], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 4096; n = 10, mult = 2)),
+    ),
+    ModelSpec(
         "haldane_shastry", "Haldane-Shastry", :longrange, Dict("J" => 1.0),
         haldane_shastry,
         sweeps([8, 16], logsizes(8, 32; n = 3), logsizes(8, 256; n = 7)),
@@ -216,6 +293,12 @@ const MODELS = ModelSpec[
         sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 4096; n = 10)),
     ),
     ModelSpec(
+        "kitaev_chain", "Kitaev chain (parity only)", :fermionic, Dict("t" => 1.0, "Delta" => 0.5),
+        kitaev_chain,
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 2048; n = 9)),
+        sweeps([8, 16], logsizes(8, 64; n = 4), logsizes(8, 4096; n = 10)),
+    ),
+    ModelSpec(
         "hubbard_1d", "Fermi-Hubbard 1D", :fermionic, Dict("t" => 1.0, "U" => 4.0),
         hubbard,
         sweeps([8, 16], logsizes(8, 64; n = 4, mult = 2), logsizes(8, 1024; n = 8, mult = 2)),
@@ -226,6 +309,18 @@ const MODELS = ModelSpec[
         N -> hubbard(N; Ly = 4),
         sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 512; n = 6, mult = 8)),
         sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 768; n = 7, mult = 8)),
+    ),
+    # Two sizing notes, both measured. The *sweeps* stop earlier than the other fermionic models
+    # because this builder `project`s the same bond block once per bond, so term accumulation
+    # (~2.3 s at N = 256), not compression, sets the cost — `project` is not memoised the way
+    # `spin` / `matrixunit` / `adjoint` are. The *smoke* sizes are smaller still because
+    # `test_showcase_models.jl` runs `instantiate` on them: this site has dimension 4 and a
+    # non-abelian fermionic sector, and N = 6 alone costs about ten minutes there.
+    ModelSpec(
+        "hubbard_su2", "Fermi-Hubbard SU(2) spin", :fermionic, Dict("t" => 1.0, "U" => 4.0),
+        hubbard_su2,
+        sweeps([2, 4], logsizes(8, 64; n = 4), logsizes(8, 512; n = 7)),
+        sweeps([2, 4], logsizes(8, 64; n = 4), logsizes(8, 512; n = 7)),
     ),
 ]
 

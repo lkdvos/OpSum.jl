@@ -96,7 +96,9 @@ ladder_bonds(Lx, Ly) = cylinder_bonds(Lx, Ly; periodic_y = false)
 # need for the same operator.
 
 bonddim(secs, b) = length(secs[b])
-densedim(secs, b) = sum(dim(c) for c in secs[b])
+# `init = 0` is not decoration: an aggressive `SequentialSVD` truncation can leave a bond with *no*
+# sectors at all (see the long-range page), and reporting that as 0 beats throwing from the reporter.
+densedim(secs, b) = sum(dim(c) for c in secs[b]; init = 0)
 maxbonddim(secs) = maximum(b -> bonddim(secs, b), eachindex(secs))
 maxdensedim(secs) = maximum(b -> densedim(secs, b), eachindex(secs))
 

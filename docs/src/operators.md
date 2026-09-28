@@ -396,6 +396,26 @@ chains that cost no dense storage and cannot change the operator.
 
 The total charge must be trivial (a Jordan MPO's right boundary is an identity), and a truncation
 aggressive enough to empty a bond is rejected rather than silently emitted.
+
+## Operators that are not Hamiltonians
+
+Nothing in the compression assumes a Hamiltonian, so the things you *measure* compress too, and by
+the same call.
+A total magnetisation `opsum(S.Sz[i] for i in 1:N)` is a pure one-site sum
+(`D = 2`), a two-point correlator `couple(S.Sz[1], S.Sz[4])` is a one-term MPO (`D = 2`), and a
+string order parameter is one term with a run of active sites.
+
+The one place the two paths genuinely diverge is a **charged** operator — total charge other than
+`unit(I)`, such as a bare `F.cd[2]`.
+[`irrep_mpo`](@ref OpSum.irrep_mpo) compresses it happily, and
+[`irrep_mpo_tensors`](@ref OpSum.irrep_mpo_tensors) assembles it: the bond data carries the charge
+and the last bond is simply not the unit sector.
+[`jordan_mpo_tensors`](@ref OpSum.jordan_mpo_tensors) **refuses** it, for the reason in the paragraph
+above — a Jordan MPO's right boundary is an identity, and a charged operator has no such boundary.
+So
+build charged objects and measure with them through `irrep_mpo`; the Jordan emission is for
+Hamiltonians handed to an MPS algorithm.
+
 ## Infinite chains
 
 Pass an `InfiniteChain` alongside the operator and the same term algebra builds an infinite MPO with a

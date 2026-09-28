@@ -98,6 +98,31 @@ end
 # channels rather than a single one. Since every combination has the same MPO bond structure, the
 # cost story below is unaffected by which one you pick.
 
+# ## Under an abelian symmetry there is never anything to name
+#
+# Everything above is about a *choice* of channel, and that choice exists only because SU(2) fusion
+# is not unique. Grade the site by a charge instead and every intermediate is forced by the charges
+# alone — so a four-body term folds in one call, with no channel argument and no nesting:
+
+Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+F = fermion_ops(Vf)
+ring4 = couple(F.cd[1], F.c[2], F.cd[3], F.c[4])
+length(ring4)
+
+# The query says the same thing: one legal tuple, so nothing is left to choose.
+
+couple_channels(F.cd[1], F.c[2], F.cd[3], F.c[4])
+
+# Read back off the term, the forced channels are the running particle numbers along the chain —
+# `+1` after the first `c†`, back to `0` after the first `c`, and so on:
+
+using OpSum: bondcharges, tree
+bondcharges(tree(only(ring4)))
+
+# This is the same `couple` and the same rule as the SU(2) case: take the channel the charges force,
+# refuse only where there is a genuine choice. What differs is the *symmetry*, not the interface —
+# under unique fusion the "genuine choice" case simply never arises.
+
 # ## A four-body model on a ladder
 #
 # To see multi-body terms in a Hamiltonian rather than in isolation, add plaquette terms to a

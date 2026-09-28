@@ -8,11 +8,15 @@ const SRC_DIR = joinpath(@__DIR__, "src")
 # Example pages, in reading order. Each file's `# # Title` header becomes the page title.
 const EXAMPLES = [
     "common.jl",
+    "getting_started.jl",
     "spin_chains.jl",
-    "long_range.jl",
-    "ladders_and_cylinders.jl",
     "multibody.jl",
     "fermions.jl",
+    "lattices.jl",
+    "long_range.jl",
+    "infinite.jl",
+    "exponential_decay.jl",
+    "mpskit.jl",
 ]
 
 # `examples/index.jl` is the source for the docs landing page. The root `README.md` is maintained

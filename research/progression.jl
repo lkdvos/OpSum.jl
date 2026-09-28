@@ -111,9 +111,9 @@ hop = fwd + adjoint(fwd, latf)
     -1.0 * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:5
 )
 report("4.1 free fermions", hop, latf)
-# NOTE: `append!(copy(hop), ...)` would be the idiom here, but `copy(::Terms)` is not defined,
-# so building a variant of an existing operator has to go through `+` (which copies anyway).
-tV = hop + opsum(2.0 * couple(F.n[i], F.n[i + 1]) for i in 1:5)
+# `copy` + `append!` is the idiom for a variant of an existing operator (both landed in #34); `+`
+# would copy anyway, but folding it would be quadratic.
+tV = append!(copy(hop), (2.0 * couple(F.n[i], F.n[i + 1]) for i in 1:5))
 report("4.2 t-V chain", tV, latf)
 
 # 4.3 Kitaev: pairing breaks U(1) but keeps parity, so grade by FermionParity alone
@@ -127,7 +127,11 @@ kitaev(N; t = 1.0, Δ = 0.5) = opsum(
 report("4.3 Kitaev chain (parity only)", kitaev(6), FiniteChain(Vp, 6))
 
 # 4.4 non-abelian *and* fermionic: U(1) charge x SU(2) spin x parity.
-# The spin-½ sector has dim 2, so `matrixunit` does not apply — `project` is the route.
+# `matrixunit` is refused per *sector*, not per space: it reaches the dim-1 vacuum/double sectors
+# (so `U n↑n↓` is a matrixunit) but not the spin-½ doublet, which has quantum dimension 2 — so any
+# operator touching it, the hopping included, goes through `project`. The physical Hubbard bond is
+# in `benchmark/ShowcaseModels.jl` (`hubbard_su2`, checked against the spin-orbital encoding); the
+# random block here stands in for it to exercise the machinery on a *generic* dense block.
 const Hub = ProductSector{Tuple{U1Irrep, SU2Irrep, FermionParity}}
 Vh = Vect[Hub]((0, 0, 0) => 1, (1, 1 // 2, 1) => 1, (2, 0, 0) => 1)
 hubblock = randn(ComplexF64, Vh ⊗ Vh ← Vh ⊗ Vh)   # stand-in for -t(c†c + h.c.) + U n↑n↓

@@ -16,6 +16,8 @@
 using OpSum: OpSum
 include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 
+using OpSum: arity
+
 # ## SU(2) Heisenberg
 #
 # ```math
@@ -144,6 +146,69 @@ H_proj ≈ H_xxz
 # The one thing to know: every projected term is active on *all* the sites you pass. An on-site
 # identity factor comes back as a trivial-charge letter rather than a shorter term, so
 # `project` inverts `instantiate` only for operators whose terms have full support on those sites.
+
+# ## There is no symbolic on-site product
+#
+# The bilinear-biquadratic spin-1 chain is the sharpest case for `project`, and the motivation comes
+# from the physics rather than from the API:
+#
+# ```math
+# H = \sum_i \left[ \vec{S}_i\!\cdot\!\vec{S}_{i+1} + \beta \left( \vec{S}_i\!\cdot\!\vec{S}_{i+1} \right)^2 \right]
+# ```
+#
+# The square is a *product of two-site operators*, and OpSum has no lazy symbolic algebra to
+# multiply them in: `Terms` is a flat bag of terms, not an expression tree. So the way to square
+# something is to build the block, square *that*, and project the result.
+
+V1 = SU2Space(1 => 1)
+S1 = spin(V1)
+bond = removeunit(instantiate(dot(S1[1], S1[2]), [V1, V1]), 5)
+
+# `instantiate` returns the operator with a trailing trivial charge leg, and `removeunit` drops it,
+# leaving the ordinary ``V \otimes V \leftarrow V \otimes V`` map that can be multiplied:
+
+space(bond)
+
+# At ``\beta = 1/3`` this is the AKLT chain, whose ground state is the valence-bond solid:
+
+function bilinear_biquadratic(N; β = 1 / 3)
+    block = bond + β * (bond * bond)
+    return opsum(project(block, [i, i + 1]) for i in 1:(N - 1))
+end
+
+H_aklt = bilinear_biquadratic(6)
+build("AKLT (β=1/3)", H_aklt, FiniteChain(V1, 6))
+islossless(H_aklt, FiniteChain(V1, 6))
+
+# The biquadratic term costs bond dimension because a spin-2 channel opens alongside the spin-1 one:
+
+for β in (0.0, 1 / 3, 1.0)
+    r = build("β=$(round(β; digits = 3))", bilinear_biquadratic(6; β), FiniteChain(V1, 6); quiet = true)
+    println("  β=$(rpad(round(β; digits = 3), 5))  D=$(r.D)  D_dense=$(r.Ddense)")
+end
+
+# The ``\beta = 0`` row is the plain spin-1 Heisenberg chain, and here the round trip is exact as a
+# *term bag*, not merely as an operator — `project` recovers the very terms `dot` would have
+# produced:
+
+let plain = opsum(dot(S1[i], S1[i + 1]) for i in 1:5)
+    (; same_bag = bilinear_biquadratic(6; β = 0.0) ≈ plain, nterms = length(plain))
+end
+
+# That is worth separating from the full-support property, because the two are easy to conflate. A
+# projected term is active on *all* the sites you pass, and the reason it costs nothing above is that
+# both terms of a `dot` already span both sites. Add a piece that does not — an identity, say — and
+# it comes back padded, as a two-site term carrying a trivial-charge letter rather than as a shorter
+# term:
+
+let block = bond + one(bond) / 4
+    padded = project(block, [1, 2])
+    (; nterms = length(padded), arities = unique(arity(t) for t in padded))
+end
+
+# Both terms have arity 2: the identity did not come back as a `K = 0` term. So `project` inverts
+# `instantiate` for operators whose terms have full support on the sites given, and pads everything
+# else — which is exactly what makes it a faithful expansion of a *block* rather than a factorization.
 
 # ## ``J_1``–``J_2``
 #

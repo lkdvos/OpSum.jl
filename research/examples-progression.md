@@ -48,9 +48,11 @@ Two facts that shape the progression:
   Hubbard sector has to be spelled
   `ProductSector{Tuple{U1Irrep, SU2Irrep, FermionParity}}` with labels `(n, j, p)`:
   `(0,0,0) => 1`, `(1,1//2,1) => 1`, `(2,0,0) => 1`.
-* In that sector the singly-occupied sector has quantum dimension 2, so **`matrixunit` does not
-  apply** and `project` is the only route. That is a genuinely good teaching moment and a place to
-  check the error message is discoverable.
+* In that sector the singly-occupied sector has quantum dimension 2. `matrixunit` is refused per
+  *sector*, not per space (**verified**): it reaches the dim-1 vacuum and doubly-occupied sectors, so
+  `U n↑n↓` is an ordinary `matrixunit`, but anything touching the spin-½ doublet — the hopping
+  included — must go through `project`. The error is explicit and discoverable
+  (`matrixunit requires one-dimensional sectors, got …`), so W3's sharp case is settled.
 
 ## 3. The progression
 
@@ -111,9 +113,13 @@ symmetry is the user's choice, not the package's.
 (Existing page.)
 
 **4.4 Hubbard with SU(2) spin**, `U1Irrep ⊠ SU2Irrep ⊠ FermionParity` ✅.
-New: **non-abelian and fermionic at once** — the hardest case, and verified in scope. `matrixunit`
-is unavailable (spin-½ sector has dim 2), so the route is `project` of the bond block. Closes the
-loop with 2.2.
+New: **non-abelian and fermionic at once** — the hardest case, and verified in scope. The hopping
+touches the dim-2 spin doublet, so it is written out as fusion-tree matrix elements and `project`ed,
+while `U n↑n↓` stays a `matrixunit`. Closes the loop with 2.2. The physical bond now lives in
+`benchmark/ShowcaseModels.jl` as `hubbard_su2` — `D = 6`, `D_dense = 10`, size-independent — and its
+Clebsch-Gordan factors are pinned by comparing its spectrum against the spin-orbital `hubbard`,
+which shares no code with it. (The `D = [17,18,17,1]` in §2 describes the *random* probe block, not
+Hubbard.)
 
 ### Tier 5 — the lattice itself
 

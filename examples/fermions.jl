@@ -120,6 +120,48 @@ H_tV = tV_chain(N)
 res_tV = build("t-V chain", H_tV, chain(N))
 islossless(H_tV, chain(N))
 
+# ## Pairing: a symmetry that is not U(1)
+#
+# ```math
+# H = \sum_i \left[ -t \left( c^\dagger_i c_{i+1} + \mathrm{h.c.} \right)
+#     + \Delta \left( c^\dagger_i c^\dagger_{i+1} + \mathrm{h.c.} \right) \right]
+# ```
+#
+# The Kitaev chain. Pairing creates two particles at once, so particle number is *not* conserved —
+# only its parity. A `Vect[FermionNumber]` site would refuse `c†ᵢc†ⱼ` outright, because the charges
+# cannot fuse to the unit sector. Grade by `FermionParity` alone and they can: `1 ⊗ 1 = 0`.
+#
+# This is worth being explicit about, because it is a choice the *model* makes and the package only
+# follows: the symmetry you grade the site by is the symmetry you get to exploit.
+
+Vp = Vect[FermionParity](0 => 1, 1 => 1)
+odd, even = FermionParity(1), FermionParity(0)
+cp = matrixunit(Vp, even, odd)
+cdp = matrixunit(Vp, odd, even)
+
+function kitaev(N; t = 1.0, Δ = 0.5)
+    bonds = [(i, i + 1) for i in 1:(N - 1)]
+    return opsum(
+        (-t * (couple(cdp[i], cp[j]) + couple(cdp[j], cp[i])) for (i, j) in bonds),
+        (Δ * (couple(cdp[i], cdp[j]) + couple(cp[j], cp[i])) for (i, j) in bonds),
+    )
+end
+
+H_kitaev = kitaev(N)
+build("Kitaev chain", H_kitaev, FiniteChain(Vp, N))
+islossless(H_kitaev, FiniteChain(Vp, N))
+
+# The pairing terms are free: the same `D = 4` as the hopping chain alone, because the pair channel
+# reuses the bond index the hopping channel already needs. And the signs are still nobody's problem
+# but `couple`'s — hermiticity is the sharpest check on them:
+
+hermiticity_error(H_kitaev, FiniteChain(Vp, N)) < 1.0e-12
+
+# At ``\Delta = t`` and zero chemical potential the chain is the Majorana fixed point; the spectrum
+# is the honest check against any external reference:
+
+spectrum(kitaev(6; t = 1.0, Δ = 1.0), FiniteChain(Vp, 6))[1:4]
+
 # ## The Fermi–Hubbard model
 #
 # ```math
@@ -231,6 +273,84 @@ end
 
 # The bond dimension saturates at 19 once the cylinder is longer than two columns, and stays there
 # out to hundreds of sites — the same length-independence seen for the spin cylinders.
+
+# ## Hubbard with SU(2) spin
+#
+# The hardest case in the series: **non-abelian and fermionic at once**. Instead of two spin-orbital
+# sites per physical site, one site carries the whole four-dimensional Fock space, graded by
+# ``(n, j, \text{parity})`` — particle number, total spin, and fermion parity:
+
+const Hub = ProductSector{Tuple{U1Irrep, SU2Irrep, FermionParity}}
+Vh = Vect[Hub]((0, 0, 0) => 1, (1, 1 // 2, 1) => 1, (2, 0, 0) => 1)
+vac, sng, dbl = Hub((0, 0, 0)), Hub((1, 1 // 2, 1)), Hub((2, 0, 0))
+dim.((vac, sng, dbl))
+
+# That `2` is the whole story of this section. The singly-occupied sector *is* the spin-½ doublet, so
+# it carries quantum dimension 2, and `matrixunit` — which builds ``|out⟩⟨in|`` and therefore needs
+# one-dimensional sectors — cannot address it:
+
+try
+    matrixunit(Vh, sng, vac)     # would be "create one electron"
+catch e
+    println(sprint(showerror, e))
+end
+
+# Note what is *not* refused: the refusal is per **sector**, not per space. The doubly-occupied
+# sector has dimension 1, so the interaction term is an ordinary `matrixunit`:
+
+nupndn = matrixunit(Vh, dbl, dbl)
+length(nupndn)
+
+# For the hopping, `project` is the route — the general one, and the reason `project` exists. Write
+# the bond as a `TensorMap` in the fusion-tree basis: four reduced matrix elements, the ``\sqrt 2``
+# being the Clebsch-Gordan factor of the doubly-occupied channel.
+
+function hubbard_su2_hop()
+    t = zeros(ComplexF64, Vh ⊗ Vh ← Vh ⊗ Vh)
+    leg(a, b, c) = only(fusiontrees((a, b), c, (false, false)))
+    three = Hub((3, 1 // 2, 1))
+    t[leg(vac, sng, sng), leg(sng, vac, sng)] .= 1
+    t[leg(sng, dbl, three), leg(dbl, sng, three)] .= -1
+    t[leg(vac, dbl, dbl), leg(sng, sng, dbl)] .= sqrt(2)
+    t[leg(sng, sng, dbl), leg(dbl, vac, dbl)] .= sqrt(2)
+    return t
+end
+
+function hubbard_su2(N; t = 1.0, U = 4.0)
+    hop = hubbard_su2_hop()
+    bond = -t * (hop + hop')
+    return opsum(
+        (project(bond, [i, i + 1]) for i in 1:(N - 1)),
+        (U * nupndn[i] for i in 1:N),
+    )
+end
+
+H_hub2 = hubbard_su2(4)
+build("Hubbard SU(2), N=4", H_hub2, FiniteChain(Vh, 4))
+islossless(H_hub2, FiniteChain(Vh, 4))
+
+# Matrix elements written by hand deserve an independent check, and there is a good one available:
+# the spin-orbital encoding above is the same physics through a completely different route — single
+# letters placed with `couple`, rather than a block handed to `project`. Comparing spectra is what
+# makes the Clebsch-Gordan factors trustworthy rather than merely transcribed.
+
+let Nsites = 3
+    a = spectrum(hubbard_su2(Nsites), FiniteChain(Vh, Nsites))
+    b = spectrum(hubbard(Nsites), chain(2Nsites))       # `hubbard` counts sites, `chain` orbitals
+    (; dim = length(a), matches = a ≈ b)
+end
+
+# And the payoff for the extra symmetry, against the spin-orbital encoding of the same model:
+
+let Nsites = 4
+    su2 = build("Hubbard SU(2)", hubbard_su2(Nsites), FiniteChain(Vh, Nsites); quiet = true)
+    orb = build("Hubbard spin-orbital", hubbard(Nsites), chain(2Nsites); quiet = true)
+    println("  SU(2) spin:     N=$Nsites sites   D=$(su2.D)  D_dense=$(su2.Ddense)")
+    println("  spin-orbital:   N=$(2Nsites) orbitals  D=$(orb.D)  D_dense=$(orb.Ddense)")
+end
+
+# Both models are in `benchmark/ShowcaseModels.jl`, so these bond dimensions are pinned by the test
+# suite rather than only appearing here.
 
 # ## Scaling
 #

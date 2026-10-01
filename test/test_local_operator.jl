@@ -223,9 +223,10 @@ end
         @test B[4] == O[4]
         @test B[4] ≈ O[4]
     end
-    # a pass-through (scalar) part has no slot representation yet
-    @test_throws ArgumentError LocalOperator(scalarop(2.0, Vsu2))
-    @test_throws ArgumentError LocalOperator(spin(Vsu2) + scalarop(1.0, Vsu2))
+    # a pass-through (scalar) part occupies the slot and places as the K = 0 term, exactly as it
+    # does from the SiteOperator (test_local_couple.jl has the rest of the pass-through story)
+    @test LocalOperator(scalarop(2.0, Vsu2))[3] == scalarop(2.0, Vsu2)[3]
+    @test LocalOperator(spin(Vsu2) + scalarop(1.0, Vsu2))[3] == (spin(Vsu2) + scalarop(1.0, Vsu2))[3]
 end
 
 @testset "arithmetic mirrors Terms" begin

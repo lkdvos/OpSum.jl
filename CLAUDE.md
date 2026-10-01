@@ -65,12 +65,20 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
      Coupling two operands of fermion-odd total charge also multiplies the coefficient by `-1` (the graded tensor product), so `couple(cd[i], c[j])` is the physical `c†ᵢcⱼ`; the letters themselves are unchanged.
      Gated on `_canreorder(I)` = `UniqueFusion` **and** `SymmetricBraiding`; non-abelian reordering needs F-moves and still throws.
      `dot` accepts either order for *any* symmetry (two legs to the unit sector need no F-move) and inserts the same scalar R-symbol — which is `-1` for odd fermionic charges and for half-integer SU(2) charges.
+   - **Unplaced `couple`/`dot`/`couple_channels`** (`localoperator.jl`): every operand a `SiteOperator`/`LocalOperator` → a `LocalOperator` on `Σ nsites` slots, concatenated in argument order.
+     Implemented by lowering each operand onto consecutive slots (`_slotterms`/`_slotoperands`) and calling the *placed* implementation, so the forced-channel fold and every error message are the same code; slot order is argument order, so this path never reorders a leg and no R-symbol enters.
+     Every operand after the first must be single-slot (a multi-slot block onto a caterpillar is `via`, deferred).
+     Mixing placed and unplaced operands is an `ArgumentError` (`_mixedoperands`; an all-`Term` call stays a `MethodError`).
+   - **Pass-through slots.** A `LocalOperator` term occupies every slot; a slot the term does not act on holds the `passthrough` letter, with the running bond charge *unchanged* (so inside a charged caterpillar its `bond` is the previous running charge, not `unit(I)` — `_padkey` is only right at trivial running charge and is not used here; `_couple_terms` writes the bond itself).
+     Placement drops pass-through keys, so a placed `Term` never contains one and `ITOTermTable` sees nothing new; an all-pass-through term places as the `K = 0` scalar, exactly like `SiteOperator`'s pass-through letter.
+     Sources: `B + α` (adds `α · one(B)`, the all-pass-through term), a `SiteOperator` with a scalar part as a `couple` operand (`Sz + 1/2`; `SiteOperator ± Number` is defined), `LocalOperator(::SiteOperator)`.
 
 2. **Projection (numeric → symbolic)** — `src/operators/algebra/irrepprojection.jl`, `localoperator.jl`
    - `project(h)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning an **unplaced** `LocalOperator{I}` — a `Terms` bag on the relative slots `1:K` plus `nsites = K` (stored explicitly so an empty operator remembers `K`; every term has `sites == 1:K`, checked in the constructor).
      Placement is indexing: `B[i]` is contiguous (`i:i+K-1`), `B[s₁, …, s_K]` explicit and strictly increasing; it relabels each term's `sites` and nothing else, so it is exact for any symmetry — a gap site is a pass-through the sweep reconstructs, and `test/test_local_operator.jl` pins the fermionic (Jordan–Wigner) sign across a gap against sector-resolved spectra.
-     `project(h, sites)` is `project(h)[sites...]` (its label-count error is kept, since one label would otherwise read as a contiguous placement); `project(O, V)` is the single-site form, returning a `SiteOperator`, and `LocalOperator(::SiteOperator)` lifts one to `K = 1` (pass-through parts are refused until §4 of `research/local-operators.md` lands).
-     `LocalOperator` mirrors `Terms`' arithmetic (`+`/`-` need equal `nsites`, scalar `*`/`/`, `zero`, `copy`, `==`, `≈`, `length`) by delegating to the bag; `SiteOperator` stays a separate type because it is the entry type of the sweep's bond matrices.
+     `project(h, sites)` is `project(h)[sites...]` (its label-count error is kept, since one label would otherwise read as a contiguous placement); `project(O, V)` is the single-site form, returning a `SiteOperator`, and `LocalOperator(::SiteOperator)` lifts one to `K = 1` (a pass-through part becomes a pass-through slot).
+     `LocalOperator` mirrors `Terms`' arithmetic (`+`/`-` need equal `nsites`, scalar `*`/`/`, `B ± α`, `zero`, `one`, `copy`, `==`, `≈`, `length`) by delegating to the bag; `SiteOperator` stays a separate type because it is the entry type of the sweep's bond matrices.
+     `project(h)` never produces a pass-through slot (every slot is a letter, identity factors included — the "full support" warning), whereas `dot(S, S) + 1/4` does; the two spell the same operator differently and place to different bags.
      This is the inverse of `instantiate` and the intended way to write operators down — hard-coding letter indices `(c, n)` is fragile because `n` follows TensorKit's block order.
    - The candidate basis `(ops, tree)` is orthogonal and complete, with the closed-form diagonal `inner(E,E) = dim(tot) / Π_k dim(c_k)`, so coefficients are plain inner products — no solve.
      Coefficients below tolerance are dropped and the result is re-materialized and checked against the input (throws if unfaithful).
@@ -145,6 +153,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
   Model code should never mention a bare `IrrepOperator(c, n)` — `n` follows TensorKit's block order, so hard-coding it is a latent bug.
 - **`couple` defaults `to` to `unit(I)`** (what a Hamiltonian term needs) and accepts a variadic form for abelian sectors (`FusionStyle(I) isa UniqueFusion`), where every intermediate caterpillar charge is forced by the charges: `couple(cd[1], c[2], cd[3], c[4])`.
   Non-abelian sectors must nest to name each channel — the variadic form throws.
+  All of this holds verbatim for the unplaced form, `couple(cd, c, cd, c)[i, j, k, l]`, which is the same code on consecutive slots.
 - **Sparse bond matrices**: each sweep accumulates bond entries into a dict-of-keys `Dictionary{CartesianIndex{2}, SiteOperator}` and finalizes it to a stdlib `SparseArrays.SparseMatrixCSC` at the end (`sparse_from_dict`/`storedpairs` in `src/utility/linalg.jl`).
 
 ### Test structure

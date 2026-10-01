@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate, spin, couple, matrixunit, SiteOperator, opsum
+using OpSum: instantiate, spin, couple, matrixunit, SiteOperator, opsum, irrep_mpo
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, nonzero_keys, nonzero_pairs, eachspace
@@ -27,7 +27,7 @@ function reference_models()
     Vt = ℂ^2
     ops = instances(IrrepOperator, Vt)
 
-    return [
+    models = [
         # SU(2) Heisenberg: the case where Jordan padding has to reproduce the textbook bond dim 3
         "heisenberg N=4" => (opsum(dot(S[i], S[i + 1]) for i in 1:3), FiniteChain(Vs, 4)),
         # decoupled pairs: two disconnected trivial-charge channels at the middle bond
@@ -57,6 +57,8 @@ function reference_models()
             FiniteChain(Vt, 4),
         ),
     ]
+    # each model's terms go onto its chain: the `OperatorSum` is what the compression takes
+    return [name => (opsum(sites, H), sites) for (name, (H, sites)) in models]
 end
 
 # t-V chain *with a next-nearest-neighbour hop*: that is what makes an odd-parity bond charge pass
@@ -113,7 +115,7 @@ function check_jordan_structure(Ws)
 end
 
 @testset "Jordan structure — $name" for (name, (H, sites)) in reference_models()
-    Ws = jordan_mpo_tensors(H, sites)
+    Ws = jordan_mpo_tensors(H)
     @test Ws isa Vector{<:SparseBlockTensorMap}
     check_jordan_structure(Ws)
 end
@@ -123,8 +125,8 @@ end
     # among *Jordan-form* MPOs, and the gap is exactly the padded start/finish channels.
     for (_, (H, sites)) in reference_models()
         N = length(sites)
-        _, secs = irrep_mpo(H, sites)
-        Ws = jordan_mpo_tensors(H, sites)
+        _, secs = irrep_mpo(H)
+        Ws = jordan_mpo_tensors(H)
         for i in 1:(N - 1)
             @test length(secs[i]) <= size(Ws[i], 4) <= length(secs[i]) + 2
         end
@@ -137,9 +139,9 @@ end
     S = spin(V)
     N = 6
     sites = FiniteChain(V, N)
-    H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
-    @test map(length, irrep_mpo(H, sites).bondsectors) == [2, 3, 3, 3, 2, 1]
-    Ws = jordan_mpo_tensors(H, sites)
+    H = opsum(sites, dot(S[i], S[i + 1]) for i in 1:(N - 1))
+    @test map(length, irrep_mpo(H).bondsectors) == [2, 3, 3, 3, 2, 1]
+    Ws = jordan_mpo_tensors(H)
     @test [size(W, 4) for W in Ws] == [3, 3, 3, 3, 3, 1]
     @test [size(W, 1) for W in Ws] == [1, 3, 3, 3, 3, 3]
 end
@@ -148,15 +150,15 @@ end
     V = SU2Space(1 // 2 => 1)
     S = spin(V)
     # a non-scalar total charge has no identity at the right boundary
-    @test_throws ArgumentError jordan_mpo_tensors(opsum(S[i] for i in 1:3), FiniteChain(V, 3))
+    @test_throws ArgumentError jordan_mpo_tensors(opsum(FiniteChain(V, 3), S[i] for i in 1:3))
     # an empty operator has no bond structure at all
-    @test_throws ArgumentError jordan_mpo_tensors(Terms{SU2Irrep}(), FiniteChain(V, 3))
+    @test_throws ArgumentError jordan_mpo_tensors(OperatorSum(FiniteChain(V, 3)))
     # an infinite chain is not a Jordan-form target
-    @test_throws ArgumentError jordan_mpo_tensors(opsum(dot(S[1], S[2])), InfiniteChain([V]))
+    @test_throws ArgumentError jordan_mpo_tensors(opsum(InfiniteChain([V]), dot(S[1], S[2])))
     # a truncation aggressive enough to empty a bond cannot carry the identity corners
-    H = opsum(dot(S[i], S[i + 1]) for i in 1:3)
+    H = opsum(FiniteChain(V, 4), dot(S[i], S[i + 1]) for i in 1:3)
     alg = SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD)
-    @test_throws ArgumentError jordan_mpo_tensors(H, FiniteChain(V, 4), alg)
+    @test_throws ArgumentError jordan_mpo_tensors(H, alg)
 end
 
 # ── The MPSKit seam ───────────────────────────────────────────────────────────
@@ -177,7 +179,7 @@ function to_jordan(W)
 end
 
 @testset "MPSKit round trip — $name" for (name, (H, sites)) in reference_models()
-    Ws = jordan_mpo_tensors(H, sites)
+    Ws = jordan_mpo_tensors(H)
 
     # `JordanMPOTensor(::SparseBlockTensorMap)` consumes the bulk tensors unmodified
     for i in 2:(length(Ws) - 1)
@@ -198,19 +200,18 @@ end
 end
 
 @testset "same operator as the dense oracle — $name" for (name, (H, sites)) in oracle_models()
-    Ws = jordan_mpo_tensors(H, sites)
-    @test mpo_tensormap(map(TensorMap, Ws)) ≈ instantiate(H, sites)
+    Ws = jordan_mpo_tensors(H)
+    @test mpo_tensormap(map(TensorMap, Ws)) ≈ instantiate(H)
 end
 
 @testset "MPSKit DMRG ground state matches exact diagonalization" begin
     V = SU2Space(1 // 2 => 1)
     S = spin(V)
     N = 6
-    sites = fill(V, N)
-    H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
-    Hmpo = FiniteMPOHamiltonian(map(to_jordan, jordan_mpo_tensors(H, sites)))
+    H = opsum(FiniteChain(V, N), dot(S[i], S[i + 1]) for i in 1:(N - 1))
+    Hmpo = FiniteMPOHamiltonian(map(to_jordan, jordan_mpo_tensors(H)))
 
-    exact = spectrum(H, sites)[1]
+    exact = spectrum(H)[1]
     # half-integer *and* integer spins: an odd bond of a spin-½ chain carries the former
     ψ = FiniteMPS(randn, ComplexF64, N, V, SU2Space(0 => 8, 1 // 2 => 8, 1 => 8, 3 // 2 => 4))
     ψ, = find_groundstate(ψ, Hmpo, DMRG(; maxiter = 50, verbosity = 0))

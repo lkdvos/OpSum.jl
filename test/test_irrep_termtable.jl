@@ -84,7 +84,7 @@ end
 
     @test isempty(opsum(t, -t))               # exact cancellation drops the term
     @test length(opsum(t, 2 * t, -3 * t)) == 0
-    @test_throws ArgumentError instantiate(opsum(t, -t), sites2)
+    @test_throws ArgumentError instantiate(opsum(sites2, opsum(t, -t)))
 
     # every accumulation route agrees, whatever its cost
     sites6 = fill(su2, 6)
@@ -136,7 +136,7 @@ end
     @test length(mixed) == 2
 end
 
-@testset "the lattice enters where the MPO is formed" begin
+@testset "the lattice enters when terms meet an OperatorSum" begin
     S = spin(su2)
     terms = [dot(S[i], S[i + 1]) for i in 1:3]
     sites = fill(su2, 4)
@@ -144,24 +144,24 @@ end
     H = opsum(terms)
     # a bag is latticeless, so nothing about it knows `sites`; the sweep needs only the site count
     @test nvertices(ITOTermTable(H, length(sites))) == length(sites)
-    @test irrep_mpo(H, sites).bondsectors == irrep_mpo(H, FiniteChain(su2, 4)).bondsectors
+    @test irrep_mpo(opsum(sites, H)).bondsectors == irrep_mpo(opsum(FiniteChain(su2, 4), H)).bondsectors
 
     # the checks the lattice boundary exists for — the only place letters and spaces are confronted
-    @test_throws ArgumentError irrep_mpo(H, fill(su2, 3))                 # term past the lattice
-    @test_throws ArgumentError irrep_mpo(H, fill(u1, 4))                  # wrong sector type
-    @test_throws ArgumentError irrep_mpo(H, fill(SU2Space(0 => 1), 4))    # no spin-1 letter there
-    @test_throws ArgumentError instantiate(H, fill(su2, 3))               # and again at instantiate
-    @test_throws ArgumentError islossless(H, fill(su2, 3))
+    @test_throws ArgumentError irrep_mpo(opsum(fill(su2, 3), H))                 # term past the lattice
+    @test_throws ArgumentError irrep_mpo(opsum(fill(u1, 4), H))                  # wrong sector type
+    @test_throws ArgumentError irrep_mpo(opsum(fill(SU2Space(0 => 1), 4), H))    # no spin-1 letter there
+    @test_throws ArgumentError instantiate(opsum(fill(su2, 3), H))               # and again at instantiate
+    @test_throws ArgumentError islossless(opsum(fill(su2, 3), H))
 
-    # appending is latticeless, so a term past the eventual lattice is caught at compression
+    # appending to a bag is latticeless, so a term past the eventual lattice is caught when it meets one
     H2 = append!(opsum(terms), dot(S[1], S[5]))
     @test nterms_raw(H2) == 4
-    @test_throws ArgumentError irrep_mpo(H2, sites)
+    @test_throws ArgumentError irrep_mpo(opsum(sites, H2))
 
     # `lat` need not already be a `FiniteChain` or a `Vector{<:ElementarySpace}`
-    @test irrep_mpo(H, (su2 for _ in 1:4)).bondsectors == irrep_mpo(H, sites).bondsectors
-    @test irrep_mpo(H, ntuple(_ -> su2, 4)).bondsectors == irrep_mpo(H, sites).bondsectors
-    @test_throws ArgumentError irrep_mpo(H, [1, 2, 3, 4])
+    @test irrep_mpo(opsum!(OperatorSum(su2 for _ in 1:4), H)).bondsectors == irrep_mpo(opsum(sites, H)).bondsectors
+    @test irrep_mpo(opsum!(OperatorSum(ntuple(_ -> su2, 4)), H)).bondsectors == irrep_mpo(opsum(sites, H)).bondsectors
+    @test_throws ArgumentError irrep_mpo(opsum!(OperatorSum([1, 2, 3, 4]), H))
 
     # FiniteChain has an edge where InfiniteChain wraps
     @test length(FiniteChain(su2, 4)) == 4

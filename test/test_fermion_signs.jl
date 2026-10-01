@@ -27,7 +27,7 @@ function densemat(t::AbstractTensorMap)
     end
     return M
 end
-dense(h, N) = densemat(instantiate(h, FiniteChain(Vf, N)))
+dense(h, N) = densemat(instantiate(opsum(FiniteChain(Vf, N), h)))
 
 @testset "fermionic signs" begin
     F = fermion_ops(Vf)
@@ -48,7 +48,7 @@ dense(h, N) = densemat(instantiate(h, FiniteChain(Vf, N)))
         @test dense(h, 3) ≈ Hjw
         one = [count_ones(m) == 1 for m in 0:7]
         @test sort(real(eigvals(Hermitian(Hjw[one, one])))) ≈ [-2.0, 1.0, 1.0]
-        @test islossless(h, FiniteChain(Vf, 3))
+        @test islossless(opsum(FiniteChain(Vf, 3), h))
     end
 
     @testset "project inverts instantiate" begin

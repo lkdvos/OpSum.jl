@@ -2,6 +2,9 @@ using Test
 using OpSum
 using OpSum: instantiate, total, bondcharges, tree, opsum
 using OpSum.IrrepTensorOperators: IrrepOperator
+
+# dense oracle of a latticeless bag over a list of site spaces
+inst(ts, sites) = instantiate(opsum(sites, ts))
 using TensorKit
 using LinearAlgebra: dot, norm, eigvals, I as Id
 
@@ -48,7 +51,7 @@ end
 @testset "single-site field embedding" begin
     V = SU2Space(1 // 2 => 1)
     B = convert(Array, instantiate(spin(V), V))          # (2,2,3)
-    Wf = convert(Array, instantiate(spin(V)[2], [V, V, V]))
+    Wf = convert(Array, inst(spin(V)[2], [V, V, V]))
     @test size(Wf) == (2, 2, 2, 2, 2, 2, 3)
     I2 = Matrix{ComplexF64}(Id, 2, 2)
     oracle = [
@@ -59,7 +62,7 @@ end
 
     # empty-site identity is the structural identity on all sites
     idop = one(spin(V)[1])
-    @test reshape(convert(Array, instantiate(idop, [V, V])), 4, 4) ≈
+    @test reshape(convert(Array, inst(idop, [V, V])), 4, 4) ≈
         Matrix{Float64}(Id, 4, 4)
 end
 
@@ -67,7 +70,7 @@ end
     # spin-1/2 : ¼(σx⊗σx + σy⊗σy + σz⊗σz)
     V = SU2Space(1 // 2 => 1)
     Sx, Sy, Sz = σX / 2, σY / 2, σZ / 2
-    Wd = dropdims(convert(Array, instantiate(dot(spin(V)[1], spin(V)[2]), [V, V])); dims = 5)
+    Wd = dropdims(convert(Array, inst(dot(spin(V)[1], spin(V)[2]), [V, V])); dims = 5)
     orc = [
         Sx[o1, i1] * Sx[o2, i2] + Sy[o1, i1] * Sy[o2, i2] + Sz[o1, i1] * Sz[o2, i2]
             for o1 in 1:2, o2 in 1:2, i1 in 1:2, i2 in 1:2
@@ -84,7 +87,7 @@ end
     Sp1 = ComplexF64[0 sq2 0; 0 0 sq2; 0 0 0]
     Sm1 = collect(Sp1')
     Sx1, Sy1 = (Sp1 + Sm1) / 2, (Sp1 - Sm1) / (2im)
-    Wd1 = dropdims(convert(Array, instantiate(dot(spin(V1)[1], spin(V1)[2]), [V1, V1])); dims = 5)
+    Wd1 = dropdims(convert(Array, inst(dot(spin(V1)[1], spin(V1)[2]), [V1, V1])); dims = 5)
     orc1 = [
         Sx1[o1, i1] * Sx1[o2, i2] + Sy1[o1, i1] * Sy1[o2, i2] + Sz1[o1, i1] * Sz1[o2, i2]
             for o1 in 1:3, o2 in 1:3, i1 in 1:3, i2 in 1:3
@@ -98,7 +101,7 @@ end
     E2 = convert(Array, instantiate(ops[2], V))[:, :, 1]
     E3 = convert(Array, instantiate(ops[3], V))[:, :, 1]
     # bare `couple` carries no factor (the Cartesian −√dim lives in `·`/`dot`, not here)
-    Cd = dropdims(convert(Array, instantiate(couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial)), [V, V])); dims = 5)
+    Cd = dropdims(convert(Array, inst(couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial)), [V, V])); dims = 5)
     orc = [E2[o1, i1] * E3[o2, i2] for o1 in 1:2, o2 in 1:2, i1 in 1:2, i2 in 1:2]
     @test Cd ≈ orc
 end
@@ -109,7 +112,7 @@ end
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
 
     # singlet hopping term is number-conserving (net charge 0)
-    Hop = instantiate(dot(raise[1], lower[2]), [V, V])
+    Hop = inst(dot(raise[1], lower[2]), [V, V])
     @test space(Hop) == ((V ⊗ V) ← (V ⊗ V ⊗ Vect[U1Irrep](U1Irrep(0) => 1)))
     rd = dropdims(convert(Array, instantiate(raise, V)); dims = 3)
     ld = dropdims(convert(Array, instantiate(lower, V)); dims = 3)
@@ -118,7 +121,7 @@ end
     @test Hd ≈ orc
 
     # coupling two charge +1 operators to a definite total charge +2
-    C2 = instantiate(couple(raise[1], raise[2]; to = U1Irrep(2)), [V, V])
+    C2 = inst(couple(raise[1], raise[2]; to = U1Irrep(2)), [V, V])
     @test collect(blocksectors(C2)) == [U1Irrep(2)]
 end
 
@@ -139,9 +142,9 @@ end
     end
     @test occursin("genuine choice", err) && occursin("couple_channels", err)
     # coupling a scalar (no charge leg) is invalid
-    @test_throws ArgumentError instantiate(couple(scalarop(1, V)[1], b; to = SU2Irrep(0)), [V, V, V])
+    @test_throws ArgumentError inst(couple(scalarop(1, V)[1], b; to = SU2Irrep(0)), [V, V, V])
     # same-site coupling invalid
-    @test_throws ArgumentError instantiate(couple(spin(V)[1], spin(V)[1]; to = SU2Irrep(0)), [V, V])
+    @test_throws ArgumentError inst(couple(spin(V)[1], spin(V)[1]; to = SU2Irrep(0)), [V, V])
 end
 
 @testset "`to` defaults to the unit sector" begin
@@ -239,7 +242,7 @@ end
     Spm = ComplexF64[0 0; 1 0]
     Smm = ComplexF64[0 1; 0 0]
     Szm = ComplexF64[-0.5 0; 0 0.5]
-    A = dropdims(convert(Array, instantiate(couple(Sp[1], Sm[2], Sz[3]), fill(Vu, 3))); dims = 7)
+    A = dropdims(convert(Array, inst(couple(Sp[1], Sm[2], Sz[3]), fill(Vu, 3))); dims = 7)
     ref = [
         Spm[o1, i1] * Smm[o2, i2] * Szm[o3, i3]
             for o1 in 1:2, o2 in 1:2, o3 in 1:2, i1 in 1:2, i2 in 1:2, i3 in 1:2
@@ -257,7 +260,7 @@ end
 # Spectrum computed block by block, so it is valid for any sector (`convert(Array, t)` is not, for
 # fermionic ones). Also cross-checks the U(1) `spin_ops` ladders against the SU(2) `spin` build.
 function blockspectrum(H, sites)
-    O = instantiate(H, sites)
+    O = inst(H, sites)
     Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
     vals = Float64[]
     for (c, b) in blocks(Oop)
@@ -270,7 +273,7 @@ function blockspectrum(H, sites)
 end
 
 function relative_hermiticity_error(H, sites)
-    O = instantiate(H, sites)
+    O = inst(H, sites)
     Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
     return norm(Oop - Oop') / norm(Oop)
 end
@@ -371,12 +374,12 @@ end
     sites = fill(Vf, N)
 
     T = opsum(-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1))
-    Td = adjoint(T, sites)
-    @test T + Td ≈ opsum(
+    Td = opsum(sites, T)'
+    @test T + Td.terms ≈ opsum(
         -1.0 * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1)
     )
-    @test relative_hermiticity_error(T + Td, sites) < 1.0e-12
-    @test adjoint(Td, sites) ≈ T
+    @test relative_hermiticity_error(T + Td.terms, sites) < 1.0e-12
+    @test Td'.terms ≈ T
 
     # a complex amplitude has to be conjugated, and a longer-range hop crosses a site
     for T2 in (
@@ -386,9 +389,9 @@ end
             2.0im * F.n[2] + scalarop(1.0 + 1.0im, Vf)[1],
         )
         Tl = opsum(T2)
-        Tld = adjoint(Tl, sites)
-        @test relative_hermiticity_error(Tl + Tld, sites) < 1.0e-12
-        @test adjoint(Tld, sites) ≈ Tl
+        Tld = opsum(sites, Tl)'
+        @test relative_hermiticity_error(Tl + Tld.terms, sites) < 1.0e-12
+        @test Tld'.terms ≈ Tl
     end
 
     # non-abelian, including a 3-body term with a genuine inner line
@@ -396,17 +399,17 @@ end
     S = spin(Vs)
     ssites = fill(Vs, 4)
     Hs = opsum(dot(S[i], S[i + 1]) for i in 1:3)
-    @test adjoint(Hs, ssites) ≈ Hs
+    @test opsum(ssites, Hs)'.terms ≈ Hs
     T3 = opsum(
         (0.4 + 0.2im) * couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
     )
-    T3d = adjoint(T3, ssites)
-    @test relative_hermiticity_error(T3 + T3d, ssites) < 1.0e-12
-    @test adjoint(T3d, ssites) ≈ T3
+    T3d = opsum(ssites, T3)'
+    @test relative_hermiticity_error(T3 + T3d.terms, ssites) < 1.0e-12
+    @test T3d'.terms ≈ T3
 
     # a charged term's adjoint lives in the dual sector, so it is refused
-    @test_throws ArgumentError adjoint(opsum(F.cd[1]), sites)
-    @test isempty(adjoint(Terms{FermionNumber}(), sites))
+    @test_throws ArgumentError opsum(sites, F.cd[1])'
+    @test isempty(opsum(sites, Terms{FermionNumber}())')
     # and the postfix form says what it is missing rather than raising a MethodError
     @test_throws ArgumentError couple(F.cd[1], F.c[2])'
 end
@@ -433,7 +436,7 @@ end
             )
         )
         @test blockspectrum(Hsu2, fill(su2, L)) ≈ blockspectrum(Hu1, fill(Vu, L))
-        @test islossless(Hu1, fill(Vu, L))
+        @test islossless(opsum(fill(Vu, L), Hu1))
     end
 
     # the two-sector form is the block it replaces

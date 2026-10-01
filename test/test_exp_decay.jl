@@ -4,8 +4,8 @@ using LinearAlgebra: dot
 using OpSum
 using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
     unitcell_terms, maxspan, InfiniteMPO, spin, matrixunit, couple, scalarop, instantiate,
-    expterm, expand_channels, chain_terms, channelspan, MixedSum, ExpSum, _lower_channels,
-    _entriesequal, _infinite_window, storedpairs, ispassthrough
+    expterm, expand_channels, chain_terms, channelspan, ExpSum, _lower_channels,
+    _entriesequal, _infinite_window, storedpairs, ispassthrough, _irrep_sweep, ITOTermTable
 using OpSum.IrrepTensorOperators: IrrepOperator
 
 # Exponentially decaying interactions
@@ -42,37 +42,54 @@ xxz(i, j; Δ = 1.0) =
     0.5 * couple(Sp[i], Sm[j]) + 0.5 * couple(Sm[i], Sp[j]) + Δ * couple(Sz[i], Sz[j])
 A3, B3 = LO.(instances(IrrepOperator, VTR)[2:3])
 
-# Every model here is a *generating set* on a cell of `length(spaces)` sites, as for a plain `Terms` bag.
+# Every model here is a *generating set* on a cell of `length(spaces)` sites, as an `OperatorSum` on
+# the infinite chain of that cell.
+infchain(spaces) = InfiniteChain(spaces)
+
 function reference_models()
+    m(spaces, parts...) = opsum(infchain(spaces), parts...)
     return [
-        ("pure exp SU2 L=1", MixedSum(expterm(dot(S[1], S[2]); decay = 0.5)), [VSU2]),
-        ("exp + NN SU2 L=1", dot(S[1], S[2]) + expterm(dot(S[1], S[2]); decay = 0.5), [VSU2]),
-        ("exp beyond 2nd neighbour", MixedSum(expterm(dot(S[1], S[3]); decay = 0.5)), [VSU2]),
+        ("pure exp SU2 L=1", m([VSU2], expterm(dot(S[1], S[2]); decay = 0.5)), [VSU2]),
         (
-            "two decays", expterm(dot(S[1], S[2]); decay = 0.5) +
-                expterm(dot(S[1], S[2]); decay = -0.25), [VSU2],
+            "exp + NN SU2 L=1",
+            m([VSU2], dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5)), [VSU2],
+        ),
+        ("exp beyond 2nd neighbour", m([VSU2], expterm(dot(S[1], S[3]); decay = 0.5)), [VSU2]),
+        (
+            "two decays",
+            m(
+                [VSU2], expterm(dot(S[1], S[2]); decay = 0.5),
+                expterm(dot(S[1], S[2]); decay = -0.25)
+            ), [VSU2],
         ),
         (
-            "exp L=2", expterm(dot(S[1], S[2]); decay = 0.5) +
-                expterm(dot(S[2], S[3]); decay = 0.5), [VSU2, VSU2],
+            "exp L=2",
+            m(
+                [VSU2, VSU2], expterm(dot(S[1], S[2]); decay = 0.5),
+                expterm(dot(S[2], S[3]); decay = 0.5)
+            ), [VSU2, VSU2],
         ),
         (
             "exp all pairs L=2",
-            sum([expterm(dot(S[a], S[a + d]); decay = 0.5) for a in 1:2 for d in 1:2]),
+            m([VSU2, VSU2], (expterm(dot(S[a], S[a + d]); decay = 0.5) for a in 1:2 for d in 1:2)),
             [VSU2, VSU2],
         ),
-        ("exp XXZ U1", MixedSum(expterm(xxz(1, 2); decay = 0.5)), [VU1]),
-        ("exp XXZ + field U1", expterm(xxz(1, 2); decay = 0.5) + 0.3 * Sz[1], [VU1]),
+        ("exp XXZ U1", m([VU1], expterm(xxz(1, 2); decay = 0.5)), [VU1]),
+        (
+            "exp XXZ + field U1",
+            m([VU1], expterm(xxz(1, 2); decay = 0.5), 0.3 * Sz[1]), [VU1],
+        ),
         # a charge-neutral but non-trivial string on the stretched gap
         (
             "exp hop with Sᶻ string",
-            MixedSum(expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)), [VU1],
+            m([VU1], expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)), [VU1],
         ),
-        ("exp trivial sector", MixedSum(expterm(couple(A3[1], B3[2]); decay = 0.4)), [VTR]),
+        ("exp trivial sector", m([VTR], expterm(couple(A3[1], B3[2]); decay = 0.4)), [VTR]),
         # a two-site entry block (the loop starts after the block completes) …
         (
             "multi-site entry block",
-            MixedSum(
+            m(
+                [VSU2],
                 expterm(
                     couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]); decay = 0.5, exitsite = 3
                 )
@@ -81,7 +98,8 @@ function reference_models()
         # … and a two-site exit block (the loop exits onto an ordinary finite tail)
         (
             "multi-site exit block",
-            MixedSum(
+            m(
+                [VSU2],
                 expterm(
                     couple(couple(S[1], S[3]; to = SU2Irrep(1)), S[4]); decay = 0.5, exitsite = 3
                 )
@@ -97,11 +115,11 @@ end
 function faithful(H, spaces; ncells = 6)
     chain = InfiniteChain(spaces)
     L = length(spaces)
-    gen = unitcell_terms(H, L)
+    gen = unitcell_terms(H)
     R = maxspan(gen)
     N = ncells * L
-    got = Dict(t => t.coeff for t in mpo_terms_window(irrep_mpo(H, chain), chain, ncells))
-    want = Dict(t => t.coeff for t in window_terms(gen, chain, ncells))
+    got = Dict(t => t.coeff for t in mpo_terms_window(irrep_mpo(H), chain, ncells))
+    want = Dict(t => t.coeff for t in window_terms(gen, ncells))
 
     for (t, v) in got
         haskey(want, t) || return false, "spurious term on sites $(t.sites)"
@@ -129,13 +147,13 @@ end
     λ = 0.5
     ncells = 12
     chain = InfiniteChain([VSU2])
-    geo = irrep_mpo(expterm(dot(S[1], S[2]); decay = λ), chain)
+    geo = irrep_mpo(opsum(chain, expterm(dot(S[1], S[2]); decay = λ)))
     @test densedim(geo.bondsectors[1]) == 5
     got = Dict(t => t.coeff for t in mpo_terms_window(geo, chain, ncells))
 
     for Rmax in (2, 4, 7)
         gen = unitcell_terms(sum([λ^(r - 1) * dot(S[1], S[1 + r]) for r in 1:Rmax]), 1)
-        trunc = irrep_mpo(gen, chain)
+        trunc = irrep_mpo(opsum(chain, gen))
         @test densedim(trunc.bondsectors[1]) == 3Rmax + 2      # grows with the range …
         @test densedim(geo.bondsectors[1]) == 5                # … and this one does not
 
@@ -151,7 +169,7 @@ end
     # `nothing`, so a channel whose diagonal were a bare scalar would assemble into a silently wrong
     # tensor. λ rides as an edge weight, so the entry is a scaled *letter*.
     λ = 0.4
-    H = irrep_mpo(expterm(dot(S[1], S[2]); decay = λ), InfiniteChain([VSU2]))
+    H = irrep_mpo(opsum(InfiniteChain([VSU2]), expterm(dot(S[1], S[2]); decay = λ)))
     W = only(H.Ws)
     diag = [
         (Tuple(idx)[1], only(pairs(op))) for (idx, op) in storedpairs(W)
@@ -173,7 +191,7 @@ end
     ops = LO.(instances(IrrepOperator, VTR)[2:4])
     a, b, c = ops
     lat = InfiniteChain([VTR])
-    D(H) = densedim(irrep_mpo(H, lat).bondsectors[1])
+    D(H) = densedim(irrep_mpo(opsum(lat, H)).bondsectors[1])
 
     one_channel = D(expterm(couple(a[1], b[2]); decay = 0.5))
     @test one_channel == 3                                        # start + channel + done
@@ -203,11 +221,11 @@ end
     lat = InfiniteChain([VSU2])
     # a geometric channel *replaces* the in-flight spin-1 multiplet of a nearest-neighbour model rather
     # than adding to it, so exponentially decaying Heisenberg is as cheap as the nearest-neighbour one
-    @test densedim(irrep_mpo(expterm(dot(S[1], S[2]); decay = 0.5), lat).bondsectors[1]) == 5
-    @test densedim(irrep_mpo(dot(S[1], S[2]), lat).bondsectors[1]) == 5
+    @test densedim(irrep_mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]) == 5
+    @test densedim(irrep_mpo(opsum(lat, dot(S[1], S[2]))).bondsectors[1]) == 5
     # adding the bare nearest-neighbour bond back on top does cost one more spin-1 channel
     @test densedim(
-        irrep_mpo(dot(S[1], S[2]) + expterm(dot(S[1], S[2]); decay = 0.5), lat).bondsectors[1]
+        irrep_mpo(opsum(lat, dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]
     ) == 8
 
     # A channel's *period* is part of its declaration, so writing the same physical model on a larger
@@ -216,7 +234,7 @@ end
     # The terms are identical (checked in the round-trip testset above); the bond dimension is not.
     for L in 1:3
         H = sum([expterm(dot(S[a], S[a + d]); decay = 0.5) for a in 1:L for d in 1:L])
-        Hinf = irrep_mpo(H, InfiniteChain(fill(VSU2, L)))
+        Hinf = irrep_mpo(opsum(InfiniteChain(fill(VSU2, L)), H))
         @test length(H.channels) == L^2
         @test all(j -> densedim(Hinf.bondsectors[j]) == 3L + 2, 1:L)
     end
@@ -226,10 +244,10 @@ end
     for (name, H, spaces) in reference_models()
         L = length(spaces)
         chain = InfiniteChain(spaces)
-        gen = unitcell_terms(H, L)
-        base = _infinite_window(gen, chain)
+        gen = unitcell_terms(H)
+        base = _infinite_window(gen)
         for nc in (13, 21)
-            alt = _infinite_window(gen, chain; ncells = nc)
+            alt = _infinite_window(gen; ncells = nc)
             @test alt.bondsectors == base.bondsectors
             @test (alt.start, alt.done) == (base.start, base.done)
             @test all(j -> _entriesequal(alt.Ws[j], base.Ws[j]), 1:L)
@@ -242,9 +260,9 @@ end
         0.3 * dot(S[1], S[2]),
     ]
     chain1 = InfiniteChain([VSU2])
-    base = _infinite_window(unitcell_terms(sum(parts), 1), chain1)
+    base = _infinite_window(unitcell_terms(opsum(chain1, parts...)))
     for perm in (reverse(eachindex(parts)), circshift(collect(eachindex(parts)), 1))
-        alt = _infinite_window(unitcell_terms(sum(parts[collect(perm)]), 1), chain1)
+        alt = _infinite_window(unitcell_terms(opsum(chain1, parts[collect(perm)]...)))
         @test alt.bondsectors == base.bondsectors
         @test (alt.start, alt.done) == (base.start, base.done)
         @test _entriesequal(only(alt.Ws), only(base.Ws))
@@ -254,7 +272,7 @@ end
 @testset "the unit cell closes and reports two identity channels" begin
     for (name, H, spaces) in reference_models()
         L = length(spaces)
-        Hinf = irrep_mpo(H, InfiniteChain(spaces))
+        Hinf = irrep_mpo(H)
         I = sectortype(spaces[1])
         @test length(Hinf) == L
         for j in 1:L
@@ -278,27 +296,30 @@ end
     # boundary vectors against `instantiate` of the terms the MPO claims to generate. This is what
     # exercises the pass-through-on-a-*charged*-bond coupler that a channel's diagonal needs.
     cases = [
-        ("pure exp trivial", MixedSum(expterm(couple(A3[1], B3[2]); decay = 0.4)), [VTR], 4),
-        ("exp + NN SU2", dot(S[1], S[2]) + expterm(dot(S[1], S[2]); decay = 0.5), [VSU2], 4),
+        ("pure exp trivial", [expterm(couple(A3[1], B3[2]); decay = 0.4)], [VTR], 4),
         (
-            "exp with Sᶻ string",
-            MixedSum(expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)), [VU1], 4,
+            "exp + NN SU2", [dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5)], [VSU2], 4,
         ),
         (
-            "exp L=2", expterm(dot(S[1], S[2]); decay = 0.5) +
-                expterm(dot(S[2], S[3]); decay = 0.5), [VSU2, VSU2], 2,
+            "exp with Sᶻ string",
+            [expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)], [VU1], 4,
+        ),
+        (
+            "exp L=2",
+            [expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[2], S[3]); decay = 0.5)],
+            [VSU2, VSU2], 2,
         ),
     ]
     for (name, H, spaces, ncells) in cases
         L = length(spaces)
         lat = InfiniteChain(spaces)
-        Hinf = irrep_mpo(H, lat)
+        Hinf = irrep_mpo(opsum(lat, H...))
         N = ncells * L
         sites = [spaces[mod1(j, L)] for j in 1:N]
         Ts = irrep_mpo_tensors(Hinf, lat)
         tiled = [Ts[mod1(j, L)] for j in 1:N]
         O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.done[L])
-        oracle = instantiate(mpo_terms_window(Hinf, lat, ncells), sites)
+        oracle = instantiate(opsum(sites, mpo_terms_window(Hinf, lat, ncells)))
         @test O ≈ oracle || (println("  $name mismatch"); false)
     end
 end
@@ -308,46 +329,53 @@ end
     # geometric sum restricted to the chain — `chain_terms` spells it out. States that could no longer
     # complete are pruned, which is what keeps the right boundary one-dimensional.
     cases = [
-        ("exp SU2", MixedSum(expterm(dot(S[1], S[2]); decay = 0.5)), fill(VSU2, 5)),
+        ("exp SU2", [expterm(dot(S[1], S[2]); decay = 0.5)], fill(VSU2, 5)),
         (
-            "exp + NN SU2", sum([dot(S[i], S[i + 1]) for i in 1:4]) +
-                expterm(dot(S[1], S[2]); decay = 0.5), fill(VSU2, 5),
+            "exp + NN SU2",
+            [(dot(S[i], S[i + 1]) for i in 1:4), expterm(dot(S[1], S[2]); decay = 0.5)],
+            fill(VSU2, 5),
         ),
-        ("exp gap trivial", MixedSum(expterm(couple(A3[1], B3[3]); decay = 0.4)), fill(VTR, 5)),
-        ("exp XXZ U1", MixedSum(expterm(xxz(1, 2); decay = 0.5)), fill(VU1, 4)),
+        ("exp gap trivial", [expterm(couple(A3[1], B3[3]); decay = 0.4)], fill(VTR, 5)),
+        ("exp XXZ U1", [expterm(xxz(1, 2); decay = 0.5)], fill(VU1, 4)),
     ]
-    for (name, H, sites) in cases
+    for (name, parts, sites) in cases
         N = length(sites)
-        Ws, secs = irrep_mpo(H, sites)
+        H = opsum(FiniteChain(sites), parts...)
+        Ws, secs = irrep_mpo(H)
         @test length(secs[N]) == 1                      # vacuum-terminated, as on a FiniteChain
-        want = Dict(t => t.coeff for t in opsum(chain_terms(H, N)))
+        want = Dict(t => t.coeff for t in chain_terms(H))
         got = Dict(t => t.coeff for t in mpo_terms(Ws, secs))
         @test length(got) == length(want)
         @test all(
             haskey(want, t) && want[t] ≈ v for (t, v) in got
         ) || (println("  $name term mismatch"); false)
+        @test islossless(H)
     end
 
     # and the terms it stands for are exactly the pairs that fit
-    ts = opsum(chain_terms(MixedSum(expterm(dot(S[1], S[2]); decay = 0.5)), 4))
+    ts = chain_terms(opsum(FiniteChain(VSU2, 4), expterm(dot(S[1], S[2]); decay = 0.5)))
     @test sort([t.sites for t in ts]) ==
         [[1, 2], [1, 3], [1, 4], [2, 3], [2, 4], [3, 4]]
     @test only(t.coeff for t in ts if t.sites == [1, 4]) ≈
         0.25 * only(t.coeff for t in ts if t.sites == [3, 4])
 end
 
-@testset "a channel-free MixedSum is the plain term bag" begin
+@testset "a channel-free OperatorSum is the plain term bag" begin
     # the shared sweep must be untouched when there are no channels
     H = dot(S[1], S[2]) + 0.5 * dot(S[1], S[3])
-    a = irrep_mpo(H, InfiniteChain([VSU2]))
-    b = irrep_mpo(MixedSum(H), InfiniteChain([VSU2]))
+    chain = InfiniteChain([VSU2])
+    a = irrep_mpo(opsum(chain, H))
+    b = _infinite_window(unitcell_terms(opsum(chain, H, ExpSum{SU2Irrep}())))
     @test a.bondsectors == b.bondsectors
     @test (a.start, a.done) == (b.start, b.done)
     @test _entriesequal(only(a.Ws), only(b.Ws))
 
-    # both flavours take the same lattice argument at the same place
-    Wa, sa = irrep_mpo(opsum(H), fill(VSU2, 5))
-    Wb, sb = irrep_mpo(MixedSum(H), fill(VSU2, 5))
+    # the finite path: the bond-strategy route and the explicit channel route agree
+    Wa, sa = irrep_mpo(opsum(FiniteChain(VSU2, 5), H))
+    tt = ITOTermTable(H, 5)
+    Wb, sb = _irrep_sweep(
+        tt, 5, OpSum.VertexCover(); channels = _lower_channels(ExpSum{SU2Irrep}(), 1)
+    )
     @test sa == sb
     @test all(i -> _entriesequal(Wa[i], Wb[i]), 1:5)
 end
@@ -363,25 +391,27 @@ end
     # a charged string would make the running bond charge drift along the loop
     @test_throws ArgumentError expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = Sp)
     @test_throws ArgumentError expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 0.0 * Sz)
-    # a charged channel has no translation-invariant running bond charge
-    @test_throws ArgumentError irrep_mpo(
-        expterm(couple(S[1], S[2]; to = SU2Irrep(1)); decay = 0.5), lat
+    # a charged channel has no translation-invariant running bond charge; refused as it enters
+    @test_throws ArgumentError opsum(
+        lat, expterm(couple(S[1], S[2]; to = SU2Irrep(1)); decay = 0.5)
     )
     # one representative per translation class, exactly as for terms
     @test_throws ArgumentError irrep_mpo(
-        expterm(dot(S[1], S[2]); decay = 0.5) + expterm(dot(S[2], S[3]); decay = 0.5), lat
+        opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[2], S[3]); decay = 0.5))
     )
     # … but the same two on a two-site cell is a different, legitimate model
     @test irrep_mpo(
-        expterm(dot(S[1], S[2]); decay = 0.5) + expterm(dot(S[2], S[3]); decay = 0.5),
-        InfiniteChain([VSU2, VSU2])
+        opsum(
+            InfiniteChain([VSU2, VSU2]),
+            expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[2], S[3]); decay = 0.5)
+        )
     ) isa InfiniteMPO
     # the SVD backend has no notion of a bond index with a diagonal
     @test_throws ArgumentError irrep_mpo(
-        expterm(dot(S[1], S[2]); decay = 0.5), lat, SVDBondAlgorithm()
+        opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5)), SVDBondAlgorithm()
     )
     @test_throws ArgumentError irrep_mpo(
-        expterm(dot(S[1], S[2]); decay = 0.5), fill(VSU2, 4), SVDBondAlgorithm()
+        opsum(FiniteChain(VSU2, 4), expterm(dot(S[1], S[2]); decay = 0.5)), SVDBondAlgorithm()
     )
 end
 
@@ -395,8 +425,8 @@ end
     # scaling and adding behave like a term bag's
     @test only(values((2 * e).channels)) ≈ 2 * only(values(e.channels))
     @test isempty((e - e).channels)
-    H = dot(S[1], S[2]) + e
-    @test H isa MixedSum
+    H = opsum(FiniteChain(VSU2, 3), dot(S[1], S[2]), e)
+    @test H isa OperatorSum
     @test length(H.terms.terms) == 1 && length(H.channels) == 1
     @test length((H + e).channels) == 1                      # same descriptor, coefficients add
     @test only(values((H + e).channels.channels)) ≈ 2 * only(values(e.channels))

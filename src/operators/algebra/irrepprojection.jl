@@ -110,7 +110,7 @@ julia> using TensorKit
 
 julia> V = SU2Space(1//2 => 1);
 
-julia> h = OpSum.instantiate(couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0)), [V, V]);
+julia> h = OpSum.instantiate(opsum([V, V], couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0))));
 
 julia> B = project(h); (length(B), OpSum.nsites(B))
 (1, 2)
@@ -164,7 +164,7 @@ function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rto
 
     # Faithfulness: recompute the operator from the emitted terms alone. This is a genuinely
     # independent pass through the forward map, so it also catches a wrong `g` or a misassigned tree.
-    resid = isempty(terms) ? hnorm : norm(hc - instantiate(out, Vs))
+    resid = isempty(terms) ? hnorm : norm(hc - _instantiate_terms(out, Vs))
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, ncand)) * hnorm
     resid <= θ + slack || throw(
         ArgumentError(

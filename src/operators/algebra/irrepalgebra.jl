@@ -1,5 +1,5 @@
 # Term algebra over ITOs: `Term` (one term) → `Terms` (a bag, the operator). Latticeless: the
-# physical spaces are supplied where the MPO is formed, not here.
+# physical spaces enter with the `OperatorSum` that holds a lattice, not here.
 # Site labels are lattice indices; on-site products and `GenericFusion` multiplicity are deferred.
 
 using TensorKit

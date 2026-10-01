@@ -11,7 +11,7 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm, physmatrix
 
 # `instantiate` output, as the plain `V ← V` map (the trailing trivial charge leg dropped)
 function densop(h, lat)
-    O = instantiate(h, lat)
+    O = instantiate(opsum(lat, h))
     return numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
 end
 
@@ -289,7 +289,7 @@ end
             @test sort!([arity(t) for t in placed]) == [2, 3, 3]
             lat = FiniteChain(Vu1, maximum(sites))
             @test densop(placed, lat) ≈ densop(ref(sites...), lat)
-            @test islossless(opsum(placed), lat)
+            @test islossless(opsum(lat, placed))
         end
 
         # fermions: the idle slot sits on an odd bond, so the string crosses it
@@ -311,14 +311,14 @@ end
             # independent oracle: the dense block of the hand-placed operator, projected, then
             # reconstructed through the same dense map
             @test densop(placed, lat) ≈
-                densop(project(instantiate(reff(sites...), lat), collect(1:length(lat))), lat)
-            @test islossless(opsum(placed), lat)
-            mpo = irrep_mpo(opsum(placed), lat)
-            @test mpo_tensormap(irrep_mpo_tensors(mpo, lat)) ≈ instantiate(placed, lat)
+                densop(project(instantiate(opsum(lat, reff(sites...))), collect(1:length(lat))), lat)
+            @test islossless(opsum(lat, placed))
+            mpo = irrep_mpo(opsum(lat, placed))
+            @test mpo_tensormap(irrep_mpo_tensors(mpo, lat)) ≈ instantiate(opsum(lat, placed))
         end
         # and hermitian when completed with its partner, as a sanity check on the sign
         lat4 = FiniteChain(Vf, 4)
-        Hh = opsum(Bf[1, 2, 4], adjoint(Bf[1, 2, 4], lat4))
+        Hh = opsum(Bf[1, 2, 4], opsum(lat4, Bf[1, 2, 4])'.terms)
         Oh = densop(Hh, lat4)
         @test Oh ≈ Oh'
 
@@ -382,9 +382,9 @@ end
             )
             @test H == Href
             @test H ≈ Href
-            @test islossless(H, lat)
-            mpo = irrep_mpo(H, lat)
-            @test mpo_tensormap(irrep_mpo_tensors(mpo, lat)) ≈ instantiate(H, lat)
+            @test islossless(opsum(lat, H))
+            mpo = irrep_mpo(opsum(lat, H))
+            @test mpo_tensormap(irrep_mpo_tensors(mpo, lat)) ≈ instantiate(opsum(lat, H))
             @test densop(H, lat) ≈ densop(Href, lat)
         end
     end

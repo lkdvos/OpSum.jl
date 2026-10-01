@@ -144,7 +144,7 @@ julia> using TensorKit, LinearAlgebra
 
 julia> V = SU2Space(1//2 => 1);
 
-julia> B = project(OpSum.instantiate(dot(spin(V)[1], spin(V)[2]), [V, V]));
+julia> B = project(OpSum.instantiate(opsum([V, V], dot(spin(V)[1], spin(V)[2]))));
 
 julia> B[3] ≈ dot(spin(V)[3], spin(V)[4])
 true

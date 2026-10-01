@@ -9,10 +9,11 @@ material through concrete models; [Reference](@ref) lists every docstring.
 
 ```
 TensorMap ──project──► SiteOperator  ──A[i]──► Terms ──irrep_mpo(h, lat)──► FiniteMPO
-(what you              LocalOperator ──B[i]──►   ▲ (placed and     ▲                     │
- write down)           (unplaced: one     B[i, j] │  coupled)   FiniteChain               ▼
-                        site / K slots)           │             InfiniteChain    irrep_mpo_tensors
-                                                  └──instantiate(h, lat)──► TensorMap (dense oracle)
+(what you                  │ couple, dot      ▲   ▲ (placed and     ▲                     │
+ write down)               ▼                  │   │  coupled)   FiniteChain               ▼
+             ──project──► LocalOperator ──B[i]┘   │             InfiniteChain    irrep_mpo_tensors
+                          (unplaced,    B[i, j]   │
+                           K slots)               └──instantiate(h, lat)──► TensorMap (dense oracle)
 ```
 
 An operator is **latticeless**.
@@ -24,7 +25,7 @@ Five types carry the whole interface:
 | Type | What it is | How you get one |
 |---|---|---|
 | [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project)`(O, V)`, [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`spin_ops`](@ref OpSum.spin_ops), [`fermion_ops`](@ref OpSum.fermion_ops), [`scalarop`](@ref OpSum.scalarop) |
-| [`LocalOperator`](@ref OpSum.LocalOperator) | an operator on **`K` slots**, not yet placed | [`project`](@ref OpSum.project)`(h)`, `LocalOperator(::SiteOperator)`, `+`, `*`, `zero`, `copy` |
+| [`LocalOperator`](@ref OpSum.LocalOperator) | an operator on **`K` slots**, not yet placed | [`project`](@ref OpSum.project)`(h)`, [`couple`](@ref OpSum.couple) / `dot` of unplaced operands, `LocalOperator(::SiteOperator)`, `+`, `*`, `B + α`, `zero`, `one`, `copy` |
 | [`Terms`](@ref OpSum.Terms) | the compressible operator: a bag of [`Term`](@ref OpSum.Term)s, no lattice | `A[i]`, `B[i]` / `B[i, j]`, [`couple`](@ref OpSum.couple), [`couple_channels`](@ref OpSum.couple_channels), `dot`, [`project`](@ref OpSum.project)`(h, sites)`, [`opsum`](@ref OpSum.opsum), `+`, `*`, `append!`, `copy`, `zero`, `one` |
 | [`FiniteChain`](@ref OpSum.FiniteChain) / [`InfiniteChain`](@ref OpSum.InfiniteChain) | the lattice: one physical space per site | `FiniteChain(V, N)`, `InfiniteChain([V])` |
 | [`FiniteMPO`](@ref OpSum.FiniteMPO) / [`InfiniteMPO`](@ref OpSum.InfiniteMPO) | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
@@ -224,6 +225,44 @@ H = heisenberg(6)
 `dot` does **not** distribute over composite operands — its factor is per-letter, so it has no
 meaning for an operator mixing charges.
 Use `couple` for those.
+
+### Building blocks unplaced
+
+Every `couple` and `dot` above was handed *placed* operands, `S[i]`, and gave back a `Terms` bag on
+those sites.
+Hand them the `SiteOperator`s themselves and they give back a [`LocalOperator`](@ref OpSum.LocalOperator)
+instead: the same term, on `K` slots, with the sites left for later.
+The bond is written once and placed wherever it is needed —
+
+```@example ops
+b = dot(S, S)                                            # K = 2, no site in sight
+heisenberg(N; J = 1.0) = opsum(J * b[i] for i in 1:(N - 1))
+b[2, 5] ≈ dot(S[2], S[5])
+```
+
+and `b[i, i + 2]` is the next-nearest-neighbour coupling, with the gap passed through.
+Everything said about the placed `couple` carries over — `to`, the forced-channel fold, the error
+messages, `couple_channels` — because the unplaced form *is* the placed one, run on consecutive
+slots.
+Slots are concatenated in **argument order**, so the unplaced path never reorders a leg: there is
+no braiding phase on it for any symmetry, and `couple(c, cd)` is the site-ordered ``c_i c^\dagger_j``,
+which is `-couple(cd[j], c[i])`.
+Mixing placed and unplaced operands in one call is an error: place everything, or nothing.
+
+A slot an operand does not act on is a **pass-through slot**.
+The scalar in `b + 1/4`, or the `1/2` in `couple(Sz + 1/2, Sz)`, is held by the pass-through
+letter — not by an identity, which an unplaced operator cannot name without knowing the site's
+space — and placement drops it:
+
+```@example ops
+(b + 1 / 4)[1] ≈ dot(S[1], S[2]) + one(Terms{SU2Irrep}) / 4
+```
+
+So `b + 1/4` has two terms unplaced and places as a two-site term plus a constant, where
+[`project`](@ref OpSum.project) of the same dense block would return two two-site terms (see the warning under
+[Projecting a whole block](@ref)).
+Pass-through slots inside a charged caterpillar carry the running charge across, so
+`couple(cd, n + α, c)` places as ``c^\dagger_i n_j c_k + α\, c^\dagger_i c_k`` with the fermionic string intact.
 
 ### The hermitian-conjugate partner
 

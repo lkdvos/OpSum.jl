@@ -116,33 +116,10 @@ const _ADJOINT_CACHE = Dict{Any, Any}()
 _resite(ts::Terms{I}, sites::AbstractVector{Int}) where {I} =
     Terms{I}(Term{I}[Term{I}(Int[sites[s] for s in t.sites], t.keys, t.coeff) for t in ts.terms])
 
-"""
-    adjoint(h::Terms, lat) -> Terms
-
-The hermitian conjugate of `h`, so that `h + adjoint(h, lat)` is hermitian:
-
-```julia
-F = fermion_ops()
-T = opsum(-t * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1))
-lat = FiniteChain(V, N)
-H = T + adjoint(T, lat)                    # ≡ -t Σᵢ (c†ᵢcᵢ₊₁ + c†ᵢ₊₁cᵢ)
-```
-
-This is the one operation on a term bag that genuinely needs the physical spaces — the adjoint of an
-alphabet letter is generally a *combination* of the dual charge's letters, which only the space knows
-— so it takes a lattice, and there is no postfix `h'`. A [`FiniteChain`](@ref), an
-[`InfiniteChain`](@ref) or a bare vector of spaces all work; only the spaces of the sites `h`
-actually touches are read.
-
-Every term must have total charge `unit(I)` — the case a Hamiltonian term is in. A charged term's
-adjoint lives in the dual charge sector, which is a different object than this signature can return.
-
-Each distinct term *shape* costs one projection, memoised, so conjugating a whole Hamiltonian is
-`O(number of distinct shapes)` rather than `O(number of terms)`.
-"""
-function Base.adjoint(h::Terms{I}, latarg) where {I}
-    lat = _tolattice(latarg)
-    _checklattice(h, lat)
+# The per-term-shape machinery behind `adjoint(::OperatorSum)`. Every term must have total charge
+# `unit(I)`: a charged term's adjoint carries the dual charge, which is a different object than a
+# `Terms{I}` can hold. Only the spaces of the sites `h` actually touches are read.
+function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
     out = Term{I}[]
     for t in h
         K = arity(t)
@@ -171,7 +148,7 @@ end
 Base.adjoint(::Terms) = throw(
     ArgumentError(
         "adjoint: the adjoint of an alphabet letter is a combination of the dual charge's letters " *
-            "that only the physical space determines, so it needs a lattice and there is no " *
-            "postfix `h'`. Write `adjoint(h, lat)`."
+            "that only the physical space determines, so a bare Terms bag has no postfix `h'`. Put " *
+            "it on a lattice first: `H = opsum(lat, h); H + H'`."
     )
 )

@@ -69,18 +69,10 @@ function unitcell_terms(ts::Terms{I}, L::Int) where {I}
     L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
     seen = Dictionary{Term{I}, Int}()
     out = Term{I}[]
-    for t in ts.terms
-        isempty(t.sites) && throw(
-            ArgumentError(
-                "an infinite MPO cannot represent a K = 0 identity term: `Σ_n c·𝟙` does not converge"
-            )
-        )
-        total(t) == unit(I) || throw(
-            ArgumentError(
-                "infinite MPO construction requires charge-neutral terms, got total charge " *
-                    "$(total(t)) on sites $(t.sites); charged infinite MPOs are out of scope"
-            )
-        )
+    # canonical, so that a term written twice is one term with a summed coefficient and only genuine
+    # translates of each other collide below
+    for t in canonicalize!(ts).terms
+        _checkgenerator(t)
         ct = translate(t, -L * fld(minimum(t.sites) - 1, L))
         prev = get(seen, ct, 0)
         iszero(prev) || throw(
@@ -96,25 +88,46 @@ function unitcell_terms(ts::Terms{I}, L::Int) where {I}
     return Terms{I}(out)
 end
 
-"""
-    unitcell_terms(H::MixedSum, L::Int) -> MixedSum
+# What a generating term must satisfy on its own, checked when it enters an `OperatorSum` and again
+# when the unit cell is formed.
+function _checkgenerator(t::Term{I}) where {I}
+    isempty(t.sites) && throw(
+        ArgumentError(
+            "an infinite MPO cannot represent a K = 0 identity term: `Σ_n c·𝟙` does not converge"
+        )
+    )
+    total(t) == unit(I) || throw(
+        ArgumentError(
+            "infinite MPO construction requires charge-neutral terms, got total charge " *
+                "$(total(t)) on sites $(t.sites); charged infinite MPOs are out of scope"
+        )
+    )
+    return nothing
+end
+function _checkgenerator(k::ExpKey{I}) where {I}
+    total(k.term) == unit(I) || throw(
+        ArgumentError(
+            "infinite MPO construction requires charge-neutral terms, got total charge " *
+                "$(total(k.term)) on the channel with sites $(k.term.sites); charged infinite " *
+                "MPOs are out of scope"
+        )
+    )
+    return nothing
+end
 
-Canonicalise a mixed generating set: the finite-range terms as above, and every exponentially decaying
-channel shifted so that its *entry anchor* (the leftmost site of its representative) lies in `1:L`. The
-same two rules apply to a channel as to a term — charge neutrality, and exactly one representative per
-translation class, since `Σ_n translate(H, n·L)` would otherwise count a channel twice.
 """
-function unitcell_terms(H::MixedSum{I}, L::Int) where {I}
+    unitcell_terms(es::ExpSum, L::Int) -> ExpSum
+
+Canonicalise exponentially decaying channels: every channel shifted so that its *entry anchor* (the
+leftmost site of its representative) lies in `1:L`. The same two rules apply to a channel as to a
+term — charge neutrality, and exactly one representative per translation class, since
+`Σ_n translate(H, n·L)` would otherwise count a channel twice.
+"""
+function unitcell_terms(es::ExpSum{I}, L::Int) where {I}
     L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
     d = Dictionary{ExpKey{I}, ComplexF64}()
-    for (k, v) in pairs(H.channels.channels)
-        total(k.term) == unit(I) || throw(
-            ArgumentError(
-                "infinite MPO construction requires charge-neutral terms, got total charge " *
-                    "$(total(k.term)) on the channel with sites $(k.term.sites); charged infinite " *
-                    "MPOs are out of scope"
-            )
-        )
+    for (k, v) in pairs(es.channels)
+        _checkgenerator(k)
         ck = translate(k, -L * fld(minimum(k.term.sites) - 1, L))
         haskey(d, ck) && throw(
             ArgumentError(
@@ -126,36 +139,47 @@ function unitcell_terms(H::MixedSum{I}, L::Int) where {I}
         )
         insert!(d, ck, v)
     end
-    return MixedSum{I}(unitcell_terms(H.terms, L), ExpSum{I}(d))
+    return ExpSum{I}(d)
 end
 
-# a Hamiltonian of nothing but channels behaves like a `MixedSum` with no terms
-unitcell_terms(H::ExpSum, L::Int) = unitcell_terms(MixedSum(H), L)
-window_terms(H::ExpSum, lat::InfiniteChain, nc::Int) = window_terms(MixedSum(H), lat, nc)
-maxspan(H::ExpSum) = maxspan(MixedSum(H))
+"""
+    unitcell_terms(H::OperatorSum{I, <:InfiniteChain}) -> OperatorSum
+
+The generating set of `H` in unit-cell form: terms and channels shifted as above, on the same
+lattice. This is also where the rule that each translation class appears exactly once is enforced,
+because it can only be seen across the whole set.
+"""
+function unitcell_terms(H::OperatorSum{I, <:InfiniteChain}) where {I}
+    L = length(H.lattice)
+    return OperatorSum{I, typeof(H.lattice)}(
+        H.lattice, unitcell_terms(H.terms, L), unitcell_terms(H.channels, L)
+    )
+end
+
+maxspan(es::ExpSum) = maximum(channelspan, keys(es.channels); init = 0)
 
 """
-    maxspan(H::MixedSum) -> Int
+    maxspan(H::OperatorSum) -> Int
 
-Range of the *shortest* translates of a mixed generating set: the largest [`termspan`](@ref) over its
+Range of the *shortest* translates of a generating set: the largest [`termspan`](@ref) over its
 finite terms and [`channelspan`](@ref) over its channels. A channel's actual range is unbounded — this
 is the range over which the sweep has to settle into its periodic fixed point.
 """
-maxspan(H::MixedSum) = max(
-    maxspan(H.terms), maximum(channelspan, keys(H.channels.channels); init = 0)
-)
+maxspan(H::OperatorSum) = max(maxspan(H.terms), maxspan(H.channels))
 
 """
-    window_terms(H::MixedSum, lat::InfiniteChain, ncells::Int) -> Terms
+    window_terms(H::OperatorSum{I, <:InfiniteChain}, ncells::Int) -> Terms
 
-Every finite-range translate that fits inside the window, plus every translate of every channel that
-fits (see [`expand_channels`](@ref)) — the explicit expansion the faithfulness check compares against.
+Every finite-range translate that fits inside a window of `ncells` unit cells, plus every translate of
+every channel that fits (see [`expand_channels`](@ref)) — the explicit expansion the faithfulness
+check compares against. `H` is taken as the generating set it is (see [`unitcell_terms`](@ref)).
 """
-function window_terms(H::MixedSum{I}, lat::InfiniteChain, ncells::Int) where {I}
-    N = ncells * length(lat)
+function window_terms(H::OperatorSum{I, <:InfiniteChain}, ncells::Int) where {I}
+    L = length(H.lattice)
+    N = ncells * L
     return opsum(
-        _window_bag(H.terms, length(lat), N),
-        expand_channels(H.channels, length(lat), N),
+        _window_bag(H.terms, L, N),
+        expand_channels(H.channels, L, N),
     )
 end
 

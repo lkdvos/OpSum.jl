@@ -8,30 +8,31 @@ material through concrete models; [Reference](@ref) lists every docstring.
 ## The shape of the pipeline
 
 ```
-TensorMap ──project──► SiteOperator ──A[i]──► Terms ──irrep_mpo(h, lat)──► FiniteMPO
-(what you                (on-site,    (placed and       ▲                     │
- write down)              unplaced)    coupled)     FiniteChain               ▼
-                                          │         InfiniteChain    irrep_mpo_tensors
-                                          └──instantiate(h, lat)──► TensorMap (dense oracle)
+TensorMap ──project──► SiteOperator  ──A[i]──► Terms ──irrep_mpo(h, lat)──► FiniteMPO
+(what you              LocalOperator ──B[i]──►   ▲ (placed and     ▲                     │
+ write down)           (unplaced: one     B[i, j] │  coupled)   FiniteChain               ▼
+                        site / K slots)           │             InfiniteChain    irrep_mpo_tensors
+                                                  └──instantiate(h, lat)──► TensorMap (dense oracle)
 ```
 
 An operator is **latticeless**.
 Nothing in the term algebra needs a physical space, and the compression itself needs only the
 *number* of sites — so the lattice is supplied where the MPO is formed, not where the terms are
 written.
-Four types carry the whole interface:
+Five types carry the whole interface:
 
 | Type | What it is | How you get one |
 |---|---|---|
-| [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project), [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`spin_ops`](@ref OpSum.spin_ops), [`fermion_ops`](@ref OpSum.fermion_ops), [`scalarop`](@ref OpSum.scalarop) |
-| [`Terms`](@ref OpSum.Terms) | the compressible operator: a bag of [`Term`](@ref OpSum.Term)s, no lattice | `A[i]`, [`couple`](@ref OpSum.couple), [`couple_channels`](@ref OpSum.couple_channels), `dot`, [`project`](@ref OpSum.project), [`opsum`](@ref OpSum.opsum), `+`, `*`, `append!`, `copy`, `zero`, `one` |
+| [`SiteOperator`](@ref OpSum.SiteOperator) | an operator on **one** site, not yet placed | [`project`](@ref OpSum.project)`(O, V)`, [`matrixunit`](@ref OpSum.matrixunit), [`spin`](@ref OpSum.spin), [`spin_ops`](@ref OpSum.spin_ops), [`fermion_ops`](@ref OpSum.fermion_ops), [`scalarop`](@ref OpSum.scalarop) |
+| [`LocalOperator`](@ref OpSum.LocalOperator) | an operator on **`K` slots**, not yet placed | [`project`](@ref OpSum.project)`(h)`, `LocalOperator(::SiteOperator)`, `+`, `*`, `zero`, `copy` |
+| [`Terms`](@ref OpSum.Terms) | the compressible operator: a bag of [`Term`](@ref OpSum.Term)s, no lattice | `A[i]`, `B[i]` / `B[i, j]`, [`couple`](@ref OpSum.couple), [`couple_channels`](@ref OpSum.couple_channels), `dot`, [`project`](@ref OpSum.project)`(h, sites)`, [`opsum`](@ref OpSum.opsum), `+`, `*`, `append!`, `copy`, `zero`, `one` |
 | [`FiniteChain`](@ref OpSum.FiniteChain) / [`InfiniteChain`](@ref OpSum.InfiniteChain) | the lattice: one physical space per site | `FiniteChain(V, N)`, `InfiniteChain([V])` |
 | [`FiniteMPO`](@ref OpSum.FiniteMPO) / [`InfiniteMPO`](@ref OpSum.InfiniteMPO) | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
 list.
 The full surface is `IrrepOperator`, `spin`, `spin_ops`, `fermion_ops`, `scalarop`, `project`,
-`matrixunit`, `islossless`, `mpo_tensormap`, `Term`, `Terms`, `couple`, `opsum`,
+`LocalOperator`, `matrixunit`, `islossless`, `mpo_tensormap`, `Term`, `Terms`, `couple`, `opsum`,
 `canonicalize!`, `AbstractLattice`, `FiniteChain`, `InfiniteChain`, `irrep_mpo`,
 `irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`, `instantiate`, `FiniteMPO`, `InfiniteMPO`,
 `expterm`, `ExpSum`, `MixedSum`,
@@ -256,20 +257,38 @@ hbond = instantiate(
     [V, V],
 )
 
+B = project(hbond)
+```
+
+The result is a [`LocalOperator`](@ref OpSum.LocalOperator): the ``K``-site operator *before* it
+is placed, the multi-site counterpart of a `SiteOperator`.
+Indexing places it — `B[i]` on sites `i:i+K-1`, or `B[s₁, …, s_K]` on `K` explicitly named,
+strictly increasing sites — and gives back a `Terms` bag, so the projection (and its faithfulness
+check) is paid once per *block*, not once per bond:
+
+```@example ops
 sites = FiniteChain(V, 6)
-Hxxz = opsum(project(hbond, [i, i + 1]) for i in 1:5)
+Hxxz = opsum(B[i] for i in 1:5)
 length(Hxxz)
 ```
 
-Two accepted shapes, with `K = length(sites) = numout(h)`:
+Placement only relabels the sites; the letters, running bond charges and coefficients are those
+of the block.
+That makes `B[i, i + 2]` exact for any symmetry: the site in the gap is a pass-through, and for a
+fermionic bond charge crossing it the sweep supplies the graded sign, so a projected hop placed
+across a gap is exactly the term `couple(cd[i], c[i + 2])` writes, string included.
+`project(h, sites)` is the one-liner `project(h)[sites...]`, and `LocalOperator(A)` lifts a
+`SiteOperator` to `K = 1`.
+Operators on the same number of slots add; `zero(B)` keeps `K`.
+
+Two accepted shapes, with `K = numout(h)`:
 
 ```
 h : V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K                        # charge-neutral
 h : V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K ⊗ Vect[I](tot => 1)    # total charge tot
 ```
 
-The physical spaces are read off `h`; `sites` supplies only the labels, and must be strictly
-increasing.
+The physical spaces are read off `h`.
 The coefficients are exact inner products against a complete orthogonal basis, so this
 is an expansion, not a fit — and `project` re-materializes its own output and compares it against
 the input, throwing if the result is not faithful.
@@ -280,7 +299,7 @@ the input, throwing if the result is not faithful.
     An on-site identity factor comes back as a
     trivial-charge letter, not as a shorter term.
     So `project` inverts `instantiate` only for
-    operators whose terms all have full support on `sites` — projecting
+    operators whose terms all have full support on the block — projecting
     ``\vec{S}_1 \cdot \vec{S}_2 + \tfrac{1}{4}`` gives two two-site terms, not a two-site term plus
     a constant.
     The MPO is still correct; it may just carry a channel you would have written more
@@ -553,12 +572,11 @@ compressed.
 So `length(H)` always reports the number of terms the operator *has*, never the number
 appended.
 
-**Build a bond block once, project per bond.**
-`project` is cheap for local blocks (well under a
-millisecond for a two-site spin-½ operator), so projecting the same tensor on each bond of a
-translation-invariant chain costs nothing worth optimizing.
-Build the `TensorMap` once outside the
-loop.
+**Project a bond block once, place it per bond.**
+`project(h)` returns an unplaced `LocalOperator`, and `B[i]` is a relabelling of its terms, so a
+translation-invariant chain is `opsum(B[i] for i in 1:(N - 1))` with a single projection (and a
+single faithfulness check) however long the chain.
+Build the `TensorMap` once outside the loop, too.
 
 **Order the sites of a 2D lattice so bonds stay short.**
 An MPO lives on a chain.
@@ -605,7 +623,9 @@ compression.
 | `couple: … left of site … reordering the legs of a SimpleFusion() coupling needs F-moves` | out-of-order site indices under a non-abelian symmetry, where the reordering is not available; write them increasing |
 | `couple: no pair of terms of the operands fuses to …` | the requested total charge is unreachable from the operands' charges |
 | `couple: every term of the second operand must be a single-site charged operator` | the right operand has a scalar (identity) part, or spans several sites |
-| `project: sites must be strictly increasing` | sorted-unique labels are a downstream invariant; `project` will not permute `h` for you, since that needs braiding and flips fermionic signs |
+| `placement sites must be strictly increasing` | sorted-unique sites are a downstream invariant; placing a `LocalOperator` will not permute its slots for you, since that needs braiding and flips fermionic signs |
+| `a LocalOperator on K slots is placed with one site index (contiguous) or exactly K (explicit)` | `B[i, j]` with the wrong number of sites for the block's `K` |
+| `cannot combine a LocalOperator on K slots with one on L` | `+`/`-` between unplaced operators of different size; place them first |
 | `opsum no longer takes a lattice` | the old `opsum(sites, terms...)`; write `opsum(terms...)` and pass the lattice to `irrep_mpo` / `instantiate` / `islossless` |
 | `a term acts on site …, outside the lattice 1:N` | the operator reaches past the `FiniteChain` it is being compressed over |
 | `letter … does not exist on site …` | the lattice's space at that site carries no operator of that charge — operator and lattice do not match |

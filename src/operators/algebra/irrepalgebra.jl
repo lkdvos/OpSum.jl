@@ -168,9 +168,9 @@ end
 """
     Terms{I<:Sector}
 
-The compressible ITO operator: a bag of [`Term`](@ref)s, with **no lattice**. What `A[i]`,
-[`couple`](@ref), `dot` and [`project`](@ref) return, what `+`, `-`, `*` and `/` combine, and what
-[`opsum`](@ref) accumulates in one pass.
+The compressible ITO operator: a bag of [`Term`](@ref)s, with **no lattice**. What `A[i]` and
+`B[i]` (placing a [`SiteOperator`](@ref) or a [`LocalOperator`](@ref)), [`couple`](@ref) and `dot`
+return, what `+`, `-`, `*` and `/` combine, and what [`opsum`](@ref) accumulates in one pass.
 
 Nothing in the term algebra, and nothing in the MPO sweep, needs a physical space — the sweep needs
 only the site *count* — so the lattice is supplied where the MPO is formed:

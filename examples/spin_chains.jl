@@ -135,17 +135,22 @@ h_bond = instantiate(
     [Vu, Vu],
 )
 
-H_proj = opsum(project(h_bond, [i, i + 1]) for i in 1:(N - 1))
+B_xxz = project(h_bond)
 
-# `project` re-materializes its own output and compares it against the input, so a faithful result
-# is checked rather than assumed. Summed over bonds it reproduces the hand-written chain, term for
-# term:
+# The result is a [`LocalOperator`](@ref OpSum.LocalOperator): the two-site operator *before* it is
+# told where it acts. `B_xxz[i]` places it on sites `i, i + 1`, so the projection — and its
+# faithfulness check, which re-materializes the output and compares it against the input — is paid
+# once rather than once per bond:
+
+H_proj = opsum(B_xxz[i] for i in 1:(N - 1))
+
+# Summed over bonds it reproduces the hand-written chain, term for term:
 
 H_proj ≈ H_xxz
 
-# The one thing to know: every projected term is active on *all* the sites you pass. An on-site
-# identity factor comes back as a trivial-charge letter rather than a shorter term, so
-# `project` inverts `instantiate` only for operators whose terms have full support on those sites.
+# The one thing to know: every projected term is active on *all* `K` slots. An on-site identity
+# factor comes back as a trivial-charge letter rather than a shorter term, so `project` inverts
+# `instantiate` only for operators whose terms have full support on the block.
 
 # ## There is no symbolic on-site product
 #
@@ -172,8 +177,8 @@ space(bond)
 # At ``\beta = 1/3`` this is the AKLT chain, whose ground state is the valence-bond solid:
 
 function bilinear_biquadratic(N; β = 1 / 3)
-    block = bond + β * (bond * bond)
-    return opsum(project(block, [i, i + 1]) for i in 1:(N - 1))
+    B = project(bond + β * (bond * bond))
+    return opsum(B[i] for i in 1:(N - 1))
 end
 
 H_aklt = bilinear_biquadratic(6)
@@ -196,19 +201,18 @@ let plain = opsum(dot(S1[i], S1[i + 1]) for i in 1:5)
 end
 
 # That is worth separating from the full-support property, because the two are easy to conflate. A
-# projected term is active on *all* the sites you pass, and the reason it costs nothing above is that
-# both terms of a `dot` already span both sites. Add a piece that does not — an identity, say — and
-# it comes back padded, as a two-site term carrying a trivial-charge letter rather than as a shorter
-# term:
+# projected term is active on *all* `K` slots of the block, and the reason it costs nothing above is
+# that both terms of a `dot` already span both sites. Add a piece that does not — an identity, say —
+# and it comes back padded, as a two-slot term carrying a trivial-charge letter rather than as a
+# shorter term:
 
-let block = bond + one(bond) / 4
-    padded = project(block, [1, 2])
+let padded = project(bond + one(bond) / 4)
     (; nterms = length(padded), arities = unique(arity(t) for t in padded))
 end
 
 # Both terms have arity 2: the identity did not come back as a `K = 0` term. So `project` inverts
-# `instantiate` for operators whose terms have full support on the sites given, and pads everything
-# else — which is exactly what makes it a faithful expansion of a *block* rather than a factorization.
+# `instantiate` for operators whose terms have full support on the block, and pads everything else —
+# which is exactly what makes it a faithful expansion of a *block* rather than a factorization.
 
 # ## ``J_1``–``J_2``
 #

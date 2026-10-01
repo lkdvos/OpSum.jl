@@ -1,7 +1,8 @@
 # Unplaced multi-site operators and a lattice-carrying `OperatorSum` — design note
 
-Decided 2026-10-01. Step 1 (§3: `LocalOperator`, `project(h)`, placement) implemented 2026-10-01 on the
-`local-operators` branch; steps 2 and 3 are open.
+Decided 2026-10-01. Step 1 (§3: `LocalOperator`, `project(h)`, placement) and step 2 (§4: unplaced
+`couple`/`dot`/`couple_channels`, and the pass-through slots of §3) implemented 2026-10-01 on the
+`local-operators` branch; step 3 is open.
 Builds on `interface-review.md` (read §1, §10–12 first: this note reverses part of §12, deliberately, and
 §1 is the failure mode the new container must not repeat).
 
@@ -63,6 +64,17 @@ the slot. The running bond charge passes through unchanged. Placement drops pass
 `Term`s and everything downstream are untouched; a term that is passthrough in every slot places as a
 `K = 0` scalar term, exactly as `SiteOperator` placement does today.
 
+**Implemented (step 2).** The pass-through key's `bond` is the running charge *before* the slot, which is
+only `unit(I)` when nothing charged precedes it: in `couple(Sp, Sz + α, Sm)` the middle key is
+`(passthrough, U₁(1), 1)`. `_padkey(I)` (irreptermtable.jl) has `bond = unit(I)` and would be wrong
+there; it is not used on this path — `_couple_terms` writes `target(run, passthrough) = run` itself, so
+no special case exists. `test/test_local_couple.jl` ("pass-through slot inside a charged caterpillar")
+checks the key and the dense placement for U(1), fermions and SU(2). The sources of pass-through slots
+are `B + α` (= `B + α · one(B)`, the all-pass-through term), a `SiteOperator` with a scalar part as a
+`couple` operand (`SiteOperator ± Number` was added for `Sz + 1/2`), and `LocalOperator(::SiteOperator)`.
+`project(h)` never produces one — every slot of a projected term is a letter — so `project(S·S + ¼)` and
+`dot(S, S) + 1/4` are the same operator spelled differently, and place to *different* bags.
+
 **Placement.**
 
 ```julia
@@ -106,6 +118,19 @@ project(h, sites) == project(h)[sites...]     # kept as a one-line convenience
 * Mixing placed and unplaced operands is an error.
 * Placed `couple`/`dot` stay for now. Whether they become redundant once `couple(cd, c)[i, j]` covers every
   hop is an open question (§8).
+
+**Implemented (step 2)** in `src/operators/algebra/localoperator.jl`, by lowering: each operand is placed
+on consecutive *slots* (`_slotterms`, keeping pass-through letters as keys; `_slotoperands`), the placed
+`couple`/`couple_channels`/`dot` runs unchanged, and the result is wrapped with `K = Σ K_i`. So there is one
+implementation of the channel arithmetic and one set of error messages (`test_local_couple.jl` compares
+the strings). Two consequences worth knowing:
+
+* Every operand after the first must be **single-slot**: the caterpillar extends by one letter, and
+  fusing a `K ≥ 2` block onto it is `via`. The first operand may have any `K`, so
+  `couple(couple(S, S; to = 1), S)` nests as before. The error names the slot count.
+* `couple`, `couple_channels` and `dot` gained a catch-all method over
+  `Union{Terms, Term, SiteOperator, LocalOperator}` that throws the mixing error; an all-`Term` call
+  still raises a `MethodError`, as it did. `nsites(::SiteOperator) = 1` exists.
 
 ## 5. `OperatorSum(lat)`
 
@@ -178,6 +203,27 @@ One PR per step, each independently testable.
    keys (nothing produces them yet).
 2. **Unplaced `couple` / `dot` / `couple_channels`, passthrough slots.** Tests: `couple(a, b)[sites...]` ≡
    placed `couple(a[i], b[j])` across abelian, fermionic and SU(2) sectors; forced-channel errors unchanged.
+   **Done** — `localoperator.jl` ("Unplaced coupling" section, pass-through handling in `getindex`),
+   `siteoperator.jl` (`SiteOperator ± Number`), `test/test_local_couple.jl`. Structural `==` (not just `≈`)
+   against the placed form for every sector, 2–4 operands, nested and variadic, contiguous and gapped;
+   `couple_channels` unplaced == placed; pass-through slots placed and densely checked, including inside a
+   charged caterpillar; lossless chains from unplaced blocks; error strings identical to the placed ones.
+   Examples were *not* migrated (step 3 rewrites them); `docs/src/operators.md` has a "Building blocks
+   unplaced" section.
+
+   What step 3 must know:
+   * A `LocalOperator`'s **raw terms may contain pass-through keys**; placed `Terms` never do. Anything in
+     step 3 that reads a `LocalOperator`'s terms directly rather than through placement — `instantiate(B)`
+     with spaces, validation of unplaced operands, a lazy `B'` — has to treat `ispassthrough(k.op)` as the
+     identity on that slot, with `k.bond` the running charge (not necessarily `unit(I)`). `_checklattice`
+     runs on placed terms and is unaffected.
+   * `OperatorSum` insertion through `B[i]` sees ordinary `Terms`, so nothing in the container needs to
+     know about slots. If it accepts an unplaced `LocalOperator` directly (`H += B` with an implied site),
+     that is a new decision.
+   * The W8 identity stripping in §5 (`S₁·S₂ + ¼` → two two-site terms) only arises for `project`ed blocks;
+     `dot(S, S) + 1/4` already places as a two-site term plus a `K = 0` constant.
+   * The variadic error messages mention channels, not sites, which is what makes them identical between
+     the two forms; keep it that way if they are reworded.
 3. **`OperatorSum`.** Absorb `MixedSum`, remove the `(h, lat)` forms and `adjoint(h, lat)`, add `H'`, move
    validation to insertion; migrate examples, benchmarks and `ShowcaseModels.jl` builders (which return
    `(h, lat)` today and would return an `OperatorSum`). Watch the Julia 1.10 stale-`using` trap when
@@ -185,6 +231,9 @@ One PR per step, each independently testable.
 
 ## 8. Open
 
-* Do placed `couple`/`dot` survive step 2, or become sugar for unplaced-then-place?
+* Do placed `couple`/`dot` survive step 2, or become sugar for unplaced-then-place? (Step 2 went the other
+  way round — unplaced is implemented *on* placed — so removing the placed form means moving the
+  reordering/insertion logic of `_couple_terms` to a placement step, which is exactly the deferred
+  non-monotone placement of §6.)
 * Does `OperatorSum` canonicalise eagerly on insertion, or keep today's normalise-on-observation?
 * `H'` on a container holding channels: throw, or adjoint the channel representative?

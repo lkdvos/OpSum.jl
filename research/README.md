@@ -9,3 +9,5 @@ Not part of the package.
 - [infinite-mpo.md](infinite-mpo.md) — extending the construction to infinite chains with a repeating
   unit cell: what survives unchanged, why translation covariance forces a canonical ordering, how the
   unit cell is closed, and — in §7 — exponentially decaying terms. §8 collects open follow-ups.
+- [local-operators.md](local-operators.md) — unplaced multi-site `LocalOperator`s with `couple`/`dot`,
+  and a lattice-carrying `OperatorSum` as the one place spaces enter; decided, not yet implemented.

@@ -94,8 +94,8 @@ coefficients are exact inner products against an orthogonal, complete basis, so 
 Coefficients whose norm contribution falls at or below `max(atol, rtol * norm(h))` are dropped;
 the result is then re-materialized and compared against `h`, and an `ArgumentError` is thrown if
 the residual exceeds that same tolerance. A projected [`Terms`](@ref) therefore provably represents
-its input. An operator that is zero (or entirely below tolerance) gives an empty bag. Bind it to a
-lattice with [`opsum`](@ref) to compress it.
+its input. An operator that is zero (or entirely below tolerance) gives an empty bag. Compress it
+with [`irrep_mpo`](@ref), which is where the lattice is supplied.
 
 Every returned term is active on **all** `K` sites: an on-site identity factor comes back as a
 trivial-charge letter, not as a shorter term. So `project ∘ instantiate` is the identity only for

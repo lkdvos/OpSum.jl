@@ -67,7 +67,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
      `dot` accepts either order for *any* symmetry (two legs to the unit sector need no F-move) and inserts the same scalar R-symbol — which is `-1` for odd fermionic charges and for half-integer SU(2) charges.
 
 2. **Projection (numeric → symbolic)** — `src/operators/algebra/irrepprojection.jl`
-   - `project(h, sites)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning a `Terms` bag (feed it to `opsum` to compress it).
+   - `project(h, sites)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning a `Terms` bag (compress it with `irrep_mpo(h, lat)`).
      `project(O, V)` is the single-site form, returning a `SiteOperator`.
      This is the inverse of `instantiate` and the intended way to write operators down — hard-coding letter indices `(c, n)` is fragile because `n` follows TensorKit's block order.
    - The candidate basis `(ops, tree)` is orthogonal and complete, with the closed-form diagonal `inner(E,E) = dim(tot) / Π_k dim(c_k)`, so coefficients are plain inner products — no solve.

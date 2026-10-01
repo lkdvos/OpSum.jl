@@ -4,7 +4,7 @@
 # canonicalisation that turns a user-written term sum into a generating set with one representative
 # per translation class.
 #
-#     irrep_mpo(H, InfiniteChain(spaces))   represents   Σ_{n ∈ ℤ} translate(H, n·L),   L = length(spaces)
+#     irrep_mpo(opsum(InfiniteChain(spaces), H))   represents   Σ_{n ∈ ℤ} translate(H, n·L),   L = length(spaces)
 #
 # so `H` is a *generating set*, not the Hamiltonian: writing both `dot(S[1], S[2])` and
 # `dot(S[2], S[3])` on a one-site cell would double-count, and is rejected.

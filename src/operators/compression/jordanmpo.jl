@@ -56,8 +56,10 @@ function jordan_mpo_tensors(
     return jordan_mpo_tensors(Ws, bondsectors, starts, finishes, lat)
 end
 
-jordan_mpo_tensors(::OperatorSum{I, <:InfiniteChain}, args...) where {I} = throw(
-    ArgumentError("jordan_mpo_tensors is defined on a finite chain; got an InfiniteChain")
+jordan_mpo_tensors(H::OperatorSum{I, <:InfiniteChain}, args...) where {I} = throw(
+    ArgumentError(
+        "jordan_mpo_tensors is defined on a finite chain; got a $(typeof(H.lattice))"
+    )
 )
 
 # Reorder one internal bond; `s`/`f` are the start/finish indices (`0` if the cover spent none).

@@ -12,7 +12,7 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm, physmatrix
 
 # `instantiate` output, as the plain `V ← V` map (the trailing trivial charge leg dropped)
 function densop(h, lat)
-    O = instantiate(h, lat)
+    O = instantiate(opsum(lat, h))
     return numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
 end
 
@@ -42,15 +42,15 @@ const Vf = Vect[FermionNumber](0 => 1, 1 => 1)
 # the two-site bond blocks the tests project, as (space, block, directly placed oracle)
 function bondcases()
     S = spin(Vsu2)
-    su2 = (Vsu2, instantiate(dot(S[1], S[2]), [Vsu2, Vsu2]), (i, j) -> dot(S[i], S[j]))
+    su2 = (Vsu2, instantiate(opsum([Vsu2, Vsu2], dot(S[1], S[2]))), (i, j) -> dot(S[i], S[j]))
 
     (; Sp, Sm, Sz) = spin_ops(Vu1, U1Irrep(1), U1Irrep(0))
     xxz(i, j) = couple(Sp[i], Sm[j]) / 2 + couple(Sm[i], Sp[j]) / 2 + 0.7 * couple(Sz[i], Sz[j])
-    u1 = (Vu1, instantiate(xxz(1, 2), [Vu1, Vu1]), xxz)
+    u1 = (Vu1, instantiate(opsum([Vu1, Vu1], xxz(1, 2))), xxz)
 
     F = fermion_ops(Vf)
     hop(i, j) = -(couple(F.cd[i], F.c[j]) + couple(F.cd[j], F.c[i]))
-    ferm = (Vf, instantiate(hop(1, 2), [Vf, Vf]), hop)
+    ferm = (Vf, instantiate(opsum([Vf, Vf], hop(1, 2))), hop)
 
     return (su2 = su2, u1 = u1, fermion = ferm)
 end
@@ -92,7 +92,7 @@ end
     # K = 3, including a charged total
     S = spin(Vsu2)
     chi = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(1))
-    h3 = instantiate(chi, fill(Vsu2, 3))
+    h3 = instantiate(opsum(fill(Vsu2, 3), chi))
     B3 = project(h3)
     @test nsites(B3) == 3
     @test B3[2] == project(h3, [2, 3, 4])
@@ -118,9 +118,9 @@ end
 
             # and the compressed MPO, where the gap site is a pass-through the sweep reconstructs
             for (h3, lat) in ((opsum(B[1, 3]), lat3), (opsum(B[1, 4], B[2], B[1]), lat4))
-                @test islossless(h3, lat)
-                mpo = irrep_mpo(h3, lat)
-                @test mpo_tensormap(irrep_mpo_tensors(mpo, lat)) ≈ instantiate(h3, lat)
+                @test islossless(opsum(lat, h3))
+                mpo = irrep_mpo(opsum(lat, h3))
+                @test mpo_tensormap(irrep_mpo_tensors(mpo, lat)) ≈ instantiate(opsum(lat, h3))
             end
         end
     end
@@ -243,7 +243,7 @@ end
     @test nsites(2 * B) == 2
 
     # + and - with equal K
-    C = project(instantiate(couple(S[1], S[2]; to = I(1)), [V, V]))
+    C = project(instantiate(opsum([V, V], couple(S[1], S[2]; to = I(1)))))
     @test (B + C)[1] ≈ B[1] + C[1]
     @test (B - C)[1] ≈ B[1] - C[1]
     @test length(B + C) == 2
@@ -253,7 +253,7 @@ end
     @test length(B - B) == 0
 
     # mismatched K is an error, not a silent overlap
-    B3 = project(instantiate(couple(S[1], S[2], S[3]), fill(V, 3)))
+    B3 = project(instantiate(opsum(fill(V, 3), couple(S[1], S[2], S[3]))))
     @test_throws ArgumentError B + B3
     @test_throws ArgumentError B - B3
 
@@ -275,7 +275,7 @@ end
     @test B != B3
 
     # the slot operator is a fixed point of project ∘ instantiate on its own K sites
-    @test project(instantiate(B[1], fill(V, 2))) ≈ B
+    @test project(instantiate(opsum(fill(V, 2), B[1]))) ≈ B
 
     # show mentions the type and the slot count
     str = sprint(show, B)
@@ -310,10 +310,10 @@ end
             H = opsum(B[i] for i in 1:(N - 1))
             Href = opsum(direct(i, i + 1) for i in 1:(N - 1))
             @test H ≈ Href
-            @test islossless(H, lat)
-            mpo = irrep_mpo(H, lat)
+            @test islossless(opsum(lat, H))
+            mpo = irrep_mpo(opsum(lat, H))
             @test length(mpo.bondsectors) == N
-            @test mpo_tensormap(irrep_mpo_tensors(mpo, lat)) ≈ instantiate(H, lat)
+            @test mpo_tensormap(irrep_mpo_tensors(mpo, lat)) ≈ instantiate(opsum(lat, H))
 
             # next-nearest neighbours through the gapped placement
             Hnnn = opsum((B[i] for i in 1:(N - 1)), (0.4 * B[i, i + 2] for i in 1:(N - 2)))
@@ -321,7 +321,7 @@ end
                 (direct(i, i + 1) for i in 1:(N - 1)), (0.4 * direct(i, i + 2) for i in 1:(N - 2))
             )
             @test Hnnn ≈ Hnnn_ref
-            @test islossless(Hnnn, lat)
+            @test islossless(opsum(lat, Hnnn))
         end
     end
 end

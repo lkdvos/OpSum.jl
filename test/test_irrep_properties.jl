@@ -62,8 +62,8 @@ end
         @test !isempty(H)
         # every term is charge-neutral, so the right boundary bond must be trivial
         @test all(t -> total(t) == unit(sectortype(V)), H)
-        @test islossless(H, sites)
-        Ws, secs = irrep_mpo(H, sites)
+        @test islossless(opsum(sites, H))
+        Ws, secs = irrep_mpo(opsum(sites, H))
         @test length(secs) == N
         @test secs[N] == [unit(sectortype(V))]
         # the compression is a compression: no bond may exceed the term count
@@ -73,7 +73,7 @@ end
         # states, so `mpo_terms` enumerates every path and returns thousands of terms whose round-off
         # coefficients do not cancel to exactly zero. The operator-level check is below.)
         for alg in (SVDBondAlgorithm(), SVDBondAlgorithm(; sweep = SequentialSVD))
-            _, ssvd = irrep_mpo(H, sites, alg)
+            _, ssvd = irrep_mpo(opsum(sites, H), alg)
             @test all(densedim(ssvd, b) <= densedim(secs, b) for b in 1:N)
         end
     end
@@ -88,12 +88,12 @@ end
     rng = Xoshiro(7)
     H = random_termsum(rng, V, N, [4, 4, 2])
     @test !isempty(H)
-    @test islossless(H, sites)
+    @test islossless(opsum(sites, H))
     @test maximum(length(t.sites) for t in H) == 4
-    Ws, secs = irrep_mpo(H, sites)
+    Ws, secs = irrep_mpo(opsum(sites, H))
     @test secs[N] == [unit(sectortype(V))]
     # the Jordan emission has to survive the same terms
-    Js = jordan_mpo_tensors(H, sites)
+    Js = jordan_mpo_tensors(opsum(sites, H))
     @test length(Js) == N
     @test size(Js[1], 1) == 1 && size(Js[N], 4) == 1
 end
@@ -107,13 +107,13 @@ end
     N = 4
     sites = fill(V, N)
     H = random_termsum(Xoshiro(11), V, N, [0, 1, 2, 2, 3])
-    exact = instantiate(H, sites)
-    Ws, secs = irrep_mpo(H, sites)
+    exact = instantiate(opsum(sites, H))
+    Ws, secs = irrep_mpo(opsum(sites, H))
     @test mpo_tensormap(irrep_mpo_tensors(Ws, secs, fill(V, N))) ≈ exact
-    @test mpo_tensormap(map(TensorMap, jordan_mpo_tensors(H, sites))) ≈ exact
+    @test mpo_tensormap(map(TensorMap, jordan_mpo_tensors(opsum(sites, H)))) ≈ exact
     # the SVD bond bases represent the same operator, which is what `islossless` cannot say for them
     for alg in (SVDBondAlgorithm(), SVDBondAlgorithm(; sweep = SequentialSVD))
-        Wsv, ssv = irrep_mpo(H, sites, alg)
+        Wsv, ssv = irrep_mpo(opsum(sites, H), alg)
         @test mpo_tensormap(irrep_mpo_tensors(Wsv, ssv, fill(V, N))) ≈ exact
     end
 end
@@ -134,7 +134,7 @@ const TRUNC_V = SU2Space(1 // 2 => 1)
 const TRUNC_N = 5
 const TRUNC_H = powerlaw_chain(TRUNC_V, TRUNC_N)
 const TRUNC_LAT = FiniteChain(TRUNC_V, TRUNC_N)
-const TRUNC_EXACT = instantiate(TRUNC_H, TRUNC_LAT)
+const TRUNC_EXACT = instantiate(opsum(TRUNC_LAT, TRUNC_H))
 const TRUNC_NORM = norm(TRUNC_EXACT)
 
 # Relative error of the *assembled* MPO against the exact operator. Not `islossless`: an SVD bond
@@ -142,7 +142,7 @@ const TRUNC_NORM = norm(TRUNC_EXACT)
 # coefficients of the spurious ones do not cancel to exactly zero. Truncation has to be judged on the
 # operator, which is what this measures.
 function mpo_relerror(alg)
-    Ws, secs = irrep_mpo(TRUNC_H, TRUNC_LAT, alg)
+    Ws, secs = irrep_mpo(opsum(TRUNC_LAT, TRUNC_H), alg)
     Os = irrep_mpo_tensors(Ws, secs, fill(TRUNC_V, TRUNC_N))
     return norm(mpo_tensormap(Os) - TRUNC_EXACT) / TRUNC_NORM
 end
@@ -167,17 +167,17 @@ end
 @testset "trunctol at the API level" begin
     # `trunctol` was imported by the SVD tests and never exercised. Unlike `truncrank` it is stated in
     # the units of the thing being approximated, which is what makes the error bound below meaningful.
-    _, sfull = irrep_mpo(TRUNC_H, TRUNC_LAT, SVDBondAlgorithm())
+    _, sfull = irrep_mpo(opsum(TRUNC_LAT, TRUNC_H), SVDBondAlgorithm())
 
     # a tolerance below round-off keeps everything
-    _, stight = irrep_mpo(TRUNC_H, TRUNC_LAT, SVDBondAlgorithm(trunctol(; rtol = 1.0e-14)))
+    _, stight = irrep_mpo(opsum(TRUNC_LAT, TRUNC_H), SVDBondAlgorithm(trunctol(; rtol = 1.0e-14)))
     @test [length(s) for s in stight] == [length(s) for s in sfull]
     @test mpo_relerror(SVDBondAlgorithm(trunctol(; rtol = 1.0e-14))) < 1.0e-10
 
     # a loose tolerance drops channels, and — unlike `truncrank` at the same aggression — the error
     # stays of the tolerance's order rather than the operator's
     alg = SVDBondAlgorithm(trunctol(; rtol = 0.1))
-    _, sloose = irrep_mpo(TRUNC_H, TRUNC_LAT, alg)
+    _, sloose = irrep_mpo(opsum(TRUNC_LAT, TRUNC_H), alg)
     @test any(length(sloose[b]) < length(sfull[b]) for b in 1:(TRUNC_N - 1))
     @test all(length(sloose[b]) <= length(sfull[b]) for b in 1:TRUNC_N)
     @test mpo_relerror(alg) < 0.1

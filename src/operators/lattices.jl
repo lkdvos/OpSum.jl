@@ -1,6 +1,6 @@
 # The lattices an operator can be compressed over. A term bag is latticeless — nothing in the term
 # algebra or in the sweep needs a physical space, and the sweep needs only the site *count* — so the
-# lattice is supplied where the MPO is formed, and these are the two things that can be supplied.
+# lattice enters with the `OperatorSum`, and these are the two things that can be supplied.
 #
 # `FiniteChain` and `InfiniteChain` differ in exactly two observable ways: whether `getindex` wraps,
 # and whether a site index outside `1:length` is an error. Everything downstream branches on the type
@@ -11,7 +11,7 @@ using TensorKit: TensorKit, ElementarySpace, Sector, Trivial, sectortype
 """
     AbstractLattice
 
-Supertype of the lattices [`irrep_mpo`](@ref) accepts: [`FiniteChain`](@ref) and
+Supertype of the lattices an [`OperatorSum`](@ref) can carry: [`FiniteChain`](@ref) and
 [`InfiniteChain`](@ref). A lattice names the physical space of every site, which is what tensor
 assembly, [`instantiate`](@ref) and letter validation need; the compression itself needs only
 `length` (the number of sites, or the unit-cell period).

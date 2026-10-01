@@ -68,15 +68,15 @@ end
 
 @testset "$(spec.key)" for spec in MODELS
     for N in spec.timesizes[:smoke]
-        H, sites = spec.build(N)
+        H = spec.build(N)
         @test !isempty(H)
-        @test length(sites) == N
+        @test length(H.lattice) == N
 
-        Ws, secs = irrep_mpo(H, sites)
+        Ws, secs = irrep_mpo(H)
         @test length(secs) == N
 
         # Faithfulness: the reduced MPO reconstructs every original term exactly.
-        @test mpo_terms(Ws, secs) ≈ H
+        @test mpo_terms(Ws, secs) ≈ H.terms
 
         if haskey(EXPECTED, spec.key)
             e = EXPECTED[spec.key]
@@ -89,7 +89,7 @@ end
         # this way matters: `instantiate` is exponential in `N`, and running it for every model adds
         # about a minute for no extra coverage (the bosonic builders share one code path).
         if N <= 8 && (spec.family === :fermionic || spec.key == "heisenberg_su2")
-            @test hermiticity_error(H, sites) < 1.0e-10
+            @test hermiticity_error(H) < 1.0e-10
         end
     end
 end
@@ -101,29 +101,29 @@ end
     F = fermion_ops()
     V = ShowcaseModels.FERMION_MODE
     N = 6
-    sites = fill(V, N)
     wrong = opsum(
+        FiniteChain(V, N),
         couple(F.cd[i], F.c[i + 1]) + couple(F.c[i], F.cd[i + 1]) for i in 1:(N - 1)
     )
-    @test hermiticity_error(wrong, sites) > 0.1
+    @test hermiticity_error(wrong) > 0.1
 end
 
 @testset "free-fermion spectrum" begin
     N, t = 6, 1.0
-    H, sites = ShowcaseModels.free_fermions(N; t)
+    H = ShowcaseModels.free_fermions(N; t)
     ε = [-2t * cos(k * π / (N + 1)) for k in 1:N]
     exact = sort(
         [
             sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0) for m in 0:(2^N - 1)
         ]
     )
-    @test spectrum(H, sites) ≈ exact
+    @test spectrum(H) ≈ exact
 end
 
 @testset "Hubbard exactly-solvable limits" begin
     Nsites = 3
     # U = 0: two independent species of free fermions.
-    H0, lat0 = ShowcaseModels.hubbard(2Nsites; U = 0.0)
+    H0 = ShowcaseModels.hubbard(2Nsites; U = 0.0)
     ε1 = [-2 * cos(k * π / (Nsites + 1)) for k in 1:Nsites]
     ε = vcat(ε1, ε1)
     exact = sort(
@@ -132,12 +132,12 @@ end
                 for m in 0:(2^(2Nsites) - 1)
         ]
     )
-    @test spectrum(H0, lat0) ≈ exact
+    @test spectrum(H0) ≈ exact
 
     # t = 0: the energy counts doubly occupied sites in units of U.
     U = 4.0
-    Ht, latt = ShowcaseModels.hubbard(2Nsites; t = 0.0, U)
-    @test sort(unique(round.(spectrum(Ht, latt); digits = 8))) ≈ U .* collect(0:Nsites)
+    Ht = ShowcaseModels.hubbard(2Nsites; t = 0.0, U)
+    @test sort(unique(round.(spectrum(Ht); digits = 8))) ≈ U .* collect(0:Nsites)
 end
 
 @testset "the two Hubbard encodings agree" begin
@@ -146,34 +146,35 @@ end
     # that catches it: the same physics in the spin-orbital encoding, which shares no code with it —
     # `hubbard` places single-letter operators with `couple`, `hubbard_su2` `project`s a block.
     for Nsites in (2, 3)
-        hsu2, latsu2 = ShowcaseModels.hubbard_su2(Nsites; t = 1.0, U = 4.0)
-        horb, latorb = ShowcaseModels.hubbard(2Nsites; t = 1.0, U = 4.0)
-        a, b = spectrum(hsu2, latsu2), spectrum(horb, latorb)
+        hsu2 = ShowcaseModels.hubbard_su2(Nsites; t = 1.0, U = 4.0)
+        horb = ShowcaseModels.hubbard(2Nsites; t = 1.0, U = 4.0)
+        a, b = spectrum(hsu2), spectrum(horb)
         @test length(a) == 4^Nsites          # the spin doublet's qdim must be unfolded
         @test a ≈ b
     end
 
     # ... and the t = 0 limit fixes the on-site term's normalisation independently of the hopping.
     U = 4.0
-    h0, lat0 = ShowcaseModels.hubbard_su2(3; t = 0.0, U)
-    @test sort(unique(round.(spectrum(h0, lat0); digits = 8))) ≈ U .* collect(0:3)
+    h0 = ShowcaseModels.hubbard_su2(3; t = 0.0, U)
+    @test sort(unique(round.(spectrum(h0); digits = 8))) ≈ U .* collect(0:3)
 end
 
 @testset "SU(2) and U(1) agree on the Heisenberg spectrum" begin
     # Different symmetry groups, different spaces, same operator: comparing spectra is the sharpest
     # available cross-check, and it validates the multiplet-degeneracy handling in `spectrum`.
     L = 4
-    Hs, lats = ShowcaseModels.heisenberg_su2(L)
+    Hs = ShowcaseModels.heisenberg_su2(L)
 
     Vu = Rep[U₁](0 => 1, 1 => 1)
     dn, up = U1Irrep(0), U1Irrep(1)
     S = spin_ops(Vu, up, dn)
     z = unit(U1Irrep)
     Hu = opsum(
+        FiniteChain(Vu, L),
         0.5 * couple(S.Sp[i], S.Sm[i + 1]; to = z) + 0.5 * couple(S.Sm[i], S.Sp[i + 1]; to = z) +
             couple(S.Sz[i], S.Sz[i + 1]; to = z) for i in 1:(L - 1)
     )
-    a, b = spectrum(Hs, lats), spectrum(Hu, FiniteChain(Vu, L))
+    a, b = spectrum(Hs), spectrum(Hu)
     @test length(a) == 2^L        # multiplet degeneracies must be unfolded
     @test a ≈ b
 end

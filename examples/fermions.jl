@@ -318,9 +318,9 @@ end
 
 function hubbard_su2(N; t = 1.0, U = 4.0)
     hop = hubbard_su2_hop()
-    bond = -t * (hop + hop')
+    B = project(-t * (hop + hop'))          # one projection; `B[i]` places it on sites i, i + 1
     return opsum(
-        (project(bond, [i, i + 1]) for i in 1:(N - 1)),
+        (B[i] for i in 1:(N - 1)),
         (U * nupndn[i] for i in 1:N),
     )
 end

@@ -182,10 +182,10 @@ end
 
 function hubbard_su2(N; t = 1.0, U = 4.0)
     hop = hubbard_su2_hop()
-    bond = -t * (hop + hop')
+    bond = project(-t * (hop + hop'))                                # projected once, placed per bond
     nupndn = matrixunit(HUBBARD_SU2_SITE, HUB_DOUBLE, HUB_DOUBLE)   # dim-1 sector: reachable
     h = opsum(
-        (project(bond, [i, i + 1]) for i in 1:(N - 1)),
+        (bond[i] for i in 1:(N - 1)),
         (U * nupndn[i] for i in 1:N),
     )
     return h, FiniteChain(HUBBARD_SU2_SITE, N)
@@ -310,12 +310,12 @@ const MODELS = ModelSpec[
         sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 512; n = 6, mult = 8)),
         sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 768; n = 7, mult = 8)),
     ),
-    # Two sizing notes, both measured. The *sweeps* stop earlier than the other fermionic models
-    # because this builder `project`s the same bond block once per bond, so term accumulation
-    # (~2.3 s at N = 256), not compression, sets the cost — `project` is not memoised the way
-    # `spin` / `matrixunit` / `adjoint` are. The *smoke* sizes are smaller still because
-    # `test_showcase_models.jl` runs `instantiate` on them: this site has dimension 4 and a
-    # non-abelian fermionic sector, and N = 6 alone costs about ten minutes there.
+    # Two sizing notes, both measured. The *sweeps* were sized when this builder still `project`ed
+    # the same bond block once per bond (~2.3 s of term accumulation at N = 256); it now projects
+    # once and places the `LocalOperator`, so the sizes are conservative rather than binding. The
+    # *smoke* sizes are smaller still because `test_showcase_models.jl` runs `instantiate` on them:
+    # this site has dimension 4 and a non-abelian fermionic sector, and N = 6 alone costs about ten
+    # minutes there.
     ModelSpec(
         "hubbard_su2", "Fermi-Hubbard SU(2) spin", :fermionic, Dict("t" => 1.0, "U" => 4.0),
         hubbard_su2,

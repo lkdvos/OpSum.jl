@@ -1,6 +1,7 @@
 # Unplaced multi-site operators and a lattice-carrying `OperatorSum` — design note
 
-Decided 2026-10-01, not yet implemented.
+Decided 2026-10-01. Step 1 (§3: `LocalOperator`, `project(h)`, placement) implemented 2026-10-01 on the
+`local-operators` branch; steps 2 and 3 are open.
 Builds on `interface-review.md` (read §1, §10–12 first: this note reverses part of §12, deliberately, and
 §1 is the failure mode the new container must not repeat).
 
@@ -75,8 +76,20 @@ project(h, sites) == project(h)[sites...]     # kept as a one-line convenience
   Non-monotone placement is a sector-only reordering (R-symbols abelian, F-moves non-abelian) and is
   deferred (§6).
 * Sites in a gap become pass-throughs. For fermionic sectors the bond charge crossing the gap picks up the
-  graded sign, so `B[i, i + 2]` of a projected `c†c` block should be the Jordan–Wigner-correct hop.
-  **Unverified** — needs a dense `instantiate` test before it is documented.
+  graded sign, so `B[i, i + 2]` of a projected `c†c` block is the Jordan–Wigner-correct hop.
+  **Verified** (`test/test_local_operator.jl`, "gap placement is exact"): `B[1, 3]` of the projected
+  nearest-neighbour hop equals `couple(cd[1], c[3]) + h.c.` as a term bag and densely under
+  `instantiate`; the compressed MPO (`irrep_mpo_tensors`, pass-through at the gap site) contracts back to
+  it; and two oracles that bypass the term algebra hold — the triangle `B[1] + B[2] + B[1, 3]` has zero
+  flux (one-particle spectrum `τ·{2, -1, -1}`, not the frustrated `τ·{-2, 1, 1}`), and its two-particle
+  spectrum is exactly the pair sums of the one-particle one, which is where the string across the
+  occupied gap site acts. Same checks pass for SU(2) `S·S` (`(S_tot² - 9/4)/2` on the triangle) and U(1).
+  One finding along the way, **pre-existing and not changed here**: the one-particle amplitude `τ` of
+  `-(couple(cd[i], c[j]) + h.c.)` under `instantiate` is `+1`, i.e. `couple(cd[1], c[2])` materialises as
+  `-|10⟩⟨01|` in the product basis (checked against a hand-written matrix unit, which `project`s to
+  `-couple(cd[1], c[2])`). Uniform over all bonds, so invisible on bipartite graphs and in every existing
+  test; physical on odd loops. Worth a decision of its own (convention vs. bug) before step 3's
+  `OperatorSum` docs promise a sign.
 * `Terms` indexing (`ts[i]` = i-th canonical term, `irrepalgebra.jl:206`) is unaffected; that clash is why
   placement lives on the new type rather than on `Terms`.
 
@@ -159,6 +172,10 @@ One PR per step, each independently testable.
 
 1. **`LocalOperator`, `project(h)`, placement.** Migrate the per-bond `project` loops (§1). Tests: placement
    ≡ `project(h, sites)`; gap placement against dense `instantiate`, including a fermionic hop.
+   **Done** — `src/operators/algebra/localoperator.jl`, `test/test_local_operator.jl`; all five loops in §1
+   migrated and checked to give identical term bags. `LocalOperator(::SiteOperator)` refuses a
+   `passthrough` letter until step 2 defines passthrough slots; placement does not yet drop passthrough
+   keys (nothing produces them yet).
 2. **Unplaced `couple` / `dot` / `couple_channels`, passthrough slots.** Tests: `couple(a, b)[sites...]` ≡
    placed `couple(a[i], b[j])` across abelian, fermionic and SU(2) sectors; forced-channel errors unchanged.
 3. **`OperatorSum`.** Absorb `MixedSum`, remove the `(h, lat)` forms and `adjoint(h, lat)`, add `H'`, move

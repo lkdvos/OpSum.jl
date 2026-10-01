@@ -77,7 +77,9 @@ using LinearAlgebra: eigvals
 V1 = SU2Space(1 => 1)
 S1 = spin(V1)
 bond = removeunit(instantiate(dot(S1[1], S1[2]), [V1, V1]), 5)   # V⊗V ← V⊗V
-akltish(N; β = 1 / 3) = opsum(project(bond + β * (bond * bond), [i, i + 1]) for i in 1:(N - 1))
+akltish(N; β = 1 / 3) = let B = project(bond + β * (bond * bond))   # a LocalOperator: unplaced
+    opsum(B[i] for i in 1:(N - 1))                                  # placed once per bond
+end
 report("2.2 bilinear-biquadratic (spin-1)", akltish(4), FiniteChain(V1, 4))
 
 # ── Tier 3 · arity and fusion channels ─────────────────────────────────────────────────────────
@@ -134,10 +136,10 @@ report("4.3 Kitaev chain (parity only)", kitaev(6), FiniteChain(Vp, 6))
 # random block here stands in for it to exercise the machinery on a *generic* dense block.
 const Hub = ProductSector{Tuple{U1Irrep, SU2Irrep, FermionParity}}
 Vh = Vect[Hub]((0, 0, 0) => 1, (1, 1 // 2, 1) => 1, (2, 0, 0) => 1)
-hubblock = randn(ComplexF64, Vh ⊗ Vh ← Vh ⊗ Vh)   # stand-in for -t(c†c + h.c.) + U n↑n↓
+hubblock = project(randn(ComplexF64, Vh ⊗ Vh ← Vh ⊗ Vh))   # stand-in for -t(c†c + h.c.) + U n↑n↓
 report(
     "4.4 SU(2) Hubbard bond (projected)",
-    opsum(project(hubblock, [i, i + 1]) for i in 1:3), FiniteChain(Vh, 4),
+    opsum(hubblock[i] for i in 1:3), FiniteChain(Vh, 4),
 )
 
 # ── Tier 5 · the lattice itself ────────────────────────────────────────────────────────────────

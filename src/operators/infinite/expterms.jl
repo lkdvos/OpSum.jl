@@ -90,8 +90,8 @@ end
     ExpSum{I<:Sector}
 
 A sum of exponentially decaying interactions: [`ExpKey`](@ref) descriptors with coefficients, the
-geometric counterpart of [`Terms`](@ref). Built by [`expterm`](@ref); `+` with a `Terms` bag gives a
-[`MixedSum`](@ref), which is what `irrep_mpo` consumes.
+geometric counterpart of [`Terms`](@ref). Built by [`expterm`](@ref), and added to an
+[`OperatorSum`](@ref) next to its finite-range terms: `opsum(lat, h, expterm(h; decay = λ))`.
 
 Summing several channels is how a *sum of exponentials* is written (each keeps its own `λ`, and
 channels with different `λ` stay linearly independent, so each costs its own bond index).
@@ -110,35 +110,7 @@ function Base.show(io::IO, es::ExpSum)
     return print(io, ")")
 end
 
-"""
-    MixedSum{I<:Sector}
-
-A Hamiltonian with both finite-range terms and exponentially decaying ones: a [`Terms`](@ref) bag plus
-an [`ExpSum`](@ref). Produced by adding the two, and accepted by `irrep_mpo` on an
-[`InfiniteChain`](@ref) or with an explicit `sites` vector.
-
-Latticeless, like the `Terms` it is built from — the lattice is supplied at
-[`irrep_mpo`](@ref), as for any other operator.
-
-```julia
-H = dot(S[1], S[2]) + expterm(dot(S[1], S[2]); decay = 0.4)
-```
-"""
-struct MixedSum{I <: Sector}
-    terms::Terms{I}
-    channels::ExpSum{I}
-end
-
-function Base.show(io::IO, H::MixedSum)
-    return print(io, "MixedSum(", H.terms, ", ", H.channels, ")")
-end
-
-# a model may be nothing but channels, or nothing but terms
-MixedSum(t::Terms{I}) where {I} = MixedSum{I}(t, ExpSum{I}())
-MixedSum(e::ExpSum{I}) where {I} = MixedSum{I}(Terms{I}(), e)
-MixedSum(H::MixedSum) = H
-
-# Arithmetic: `+` closes over Terms / ExpSum / MixedSum, so a model can be written as one sum.
+# Arithmetic among channels. Meeting a `Terms` bag happens in an `OperatorSum`.
 function Base.:+(a::ExpSum{I}, b::ExpSum{I}) where {I}
     d = Dictionary{ExpKey{I}, ComplexF64}()
     for (k, v) in pairs(a.channels)
@@ -163,28 +135,6 @@ Base.:*(a::ExpSum, α::Number) = scale(a, α)
 Base.:/(a::ExpSum, α::Number) = scale(a, inv(α))
 Base.:-(a::ExpSum) = scale(a, -1)
 Base.:-(a::ExpSum, b::ExpSum) = a + (-b)
-
-# Coefficients are `ComplexF64` throughout now, so there is no promotion left to do.
-_mixed(t::Terms{I}, e::ExpSum{I}) where {I} = MixedSum{I}(t, e)
-
-Base.:+(a::Terms{I}, b::ExpSum{I}) where {I} = _mixed(a, b)
-Base.:+(a::ExpSum{I}, b::Terms{I}) where {I} = _mixed(b, a)
-Base.:+(a::MixedSum{I}, b::Terms{I}) where {I} = _mixed(a.terms + b, a.channels)
-Base.:+(a::Terms{I}, b::MixedSum{I}) where {I} = _mixed(a + b.terms, b.channels)
-Base.:+(a::MixedSum{I}, b::ExpSum{I}) where {I} = _mixed(a.terms, a.channels + b)
-Base.:+(a::ExpSum{I}, b::MixedSum{I}) where {I} = _mixed(b.terms, a + b.channels)
-Base.:+(a::MixedSum{I}, b::MixedSum{I}) where {I} =
-    _mixed(a.terms + b.terms, a.channels + b.channels)
-
-VectorInterface.scale(a::MixedSum, α::Number) = _mixed(scale(a.terms, α), scale(a.channels, α))
-Base.:*(α::Number, a::MixedSum) = scale(a, α)
-Base.:*(a::MixedSum, α::Number) = scale(a, α)
-Base.:/(a::MixedSum, α::Number) = scale(a, inv(α))
-Base.:-(a::MixedSum) = scale(a, -1)
-Base.:-(a::MixedSum, b::Union{Terms, ExpSum, MixedSum}) = a + (-b)
-Base.:-(a::Union{Terms, ExpSum}, b::MixedSum) = a + (-b)
-Base.:-(a::Terms{I}, b::ExpSum{I}) where {I} = a + (-b)
-Base.:-(a::ExpSum{I}, b::Terms{I}) where {I} = a + (-b)
 
 # --- the constructor ------------------------------------------------------------------------------
 
@@ -238,7 +188,8 @@ The lattice supplies the translation period: on an [`InfiniteChain`](@ref) of `L
 exit both step by `L`, on a finite chain by one site. `decay` counts per *site* of the string, and
 must satisfy `0 < |λ| < 1` — `λ = 1` is not summable.
 
-Add the result to a `Terms` bag to get a [`MixedSum`](@ref), which is what `irrep_mpo` consumes.
+Add the result to an [`OperatorSum`](@ref) next to the finite-range terms, `opsum(lat, h, expterm(h;
+decay = λ))`, which is what `irrep_mpo` consumes.
 """
 function expterm(
         t::Terms{I}; decay, exitsite = nothing, string = nothing
@@ -285,10 +236,6 @@ function expterm(
     filter!(!iszero, d)
     return ExpSum{I}(d)
 end
-
-expterm(t::MixedSum; kwargs...) = throw(
-    ArgumentError("expterm: the representative must be an ordinary (finite-range) Terms bag")
-)
 
 # --- explicit expansion (the oracle) --------------------------------------------------------------
 
@@ -397,17 +344,6 @@ function expand_channels(es::ExpSum{I}, P::Int, N::Int) where {I}
     end
     filter!(!iszero, d)
     return Terms{I}([Term{I}(t.sites, t.keys, v) for (t, v) in pairs(d)])
-end
-
-"""
-    chain_terms(H::MixedSum, N::Int) -> Terms
-
-The literal term sum a [`MixedSum`](@ref) stands for on a finite chain of `N` sites: the finite-range
-terms as written, plus every translate (period 1) of every channel that fits. This is what the finite
-`irrep_mpo(H::MixedSum, sites)` represents.
-"""
-function chain_terms(H::MixedSum{I}, N::Int) where {I}
-    return H.terms + expand_channels(H.channels, 1, N)
 end
 
 # --- lowering to a weighted automaton -------------------------------------------------------------

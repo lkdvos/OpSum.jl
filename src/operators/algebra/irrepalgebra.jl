@@ -173,8 +173,8 @@ The compressible ITO operator: a bag of [`Term`](@ref)s, with **no lattice**. Wh
 return, what `+`, `-`, `*` and `/` combine, and what [`opsum`](@ref) accumulates in one pass.
 
 Nothing in the term algebra, and nothing in the MPO sweep, needs a physical space — the sweep needs
-only the site *count* — so the lattice is supplied where the MPO is formed:
-`irrep_mpo(h, lat)`, `instantiate(h, lat)`, `islossless(h, lat)`, `adjoint(h, lat)`.
+only the site *count* — so the lattice enters when the terms are added to an [`OperatorSum`](@ref),
+which is what `irrep_mpo`, `instantiate`, `islossless` and `adjoint` take.
 
 Terms are appended as given, so the bag is unnormalised until [`canonicalize!`](@ref) puts it in
 normal form in place. `length(ts)`, iteration, indexing and `≈` all go through that, so they report
@@ -296,9 +296,8 @@ _notalattice(sites) = throw(
 )
 
 # The one place operators and the spaces they are compressed with are confronted; without it a
-# lattice from a different model silently gives a wrong MPO. Every entry point that takes a lattice
-# runs it, which is where it moved to when `opsum` stopped taking one — still exactly one place per
-# call, and still before any output is produced.
+# lattice from a different model silently gives a wrong MPO. It runs when terms enter an
+# `OperatorSum`, so the error points at the line that added the term.
 #
 # `Θ(Σ arity)`, not `Θ(N)`. On an `InfiniteChain` there is no site range to check (a generating term
 # legitimately reaches past the cell) and `lat[s]` wraps.
@@ -345,8 +344,8 @@ h = opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
 ```
 
 Each argument may be a [`Term`](@ref), a [`Terms`](@ref) bag, or any iterable of those, nested
-arbitrarily. The result is latticeless: the lattice is supplied where the MPO is formed
-([`irrep_mpo`](@ref)), which is also where every letter is checked against the space of the site it
+arbitrarily. The result is latticeless; `opsum(lat, terms...)` is the same accumulation into an
+[`OperatorSum`](@ref), which is where every letter is checked against the space of the site it
 acts on.
 
 `opsum` is the linear route; `+` *copies*, so folding it over `M` terms is quadratic.
@@ -371,18 +370,6 @@ function opsum(args...)
     )
     return Terms(out)
 end
-
-# `opsum` no longer binds a lattice. A bare vector of spaces as the first argument is the old
-# signature, so name the replacement instead of failing on the element type.
-opsum(::AbstractLattice, args...) = _nolattice()
-opsum(::AbstractVector{<:ElementarySpace}, args...) = _nolattice()
-_nolattice() = throw(
-    ArgumentError(
-        "opsum no longer takes a lattice: a term bag is latticeless, and the lattice is supplied " *
-            "where the MPO is formed. Write `opsum(terms...)` and pass the lattice to " *
-            "`irrep_mpo(h, lat)` / `instantiate(h, lat)` / `islossless(h, lat)`."
-    )
-)
 
 # Establishing `I`: the accumulator is `nothing` until the first term fixes the sector type. Only
 # that one step is dynamically dispatched; everything after it runs through the typed collector, so

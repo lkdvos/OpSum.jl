@@ -96,12 +96,13 @@ project(h, sites) == project(h)[sites...]     # kept as a one-line convenience
   flux (one-particle spectrum `τ·{2, -1, -1}`, not the frustrated `τ·{-2, 1, 1}`), and its two-particle
   spectrum is exactly the pair sums of the one-particle one, which is where the string across the
   occupied gap site acts. Same checks pass for SU(2) `S·S` (`(S_tot² - 9/4)/2` on the triangle) and U(1).
-  One finding along the way, **pre-existing and not changed here**: the one-particle amplitude `τ` of
-  `-(couple(cd[i], c[j]) + h.c.)` under `instantiate` is `+1`, i.e. `couple(cd[1], c[2])` materialises as
-  `-|10⟩⟨01|` in the product basis (checked against a hand-written matrix unit, which `project`s to
-  `-couple(cd[1], c[2])`). Uniform over all bonds, so invisible on bipartite graphs and in every existing
-  test; physical on odd loops. Worth a decision of its own (convention vs. bug) before step 3's
-  `OperatorSum` docs promise a sign.
+  One finding along the way: `couple(cd[1], c[2])` materialised as `-|10⟩⟨01|` in the product basis —
+  uniform over all bonds, so invisible on bipartite graphs, physical on odd loops. Ruled a bug and
+  fixed separately (#36): `_couple_terms` multiplies a coupled pair by `-1` when both operands are
+  fermion-odd (the graded tensor product), so `couple(cd[i], c[j])` is the physical `c†ᵢcⱼ`; the
+  letters are unchanged, and `test/test_fermion_signs.jl` pins it against dense Jordan–Wigner
+  matrices. Unplaced `couple`/`dot` lower onto `_couple_terms`, so they inherit it; any new route
+  that combines operands into one term must apply the same rule.
 * `Terms` indexing (`ts[i]` = i-th canonical term, `irrepalgebra.jl:206`) is unaffected; that clash is why
   placement lives on the new type rather than on `Terms`.
 

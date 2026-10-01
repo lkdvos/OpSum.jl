@@ -1,8 +1,8 @@
 # # Lattices and geometry
 #
-# Two things live in the lattice argument and nowhere else: **which space sits on each site**, and
+# Two things live in the lattice and nowhere else: **which space sits on each site**, and
 # **how the sites are ordered**. The term algebra never sees either — it knows site indices and
-# charges — so this page changes only what is passed to `irrep_mpo`, never how a term is written.
+# charges — so this page changes only the lattice the terms are put on, never how a term is written.
 #
 # Two consequences, one per half of the page:
 #
@@ -31,23 +31,21 @@ op(i) = isodd(i) ? Sa : Sb
 
 function alternating(N; J = 1.0)
     spaces = [isodd(i) ? Va : Vb for i in 1:N]
-    h = opsum(J * dot(op(i)[i], op(i + 1)[i + 1]) for i in 1:(N - 1))
-    return h, FiniteChain(spaces)
+    return opsum(FiniteChain(spaces), J * dot(op(i)[i], op(i + 1)[i + 1]) for i in 1:(N - 1))
 end
 
-build("alternating ½/1", alternating(6)...)
+build("alternating ½/1", alternating(6))
 
-# `build(name, alternating(6)...)` splats the `(h, lat)` pair the builder returns. Keeping the two
-# together at the call site is the mitigation for having to name the lattice more than once; the
-# benchmark registry does the same.
+# The `OperatorSum` the builder returns carries its lattice, so there is a single value to pass
+# around; the benchmark registry does the same.
 
-islossless(alternating(6)...)
+islossless(alternating(6))
 
-# The lattice is also where operators and spaces are first confronted, so this is where a mismatch is
-# caught. Putting the spin-1 operator on a spin-½ site is an error, not a wrong number:
+# Adding terms to a lattice is where operators and spaces are first confronted, so this is where a
+# mismatch is caught. Putting the spin-1 operator on a spin-½ site is an error, not a wrong number:
 
 try
-    irrep_mpo(dot(Sb[1], Sb[2]), FiniteChain(Va, 2))
+    opsum(FiniteChain(Va, 2), dot(Sb[1], Sb[2]))
 catch e
     println(sprint(showerror, e))
 end
@@ -60,13 +58,11 @@ end
 function impurity(N, at; J = 1.0)
     spaces = [i == at ? Vb : Va for i in 1:N]
     o(i) = i == at ? Sb : Sa
-    h = opsum(J * dot(o(i)[i], o(i + 1)[i + 1]) for i in 1:(N - 1))
-    return h, FiniteChain(spaces)
+    return opsum(FiniteChain(spaces), J * dot(o(i)[i], o(i + 1)[i + 1]) for i in 1:(N - 1))
 end
 
 for at in (1, 3, 6)
-    h, lat = impurity(6, at)
-    Ws, secs = irrep_mpo(h, lat)
+    Ws, secs = irrep_mpo(impurity(6, at))
     println("  impurity at $at:  per-bond D = ", [bonddim(secs, b) for b in eachindex(secs)])
 end
 
@@ -112,24 +108,24 @@ V = Va
 S = Sa
 chain(N) = FiniteChain(V, N)
 
-heisenberg_bonds(bonds; J = 1.0) = opsum(J * dot(S[i], S[j]) for (i, j) in bonds)
+heisenberg_bonds(lat, bonds; J = 1.0) = opsum(lat, J * dot(S[i], S[j]) for (i, j) in bonds)
 heisenberg_cylinder(Lx, Ly; kwargs...) =
-    heisenberg_bonds(cylinder_bonds(Lx, Ly); kwargs...)
+    heisenberg_bonds(chain(Lx * Ly), cylinder_bonds(Lx, Ly); kwargs...)
 heisenberg_ladder(Lx, Ly = 2; kwargs...) =
-    heisenberg_bonds(ladder_bonds(Lx, Ly); kwargs...)
+    heisenberg_bonds(chain(Lx * Ly), ladder_bonds(Lx, Ly); kwargs...)
 
 # ## A two-leg ladder
 
 Lx = 6
 H_ladder = heisenberg_ladder(Lx)
-res_ladder = build("ladder 6x2", H_ladder, chain(2Lx))
+res_ladder = build("ladder 6x2", H_ladder)
 
-islossless(H_ladder, chain(2Lx))
+islossless(H_ladder)
 
 # The smallest non-trivial case, a single ``2 \times 2`` plaquette, is small enough to check against
 # the dense operator directly:
 
-mpo_matches_oracle(heisenberg_cylinder(2, 2), chain(4))
+mpo_matches_oracle(heisenberg_cylinder(2, 2))
 
 # ## Growth in the circumference
 #
@@ -138,7 +134,7 @@ mpo_matches_oracle(heisenberg_cylinder(2, 2), chain(4))
 # dimension 3 — hence ``3 L_y + 2``, the ``+2`` being the identity-in and identity-out channels.
 
 for Ly in 3:6
-    r = build("cylinder 4x$Ly", heisenberg_cylinder(4, Ly), chain(4Ly); quiet = true)
+    r = build("cylinder 4x$Ly", heisenberg_cylinder(4, Ly); quiet = true)
     println("  Ly=$Ly   D=$(rpad(r.D, 3))  D_dense=$(rpad(r.Ddense, 4))  3Ly+2 = $(3Ly + 2)")
 end
 
@@ -149,7 +145,7 @@ end
 
 for Ly in (3, 4)
     for Lx in (3, 4, 6, 8)
-        r = build("cyl", heisenberg_cylinder(Lx, Ly), chain(Lx * Ly); quiet = true)
+        r = build("cyl", heisenberg_cylinder(Lx, Ly); quiet = true)
         println("  Ly=$Ly  Lx=$(rpad(Lx, 2))  N=$(rpad(Lx * Ly, 3))  D_dense=$(r.Ddense)")
     end
 end
@@ -157,7 +153,7 @@ end
 # Stated as an assertion over the whole grid:
 
 all(
-    build("c", heisenberg_cylinder(Lx, Ly), chain(Lx * Ly); quiet = true).Ddense == 3Ly + 2
+    build("c", heisenberg_cylinder(Lx, Ly); quiet = true).Ddense == 3Ly + 2
         for Ly in 3:6, Lx in (3, 4, 5)
 )
 
@@ -169,7 +165,7 @@ all(
 # symmetry-agnostic MPO of the same operator.
 
 map(3:6) do Ly
-    r = build("c", heisenberg_cylinder(4, Ly), chain(4Ly); quiet = true)
+    r = build("c", heisenberg_cylinder(4, Ly); quiet = true)
     return (Ly = Ly, reduced = r.D, dense = r.Ddense, ratio = round(r.Ddense / r.D; digits = 2))
 end
 

@@ -2,7 +2,7 @@
 
 Decided 2026-10-01. Step 1 (§3: `LocalOperator`, `project(h)`, placement) and step 2 (§4: unplaced
 `couple`/`dot`/`couple_channels`, and the pass-through slots of §3) implemented 2026-10-01 on the
-`local-operators` branch; step 3 is open.
+`local-operators` branch; step 3 (§5, `OperatorSum`) implemented 2026-10-01 on the same branch.
 Builds on `interface-review.md` (read §1, §10–12 first: this note reverses part of §12, deliberately, and
 §1 is the failure mode the new container must not repeat).
 
@@ -225,10 +225,52 @@ One PR per step, each independently testable.
      `dot(S, S) + 1/4` already places as a two-site term plus a `K = 0` constant.
    * The variadic error messages mention channels, not sites, which is what makes them identical between
      the two forms; keep it that way if they are reworded.
-3. **`OperatorSum`.** Absorb `MixedSum`, remove the `(h, lat)` forms and `adjoint(h, lat)`, add `H'`, move
+3. **`OperatorSum`.** **Done** — see "Implemented (step 3)" below. Absorb `MixedSum`, remove the `(h, lat)` forms and `adjoint(h, lat)`, add `H'`, move
    validation to insertion; migrate examples, benchmarks and `ShowcaseModels.jl` builders (which return
    `(h, lat)` today and would return an `OperatorSum`). Watch the Julia 1.10 stale-`using` trap when
    removing exports.
+
+**Implemented (step 3).** `src/operators/operatorsum.jl` (struct, `opsum!`, `opsum(lat, …)`, insertion
+checks, arithmetic, `H'`, `instantiate(H)`, `chain_terms(H)`), `test/test_operator_sum.jl`. As decided:
+`OperatorSum{I, L}` holds the lattice, a `Terms{I}` and an `ExpSum{I}`; `MixedSum` and every `(h, lat)`
+form are gone (`irrep_mpo(::Terms/Term/ExpSum, …)` throws an `ArgumentError` naming
+`irrep_mpo(opsum(lat, h))`; the rest are plain `MethodError`s); canonicalisation stays lazy.
+`irrep_mpo_tensors(mpo, lat)` is the one remaining `(x, lat)` form — the MPO does not carry its
+lattice, so it could read it off the MPO later, which would also make `mpo_tensormap ∘
+irrep_mpo_tensors` argument-free.
+
+Choices the note left open, and what was done:
+
+* **Where each check runs.** On insertion: sector type, letters against the site's space, finite-chain
+  site range (`_checklattice`), and on an `InfiniteChain` the per-term generating-set rules — charge
+  neutrality and no `K = 0` term — for terms and channels, plus the letters of a channel's
+  representative (translation by `L` preserves the space). At `irrep_mpo`: only "one representative
+  per translation class", which needs the whole set (`unitcell_terms`). A channel's letters are *not*
+  checked on a finite chain: every translate sits on a different site, so there is no single space to
+  check them against. A failed insertion leaves the container unchanged (everything is collected and
+  checked before anything is appended).
+* **`unitcell_terms(::Terms, L)` now canonicalises its input first**, so a term written twice is one
+  term with a summed coefficient rather than a spurious "translates of each other" error. Needed for
+  `H + H'` on an infinite chain, where on-site and self-adjoint pieces coincide; it is also what a
+  finite chain already did.
+* **`islossless` on an infinite chain** is the `mpo_terms_window` sandwich over the same window the
+  sweep uses (soundness everywhere, completeness further than the interaction range from the right
+  edge), since there is no exact equality to test. On a finite chain it is `mpo_terms(mpo) ≈
+  chain_terms(H)`, so channels are covered too.
+* **`length`/iteration** of an `OperatorSum` run over the finite-range terms; channels are
+  `H.channels`; `isempty` is true only with neither. `≈`/`==` also require equal lattices.
+* **`H'` with channels** throws an `ArgumentError` (§8, third question: throw, for now).
+* **`H += x`** is supported for `Term`, `Terms`, `ExpSum`; `H + H2` requires equal lattices. An unplaced
+  `SiteOperator`/`LocalOperator` (`opsum!(H, B)`) is an `ArgumentError` saying to place it first —
+  accepting `H += B` with an implied site stays a separate decision, as step 2 noted.
+* **`couple`/`dot`/`couple_channels` on an `OperatorSum`** throw an `ArgumentError` when it is the
+  first or second operand; a third or later operand falls through to the generic `MethodError`.
+* **`jordan_mpo_tensors`** keeps its finite-only, channel-free scope; the infinite and channel cases are
+  `ArgumentError`s.
+* **Bug found while migrating:** `project` verified its output with `instantiate(out, Vs)` on a bare
+  `Terms`; it now calls the internal `_instantiate_terms(out, Vs)`. `instantiate(::Terms, ...)` is not
+  public any more, and tests that need a dense matrix of a latticeless bag use
+  `instantiate(opsum(sites, ts))`.
 
 ## 8. Open
 
@@ -236,5 +278,8 @@ One PR per step, each independently testable.
   way round — unplaced is implemented *on* placed — so removing the placed form means moving the
   reordering/insertion logic of `_couple_terms` to a placement step, which is exactly the deferred
   non-monotone placement of §6.)
-* Does `OperatorSum` canonicalise eagerly on insertion, or keep today's normalise-on-observation?
-* `H'` on a container holding channels: throw, or adjoint the channel representative?
+* ~~Does `OperatorSum` canonicalise eagerly on insertion, or keep today's normalise-on-observation?~~
+  Lazy (decided, implemented).
+* `H'` on a container holding channels: throws for now (implemented); adjointing the channel
+  representative is open.
+* `irrep_mpo_tensors(mpo, lat)` could read the lattice off the MPO.

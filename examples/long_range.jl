@@ -29,22 +29,24 @@ include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 V = SU2Space(1 // 2 => 1)
 S = spin(V)
 
+chain(N) = FiniteChain(V, N)
+
 function haldane_shastry(N; J = 1.0)
     pref = J * π^2 / N^2
     return opsum(
+        chain(N),
         (pref / sin(π * (m - n) / N)^2) * dot(S[n], S[m])
             for n in 1:(N - 1) for m in (n + 1):N
     )
 end
-chain(N) = FiniteChain(V, N)
 
 N = 16
 H_hs = haldane_shastry(N)
-res_hs = build("Haldane-Shastry", H_hs, chain(N))
+res_hs = build("Haldane-Shastry", H_hs)
 
 # Even with every pair coupled, the compression is still exact:
 
-islossless(H_hs, chain(N))
+islossless(H_hs)
 
 # ## Linear growth
 #
@@ -53,7 +55,7 @@ islossless(H_hs, chain(N))
 # smaller side — giving ``\min(b, N-b)`` multiplets, maximised at the middle of the chain.
 
 for L in (10, 20, 40, 60, 80)
-    r = build("HS N=$L", haldane_shastry(L), chain(L); quiet = true)
+    r = build("HS N=$L", haldane_shastry(L); quiet = true)
     println(
         "  N=$(rpad(L, 3))  nterms=$(rpad(L * (L - 1) ÷ 2, 5))  D=$(rpad(r.D, 4))",
         "  D_dense=$(rpad(r.Ddense, 5))  3N/2+2 = $(3L ÷ 2 + 2)"
@@ -65,7 +67,7 @@ end
 # construction.
 
 all(
-    build("hs", haldane_shastry(L), chain(L); quiet = true).Ddense == 3L ÷ 2 + 2
+    build("hs", haldane_shastry(L); quiet = true).Ddense == 3L ÷ 2 + 2
         for L in (10, 20, 30, 40)
 )
 
@@ -80,13 +82,14 @@ all(
 
 function powerlaw(N; α = 3.0, J = 1.0)
     return opsum(
+        chain(N),
         (J * abs(m - n)^(-α)) * dot(S[n], S[m])
             for n in 1:(N - 1) for m in (n + 1):N
     )
 end
 
 for α in (1.0, 2.0, 3.0, 6.0)
-    r = build("powerlaw α=$α", powerlaw(24; α), chain(24); quiet = true)
+    r = build("powerlaw α=$α", powerlaw(24; α); quiet = true)
     println("  α=$(rpad(α, 4))  D=$(rpad(r.D, 4))  D_dense=$(r.Ddense)")
 end
 
@@ -107,9 +110,9 @@ end
 
 using MatrixAlgebraKit: truncrank, trunctol
 
-let H = powerlaw(6; α = 3.0), lat = chain(6)
-    println("  exact:          islossless = ", islossless(H, lat))
-    println("  truncrank(2):   islossless = ", islossless(H, lat, SVDBondAlgorithm(truncrank(2))))
+let H = powerlaw(6; α = 3.0)
+    println("  exact:          islossless = ", islossless(H))
+    println("  truncrank(2):   islossless = ", islossless(H, SVDBondAlgorithm(truncrank(2))))
 end
 
 # ### The check you must use
@@ -118,24 +121,24 @@ end
 # where the oracle is affordable and *then* build at the size you want — the truncation parameter is
 # what transfers, not the error.
 
-function truncation_error(H, lat, alg; oracle = instantiate(H, lat))
-    Ws, secs = irrep_mpo(H, lat, alg)
+function truncation_error(H, alg; oracle = instantiate(H))
+    Ws, secs = irrep_mpo(H, alg)
     nempty = count(b -> bonddim(secs, b) == 0, eachindex(secs))
     ## An emptied bond is not a large error but a degenerate MPO: the assembled tensor then carries
     ## an *empty* trailing charge leg, and subtracting the oracle throws a `SpaceMismatch` rather
     ## than returning a number. So report it instead of measuring it.
     nempty > 0 && return (; D = maxdensedim(secs), empty_bonds = nempty, error = NaN)
-    O = mpo_tensormap(irrep_mpo_tensors(Ws, secs, lat))
+    O = mpo_tensormap(irrep_mpo_tensors(Ws, secs, H.lattice))
     return (; D = maxdensedim(secs), empty_bonds = 0, error = norm(O - oracle) / norm(oracle))
 end
 
 showerr(e) = isnan(e) ? "annihilated" : string(round(e; sigdigits = 3))
 
-let H = powerlaw(6; α = 3.0), lat = chain(6)
-    exact = build("powerlaw exact", H, lat; quiet = true)
+let H = powerlaw(6; α = 3.0)
+    exact = build("powerlaw exact", H; quiet = true)
     println("  exact:            D_dense=$(exact.Ddense)   rel. error 0")
     for k in (8, 6, 4, 2, 1)
-        r = truncation_error(H, lat, SVDBondAlgorithm(truncrank(k)))
+        r = truncation_error(H, SVDBondAlgorithm(truncrank(k)))
         println("  truncrank($(rpad(k, 2)))     D_dense=$(rpad(r.D, 4))  rel. error $(showerr(r.error))")
     end
 end
@@ -146,7 +149,7 @@ end
 # truncate:
 
 for α in (2.0, 3.0, 5.0)
-    r = truncation_error(powerlaw(6; α), chain(6), SVDBondAlgorithm(truncrank(4)))
+    r = truncation_error(powerlaw(6; α), SVDBondAlgorithm(truncrank(4)))
     println("  α=$(rpad(α, 4))  truncrank(4)  D_dense=$(rpad(r.D, 4))  rel. error $(showerr(r.error))")
 end
 
@@ -158,7 +161,7 @@ end
 # about:
 
 for τ in (1.0e-2, 1.0e-4, 1.0e-8)
-    r = truncation_error(powerlaw(6; α = 3.0), chain(6), SVDBondAlgorithm(trunctol(; atol = τ)))
+    r = truncation_error(powerlaw(6; α = 3.0), SVDBondAlgorithm(trunctol(; atol = τ)))
     println("  trunctol(atol=$(rpad(τ, 7)))  D_dense=$(rpad(r.D, 4))  rel. error $(showerr(r.error))")
 end
 
@@ -176,11 +179,11 @@ end
 #    truncation already discarded**. An aggressive early cut can starve the downstream bonds. In
 #    exchange the sweep is incremental and reuses the persistent graph.
 
-let H = powerlaw(8; α = 2.0), lat = chain(8), oracle = instantiate(powerlaw(8; α = 2.0), chain(8))
+let H = powerlaw(8; α = 2.0), oracle = instantiate(H)
     for sweep in (IndependentSVD, SequentialSVD)
         for k in (6, 4, 2)
-            Ws, secs = irrep_mpo(H, lat, SVDBondAlgorithm(truncrank(k); sweep))
-            r = truncation_error(H, lat, SVDBondAlgorithm(truncrank(k); sweep); oracle)
+            Ws, secs = irrep_mpo(H, SVDBondAlgorithm(truncrank(k); sweep))
+            r = truncation_error(H, SVDBondAlgorithm(truncrank(k); sweep); oracle)
             println(
                 "  ", rpad(string(sweep), 15), " truncrank($k)  per-bond = ", map(length, secs),
                 "  rel. error ", showerr(r.error)
@@ -202,10 +205,10 @@ end
 
 # Losslessly the two coincide, which is the statement that neither sweep is doing anything exotic:
 
-let H = powerlaw(6; α = 3.0), lat = chain(6)
-    a = irrep_mpo(H, lat, SVDBondAlgorithm(; sweep = IndependentSVD))
-    b = irrep_mpo(H, lat, SVDBondAlgorithm(; sweep = SequentialSVD))
-    (; same_bonds = a.bondsectors == b.bondsectors, both_lossless = islossless(H, lat))
+let H = powerlaw(6; α = 3.0)
+    a = irrep_mpo(H, SVDBondAlgorithm(; sweep = IndependentSVD))
+    b = irrep_mpo(H, SVDBondAlgorithm(; sweep = SequentialSVD))
+    (; same_bonds = a.bondsectors == b.bondsectors, both_lossless = islossless(H))
 end
 
 # ### The recipe

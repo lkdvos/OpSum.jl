@@ -25,29 +25,31 @@ S = spin(V)
 
 tail = expterm(dot(S[1], S[2]); decay = 0.6)
 
-# Adding it to a term bag gives a [`MixedSum`](@ref OpSum.MixedSum) — still latticeless, like
-# everything else — which `irrep_mpo` accepts on either lattice.
+# It goes into an [`OperatorSum`](@ref OpSum.OperatorSum) next to the finite-range terms, on either
+# lattice — the channel is just another argument of `opsum`.
 
-H = dot(S[1], S[2]) + tail
-irrep_mpo(H, InfiniteChain([V]))
+H = opsum(InfiniteChain([V]), dot(S[1], S[2]), tail)
+irrep_mpo(H)
 
 # One extra bond index buys the entire tail. Compare the same model without it:
 
 let cell = InfiniteChain([V])
-    bare = irrep_mpo(dot(S[1], S[2]), cell)
-    with = irrep_mpo(H, cell)
+    bare = irrep_mpo(opsum(cell, dot(S[1], S[2])))
+    with = irrep_mpo(H)
     println("  nearest neighbour only:  D=", map(length, bare.bondsectors))
     println("  + geometric tail:        D=", map(length, with.bondsectors))
 end
 
 # ## The same declaration on a finite chain
 #
-# The lattice fixes the translation period, and nothing else changes. On a
+# The lattice fixes the translation period, and nothing else changes — only the first argument of
+# `opsum`. On a
 # [`FiniteChain`](@ref OpSum.FiniteChain) every site is a possible entry and the operator is the
 # geometric sum **truncated to the chain**; on an `L`-site `InfiniteChain` entry and exit both step
 # by `L`.
 
-irrep_mpo(H, FiniteChain(V, 8))
+Hfinite = opsum(FiniteChain(V, 8), dot(S[1], S[2]), tail)
+irrep_mpo(Hfinite)
 
 # The finite MPO is not translation-invariant at the edges — the tail has fewer places to start near
 # the right end — which is why its bond dimensions taper. The interior is what the infinite cell
@@ -56,9 +58,9 @@ irrep_mpo(H, FiniteChain(V, 8))
 # Being a truncated geometric sum is a statement about which terms exist, and
 # [`OpSum.chain_terms`](@ref) writes them out. So the finite case is checkable the ordinary way:
 
-let lat = FiniteChain(V, 6)
-    Ws, secs = irrep_mpo(H, lat)
-    mpo_terms(Ws, secs) ≈ OpSum.chain_terms(H, length(lat))
+let H6 = opsum(FiniteChain(V, 6), dot(S[1], S[2]), tail)
+    Ws, secs = irrep_mpo(H6)
+    mpo_terms(Ws, secs) ≈ OpSum.chain_terms(H6)
 end
 
 # ## `decay` counts per site
@@ -71,7 +73,7 @@ end
 base = only(dot(S[1], S[2])).coeff
 
 let lat = FiniteChain(V, 5), λ = 0.5
-    Ws, secs = irrep_mpo(expterm(dot(S[1], S[2]); decay = λ), lat)
+    Ws, secs = irrep_mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = λ)))
     for t in mpo_terms(Ws, secs)
         gap = t.sites[end] - t.sites[1] - 1
         println("  sites=", t.sites, "  gap=", gap, "  coeff/base=", round(real(t.coeff / base); digits = 6))
@@ -82,13 +84,13 @@ end
 #
 # ## One `expterm` is a family; one `Terms` is a term
 #
-# Worth stating on its own, because the two halves of a `MixedSum` behave differently on a finite
+# Worth stating on its own, because the two halves of an `OperatorSum` behave differently on a finite
 # chain. `dot(S[1], S[2])` is a *single* term on sites 1 and 2 — a term bag is literal — while the
 # `expterm` declares its whole family. So adding both does not give a uniform nearest-neighbour
 # coupling; it doubles the coefficient at sites `[1, 2]` and nowhere else:
 
 let lat = FiniteChain(V, 4), λ = 0.5
-    Ws, secs = irrep_mpo(dot(S[1], S[2]) + expterm(dot(S[1], S[2]); decay = λ), lat)
+    Ws, secs = irrep_mpo(opsum(lat, dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = λ)))
     for t in mpo_terms(Ws, secs)
         println("  sites=", t.sites, "  coeff/base=", round(real(t.coeff / base); digits = 6))
     end
@@ -100,7 +102,7 @@ end
 #
 # On an `InfiniteChain` the asymmetry disappears, because there the `Terms` part is a *generating
 # set* and is translated too. Same declaration, different meaning of the operator — which is exactly
-# what the lattice argument decides.
+# what the lattice decides.
 
 # ## A string operator in the gap
 #
@@ -113,9 +115,12 @@ up, dn = U1Irrep(1), U1Irrep(0)
 Su = spin_ops(Vu, up, dn)
 parity = 2 * Su.Sz            # charge-neutral: a diagonal on-site operator
 
-Hstring = couple(Su.Sp[1], Su.Sm[2]) +
+Hstring = opsum(
+    InfiniteChain([Vu]),
+    couple(Su.Sp[1], Su.Sm[2]),
     expterm(couple(Su.Sp[1], Su.Sm[2]); decay = 0.5, string = parity)
-irrep_mpo(Hstring, InfiniteChain([Vu]))
+)
+irrep_mpo(Hstring)
 
 # ## Multi-site blocks on either end
 #
@@ -125,7 +130,7 @@ irrep_mpo(Hstring, InfiniteChain([Vu]))
 Hblock = expterm(
     couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[4]); decay = 0.5, exitsite = 4
 )
-irrep_mpo(dot(S[1], S[2]) + Hblock, InfiniteChain([V]))
+irrep_mpo(opsum(InfiniteChain([V]), dot(S[1], S[2]), Hblock))
 
 # ## A sum of exponentials
 #
@@ -134,14 +139,13 @@ irrep_mpo(dot(S[1], S[2]) + Hblock, InfiniteChain([V]))
 # one.
 
 let cell = InfiniteChain([V]), λs = (0.9, 0.5, 0.1)
-    h = dot(S[1], S[2])
-    for λ in λs
-        h = h + expterm(dot(S[1], S[2]); decay = λ)
-    end
-    println("  three decays:   D=", map(length, irrep_mpo(h, cell).bondsectors))
-    dup = dot(S[1], S[2]) + expterm(dot(S[1], S[2]); decay = 0.5) +
-        expterm(dot(S[1], S[2]); decay = 0.5)
-    println("  two identical:  D=", map(length, irrep_mpo(dup, cell).bondsectors))
+    h = opsum(cell, dot(S[1], S[2]), (expterm(dot(S[1], S[2]); decay = λ) for λ in λs))
+    println("  three decays:   D=", map(length, irrep_mpo(h).bondsectors))
+    dup = opsum(
+        cell, dot(S[1], S[2]),
+        expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[1], S[2]); decay = 0.5)
+    )
+    println("  two identical:  D=", map(length, irrep_mpo(dup).bondsectors))
 end
 
 # So the cost is one index per *distinct* channel, and a fitted power law costs what its fit needs —

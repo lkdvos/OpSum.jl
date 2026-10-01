@@ -12,7 +12,7 @@
 
 using OpSum
 using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, mpo_tensormap, islossless, instantiate,
-    Term, Terms, opsum, FiniteChain, InfiniteChain, spin, spin_ops, fermion_ops, couple, couple_channels, project,
+    Term, Terms, OperatorSum, opsum, opsum!, FiniteChain, InfiniteChain, spin, spin_ops, fermion_ops, couple, couple_channels, project,
     matrixunit, expterm, BipartiteAlgorithm, SVDBondAlgorithm
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
@@ -45,8 +45,9 @@ using LinearAlgebra: dot, eigvals, norm
 # Under an abelian symmetry the operands of `couple` may be written in any site order — the stored
 # form is site-ordered, so an out-of-order leg is inserted and the braiding phase (for fermions, the
 # anticommutation sign) comes with it. Non-abelian coupling still needs increasing site indices, since
-# reordering there would need F-moves. `adjoint(h, lat)` gives the hermitian-conjugate partner either
-# way; it is the one term-level operation that needs the physical spaces, so it takes the lattice.
+# reordering there would need F-moves. `H'` gives the hermitian-conjugate partner either way; it is
+# the one operation on a term bag that needs the physical spaces, so it lives on the lattice-carrying
+# `OperatorSum` (`opsum(lat, terms...)`), where letters are also checked against the spaces.
 #
 # Two builders bundle the conventions that would otherwise be re-derived per page:
 # [`spin_ops`](@ref OpSum.spin_ops) for the U(1)-graded `(Sp, Sm, Sz)` and
@@ -103,23 +104,22 @@ maxbonddim(secs) = maximum(b -> bonddim(secs, b), eachindex(secs))
 maxdensedim(secs) = maximum(b -> densedim(secs, b), eachindex(secs))
 
 """
-    build(name, h, lat; alg) -> NamedTuple
+    build(name, H::OperatorSum; alg) -> NamedTuple
 
 Construct the MPO and report its bond dimensions and (warm) construction time.
 
-`h` and `lat` are separate arguments because a term bag is latticeless: the lattice is what
-`irrep_mpo` is given, not something the operator carries. Model functions below therefore return the
-pair, and `build(name, model(...)...)` splats it.
+The [`OperatorSum`](@ref OpSum.OperatorSum) carries its lattice, so the model functions below return
+one value and `build(name, model(...))` takes it as is.
 """
-function build(name, h, lat; alg = BipartiteAlgorithm(), quiet = false)
-    irrep_mpo(h, lat, alg)   # warm up compilation so the timing is meaningful
-    stats = @timed irrep_mpo(h, lat, alg)
+function build(name, H::OperatorSum; alg = BipartiteAlgorithm(), quiet = false)
+    irrep_mpo(H, alg)   # warm up compilation so the timing is meaningful
+    stats = @timed irrep_mpo(H, alg)
     Ws, secs = stats.value
     if !quiet
         println(
             rpad(name, 28),
-            " N=", lpad(length(lat), 4),
-            "  nterms=", lpad(length(h), 6),
+            " N=", lpad(length(H.lattice), 4),
+            "  nterms=", lpad(length(H), 6),
             "  D=", lpad(maxbonddim(secs), 4),
             "  D_dense=", lpad(maxdensedim(secs), 5),
             "  ", round(stats.time; digits = 4), " s"
@@ -142,9 +142,9 @@ end
 # `N`, so small systems only, but it stays inside TensorKit and never builds a dense array, so it is
 # valid for fermions too.
 
-function mpo_matches_oracle(h, lat; alg = BipartiteAlgorithm())
-    Ws, secs = irrep_mpo(h, lat, alg)
-    return mpo_tensormap(irrep_mpo_tensors(Ws, secs, lat)) ≈ instantiate(h, lat)
+function mpo_matches_oracle(H::OperatorSum; alg = BipartiteAlgorithm())
+    Ws, secs = irrep_mpo(H, alg)
+    return mpo_tensormap(irrep_mpo_tensors(Ws, secs, H.lattice)) ≈ instantiate(H)
 end
 
 # **3. Spectrum** — the physics check, and the only honest route for fermions when comparing
@@ -166,11 +166,11 @@ function spectrum(O::AbstractTensorMap)
     end
     return sort!(vals)
 end
-spectrum(h::Terms, lat) = spectrum(instantiate(h, lat))
+spectrum(H::OperatorSum) = spectrum(instantiate(H))
 
 "Relative deviation from Hermiticity — the sharpest detector of a wrong fermionic sign."
-function hermiticity_error(h::Terms, lat)
-    O = instantiate(h, lat)
+function hermiticity_error(H::OperatorSum)
+    O = instantiate(H)
     Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
     return norm(Oop - Oop') / norm(Oop)
 end

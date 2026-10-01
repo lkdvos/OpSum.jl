@@ -2,11 +2,11 @@
 #
 # Everything so far has been a finite chain. Swap the lattice for an `InfiniteChain` and the *same*
 # term algebra builds an MPO with a repeating unit cell. Nothing about writing the operator changes
-# — which is the point of the lattice being an argument to `irrep_mpo` rather than something a term
-# bag carries.
+# — which is the point of the lattice being the first argument of `opsum` rather than something a
+# term bag carries: the terms are the same bag, and `irrep_mpo(H)` has one signature for both.
 #
 # One thing does change, and it is a change of meaning rather than of spelling: the operator you
-# pass is a **generating set**, not the Hamiltonian. What is represented is
+# write down is a **generating set**, not the Hamiltonian. What is represented is
 #
 # ```math
 # \sum_{n \in \mathbb{Z}} \mathrm{translate}(H,\, nL)
@@ -28,7 +28,7 @@ S = spin(V)
 # model. The call is shaped exactly like the finite one.
 
 cell1 = InfiniteChain([V])
-H∞ = irrep_mpo(dot(S[1], S[2]), cell1)
+H∞ = irrep_mpo(opsum(cell1, dot(S[1], S[2])))
 
 # What comes back is an [`InfiniteMPO`](@ref OpSum.InfiniteMPO) rather than a
 # [`FiniteMPO`](@ref OpSum.FiniteMPO); it destructures as the same pair, with bond `0` identified
@@ -41,7 +41,7 @@ Ws, secs = H∞
 # content of the fixed point: the sweep unrolls a window, runs the unchanged finite sweep, and finds
 # the first cell that has become translation-invariant.
 
-let fin = build("Heisenberg, finite N=16", opsum(dot(S[i], S[i + 1]) for i in 1:15), FiniteChain(V, 16); quiet = true)
+let fin = build("Heisenberg, finite N=16", opsum(FiniteChain(V, 16), dot(S[i], S[i + 1]) for i in 1:15); quiet = true)
     println("  finite bulk:  D=$(fin.D)  D_dense=$(fin.Ddense)")
     println("  infinite:     D=$(only(map(length, secs)))  D_dense=$(only(map(s -> sum(dim, s), secs)))")
 end
@@ -50,16 +50,19 @@ end
 #
 # This is the one mistake the generating-set semantics invites, so it is an error rather than a
 # factor of two in your Hamiltonian. On a one-site cell, `dot(S[1], S[2])` and `dot(S[2], S[3])` are
-# the *same* translation class:
+# the *same* translation class. Adding them is fine — each is a perfectly good term — it is forming
+# the MPO that sees the pair together:
 
+Hdouble = opsum(cell1, dot(S[1], S[2]), dot(S[2], S[3]))
 try
-    irrep_mpo(dot(S[1], S[2]) + dot(S[2], S[3]), cell1)
+    irrep_mpo(Hdouble)
 catch e
     println(sprint(showerror, e))
 end
 
 # Charge neutrality is required too — a charged generator would make the running bond charge drift
-# from cell to cell, so there is no fixed point to find.
+# from cell to cell, so there is no fixed point to find. That one needs no global view, so it is
+# refused the moment the term is added.
 
 # ## A two-site cell
 #
@@ -67,7 +70,7 @@ end
 # a bigger cell buys: couplings that alternate.
 
 cell2 = InfiniteChain([V, V])
-Hdimer = irrep_mpo(0.6 * dot(S[1], S[2]) + 1.4 * dot(S[2], S[3]), cell2)
+Hdimer = irrep_mpo(opsum(cell2, 0.6 * dot(S[1], S[2]), 1.4 * dot(S[2], S[3])))
 
 # ```math
 # H = \sum_{n} \left( J_1\, \vec{S}_{2n-1}\!\cdot\!\vec{S}_{2n} + J_2\, \vec{S}_{2n}\!\cdot\!\vec{S}_{2n+1} \right)
@@ -85,7 +88,7 @@ map(length, Hdimer.bondsectors)
 
 V1 = SU2Space(1 => 1)
 Sa, Sb = spin(V), spin(V1)
-Halt = irrep_mpo(dot(Sa[1], Sb[2]) + dot(Sb[2], Sa[3]), InfiniteChain([V, V1]))
+Halt = irrep_mpo(opsum(InfiniteChain([V, V1]), dot(Sa[1], Sb[2]), dot(Sb[2], Sa[3])))
 map(length, Halt.bondsectors)
 
 # ## Longer range
@@ -93,7 +96,7 @@ map(length, Halt.bondsectors)
 # Finite range is all that is required, not nearest neighbour. A ``J_1``–``J_2`` chain needs two
 # generators on a one-site cell, one per translation class:
 
-Hj1j2 = irrep_mpo(dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), cell1)
+Hj1j2 = irrep_mpo(opsum(cell1, dot(S[1], S[2]), 0.5 * dot(S[1], S[3])))
 map(length, Hj1j2.bondsectors)
 
 # The window the sweep unrolls grows with the interaction range, but the returned cell does not: it
@@ -126,12 +129,13 @@ space(T∞[1], 1) == space(T∞[end], 4)'
 # the fixed point to converge to:
 
 try
-    irrep_mpo(dot(S[1], S[2]), cell1, SVDBondAlgorithm(truncrank(2)))
+    irrep_mpo(opsum(cell1, dot(S[1], S[2])), SVDBondAlgorithm(truncrank(2)))
 catch e
     println(first(sprint(showerror, e), 160))
 end
 
-# Terms with no support (`K = 0`) are rejected too: ``\sum_n c\,\mathbb{1}`` does not converge.
+# Terms with no support (`K = 0`) are rejected too, on insertion: ``\sum_n c\,\mathbb{1}`` does not
+# converge.
 #
 # Infinite-range couplings are a different matter — a *geometric* decay is representable exactly, at
 # fixed cost, and has its own page: [Exponentially decaying interactions](exponential_decay.md).

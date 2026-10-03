@@ -466,6 +466,9 @@ end
 _canreorder(::Type{I}) where {I <: Sector} =
     FusionStyle(I) isa UniqueFusion && BraidingStyle(I) isa SymmetricBraiding
 
+# Fermion-odd: a fermionic sector whose twist is -1 (not SU(2)'s half-integer spin, which is bosonic).
+_isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(c)) < 0
+
 # Extend every term of `a` by every single-site term of `b`, fusing to `target(running total, b's
 # letter)`; unreachable pairs are dropped, so the result may be empty.
 #
@@ -521,6 +524,8 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             sites = Vector{Int}(undef, na + 1)
             keys = Vector{ITOKey{I}}(undef, na + 1)
             coeff = ta.coeff * tb.coeff
+            # graded tensor product of two operators: -1 iff both are fermion-odd
+            _isfermionodd(run) && _isfermionodd(opb.c) && (coeff = -coeff)
             for j in 1:(p - 1)
                 sites[j] = ta.sites[j]
                 keys[j] = ta.keys[j]
@@ -599,6 +604,8 @@ explicit and readable back off the term ([`couple_channels`](@ref) is the same l
 couple_channels(S[1], S[2], S[3], S[4])                                  # [(0,1), (1,1), (2,1)]
 couple(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(1)), S[4])
 ```
+
+For fermions `couple(cd[i], c[j])` is the physical `c†ᵢcⱼ` (Jordan–Wigner, sites `1..N`).
 
 This is the bare fusion coupler — it carries **no** normalization factor (reduced coeff `= va·vb`).
 The Cartesian scalar-product convention lives in [`dot`](@ref), not here. Multi-channel

@@ -1,5 +1,5 @@
 # Term algebra over ITOs: `Term` (one term) → `Terms` (a bag, the operator). Latticeless: the
-# physical spaces are supplied where the MPO is formed, not here.
+# physical spaces enter with the `OperatorSum` that holds a lattice, not here.
 # Site labels are lattice indices; on-site products and `GenericFusion` multiplicity are deferred.
 
 using TensorKit
@@ -168,13 +168,13 @@ end
 """
     Terms{I<:Sector}
 
-The compressible ITO operator: a bag of [`Term`](@ref)s, with **no lattice**. What `A[i]`,
-[`couple`](@ref), `dot` and [`project`](@ref) return, what `+`, `-`, `*` and `/` combine, and what
-[`opsum`](@ref) accumulates in one pass.
+The compressible ITO operator: a bag of [`Term`](@ref)s, with **no lattice**. What `A[i]` and
+`B[i]` (placing a [`SiteOperator`](@ref) or a [`LocalOperator`](@ref)), [`couple`](@ref) and `dot`
+return, what `+`, `-`, `*` and `/` combine, and what [`opsum`](@ref) accumulates in one pass.
 
 Nothing in the term algebra, and nothing in the MPO sweep, needs a physical space — the sweep needs
-only the site *count* — so the lattice is supplied where the MPO is formed:
-`irrep_mpo(h, lat)`, `instantiate(h, lat)`, `islossless(h, lat)`, `adjoint(h, lat)`.
+only the site *count* — so the lattice enters when the terms are added to an [`OperatorSum`](@ref),
+which is what `irrep_mpo`, `instantiate`, `islossless` and `adjoint` take.
 
 Terms are appended as given, so the bag is unnormalised until [`canonicalize!`](@ref) puts it in
 normal form in place. `length(ts)`, iteration, indexing and `≈` all go through that, so they report
@@ -296,9 +296,8 @@ _notalattice(sites) = throw(
 )
 
 # The one place operators and the spaces they are compressed with are confronted; without it a
-# lattice from a different model silently gives a wrong MPO. Every entry point that takes a lattice
-# runs it, which is where it moved to when `opsum` stopped taking one — still exactly one place per
-# call, and still before any output is produced.
+# lattice from a different model silently gives a wrong MPO. It runs when terms enter an
+# `OperatorSum`, so the error points at the line that added the term.
 #
 # `Θ(Σ arity)`, not `Θ(N)`. On an `InfiniteChain` there is no site range to check (a generating term
 # legitimately reaches past the cell) and `lat[s]` wraps.
@@ -345,8 +344,8 @@ h = opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
 ```
 
 Each argument may be a [`Term`](@ref), a [`Terms`](@ref) bag, or any iterable of those, nested
-arbitrarily. The result is latticeless: the lattice is supplied where the MPO is formed
-([`irrep_mpo`](@ref)), which is also where every letter is checked against the space of the site it
+arbitrarily. The result is latticeless; `opsum(lat, terms...)` is the same accumulation into an
+[`OperatorSum`](@ref), which is where every letter is checked against the space of the site it
 acts on.
 
 `opsum` is the linear route; `+` *copies*, so folding it over `M` terms is quadratic.
@@ -371,18 +370,6 @@ function opsum(args...)
     )
     return Terms(out)
 end
-
-# `opsum` no longer binds a lattice. A bare vector of spaces as the first argument is the old
-# signature, so name the replacement instead of failing on the element type.
-opsum(::AbstractLattice, args...) = _nolattice()
-opsum(::AbstractVector{<:ElementarySpace}, args...) = _nolattice()
-_nolattice() = throw(
-    ArgumentError(
-        "opsum no longer takes a lattice: a term bag is latticeless, and the lattice is supplied " *
-            "where the MPO is formed. Write `opsum(terms...)` and pass the lattice to " *
-            "`irrep_mpo(h, lat)` / `instantiate(h, lat)` / `islossless(h, lat)`."
-    )
-)
 
 # Establishing `I`: the accumulator is `nothing` until the first term fixes the sector type. Only
 # that one step is dynamically dispatched; everything after it runs through the typed collector, so
@@ -466,6 +453,9 @@ end
 _canreorder(::Type{I}) where {I <: Sector} =
     FusionStyle(I) isa UniqueFusion && BraidingStyle(I) isa SymmetricBraiding
 
+# Fermion-odd: a fermionic sector whose twist is -1 (not SU(2)'s half-integer spin, which is bosonic).
+_isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(c)) < 0
+
 # Extend every term of `a` by every single-site term of `b`, fusing to `target(running total, b's
 # letter)`; unreachable pairs are dropped, so the result may be empty.
 #
@@ -521,6 +511,8 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             sites = Vector{Int}(undef, na + 1)
             keys = Vector{ITOKey{I}}(undef, na + 1)
             coeff = ta.coeff * tb.coeff
+            # graded tensor product of two operators: -1 iff both are fermion-odd
+            _isfermionodd(run) && _isfermionodd(opb.c) && (coeff = -coeff)
             for j in 1:(p - 1)
                 sites[j] = ta.sites[j]
                 keys[j] = ta.keys[j]
@@ -599,6 +591,8 @@ explicit and readable back off the term ([`couple_channels`](@ref) is the same l
 couple_channels(S[1], S[2], S[3], S[4])                                  # [(0,1), (1,1), (2,1)]
 couple(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(1)), S[4])
 ```
+
+For fermions `couple(cd[i], c[j])` is the physical `c†ᵢcⱼ` (Jordan–Wigner, sites `1..N`).
 
 This is the bare fusion coupler — it carries **no** normalization factor (reduced coeff `= va·vb`).
 The Cartesian scalar-product convention lives in [`dot`](@ref), not here. Multi-channel

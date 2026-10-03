@@ -327,3 +327,9 @@ Three things the migration itself taught us, each now fixed or recorded:
    model builders now return `(h, lat)`, and `examples/common.jl:build` takes both. That is the
    honest cost of Option A, and it is small — but it is real, and it is the shape every caller
    who wants a single value will land on.
+
+**Partly reversed (2026-10-01).** `research/local-operators.md` §5 / step 3 reverses the central
+choice here by the author's decision: `OperatorSum(lat)` carries the lattice again (without the
+`TermSum` failure modes — infinite chains, channels and `H'` are all in the container), `MixedSum` is
+absorbed into it, and every `(h, lat)` form listed above is replaced by the `OperatorSum` form. Read
+this section as the history of why the term bag itself stays latticeless.

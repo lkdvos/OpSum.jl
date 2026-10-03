@@ -107,6 +107,13 @@ Base.:*(x::SiteOperator{I}, a::Number) where {I} = SiteOperator{I}(copy(x.letter
 Base.:*(a::Number, x::SiteOperator) = x * a
 Base.:/(x::SiteOperator, a::Number) = x * inv(a)
 
+# A scalar is `a · passthrough`, so `Sz + 1/2` reads as written; coupled unplaced, that pass-through
+# part occupies a slot of the resulting `LocalOperator` (localoperator.jl).
+Base.:+(x::SiteOperator{I}, a::Number) where {I} = x + SiteOperator{I}(a)
+Base.:+(a::Number, x::SiteOperator) = x + a
+Base.:-(x::SiteOperator, a::Number) = x + (-a)
+Base.:-(a::Number, x::SiteOperator) = (-x) + a
+
 # A bare letter promotes under all of the above, so `2 * A`, `A / 2`, `-A` and `A - B` mean what they
 # look like rather than erring. The per-bond sweep leans on the scalar case when it weights a letter by
 # its reduced coefficient (`key.op * coeff`); the rest is there so the promotion surface has no holes

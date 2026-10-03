@@ -5,8 +5,12 @@ module OpSum
 
 # on-site operators: build them once, outside any loop
 export IrrepOperator, spin, scalarop, project, matrixunit, spin_ops, fermion_ops
-# term algebra: place and couple. Latticeless — the lattice is supplied at `irrep_mpo`
+# unplaced K-site operators: project a block once, place it per bond
+export LocalOperator
+# term algebra: place and couple. Latticeless — the lattice enters with the `OperatorSum`
 export Term, Terms, couple, couple_channels, opsum, canonicalize!
+# the lattice-carrying container every MPO is formed from
+export OperatorSum, opsum!
 # lattices: the two things an operator can be compressed over
 export AbstractLattice, FiniteChain, InfiniteChain
 # MPO construction
@@ -15,7 +19,7 @@ export FiniteMPO, InfiniteMPO
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
 # exponentially decaying interactions
-export expterm, ExpSum, MixedSum
+export expterm, ExpSum
 # verification
 export islossless, mpo_tensormap
 
@@ -54,6 +58,7 @@ include("operators/algebra/irrepkey.jl")
 include("operators/algebra/siteoperator.jl")
 include("operators/algebra/irrepalgebra.jl")
 include("operators/algebra/irrepinstantiate.jl")
+include("operators/algebra/localoperator.jl")
 include("operators/algebra/irrepprojection.jl")
 include("operators/algebra/builders.jl")
 
@@ -61,6 +66,7 @@ include("operators/algebra/builders.jl")
 # ------------------------------------------
 include("operators/compression/irreptermtable.jl")
 include("operators/infinite/expterms.jl")
+include("operators/operatorsum.jl")
 include("operators/compression/irrepinterning.jl")
 include("operators/compression/irrepgraph.jl")
 include("operators/compression/irrepgraph_vc.jl")

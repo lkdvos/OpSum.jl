@@ -62,6 +62,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
      Nothing is deduplicated on the way in: `canonicalize!` takes the normal form, and everything that observes the term set (`length`, iteration, `≈`, `show`) goes through it.
    - **`couple` is order-free under an abelian symmetry.**
      Storage is site-ordered, so an operand acting to the left of an earlier one has its leg *inserted* by `_couple_terms`: the running bond charges from the insertion point rightwards are recomputed (forced, by unique fusion) and the coefficient picks up `Rsymbol(c_a, c_b, c_a ⊗ c_b)` per leg it braids past — for fermionic sectors, exactly the anticommutation sign the caller used to hand-write.
+     Coupling two operands of fermion-odd total charge also multiplies the coefficient by `-1` (the graded tensor product), so `couple(cd[i], c[j])` is the physical `c†ᵢcⱼ`; the letters themselves are unchanged.
      Gated on `_canreorder(I)` = `UniqueFusion` **and** `SymmetricBraiding`; non-abelian reordering needs F-moves and still throws.
      `dot` accepts either order for *any* symmetry (two legs to the unit sector need no F-move) and inserts the same scalar R-symbol — which is `-1` for odd fermionic charges and for half-integer SU(2) charges.
 

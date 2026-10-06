@@ -77,11 +77,11 @@ end
 let
     ops = [
         instantiate(
-                opsum(
-                    chain(4),
-                    couple(couple(couple(S[1], S[2]; to = a), S[3]; to = b), S[4]; to = SU2Irrep(0))
-                )
-            ) for (a, b) in channels
+            opsum(
+                chain(4),
+                couple(couple(couple(S[1], S[2]; to = a), S[3]; to = b), S[4]; to = SU2Irrep(0))
+            )
+        ) for (a, b) in channels
     ]
     [
         round(real(dot(ops[i], ops[j]) / (norm(ops[i]) * norm(ops[j]))); digits = 10)
@@ -138,9 +138,9 @@ function plaquette_ladder(Lx; J = 1.0, K = 0.3, j12 = 0)
     two_body = [J * dot(S[i], S[j]) for (i, j) in bonds]
     plaquettes = [
         K * couple(
-                couple(couple(S[4x - 3], S[4x - 2]; to = SU2Irrep(j12)), S[4x - 1]; to = SU2Irrep(1)),
-                S[4x]; to = SU2Irrep(0)
-            ) for x in 1:(div(Lx, 2))
+            couple(couple(S[4x - 3], S[4x - 2]; to = SU2Irrep(j12)), S[4x - 1]; to = SU2Irrep(1)),
+            S[4x]; to = SU2Irrep(0)
+        ) for x in 1:(div(Lx, 2))
     ]
     return opsum(chain(2Lx), two_body, plaquettes)
 end

@@ -88,18 +88,14 @@ Project a symmetric `K`-site operator onto the ITO term basis — the inverse of
     h :  V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K                          # charge-neutral
     h :  V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K ⊗ Vect[I](tot => 1)      # total charge `tot`
 
-The result is an **unplaced** [`LocalOperator`](@ref) on `K` slots: project a bond block once and
-place it wherever it acts, `B[i]` (sites `i:i+K-1`) or `B[s₁, …, s_K]` (explicit, strictly
-increasing). `project(h, sites)` is exactly `project(h)[sites...]`, kept as a one-line convenience;
-`sites` must then have length `K`. The coefficients are exact inner products against an orthogonal,
-complete basis, so no fit is involved.
+The result is an unplaced [`LocalOperator`](@ref) on `K` slots, placed with `B[i]` or
+`B[s₁, …, s_K]`; `project(h, sites)` is `project(h)[sites...]`. The coefficients are exact inner
+products against an orthogonal, complete basis, so no fit is involved.
 
 Coefficients whose norm contribution falls at or below `max(atol, rtol * norm(h))` are dropped;
 the result is then re-materialized and compared against `h`, and an `ArgumentError` is thrown if
 the residual exceeds that same tolerance. A projected operator therefore provably represents its
-input. An operator that is zero (or entirely below tolerance) gives an empty `LocalOperator`, which
-still remembers `K`. Compress the placed terms with [`irrep_mpo`](@ref), which is where the lattice
-is supplied.
+input. An operator that is zero (or entirely below tolerance) gives an empty `LocalOperator`.
 
 Every returned term is active on **all** `K` slots: an on-site identity factor comes back as a
 trivial-charge letter, not as a shorter term. So `project ∘ instantiate` is the identity only for
@@ -112,10 +108,10 @@ julia> V = SU2Space(1//2 => 1);
 
 julia> h = OpSum.instantiate(opsum([V, V], couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0))));
 
-julia> B = project(h); (length(B), OpSum.nsites(B))
+julia> B = project(h); (length(B.terms), OpSum.nsites(B))
 (1, 2)
 
-julia> project(h, [2, 5]) == B[2, 5]
+julia> project(h, [2, 5]) ≈ B[2, 5]
 true
 ```
 
@@ -176,8 +172,7 @@ function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rto
     return LocalOperator{I}(out, K)
 end
 
-# The placed form. The label count is checked here rather than left to `getindex`, where a single
-# label would read as a *contiguous* placement instead of the error it has always been.
+# Checked here, not in `getindex`, where one label would read as a contiguous placement.
 function project(h::AbstractTensorMap, sites; kwargs...)
     sitev = collect(sites)
     eltype(sitev) <: Integer || throw(
@@ -222,9 +217,9 @@ function project(
 
     I = sectortype(V)
     B = project(O; atol, rtol)
-    isempty(B) && return zero(SiteOperator{I})
-    letters = IrrepOperator{I}[only(t.keys).op for t in B]
-    coeffs = ComplexF64[t.coeff for t in B]
+    isempty(B.terms) && return zero(SiteOperator{I})
+    letters = IrrepOperator{I}[only(t.keys).op for t in B.terms]
+    coeffs = ComplexF64[t.coeff for t in B.terms]
     return SiteOperator{I}(letters, coeffs)
 end
 

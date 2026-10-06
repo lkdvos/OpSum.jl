@@ -210,7 +210,7 @@ end
 # and it comes back padded, as a two-slot term carrying a trivial-charge letter rather than as a
 # shorter term:
 
-let padded = project(bond + one(bond) / 4)
+let padded = project(bond + one(bond) / 4)[1]
     (; nterms = length(padded), arities = unique(arity(t) for t in padded))
 end
 

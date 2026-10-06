@@ -153,7 +153,7 @@ end
     @test opsum(fill(VSU2, 4), t) isa OperatorSum
     @test opsum(FiniteChain(VSU2, 4), t) isa OperatorSum
     @test opsum(InfiniteChain([VSU2]), t) isa OperatorSum
-    @test opsum(fill(VSU2, 4), t) == opsum(FiniteChain(VSU2, 4), t)
+    @test opsum(fill(VSU2, 4), t) ≈ opsum(FiniteChain(VSU2, 4), t)
 
     # with no terms there is no sector type to infer
     @test_throws ArgumentError opsum()

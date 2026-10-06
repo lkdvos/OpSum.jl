@@ -357,11 +357,8 @@ with [`mpo_terms`](@ref) and compare it against `H` with `≈`, i.e. term *set* 
 approximately.
 
 This is the primary correctness check for a construction — cheap, purely symbolic, independent of `N`,
-and valid for fermionic sectors, where densifying is not a well-defined operation. On a finite chain
-`H` is compared as [`chain_terms`](@ref)`(H)` (channels expanded); on an infinite chain the MPO is
-tiled over a window and the check is the sandwich of [`mpo_terms_window`](@ref): everything produced
-is a translate of the generating set at its exact coefficient, and every translate comfortably inside
-the window (further than the interaction range from its right edge) is produced.
+and valid for fermionic sectors, where densifying is not a well-defined operation. `H` is compared as
+[`chain_terms`](@ref)`(H)` (channels expanded). Finite chains only.
 
 Only meaningful for lossless compression: after a truncating [`SVDBondAlgorithm`](@ref) `false` is the
 expected answer rather than a bug.
@@ -370,24 +367,9 @@ function islossless(H::OperatorSum{I, <:FiniteChain}, args...) where {I}
     return mpo_terms(irrep_mpo(H, args...)) ≈ chain_terms(H)
 end
 
-function islossless(H::OperatorSum{I, <:InfiniteChain}, args...) where {I}
-    mpo = irrep_mpo(H, args...)
-    gen = unitcell_terms(H)
-    R = maxspan(gen)
-    L = length(H.lattice)
-    ncells = 2 * (cld(R, L) + 3) + 3
-    N = ncells * L
-    got = Dict(t => t.coeff for t in mpo_terms_window(mpo, H.lattice, ncells))
-    want = Dict(t => t.coeff for t in window_terms(gen, ncells))
-    for (t, v) in got                                    # soundness
-        (haskey(want, t) && isapprox(want[t], v)) || return false
-    end
-    for t in keys(want)                                  # completeness away from the right edge
-        maximum(t.sites) <= N - R - 1 || continue
-        haskey(got, t) || return false
-    end
-    return true
-end
+islossless(::OperatorSum{I, <:InfiniteChain}, args...) where {I} = throw(
+    ArgumentError("islossless is not supported on an infinite chain")
+)
 
 """
     mpo_tensormap(Ts::AbstractVector) -> AbstractTensorMap

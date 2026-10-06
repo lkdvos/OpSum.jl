@@ -14,7 +14,7 @@ VectorInterface = "409d34a3-91d5-4945-b6ec-7529ddf182d8"
 [compat]
 Aqua = "0.8.9"
 BlockTensorKit = "0.3.15"
-MPSKit = "0.13.13"
+MPSKit = "0.14"
 ParallelTestRunner = "2.2.0"
 TensorKit = "0.17"
 Test = "1.10"

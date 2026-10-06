@@ -33,8 +33,8 @@ chain(N) = FiniteChain(V, N)
 # Nothing new — an SU(2) Heisenberg chain, the same operator as on the spin-chains page.
 
 N = 6
-H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
-Ws = jordan_mpo_tensors(H, chain(N))
+H = opsum(chain(N), dot(S[i], S[i + 1]) for i in 1:(N - 1))
+Ws = jordan_mpo_tensors(H)
 map(W -> size(W, 4), Ws)
 
 # Those are the Jordan-form bond sizes: `3` in the bulk for a Heisenberg chain, closing to `1` at
@@ -79,11 +79,11 @@ all(SparseBlockTensorMap(J) ≈ W for (W, J) in zip(Ws, parent(Hmpo)))
 
 # ## Ground state versus exact diagonalisation
 #
-# The physics check. `spectrum(H, lat)` in `common.jl` diagonalises the dense oracle block by block,
+# The physics check. `spectrum(H)` in `common.jl` diagonalises the dense oracle block by block,
 # which is only possible because `N` is small — that is the point of checking here rather than
 # trusting the pipeline.
 
-exact = spectrum(H, chain(N))[1]
+exact = spectrum(H)[1]
 
 # The MPS bond space needs half-integer *and* integer spins: an odd bond of a spin-½ chain carries
 # the former.
@@ -103,7 +103,7 @@ isapprox(E, exact; atol = 1.0e-8)
 # contracts them into `instantiate`'s convention. This is the check that the *operator* is right,
 # independent of anything MPSKit does with it — and it is exponential in `N`, so it stays small.
 
-mpo_matches_oracle(H, chain(N))
+mpo_matches_oracle(H)
 
 # ## What the infinite path can and cannot do
 #
@@ -111,8 +111,8 @@ mpo_matches_oracle(H, chain(N))
 # space of the first equals the right virtual space of the last.
 
 lat∞ = InfiniteChain([V])
-H∞ = opsum(dot(S[1], S[2]))                     # a generating set: one term per translation class
-T∞ = irrep_mpo_tensors(irrep_mpo(H∞, lat∞), lat∞)
+H∞ = opsum(lat∞, dot(S[1], S[2]))               # a generating set: one term per translation class
+T∞ = irrep_mpo_tensors(irrep_mpo(H∞), lat∞)
 space(T∞[1], 1) == space(T∞[end], 4)'
 
 # That tiling is exactly `MPSKit.InfiniteMPO`'s requirement, so the plain MPO hands over:
@@ -124,7 +124,7 @@ MPSKit.InfiniteMPO(T∞)
 # elements, and `jordan_mpo_tensors` is defined on a finite chain only:
 
 try
-    jordan_mpo_tensors(H∞, lat∞)
+    jordan_mpo_tensors(H∞)
 catch e
     println(sprint(showerror, e))
 end

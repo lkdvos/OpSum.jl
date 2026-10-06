@@ -21,27 +21,27 @@ export siteindex, cylinder_bonds, ladder_bonds
 export bonddim, densedim, maxbonddim, maxdensedim, build
 export mpo_matches_oracle, spectrum, hermiticity_error
 # ...and OpSum's own verification helpers and operator builders, so a dependent needs one `using`.
-export islossless, mpo_tensormap, spin_ops, fermion_ops, opsum, FiniteChain
+export islossless, mpo_tensormap, spin_ops, fermion_ops, opsum, FiniteChain, OperatorSum
 export spin, matrixunit, project, couple
 
 # ── Model builders ────────────────────────────────────────────────────────────
-# A term bag is latticeless, so each builder returns the pair `(h, lat)` the compression needs: the
-# terms, accumulated in one `opsum` pass, and the `FiniteChain` they are to be compressed over.
+# Each builder returns an `OperatorSum`: the terms, accumulated in one `opsum(lat, …)` pass and
+# checked against the `FiniteChain` they are to be compressed over, which the container carries.
 
 const SPIN_HALF = SU2Space(1 // 2 => 1)
 
 function heisenberg_su2(N; J = 1.0)
     S = spin(SPIN_HALF)
-    return opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1)), FiniteChain(SPIN_HALF, N)
+    return opsum(FiniteChain(SPIN_HALF, N), J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
 end
 
 function j1j2_su2(N; J1 = 1.0, J2 = 0.5)
     S = spin(SPIN_HALF)
-    h = opsum(
+    return opsum(
+        FiniteChain(SPIN_HALF, N),
         (J1 * dot(S[i], S[i + 1]) for i in 1:(N - 1)),
         (J2 * dot(S[i], S[i + 2]) for i in 1:(N - 2)),
     )
-    return h, FiniteChain(SPIN_HALF, N)
 end
 
 const SPIN_ONE = SU2Space(1 => 1)
@@ -53,34 +53,33 @@ function alternating_spin(N; J = 1.0)
     spaces = [isodd(i) ? SPIN_HALF : SPIN_ONE for i in 1:N]
     Sa, Sb = spin(SPIN_HALF), spin(SPIN_ONE)
     op(i) = isodd(i) ? Sa : Sb
-    h = opsum(J * dot(op(i)[i], op(i + 1)[i + 1]) for i in 1:(N - 1))
-    return h, FiniteChain(spaces)
+    return opsum(FiniteChain(spaces), J * dot(op(i)[i], op(i + 1)[i + 1]) for i in 1:(N - 1))
 end
 
 function haldane_shastry(N; J = 1.0)
     S = spin(SPIN_HALF)
     pref = J * π^2 / N^2
-    h = opsum(
+    return opsum(
+        FiniteChain(SPIN_HALF, N),
         (pref / sin(π * (m - n) / N)^2) * dot(S[n], S[m])
             for n in 1:(N - 1) for m in (n + 1):N
     )
-    return h, FiniteChain(SPIN_HALF, N)
 end
 
 function powerlaw_su2(N; α = 3.0, J = 1.0)
     S = spin(SPIN_HALF)
-    h = opsum(
+    return opsum(
+        FiniteChain(SPIN_HALF, N),
         (J * abs(m - n)^(-α)) * dot(S[n], S[m])
             for n in 1:(N - 1) for m in (n + 1):N
     )
-    return h, FiniteChain(SPIN_HALF, N)
 end
 
 function cylinder_su2(N; Ly = 4, periodic_y = true, J = 1.0)
     N % Ly == 0 || throw(ArgumentError("cylinder: N=$N must be a multiple of Ly=$Ly"))
     S = spin(SPIN_HALF)
     bonds = cylinder_bonds(div(N, Ly), Ly; periodic_y)
-    return opsum(J * dot(S[i], S[j]) for (i, j) in bonds), FiniteChain(SPIN_HALF, N)
+    return opsum(FiniteChain(SPIN_HALF, N), J * dot(S[i], S[j]) for (i, j) in bonds)
 end
 
 const FERMION_MODE = Vect[FermionNumber](0 => 1, 1 => 1)
@@ -97,17 +96,17 @@ end
 function free_fermions(N; t = 1.0)
     F = fermion_ops()
     bonds = [(i, i + 1) for i in 1:(N - 1)]
-    return opsum(_hopping_terms(F, bonds, t)), FiniteChain(FERMION_MODE, N)
+    return opsum(FiniteChain(FERMION_MODE, N), _hopping_terms(F, bonds, t))
 end
 
 function tv_chain(N; t = 1.0, Vint = 2.0)
     F = fermion_ops()
     bonds = [(i, i + 1) for i in 1:(N - 1)]
-    h = opsum(
+    return opsum(
+        FiniteChain(FERMION_MODE, N),
         _hopping_terms(F, bonds, t),
         (Vint * couple(F.n[i], F.n[j]) for (i, j) in bonds),
     )
-    return h, FiniteChain(FERMION_MODE, N)
 end
 
 const KITAEV_MODE = Vect[FermionParity](0 => 1, 1 => 1)
@@ -120,11 +119,11 @@ function kitaev_chain(N; t = 1.0, Δ = 0.5)
     c = matrixunit(KITAEV_MODE, even, odd)
     cd = matrixunit(KITAEV_MODE, odd, even)
     bonds = [(i, i + 1) for i in 1:(N - 1)]
-    h = opsum(
+    return opsum(
+        FiniteChain(KITAEV_MODE, N),
         (-t * (couple(cd[i], c[j]) + couple(cd[j], c[i])) for (i, j) in bonds),
         (Δ * (couple(cd[i], cd[j]) + couple(c[j], c[i])) for (i, j) in bonds),
     )
-    return h, FiniteChain(KITAEV_MODE, N)
 end
 
 # Fermi-Hubbard with one spin-orbital per site, `(i, σ) -> 2(i-1) + σ`. Every operator is then a
@@ -148,7 +147,7 @@ function hubbard(N; t = 1.0, U = 4.0, Ly = nothing)
             for (i, j) in sitebonds for σ in 1:2
     )
     int = (U * couple(F.n[orbital(i, 1)], F.n[orbital(i, 2)]) for i in 1:Nsites)
-    return opsum(hop, int), FiniteChain(FERMION_MODE, N)
+    return opsum(FiniteChain(FERMION_MODE, N), hop, int)
 end
 
 # Fermi-Hubbard with SU(2) spin: non-abelian *and* fermionic at once, one physical site per site
@@ -182,13 +181,13 @@ end
 
 function hubbard_su2(N; t = 1.0, U = 4.0)
     hop = hubbard_su2_hop()
-    bond = -t * (hop + hop')
+    bond = project(-t * (hop + hop'))                                # projected once, placed per bond
     nupndn = matrixunit(HUBBARD_SU2_SITE, HUB_DOUBLE, HUB_DOUBLE)   # dim-1 sector: reachable
-    h = opsum(
-        (project(bond, [i, i + 1]) for i in 1:(N - 1)),
+    return opsum(
+        FiniteChain(HUBBARD_SU2_SITE, N),
+        (bond[i] for i in 1:(N - 1)),
         (U * nupndn[i] for i in 1:N),
     )
-    return h, FiniteChain(HUBBARD_SU2_SITE, N)
 end
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -198,7 +197,7 @@ struct ModelSpec
     label::String
     family::Symbol                        # :spin1d | :longrange | :quasi2d | :fermionic
     params::Dict{String, Any}
-    build::Function                       # N -> (h, lat)
+    build::Function                       # N -> OperatorSum
     timesizes::Dict{Symbol, Vector{Int}}  # :smoke | :ci | :full
     dimsizes::Dict{Symbol, Vector{Int}}
 end
@@ -310,12 +309,12 @@ const MODELS = ModelSpec[
         sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 512; n = 6, mult = 8)),
         sweeps([16, 32], logsizes(16, 64; n = 3, mult = 8), logsizes(16, 768; n = 7, mult = 8)),
     ),
-    # Two sizing notes, both measured. The *sweeps* stop earlier than the other fermionic models
-    # because this builder `project`s the same bond block once per bond, so term accumulation
-    # (~2.3 s at N = 256), not compression, sets the cost — `project` is not memoised the way
-    # `spin` / `matrixunit` / `adjoint` are. The *smoke* sizes are smaller still because
-    # `test_showcase_models.jl` runs `instantiate` on them: this site has dimension 4 and a
-    # non-abelian fermionic sector, and N = 6 alone costs about ten minutes there.
+    # Two sizing notes, both measured. The *sweeps* were sized when this builder still `project`ed
+    # the same bond block once per bond (~2.3 s of term accumulation at N = 256); it now projects
+    # once and places the `LocalOperator`, so the sizes are conservative rather than binding. The
+    # *smoke* sizes are smaller still because `test_showcase_models.jl` runs `instantiate` on them:
+    # this site has dimension 4 and a non-abelian fermionic sector, and N = 6 alone costs about ten
+    # minutes there.
     ModelSpec(
         "hubbard_su2", "Fermi-Hubbard SU(2) spin", :fermionic, Dict("t" => 1.0, "U" => 4.0),
         hubbard_su2,
@@ -332,11 +331,11 @@ modelbykey(key) = MODELS[findfirst(m -> m.key == key, MODELS)]
 Deterministic (timing-free) MPO statistics for one model at one size.
 """
 function model_metrics(spec::ModelSpec, N::Int)
-    h, lat = spec.build(N)
-    Ws, secs = irrep_mpo(h, lat)
+    H = spec.build(N)
+    Ws, secs = irrep_mpo(H)
     return (
         size = N,
-        nterms = length(h),
+        nterms = length(H),
         nbonds = length(secs),
         maxdensedim = maxdensedim(secs),
         maxmultdim = maxbonddim(secs),

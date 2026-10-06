@@ -130,7 +130,7 @@ end
     for N in (2, 3)
         sites = fill(V, N)
         H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
-        direct = instantiate(H, sites)
+        direct = instantiate(opsum(sites, H))
         @test to_matrix(direct, N) ≈ heis_ref(N)
     end
 end
@@ -154,7 +154,7 @@ end
     ]
 
     # and they materialize to genuinely different operators
-    mats = [convert(Array, instantiate(t, fill(V, 3))) for t in terms]
+    mats = [convert(Array, instantiate(opsum(fill(V, 3), t))) for t in terms]
     @test !(mats[1] ≈ mats[2])
     @test !(mats[1] ≈ mats[3])
     @test !(mats[2] ≈ mats[3])

@@ -95,7 +95,7 @@ end
     lat = FiniteChain(VSU2, N)
     h = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
 
-    mpo = irrep_mpo(h, lat)
+    mpo = irrep_mpo(opsum(lat, h))
     @test mpo isa FiniteMPO
     @test length(mpo) == N
     # destructures as the `(Ws, bondsectors)` pair, the same contract as an InfiniteMPO
@@ -106,7 +106,7 @@ end
     @test startswith(str, "FiniteMPO{")
     @test occursin("N = $N", str)
 
-    inf = irrep_mpo(dot(S[1], S[2]), InfiniteChain([VSU2]))
+    inf = irrep_mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
     @test inf isa InfiniteMPO
     @test length(inf) == 1
     Wi, si = inf
@@ -116,52 +116,54 @@ end
     @test occursin("L = 1", istr)
 end
 
-# Every entry point that takes a lattice runs the same check, so an operator can never reach a
-# numerical result through spaces it was not validated against.
+# Terms are checked as they enter the container, so an operator can never reach a numerical result
+# through spaces it was not validated against, and the error points at the line that added it.
 @testset "the lattice boundary is where operator and spaces are confronted" begin
     S = spin(VSU2)
     h = opsum(dot(S[i], S[i + 1]) for i in 1:3)
     good = FiniteChain(VSU2, 4)
 
-    @test irrep_mpo(h, good) isa FiniteMPO
+    @test irrep_mpo(opsum(good, h)) isa FiniteMPO
 
     # a term past the end of a finite chain
-    @test_throws ArgumentError irrep_mpo(h, FiniteChain(VSU2, 3))
-    @test_throws ArgumentError instantiate(h, FiniteChain(VSU2, 3))
-    @test_throws ArgumentError islossless(h, FiniteChain(VSU2, 3))
-    @test_throws ArgumentError adjoint(h, FiniteChain(VSU2, 3))
-    @test_throws ArgumentError jordan_mpo_tensors(h, FiniteChain(VSU2, 3))
+    @test_throws ArgumentError opsum(FiniteChain(VSU2, 3), h)
+    @test_throws ArgumentError opsum!(OperatorSum(FiniteChain(VSU2, 3)), h)
+    @test_throws ArgumentError opsum(FiniteChain(VSU2, 3)) + h
 
     # a lattice over a different symmetry
-    @test_throws ArgumentError irrep_mpo(h, FiniteChain(VU1, 4))
+    @test_throws ArgumentError opsum(FiniteChain(VU1, 4), h)
     # a space carrying no letter of the term's charge (spin-0 has no spin-1 operator)
-    @test_throws ArgumentError irrep_mpo(h, FiniteChain(SU2Space(0 => 1), 4))
+    @test_throws ArgumentError opsum(FiniteChain(SU2Space(0 => 1), 4), h)
 
     # an InfiniteChain has no site range to violate: a generating term may reach past the cell
-    @test irrep_mpo(dot(S[1], S[2]), InfiniteChain([VSU2])) isa InfiniteMPO
+    @test irrep_mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2]))) isa InfiniteMPO
     # but the letters are still checked against its (wrapped) spaces
-    @test_throws ArgumentError irrep_mpo(dot(S[1], S[2]), InfiniteChain([SU2Space(0 => 1)]))
+    @test_throws ArgumentError opsum(InfiniteChain([SU2Space(0 => 1)]), dot(S[1], S[2]))
 
     # Jordan form is a finite-chain emission
-    @test_throws ArgumentError jordan_mpo_tensors(dot(S[1], S[2]), InfiniteChain([VSU2]))
+    @test_throws ArgumentError jordan_mpo_tensors(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
 end
 
-@testset "opsum is latticeless, and says so" begin
+@testset "opsum without a lattice is latticeless; with one it is an OperatorSum" begin
     S = spin(VSU2)
     t = dot(S[1], S[2])
 
-    # the old lattice-binding signature is named rather than a MethodError
-    @test_throws ArgumentError opsum(fill(VSU2, 4), t)
-    @test_throws ArgumentError opsum(FiniteChain(VSU2, 4), t)
-    @test_throws ArgumentError opsum(InfiniteChain([VSU2]), t)
+    @test opsum(t) isa Terms
+    # a lattice (or a vector of spaces) as the first argument binds it
+    @test opsum(fill(VSU2, 4), t) isa OperatorSum
+    @test opsum(FiniteChain(VSU2, 4), t) isa OperatorSum
+    @test opsum(InfiniteChain([VSU2]), t) isa OperatorSum
+    @test opsum(fill(VSU2, 4), t) ≈ opsum(FiniteChain(VSU2, 4), t)
 
     # with no terms there is no sector type to infer
     @test_throws ArgumentError opsum()
     @test_throws ArgumentError opsum(Term{SU2Irrep}[])
     # ...but an explicitly typed empty bag is fine, and establishes `I`
     @test isempty(opsum(Terms{SU2Irrep}()))
+    # ...and a lattice names the sector on its own
+    @test isempty(opsum(FiniteChain(VSU2, 4)))
 
-    # the postfix adjoint needs spaces and points at the replacement
+    # the postfix adjoint of a bare bag needs spaces and points at the replacement
     @test_throws ArgumentError t'
 end
 
@@ -171,7 +173,7 @@ end
     F = fermion_ops(Vf)
     T = opsum(-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:3)
     for lat in (FiniteChain(Vf, 4), fill(Vf, 4), InfiniteChain([Vf]))
-        @test adjoint(T, lat) ≈ opsum(-1.0 * couple(F.cd[i + 1], F.c[i]) for i in 1:3)
+        @test opsum(lat, T)' ≈ opsum(lat, -1.0 * couple(F.cd[i + 1], F.c[i]) for i in 1:3)
     end
 end
 
@@ -182,12 +184,13 @@ end
     h = opsum(
         dot((isodd(i) ? Sa : Sb)[i], (isodd(i + 1) ? Sa : Sb)[i + 1]) for i in 1:3
     )
-    @test islossless(h, lat)
-    Ws, secs = irrep_mpo(h, lat)
+    H = opsum(lat, h)
+    @test islossless(H)
+    Ws, secs = irrep_mpo(H)
     @test length(secs) == 4
     @test secs[4] == [SU2Irrep(0)]
     # the alternating spaces are what the assembled tensors have to honour
-    Ts = irrep_mpo_tensors(irrep_mpo(h, lat), lat)
+    Ts = irrep_mpo_tensors(irrep_mpo(H), lat)
     @test space(Ts[1], 2) == VSU2
     @test space(Ts[2], 2) == VSU2b
 end

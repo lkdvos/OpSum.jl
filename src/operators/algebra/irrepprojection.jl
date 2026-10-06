@@ -78,58 +78,49 @@ function _ito_coefficients(
 end
 
 """
-    project(h::AbstractTensorMap, sites; atol = 0, rtol = 100eps) -> Terms
+    project(h::AbstractTensorMap; atol = 0, rtol = 100eps) -> LocalOperator
+    project(h::AbstractTensorMap, sites; kwargs...) -> Terms
 
 Project a symmetric `K`-site operator onto the ITO term basis — the inverse of
 [`instantiate`](@ref). `h` must have one of the two shapes `instantiate` produces, with
-`K = length(sites) = numout(h)`:
+`K = numout(h)`:
 
     h :  V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K                          # charge-neutral
     h :  V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K ⊗ Vect[I](tot => 1)      # total charge `tot`
 
-The physical spaces are read off `h`; `sites` only supplies the labels, and must be strictly
-increasing (`couple`'s left-to-right convention, which the downstream sweep relies on). The
-coefficients are exact inner products against an orthogonal, complete basis, so no fit is involved.
+The result is an unplaced [`LocalOperator`](@ref) on `K` slots, placed with `B[i]` or
+`B[s₁, …, s_K]`; `project(h, sites)` is `project(h)[sites...]`. The coefficients are exact inner
+products against an orthogonal, complete basis, so no fit is involved.
 
 Coefficients whose norm contribution falls at or below `max(atol, rtol * norm(h))` are dropped;
 the result is then re-materialized and compared against `h`, and an `ArgumentError` is thrown if
-the residual exceeds that same tolerance. A projected [`Terms`](@ref) therefore provably represents
-its input. An operator that is zero (or entirely below tolerance) gives an empty bag. Bind it to a
-lattice with [`opsum`](@ref) to compress it.
+the residual exceeds that same tolerance. A projected operator therefore provably represents its
+input. An operator that is zero (or entirely below tolerance) gives an empty `LocalOperator`.
 
-Every returned term is active on **all** `K` sites: an on-site identity factor comes back as a
+Every returned term is active on **all** `K` slots: an on-site identity factor comes back as a
 trivial-charge letter, not as a shorter term. So `project ∘ instantiate` is the identity only for
-operators whose terms all have full support on `sites`.
+operators whose terms all have full support on the sites projected.
 
 ```jldoctest
 julia> using TensorKit
 
 julia> V = SU2Space(1//2 => 1);
 
-julia> h = OpSum.instantiate(couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0)), [V, V]);
+julia> h = OpSum.instantiate(opsum([V, V], couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0))));
 
-julia> length(project(h, [1, 2]))
-1
+julia> B = project(h); (length(B.terms), OpSum.nsites(B))
+(1, 2)
+
+julia> project(h, [2, 5]) ≈ B[2, 5]
+true
 ```
 
 See also [`matrixunit`](@ref), [`couple`](@ref).
 """
-function project(
-        h::AbstractTensorMap, sites; atol::Real = 0, rtol::Real = _default_rtol(h)
-    )
-    sitev = collect(sites)
+function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rtol(h))
     K = numout(h)
     K >= 1 ||
         throw(ArgumentError("project: `h` must act on at least one site, got numout(h) = $K"))
-    length(sitev) == K || throw(
-        ArgumentError("project: got $(length(sitev)) site labels for an operator on $K sites")
-    )
-    all(i -> sitev[i] < sitev[i + 1], 1:(K - 1)) || throw(
-        ArgumentError("project: `sites` must be strictly increasing (sorted and unique), got $sitev")
-    )
-    eltype(sitev) <: Integer || throw(
-        ArgumentError("project: site labels must be lattice indices (`Integer`), got $(eltype(sitev))")
-    )
 
     I = sectortype(h)
     FusionStyle(I) isa GenericFusion && throw(
@@ -157,26 +148,19 @@ function project(
 
     # A caterpillar tree *is* its running bond charges plus vertex labels, i.e. the `ITOKey`s.
     # Candidates are distinct by construction, so nothing accumulates.
-    intsites = Int[Int(s) for s in sitev]
-    local_sites = collect(1:K)
-    placed = Term{I}[]
-    local_terms = Term{I}[]
-    sizehint!(placed, length(coeffs))
-    sizehint!(local_terms, length(coeffs))
+    slots = collect(1:K)
+    terms = Term{I}[]
+    sizehint!(terms, length(coeffs))
     for (ops, tree, c) in coeffs
         bonds, verts = bondcharges(tree), vertexlabels(tree)
         keys = ITOKey{I}[ITOKey{I}(ops[j], bonds[j], verts[j]) for j in 1:K]
-        push!(placed, Term{I}(intsites, keys, c))
-        push!(local_terms, Term{I}(local_sites, keys, c))
+        push!(terms, Term{I}(slots, keys, c))
     end
+    out = Terms{I}(terms)
 
     # Faithfulness: recompute the operator from the emitted terms alone. This is a genuinely
     # independent pass through the forward map, so it also catches a wrong `g` or a misassigned tree.
-    resid = if isempty(local_terms)
-        hnorm
-    else
-        norm(hc - instantiate(Terms{I}(local_terms), Vs))
-    end
+    resid = isempty(terms) ? hnorm : norm(hc - _instantiate_terms(out, Vs))
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, ncand)) * hnorm
     resid <= θ + slack || throw(
         ArgumentError(
@@ -185,7 +169,21 @@ function project(
         )
     )
 
-    return Terms{I}(placed)
+    return LocalOperator{I}(out, K)
+end
+
+# Checked here, not in `getindex`, where one label would read as a contiguous placement.
+function project(h::AbstractTensorMap, sites; kwargs...)
+    sitev = collect(sites)
+    eltype(sitev) <: Integer || throw(
+        ArgumentError("project: site labels must be lattice indices (`Integer`), got $(eltype(sitev))")
+    )
+    B = project(h; kwargs...)
+    K = nsites(B)
+    length(sitev) == K || throw(
+        ArgumentError("project: got $(length(sitev)) site labels for an operator on $K sites")
+    )
+    return B[sitev...]
 end
 
 """
@@ -218,10 +216,10 @@ function project(
         throw(ArgumentError("project: `O` acts on $(codomain(O)[1]), not on the given space $V"))
 
     I = sectortype(V)
-    ts = project(O, (1,); atol, rtol)
-    isempty(ts) && return zero(SiteOperator{I})
-    letters = IrrepOperator{I}[only(t.keys).op for t in ts]
-    coeffs = ComplexF64[t.coeff for t in ts]
+    B = project(O; atol, rtol)
+    isempty(B.terms) && return zero(SiteOperator{I})
+    letters = IrrepOperator{I}[only(t.keys).op for t in B.terms]
+    coeffs = ComplexF64[t.coeff for t in B.terms]
     return SiteOperator{I}(letters, coeffs)
 end
 

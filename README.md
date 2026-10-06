@@ -30,7 +30,7 @@ julia> Pkg.add(url="https://github.com/lkdvos/OpSum.jl")
 
 ## Documentation
 
-The [documentation](https://lkdvos.github.io/OpSum.jl/dev/) opens with a worked SU(2) Heisenberg chain, from operator sum to reduced MPO, and continues with example pages covering [spin chains](https://lkdvos.github.io/OpSum.jl/dev/examples/spin_chains/), [long-range interactions](https://lkdvos.github.io/OpSum.jl/dev/examples/long_range/), [ladders and cylinders](https://lkdvos.github.io/OpSum.jl/dev/examples/ladders_and_cylinders/), [multi-body couplings](https://lkdvos.github.io/OpSum.jl/dev/examples/multibody/) and [fermions](https://lkdvos.github.io/OpSum.jl/dev/examples/fermions/) — each measuring how the bond dimension responds.
+The [documentation](https://lkdvos.github.io/OpSum.jl/dev/) opens with a worked SU(2) Heisenberg chain, from operator sum to reduced MPO, and continues with example pages covering [spin chains](https://lkdvos.github.io/OpSum.jl/dev/examples/spin_chains/), [long-range interactions](https://lkdvos.github.io/OpSum.jl/dev/examples/long_range/), [lattices and geometry](https://lkdvos.github.io/OpSum.jl/dev/examples/lattices/), [multi-body couplings](https://lkdvos.github.io/OpSum.jl/dev/examples/multibody/) and [fermions](https://lkdvos.github.io/OpSum.jl/dev/examples/fermions/) — each measuring how the bond dimension responds.
 The [reference](https://lkdvos.github.io/OpSum.jl/dev/reference/) documents the API.
 
 ## Acknowledgements

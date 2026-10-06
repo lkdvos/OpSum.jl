@@ -41,22 +41,25 @@ BraidingStyle(sectortype(V))
 # ```
 #
 # Under an abelian symmetry — every fermionic sector is one — `couple` does that swap and inserts the
-# phase itself, so the Hamiltonian is written the way it is printed above. `adjoint(h, lat)` produces
-# the same partner from the first half — the one term-level operation that needs the physical spaces,
-# since a letter's adjoint is a combination of the dual charge's letters.
+# phase itself, so the Hamiltonian is written the way it is printed above. `H'` produces
+# the same partner from the first half — the one operation that needs the physical spaces, since a
+# letter's adjoint is a combination of the dual charge's letters, so it lives on the `OperatorSum`
+# that `opsum(lat, …)` returns.
+
+chain(N) = FiniteChain(V, N)
 
 function hopping(N; t = 1.0)
     return opsum(
+        chain(N),
         -t * (couple(cd[i], c[i + 1]) + couple(cd[i + 1], c[i])) for i in 1:(N - 1)
     )
 end
-chain(N) = FiniteChain(V, N)
 
 N = 8
 H = hopping(N)
 
-forward = opsum(-1.0 * couple(cd[i], c[i + 1]) for i in 1:(N - 1))
-H ≈ forward + adjoint(forward, chain(N))
+forward = opsum(chain(N), -1.0 * couple(cd[i], c[i + 1]) for i in 1:(N - 1))
+H ≈ forward + forward'
 
 # Nothing stops you from supplying a sign by hand, and then it is yours to get right: written in
 # storage order the h.c. partner of ``c^\dagger_i c_{i+1}`` is ``-c_i c^\dagger_{i+1}``, and a `+`
@@ -64,14 +67,15 @@ H ≈ forward + adjoint(forward, chain(N))
 # sharp check.
 
 byhand(N; t = 1.0, sign = -1.0) = opsum(
+    chain(N),
     -t * (couple(cd[i], c[i + 1]) + sign * couple(c[i], cd[i + 1])) for i in 1:(N - 1)
 )
 
 H ≈ byhand(N)
 #-
 (
-    correct = hermiticity_error(H, chain(N)),
-    wrong = hermiticity_error(byhand(N; sign = +1.0), chain(N)),
+    correct = hermiticity_error(H),
+    wrong = hermiticity_error(byhand(N; sign = +1.0)),
 )
 
 # ## Verification against the exact spectrum
@@ -92,13 +96,13 @@ function free_fermion_spectrum(N; t = 1.0)
     )
 end
 
-spectrum(H, chain(N)) ≈ free_fermion_spectrum(N)
+spectrum(H) ≈ free_fermion_spectrum(N)
 
 # The MPO is lossless, and its bond dimension is independent of ``N`` just as for the spin chains:
 
-islossless(H, chain(N))
+islossless(H)
 
-res_free = build("free fermions", H, chain(N))
+res_free = build("free fermions", H)
 
 # ## Adding a density–density interaction
 #
@@ -110,15 +114,15 @@ res_free = build("free fermions", H, chain(N))
 # two-site term.
 
 function tV_chain(N; t = 1.0, Vint = 2.0)
-    return append!(
+    return opsum!(
         hopping(N; t),
         (Vint * couple(nh[i], nh[i + 1]) for i in 1:(N - 1))
     )
 end
 
 H_tV = tV_chain(N)
-res_tV = build("t-V chain", H_tV, chain(N))
-islossless(H_tV, chain(N))
+res_tV = build("t-V chain", H_tV)
+islossless(H_tV)
 
 # ## Pairing: a symmetry that is not U(1)
 #
@@ -142,25 +146,26 @@ cdp = matrixunit(Vp, odd, even)
 function kitaev(N; t = 1.0, Δ = 0.5)
     bonds = [(i, i + 1) for i in 1:(N - 1)]
     return opsum(
+        FiniteChain(Vp, N),
         (-t * (couple(cdp[i], cp[j]) + couple(cdp[j], cp[i])) for (i, j) in bonds),
         (Δ * (couple(cdp[i], cdp[j]) + couple(cp[j], cp[i])) for (i, j) in bonds),
     )
 end
 
 H_kitaev = kitaev(N)
-build("Kitaev chain", H_kitaev, FiniteChain(Vp, N))
-islossless(H_kitaev, FiniteChain(Vp, N))
+build("Kitaev chain", H_kitaev)
+islossless(H_kitaev)
 
 # The pairing terms are free: the same `D = 4` as the hopping chain alone, because the pair channel
 # reuses the bond index the hopping channel already needs. And the signs are still nobody's problem
 # but `couple`'s — hermiticity is the sharpest check on them:
 
-hermiticity_error(H_kitaev, FiniteChain(Vp, N)) < 1.0e-12
+hermiticity_error(H_kitaev) < 1.0e-12
 
 # At ``\Delta = t`` and zero chemical potential the chain is the Majorana fixed point; the spectrum
 # is the honest check against any external reference:
 
-spectrum(kitaev(6; t = 1.0, Δ = 1.0), FiniteChain(Vp, 6))[1:4]
+spectrum(kitaev(6; t = 1.0, Δ = 1.0))[1:4]
 
 # ## The Fermi–Hubbard model
 #
@@ -193,13 +198,13 @@ function hubbard(Nsites; t = 1.0, U = 4.0)
         U * couple(nh[orbital(i, 1)], nh[orbital(i, 2)])
             for i in 1:Nsites
     ]
-    return opsum(hop, int)
+    return opsum(chain(2Nsites), hop, int)
 end
 
 Nsites = 6
 H_hub = hubbard(Nsites)
-res_hub = build("Hubbard 1D", H_hub, chain(2Nsites))
-islossless(H_hub, chain(2Nsites))
+res_hub = build("Hubbard 1D", H_hub)
+islossless(H_hub)
 
 # ### Checking it against two exactly solvable limits
 #
@@ -218,14 +223,14 @@ let Ns = 3
                 for m in 0:(2^(2Ns) - 1)
         ]
     )
-    spectrum(H0, chain(2Ns)) ≈ exact
+    spectrum(H0) ≈ exact
 end
 
 # At ``t = 0`` nothing moves, so the energy just counts doubly-occupied sites in units of ``U``:
 
 let Ns = 3, U = 4.0
     Ht = hubbard(Ns; t = 0.0, U)
-    sort(unique(round.(spectrum(Ht, chain(2Ns)); digits = 8)))
+    sort(unique(round.(spectrum(Ht); digits = 8)))
 end
 
 # ### Bond dimension
@@ -233,7 +238,7 @@ end
 # As for every other local model, the Hubbard bond dimension saturates:
 
 for Ns in (4, 6, 8, 12)
-    r = build("hub", hubbard(Ns), chain(2Ns); quiet = true)
+    r = build("hub", hubbard(Ns); quiet = true)
     println("  sites=$(rpad(Ns, 3)) orbitals=$(rpad(2Ns, 3))  D=$(rpad(r.D, 3))  D_dense=$(r.Ddense)")
 end
 
@@ -243,7 +248,7 @@ end
 # physical sites does not.
 
 let Ns = 8
-    _, secs = irrep_mpo(hubbard(Ns), chain(2Ns))
+    _, secs = irrep_mpo(hubbard(Ns))
     [densedim(secs, b) for b in eachindex(secs)]
 end
 
@@ -263,11 +268,11 @@ function hubbard_cylinder(Lx, Ly; t = 1.0, U = 4.0)
             for (i, j) in cylinder_bonds(Lx, Ly) for σ in 1:2
     ]
     int = [U * couple(nh[orbital(i, 1)], nh[orbital(i, 2)]) for i in 1:Nsites]
-    return opsum(hop, int)
+    return opsum(chain(2Nsites), hop, int)
 end
 
 for Lx in (2, 4, 6, 8)
-    r = build("hub cyl", hubbard_cylinder(Lx, 4), chain(8Lx); quiet = true)
+    r = build("hub cyl", hubbard_cylinder(Lx, 4); quiet = true)
     println("  $(Lx)x4 cylinder: sites=$(rpad(4Lx, 3)) orbitals=$(rpad(8Lx, 3))  D_dense=$(r.Ddense)")
 end
 
@@ -318,16 +323,17 @@ end
 
 function hubbard_su2(N; t = 1.0, U = 4.0)
     hop = hubbard_su2_hop()
-    bond = -t * (hop + hop')
+    B = project(-t * (hop + hop'))          # one projection; `B[i]` places it on sites i, i + 1
     return opsum(
-        (project(bond, [i, i + 1]) for i in 1:(N - 1)),
+        FiniteChain(Vh, N),
+        (B[i] for i in 1:(N - 1)),
         (U * nupndn[i] for i in 1:N),
     )
 end
 
 H_hub2 = hubbard_su2(4)
-build("Hubbard SU(2), N=4", H_hub2, FiniteChain(Vh, 4))
-islossless(H_hub2, FiniteChain(Vh, 4))
+build("Hubbard SU(2), N=4", H_hub2)
+islossless(H_hub2)
 
 # Matrix elements written by hand deserve an independent check, and there is a good one available:
 # the spin-orbital encoding above is the same physics through a completely different route — single
@@ -335,16 +341,16 @@ islossless(H_hub2, FiniteChain(Vh, 4))
 # makes the Clebsch-Gordan factors trustworthy rather than merely transcribed.
 
 let Nsites = 3
-    a = spectrum(hubbard_su2(Nsites), FiniteChain(Vh, Nsites))
-    b = spectrum(hubbard(Nsites), chain(2Nsites))       # `hubbard` counts sites, `chain` orbitals
+    a = spectrum(hubbard_su2(Nsites))
+    b = spectrum(hubbard(Nsites))       # `hubbard` counts sites, its chain has one site per orbital
     (; dim = length(a), matches = a ≈ b)
 end
 
 # And the payoff for the extra symmetry, against the spin-orbital encoding of the same model:
 
 let Nsites = 4
-    su2 = build("Hubbard SU(2)", hubbard_su2(Nsites), FiniteChain(Vh, Nsites); quiet = true)
-    orb = build("Hubbard spin-orbital", hubbard(Nsites), chain(2Nsites); quiet = true)
+    su2 = build("Hubbard SU(2)", hubbard_su2(Nsites); quiet = true)
+    orb = build("Hubbard spin-orbital", hubbard(Nsites); quiet = true)
     println("  SU(2) spin:     N=$Nsites sites   D=$(su2.D)  D_dense=$(su2.Ddense)")
     println("  spin-orbital:   N=$(2Nsites) orbitals  D=$(orb.D)  D_dense=$(orb.Ddense)")
 end

@@ -33,29 +33,30 @@ using OpSum: arity
 # [`opsum`](@ref OpSum.opsum) in one pass — it is the linear accumulator, where folding `+` would
 # copy on every step.
 #
-# What `opsum` returns is a [`Terms`](@ref OpSum.Terms) bag, and it is **latticeless**: nothing in the
-# term algebra needs a physical space, and the compression itself needs only the number of sites. The
-# lattice is a separate object, handed to [`irrep_mpo`](@ref OpSum.irrep_mpo) (and to `instantiate`,
-# `islossless`, `adjoint`) where it is actually needed — which is also the one place every letter is
-# checked against the space of the site it sits on.
+# `opsum(lat, terms...)` returns an [`OperatorSum`](@ref OpSum.OperatorSum): the terms together with
+# their lattice. The term algebra itself (`dot`, `couple`, `A[i]`) is **latticeless** — it needs no
+# physical space, and the compression needs only the number of sites — so the lattice enters here,
+# when the terms are added, which is also where every letter is checked against the space of the
+# site it sits on. [`irrep_mpo`](@ref OpSum.irrep_mpo), `instantiate`, `islossless` and `H'` all take
+# the `OperatorSum`.
 
 V = SU2Space(1 // 2 => 1)
 S = spin(V)
 
-heisenberg(N; J = 1.0) = opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
 su2chain(N) = FiniteChain(V, N)          # `FiniteChain(V, N)` replaces `fill(V, N)`
+heisenberg(N; J = 1.0) = opsum(su2chain(N), J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
 
 N = 8
 H_heis = heisenberg(N)
-res_heis = build("Heisenberg SU(2)", H_heis, su2chain(N))
+res_heis = build("Heisenberg SU(2)", H_heis)
 
 # The compression is lossless — the reduced MPO reconstructs every original term exactly:
 
-islossless(H_heis, su2chain(N))
+islossless(H_heis)
 
 # and contracting the assembled tensors reproduces the dense operator:
 
-mpo_matches_oracle(heisenberg(4), su2chain(4))
+mpo_matches_oracle(heisenberg(4))
 
 # The bulk bond carries an identity-in channel, an identity-out channel and one open spin-1
 # multiplet: ``1 + 1 + 3 = 5`` in dense terms, but only 3 symmetry-resolved indices.
@@ -87,26 +88,27 @@ length(Sz)
 # `couple` distributes over both expansions, so a composite operand needs no special handling: the
 # ``S^z S^z`` term is written exactly like the single-letter ones.
 
+u1chain(N) = FiniteChain(Vu, N)
 function xxz(N; J = 1.0, Δ = 1.0)
     return opsum(
+        u1chain(N),
         J / 2 * couple(Sp[i], Sm[i + 1]) +
             J / 2 * couple(Sm[i], Sp[i + 1]) +
             J * Δ * couple(Sz[i], Sz[i + 1])
             for i in 1:(N - 1)
     )
 end
-u1chain(N) = FiniteChain(Vu, N)
 
 H_xxz = xxz(N)
-res_xxz = build("XXZ U(1)", H_xxz, u1chain(N))
+res_xxz = build("XXZ U(1)", H_xxz)
 
-islossless(H_xxz, u1chain(N))
+islossless(H_xxz)
 
 # At ``\Delta = 1`` the XXZ chain *is* the Heisenberg chain. The two builds live on different
 # spaces with different symmetry groups, so the sharpest available check is that they have the
 # same spectrum:
 
-spectrum(heisenberg(6), su2chain(6)) ≈ spectrum(xxz(6), u1chain(6))
+spectrum(heisenberg(6)) ≈ spectrum(xxz(6))
 
 # The same operator, but not the same MPO. The SU(2) build needs 3 symmetry-resolved indices where
 # the U(1) build needs 6, because a single spin-1 multiplet replaces three separate abelian channels
@@ -129,23 +131,30 @@ spectrum(heisenberg(6), su2chain(6)) ≈ spectrum(xxz(6), u1chain(6))
 # against a complete orthogonal basis, so the expansion is not a fit.
 
 h_bond = instantiate(
-    (1 / 2) * couple(Sp[1], Sm[2]) +
-        (1 / 2) * couple(Sm[1], Sp[2]) +
-        couple(Sz[1], Sz[2]),
-    [Vu, Vu],
+    opsum(
+        [Vu, Vu],
+        (1 / 2) * couple(Sp[1], Sm[2]) +
+            (1 / 2) * couple(Sm[1], Sp[2]) +
+            couple(Sz[1], Sz[2]),
+    )
 )
 
-H_proj = opsum(project(h_bond, [i, i + 1]) for i in 1:(N - 1))
+B_xxz = project(h_bond)
 
-# `project` re-materializes its own output and compares it against the input, so a faithful result
-# is checked rather than assumed. Summed over bonds it reproduces the hand-written chain, term for
-# term:
+# The result is a [`LocalOperator`](@ref OpSum.LocalOperator): the two-site operator *before* it is
+# told where it acts. `B_xxz[i]` places it on sites `i, i + 1`, so the projection — and its
+# faithfulness check, which re-materializes the output and compares it against the input — is paid
+# once rather than once per bond:
+
+H_proj = opsum(u1chain(N), B_xxz[i] for i in 1:(N - 1))
+
+# Summed over bonds it reproduces the hand-written chain, term for term:
 
 H_proj ≈ H_xxz
 
-# The one thing to know: every projected term is active on *all* the sites you pass. An on-site
-# identity factor comes back as a trivial-charge letter rather than a shorter term, so
-# `project` inverts `instantiate` only for operators whose terms have full support on those sites.
+# The one thing to know: every projected term is active on *all* `K` slots. An on-site identity
+# factor comes back as a trivial-charge letter rather than a shorter term, so `project` inverts
+# `instantiate` only for operators whose terms have full support on the block.
 
 # ## There is no symbolic on-site product
 #
@@ -162,7 +171,7 @@ H_proj ≈ H_xxz
 
 V1 = SU2Space(1 => 1)
 S1 = spin(V1)
-bond = removeunit(instantiate(dot(S1[1], S1[2]), [V1, V1]), 5)
+bond = removeunit(instantiate(opsum([V1, V1], dot(S1[1], S1[2]))), 5)
 
 # `instantiate` returns the operator with a trailing trivial charge leg, and `removeunit` drops it,
 # leaving the ordinary ``V \otimes V \leftarrow V \otimes V`` map that can be multiplied:
@@ -172,18 +181,18 @@ space(bond)
 # At ``\beta = 1/3`` this is the AKLT chain, whose ground state is the valence-bond solid:
 
 function bilinear_biquadratic(N; β = 1 / 3)
-    block = bond + β * (bond * bond)
-    return opsum(project(block, [i, i + 1]) for i in 1:(N - 1))
+    B = project(bond + β * (bond * bond))
+    return opsum(FiniteChain(V1, N), B[i] for i in 1:(N - 1))
 end
 
 H_aklt = bilinear_biquadratic(6)
-build("AKLT (β=1/3)", H_aklt, FiniteChain(V1, 6))
-islossless(H_aklt, FiniteChain(V1, 6))
+build("AKLT (β=1/3)", H_aklt)
+islossless(H_aklt)
 
 # The biquadratic term costs bond dimension because a spin-2 channel opens alongside the spin-1 one:
 
 for β in (0.0, 1 / 3, 1.0)
-    r = build("β=$(round(β; digits = 3))", bilinear_biquadratic(6; β), FiniteChain(V1, 6); quiet = true)
+    r = build("β=$(round(β; digits = 3))", bilinear_biquadratic(6; β); quiet = true)
     println("  β=$(rpad(round(β; digits = 3), 5))  D=$(r.D)  D_dense=$(r.Ddense)")
 end
 
@@ -191,24 +200,23 @@ end
 # *term bag*, not merely as an operator — `project` recovers the very terms `dot` would have
 # produced:
 
-let plain = opsum(dot(S1[i], S1[i + 1]) for i in 1:5)
+let plain = opsum(FiniteChain(V1, 6), dot(S1[i], S1[i + 1]) for i in 1:5)
     (; same_bag = bilinear_biquadratic(6; β = 0.0) ≈ plain, nterms = length(plain))
 end
 
 # That is worth separating from the full-support property, because the two are easy to conflate. A
-# projected term is active on *all* the sites you pass, and the reason it costs nothing above is that
-# both terms of a `dot` already span both sites. Add a piece that does not — an identity, say — and
-# it comes back padded, as a two-site term carrying a trivial-charge letter rather than as a shorter
-# term:
+# projected term is active on *all* `K` slots of the block, and the reason it costs nothing above is
+# that both terms of a `dot` already span both sites. Add a piece that does not — an identity, say —
+# and it comes back padded, as a two-slot term carrying a trivial-charge letter rather than as a
+# shorter term:
 
-let block = bond + one(bond) / 4
-    padded = project(block, [1, 2])
+let padded = project(bond + one(bond) / 4)[1]
     (; nterms = length(padded), arities = unique(arity(t) for t in padded))
 end
 
 # Both terms have arity 2: the identity did not come back as a `K = 0` term. So `project` inverts
-# `instantiate` for operators whose terms have full support on the sites given, and pads everything
-# else — which is exactly what makes it a faithful expansion of a *block* rather than a factorization.
+# `instantiate` for operators whose terms have full support on the block, and pads everything else —
+# which is exactly what makes it a faithful expansion of a *block* rather than a factorization.
 
 # ## ``J_1``–``J_2``
 #
@@ -221,14 +229,15 @@ end
 
 function j1j2(N; J1 = 1.0, J2 = 0.5)
     return opsum(
+        su2chain(N),
         (J1 * dot(S[i], S[i + 1]) for i in 1:(N - 1)),
         (J2 * dot(S[i], S[i + 2]) for i in 1:(N - 2)),
     )
 end
 
 H_j1j2 = j1j2(N)
-res_j1j2 = build("J1-J2 SU(2)", H_j1j2, su2chain(N))
-islossless(H_j1j2, su2chain(N))
+res_j1j2 = build("J1-J2 SU(2)", H_j1j2)
+islossless(H_j1j2)
 
 # ## Bond dimension is independent of system size
 #
@@ -236,12 +245,12 @@ islossless(H_j1j2, su2chain(N))
 # can straddle a single cut, not by how long the chain is.
 
 for L in (8, 16, 32, 64)
-    r = build("h", heisenberg(L), su2chain(L); quiet = true)
+    r = build("h", heisenberg(L); quiet = true)
     println("  Heisenberg  N=$(lpad(L, 3))  D=$(r.D)  D_dense=$(r.Ddense)")
 end
 
 for L in (8, 16, 32, 64)
-    r = build("j", j1j2(L), su2chain(L); quiet = true)
+    r = build("j", j1j2(L); quiet = true)
     println("  J1-J2       N=$(lpad(L, 3))  D=$(r.D)  D_dense=$(r.Ddense)")
 end
 

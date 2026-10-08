@@ -80,8 +80,9 @@ That is where the agreed design puts the basis.
    Indices stay local to each site's basis: a letter is `(charge, index)` as today, and index 1 is the identity of whichever basis the site has.
 6. **Letters carry no basis tag.**
    A symbolic operator placed on a site with a different basis than the one it was projected into is reinterpreted silently; that is accepted for now.
-7. **`*` builds terms.**
-   On different sites it couples to the unit charge (`couple(a, b; to = unit)`).
+7. **`*` multiplies operators, and is defined whenever the overall channel is forced.**
+   That is always the case under an abelian symmetry; under a non-abelian one it holds, for instance, whenever all factors but at most one are neutral, so neutral pieces (`dot`, `n`, `E_pq`) are the natural building blocks there.
+   When the channel is not forced (`cd[i] * c[j]` with two spin-½ factors), `*` throws and points at `couple(…; to = c)` or `dot`.
    On the same site, `a[i] * b[i]` is the on-site product: it is kept unevaluated and resolved in the site's basis when the term enters the sum (§3.5).
 8. **The MPO is symbolic**: `mpo(H)` returns a `SymbolicMPO` whose entries are coefficient vectors over the basis, and `instantiate(entry, basis) = Σ coeff · element` turns them into tensors.
    `instantiate(W)` of a whole MPO returns MPSKit's own struct (`FiniteMPOHamiltonian` or `InfiniteMPOHamiltonian`), through a package extension.
@@ -90,6 +91,9 @@ That is where the agreed design puts the basis.
    The basis-free forms (`project(O, V)`, `project(h)` into matrix units) go away for now.
 10. **No automatic basis discovery.**
    The basis is always the user's choice; what is in it is atomic, and what is not gets expressed in it.
+11. **`couple` and `*` accept any site order, under any symmetry.**
+   Non-abelian factors that arrive out of site order are re-coupled into the site-ordered caterpillar with F- and R-moves (§3.6).
+   This lifts today's rule that non-abelian `couple` must be written in site order.
 
 ### 3.2 The worked example
 
@@ -149,9 +153,9 @@ H = opsum(1:N) do i … end            # only the site range; the bases are supp
 * The bases given to `opsum` ride along to the MPO, so `instantiate(W)` needs no further arguments; with `1:N` they are passed to `instantiate` instead.
 * There is no check that an operator was projected into its site's basis (decision 6).
   The one cheap check left is that each letter `(c, k)` exists in the site's basis.
-* `a[i] * b[j]` with `i ≠ j` is `couple(a[i], b[j]; to = unit)`.
-  Under an abelian symmetry the order is free and the braiding phase (the fermionic sign) is inserted, as today.
-  Non-abelian couplings to a non-trivial intermediate channel keep using `couple(…; to = c)`.
+* `a[i] * b[j]` with `i ≠ j` is `couple(a[i], b[j]; to = c)` with the forced channel `c`.
+  The order is free under any symmetry: the braiding phase (the fermionic sign) is inserted as today, and non-abelian factors are re-coupled (§3.6).
+  An explicit intermediate channel, or a charged piece whose channel is not forced, is written with `couple(…; to = c)`.
 * `a[i] * b[i]` is the on-site product, described in §3.5.
 * `dot`, multi-site `project(h, bases)` blocks, `expterm` and `H'` keep their current meaning; `project` of a `K`-site block expresses each slot in that slot's basis.
   `H'` needs the bases, so it is available on sums built over bases, not on `opsum(1:N)`.
@@ -163,7 +167,7 @@ The site's basis *is* known when the term enters the sum, so the product is kept
 
 ```julia
 H = opsum(FiniteChain(bases)) do i
-    return cd[i] * c[i] + cd[i] * c[i + 1] * n[i]      # products on site i, in the order written
+    return cd[i] * c[i] + cd[i] * c[i + 1] * n[i]      # abelian sites: products on site i, in the order written
 end
 ```
 
@@ -172,6 +176,7 @@ end
 * **Charges and signs.**
   Under an abelian symmetry the node's charge is forced by its factors, so running bond charges and braiding phases are computed from charges alone, as today.
   Bringing `c[i]` next to `a[i]` past `b[j]` is the same R-symbol bookkeeping `couple` already does when it reorders legs.
+  Under a non-abelian symmetry the same move is an R-move, and fusing the node's adjacent legs into one leg is an F-move (§3.6).
 * **Resolution.**
   `opsum!` evaluates every node in its site's basis — instantiate the factors, multiply, project back — memoised per (basis, letters).
   The resolved terms then enter the normal form like any other; a product outside the span of the basis throws there.
@@ -183,11 +188,45 @@ end
   * Until insertion a term has two kinds of site factor: a resolved key, or a product node.
     The sweep only ever sees resolved terms.
 * **Non-abelian symmetry.**
-  Two charged operators on one site can fuse to several charges, so the node has to record which one, like `couple(…; to = c)`; see §6.
+  Two charged operators on one site can fuse to several charges `e`.
+  Only the overall channel of the term is forced; the node's own charge is not, so the F-move that fuses its legs produces one term per `e`, each with its F-symbol coefficient.
+  Each of those is resolved in the basis with the fusion tensor of its channel, `C_a ⊗ C_b → C_e`, memoised per (basis, letters, channel).
 
 Since products are resolved through the site, `SiteOperator` needs no reference to its basis: it is a plain coefficient vector.
 
-### 3.6 Forming and instantiating the MPO
+### 3.6 Re-coupling under a non-abelian symmetry
+
+A term is stored in one normal form: factors in site order, coupled as a left-nested caterpillar, with the running bond charges as the tree.
+Under an abelian symmetry any product is brought into that form by reordering legs and collecting R-symbols, which `couple` already does.
+Under a non-abelian symmetry the product of two caterpillars whose sites interleave is a *linear combination* of caterpillars, with coefficients from F- and R-symbols.
+
+* **The operation.**
+  `couple`/`*` merges the two operands' trees, braids the legs into site order, and recouples into the caterpillar basis.
+  TensorKit provides each step on fusion trees (`merge`, `braid`/`permute`, `Fsymbol`), so OpSum calls them rather than implementing 6j algebra.
+* **Same-site legs.**
+  After braiding, legs on the same site are adjacent; the F-move that fuses them into one leg of charge `e` gives the product nodes of §3.5.
+* **Cost.**
+  The coefficients depend only on the *shape* of a product — the charges, their positions and which legs share a site — so they are cached per shape.
+  This is the pattern cache of the #38 script, computed by TensorKit instead of by hand, and its size does not grow with the number of sites.
+* **Behaviour change.**
+  Non-abelian `couple` with operands out of site order currently throws; under this design it succeeds.
+  The tests that pin the throw become tests of the re-coupled result against the dense oracle.
+
+The payoff is that spin-adapted models need no channel at all.
+With the spin-summed excitation operator `E_pq = Σ_σ a†_pσ a_qσ`, a singlet, and `Σ_στ a†_pσ a†_rτ a_sτ a_qσ = E_pq E_rs − δ_qr E_ps`:
+
+```julia
+E(p, q) = λ * dot(cd[p], c[q])          # λ fixes dot's normalisation to Σσ a†_pσ a_qσ
+H = opsum(FiniteChain(fill(basis, N))) do …
+    h[p, q] * E(p, q) + ½ * eri[p, q, r, s] * (E(p, q) * E(r, s) - δ(q, r) * E(p, s))
+end
+```
+
+Every `*` here multiplies neutral pieces, so every channel is forced.
+Coinciding indices are on-site products resolved on insertion, so they need no special case.
+This replaces the hand-written Clebsch–Gordan code of `opsum_qchem_su2.jl`.
+
+### 3.7 Forming and instantiating the MPO
 
 * `mpo(H)` runs the existing sweep on basis indices and returns the symbolic MPO: per site a sparse matrix of coefficient vectors, per bond the charges.
 * `instantiate(entry, basis)` gives one entry's tensor.
@@ -218,7 +257,7 @@ Since products are resolved through the site, `SiteOperator` needs no reference 
 |---|---|
 | letters (`IrrepOperator`) | `(charge, index)` as today, with the index into the site's basis instead of into matrix units; the pass-through sentinel becomes element 1 |
 | `SiteOperator` | a plain coefficient vector over one basis |
-| building terms | `*` added; `couple`, `dot` unchanged; a `Term` gains an unevaluated on-site product node |
+| building terms | `*` added; `couple` re-couples out-of-order non-abelian operands with F- and R-moves (cached per shape) instead of throwing; `dot` unchanged; a `Term` gains an unevaluated on-site product node |
 | inserting into the sum | product nodes resolved in the site's basis, through memoised structure constants |
 | the sum | `FiniteChain`/`InfiniteChain` hold bases instead of spaces; validation only checks that each letter exists in its site's basis |
 | `canonicalize!`, the term table, the sweep | **unchanged**: they compare labels |
@@ -232,9 +271,6 @@ Since products are resolved through the site, `SiteOperator` needs no reference 
 
 1. **Today's builders.**
    Do `spin`, `spin_ops`, `fermion_ops` and `matrixunit` return dense tensors to be projected, or symbolic operators in a stock basis (and which one: matrix units, or the physically natural one)?
-2. **On-site `*` under a non-abelian symmetry.**
-   Two charged operators on one site can fuse to several charges, so the product node of `a[i] * b[i]` needs a channel there, like `couple`.
-   How is it spelled?
 
 Decided:
 
@@ -243,6 +279,8 @@ Decided:
 * No basis tag on letters; mismatches are silent for now.
 * `project` without a basis goes away for now.
 * On-site products are written `a[i] * b[i]` and resolved on insertion; the unplaced form `(a * b)[i]` is dropped for now.
+* `*` is defined whenever the overall channel is forced; otherwise it throws, pointing at `couple(…; to = c)` and `dot`.
+* `couple` and `*` accept any site order under any symmetry, re-coupling non-abelian factors with F- and R-moves.
 * No separate no-allocation entry for building `N⁴` terms; symbolic operators are integer-indexed already.
 
 ---
@@ -252,8 +290,9 @@ Decided:
 1. `Basis` and `project(O, basis)` on one space, with the identity at element 1; the existing sweep runs on basis indices unchanged.
 2. `SymbolicMPO`, `instantiate(entry, basis)` and the MPSKit extension; the #38 numbers of §1 as the acceptance test.
 3. Per-site basis lists and `vcat` for mixed lattices.
-4. `*`, first across sites, then on-site products with their resolution on insertion.
-5. Infinite chains, `expterm` and the SVD backends.
+4. `*` across sites under an abelian symmetry, then on-site products with their resolution on insertion.
+5. Non-abelian re-coupling in `couple` and `*`, with the spin-free chemistry Hamiltonian of §3.6 against the #38 numbers.
+6. Infinite chains, `expterm` and the SVD backends.
 
 ---
 

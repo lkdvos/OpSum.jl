@@ -226,7 +226,34 @@ Every `*` here multiplies neutral pieces, so every channel is forced.
 Coinciding indices are on-site products resolved on insertion, so they need no special case.
 This replaces the hand-written Clebsch–Gordan code of `opsum_qchem_su2.jl`.
 
-### 3.7 Forming and instantiating the MPO
+### 3.7 Stock bases and the operator builders
+
+The builders take a basis and return symbolic operators in it:
+
+```julia
+B = hubbard_basis(U1Irrep, SU2Irrep)          # memoised: repeated calls return the same object
+cd, c, n = fermion_ops(B)                     # symbolic, one element each in this basis
+S = spin(spin_basis(SU2Irrep))                # the SU(2) vector operator, one element
+Sp, Sm, Sz = spin_ops(spin_basis(U1Irrep; spin = 1))
+X = project(pauli_x(), spin_basis(Trivial))   # any TensorKitTensors operator, projected
+```
+
+* Each builder is `project(tensor, basis)` of the corresponding tensor, so its result is atomic exactly when the basis makes it so.
+* A stock basis knows its own layout, so `spin_ops` no longer needs the list of sectors that fixes the `m` order today.
+* The stock bases are functions of the symmetry, named after the TensorKitTensors space they live on, and their spaces *are* those spaces, so state conventions match TensorKitTensors by construction:
+
+| basis | space | elements (after the identity) |
+|---|---|---|
+| `spin_basis(symmetry; spin = 1//2)` | `spin_space` | `S⁺, S⁻, Sᶻ` (no symmetry, U(1)), or `S⃗` (SU(2)); higher multipoles for `spin > ½` |
+| `fermion_basis(symmetry)` | `fermion_space` | `c†, c, n` |
+| `hubbard_basis(particle, spin)` | `hubbard_space` | `n, n↑n↓, c†σ, c†σ n_σ̄, cσ, cσ n_σ̄, S±` or `S⃗`, `Δ†, Δ` (spin components combined under SU(2)) |
+| `tj_basis(particle, spin)` | `tj_space` | the projected subset of the Hubbard elements |
+| `boson_basis(symmetry; cutoff)` | `boson_space` | `b†, b, n`, completed with higher powers |
+| `clock_basis(N, symmetry)` | (not in TensorKitTensors yet) | the shift and clock operators `X^a Z^b` |
+
+The tensors come from TensorKitTensors.jl; together with this package that is meant to replace MPSKitModels.jl entirely.
+
+### 3.8 Forming and instantiating the MPO
 
 * `mpo(H)` runs the existing sweep on basis indices and returns the symbolic MPO: per site a sparse matrix of coefficient vectors, per bond the charges.
 * `instantiate(entry, basis)` gives one entry's tensor.
@@ -269,8 +296,12 @@ This replaces the hand-written Clebsch–Gordan code of `opsum_qchem_su2.jl`.
 
 ## 6. Open questions
 
-1. **Today's builders.**
-   Do `spin`, `spin_ops`, `fermion_ops` and `matrixunit` return dense tensors to be projected, or symbolic operators in a stock basis (and which one: matrix units, or the physically natural one)?
+1. **Charged single-site tensors under a symmetry.**
+   A basis element is a charged single-site operator `V ← V ⊗ C_c`.
+   TensorKitTensors provides those only without symmetry (`S_plus`, …); with a symmetry it provides the neutral operators and two-site products (`e_hopping`, `S_exchange`, `u_plus_u_min`, …).
+   Either TensorKitTensors gains charged single-site operators with an auxiliary charge leg (`c_plus(U1Irrep, SU2Irrep)` as the spinor), or OpSum extracts them by factorising the two-site products, which needs a convention to fix each factor's normalisation and phase.
+2. **The rest of MPSKitModels.**
+   Replacing it also means a home for its lattices and named models (`hubbard_model`, `heisenberg_XXZ`, …); in OpSum, or in a third package?
 
 Decided:
 
@@ -282,6 +313,8 @@ Decided:
 * `*` is defined whenever the overall channel is forced; otherwise it throws, pointing at `couple(…; to = c)` and `dot`.
 * `couple` and `*` accept any site order under any symmetry, re-coupling non-abelian factors with F- and R-moves.
 * No separate no-allocation entry for building `N⁴` terms; symbolic operators are integer-indexed already.
+* The builders (`spin`, `spin_ops`, `fermion_ops`, `matrixunit`) take a basis and return symbolic operators in it.
+* Stock bases are memoised functions of the symmetry (`spin_basis`, `fermion_basis`, `hubbard_basis`, `tj_basis`, `boson_basis`, `clock_basis`), on TensorKitTensors' spaces; this package and TensorKitTensors together replace MPSKitModels.
 
 ---
 
@@ -293,6 +326,7 @@ Decided:
 4. `*` across sites under an abelian symmetry, then on-site products with their resolution on insertion.
 5. Non-abelian re-coupling in `couple` and `*`, with the spin-free chemistry Hamiltonian of §3.6 against the #38 numbers.
 6. Infinite chains, `expterm` and the SVD backends.
+7. The stock bases and builders, starting with spins and the Hubbard site used by #38.
 
 ---
 

@@ -68,11 +68,12 @@ That is where the agreed design puts the basis.
 ### 3.1 Decisions
 
 1. **A `Basis` is an ordered list of operators on one space `V`.**
-   Each element is a symmetric `TensorMap` `V ← V ⊗ C_c` of one definite charge `c`; plain matrices are the no-symmetry case.
-   The basis groups its elements by charge.
+   Internally each element is a symmetric `TensorMap` `V ← V ⊗ C_c` of one definite charge `c`, and the basis groups its elements by charge; plain matrices are the no-symmetry case.
+   Users never handle the charged elements: a basis is *defined* from neutral operators, and two-site ones are factorised into their single-site charged pieces (§3.7).
 2. **The identity is an ordinary element, by convention always element 1** of each space's basis.
    It replaces today's pass-through sentinel: idle sites and the Jordan identity corners are expressed in it.
 3. **Operators are projected into a basis**: `project(O, basis)` gives a *symbolic* operator, a coefficient vector over the basis elements.
+   The operators a user projects and writes with are always neutral: single-site neutral operators, and neutral pairs such as hopping or exchange.
 4. **Each site has a basis, and spaces come from the bases.**
    A sum is built over a list of per-site bases, wrapped as `FiniteChain(bases)` or `InfiniteChain(bases)` (a unit cell); a bare vector or `1:N` means a finite chain.
    There is no separate lattice of spaces.
@@ -81,8 +82,8 @@ That is where the agreed design puts the basis.
 6. **Letters carry no basis tag.**
    A symbolic operator placed on a site with a different basis than the one it was projected into is reinterpreted silently; that is accepted for now.
 7. **`*` multiplies operators, and is defined whenever the overall channel is forced.**
-   That is always the case under an abelian symmetry; under a non-abelian one it holds, for instance, whenever all factors but at most one are neutral, so neutral pieces (`dot`, `n`, `E_pq`) are the natural building blocks there.
-   When the channel is not forced (`cd[i] * c[j]` with two spin-½ factors), `*` throws and points at `couple(…; to = c)` or `dot`.
+   That is always the case under an abelian symmetry, and under any symmetry when the factors are neutral.
+   Since every user-facing operator is neutral (decision 3), every product in model code has a forced channel; `*` only throws on charged operands whose channel is not forced, which model code never produces.
    On the same site, `a[i] * b[i]` is the on-site product: it is kept unevaluated and resolved in the site's basis when the term enters the sum (§3.5).
 8. **The MPO is symbolic**: `mpo(H)` returns a `SymbolicMPO` whose entries are coefficient vectors over the basis, and `instantiate(entry, basis) = Σ coeff · element` turns them into tensors.
    `instantiate(W)` of a whole MPO returns MPSKit's own struct (`FiniteMPOHamiltonian` or `InfiniteMPOHamiltonian`), through a package extension.
@@ -127,16 +128,21 @@ Hmpskit = instantiate(W, fill(alternativebasis, N))       # an MPSKit.FiniteMPOH
 
 ### 3.3 Symmetric sites
 
-With symmetry the elements are charged `TensorMap`s, and the basis is block-diagonal by charge:
+With symmetry the elements are charged `TensorMap`s and the basis is block-diagonal by charge, but the user only ever names neutral operators:
 
 ```julia
-Vh = Vect[U₁ ⊠ SU₂ ⊠ fℤ₂]((0, 0, 0) => 1, (1, 1 // 2, 1) => 1, (2, 0, 0) => 1)
-basis = Basis([id(Vh), cd, c, n, pair, paird, …])   # cd, c: the SU(2) spinors, one element each
-cd_s, c_s = project(cd, basis), project(c, basis)   # one coefficient each
+P, S = U1Irrep, SU2Irrep
+basis = Basis([e_plus_e_min(P, S), e_min_e_plus(P, S), e_num(P, S), ud_num(P, S), …])
+hop = project(e_plus_e_min(P, S), basis)     # a symbolic neutral pair: one coefficient on (c†) ⊗ (c)
+n   = project(e_num(P, S), basis)            # a single-site neutral operator
+H = opsum(FiniteChain(fill(basis, N))) do i
+    -t * (hop[i, i + 1] + hop[i + 1, i]) + U * project(ud_num(P, S), basis)[i]
+end
 ```
 
-* Element 1 is `id(Vh)`, of the trivial charge.
-* An element must have one charge; an operator mixing charges is projected onto elements of several charges.
+* `Basis` factorises the two-site operators into their charged single-site pieces (here the spinors `c†` and `c`), and uses the single-site ones as they are; element 1 is always the identity, of the trivial charge.
+* A two-site symbolic operator is placed on two sites, `hop[i, j]`; placing it on one site, `hop[i, i]`, is an on-site product, resolved on insertion like `a[i] * b[i]` (§3.5).
+* Internally, an element must have one charge, and an operator mixing charges is projected onto elements of several charges.
 * The elements of one charge must be linearly independent.
   They need not be orthonormal, so `project` solves against the basis per charge rather than taking inner products.
 
@@ -155,7 +161,7 @@ H = opsum(1:N) do i … end            # only the site range; the bases are supp
   The one cheap check left is that each letter `(c, k)` exists in the site's basis.
 * `a[i] * b[j]` with `i ≠ j` is `couple(a[i], b[j]; to = c)` with the forced channel `c`.
   The order is free under any symmetry: the braiding phase (the fermionic sign) is inserted as today, and non-abelian factors are re-coupled (§3.6).
-  An explicit intermediate channel, or a charged piece whose channel is not forced, is written with `couple(…; to = c)`.
+  `couple(…; to = c)` stays the underlying primitive, which `*` calls with the forced channel; model code built from neutral operators does not need it.
 * `a[i] * b[i]` is the on-site product, described in §3.5.
 * `dot`, multi-site `project(h, bases)` blocks, `expterm` and `H'` keep their current meaning; `project` of a `K`-site block expresses each slot in that slot's basis.
   `H'` needs the bases, so it is available on sums built over bases, not on `opsum(1:N)`.
@@ -167,7 +173,7 @@ The site's basis *is* known when the term enters the sum, so the product is kept
 
 ```julia
 H = opsum(FiniteChain(bases)) do i
-    return cd[i] * c[i] + cd[i] * c[i + 1] * n[i]      # abelian sites: products on site i, in the order written
+    return n[i] * n[i] + hop[i, i + 1] * n[i]          # products on site i, in the order written
 end
 ```
 
@@ -213,12 +219,13 @@ Under a non-abelian symmetry the product of two caterpillars whose sites interle
   The tests that pin the throw become tests of the re-coupled result against the dense oracle.
 
 The payoff is that spin-adapted models need no channel at all.
-With the spin-summed excitation operator `E_pq = Σ_σ a†_pσ a_qσ`, a singlet, and `Σ_στ a†_pσ a†_rτ a_sτ a_qσ = E_pq E_rs − δ_qr E_ps`:
+With the spin-summed excitation operator `E_pq = Σ_σ a†_pσ a_qσ`, a neutral pair, and `Σ_στ a†_pσ a†_rτ a_sτ a_qσ = E_pq E_rs − δ_qr E_ps`:
 
 ```julia
-E(p, q) = λ * dot(cd[p], c[q])          # λ fixes dot's normalisation to Σσ a†_pσ a_qσ
-H = opsum(FiniteChain(fill(basis, N))) do …
-    h[p, q] * E(p, q) + ½ * eri[p, q, r, s] * (E(p, q) * E(r, s) - δ(q, r) * E(p, s))
+B = hubbard_basis(U1Irrep, SU2Irrep)
+E = project(e_plus_e_min(U1Irrep, SU2Irrep), B)       # E[p, q] = Σσ a†_pσ a_qσ; E[p, p] = n_p
+H = opsum(FiniteChain(fill(B, N))) do …
+    h[p, q] * E[p, q] + ½ * eri[p, q, r, s] * (E[p, q] * E[r, s] - δ(q, r) * E[p, s])
 end
 ```
 
@@ -228,30 +235,37 @@ This replaces the hand-written Clebsch–Gordan code of `opsum_qchem_su2.jl`.
 
 ### 3.7 Stock bases and the operator builders
 
-The builders take a basis and return symbolic operators in it:
+The builders take a basis and return the neutral operators of that site as symbolic operators:
 
 ```julia
 B = hubbard_basis(U1Irrep, SU2Irrep)          # memoised: repeated calls return the same object
-cd, c, n = fermion_ops(B)                     # symbolic, one element each in this basis
-S = spin(spin_basis(SU2Irrep))                # the SU(2) vector operator, one element
-Sp, Sm, Sz = spin_ops(spin_basis(U1Irrep; spin = 1))
-X = project(pauli_x(), spin_basis(Trivial))   # any TensorKitTensors operator, projected
+ops = fermion_ops(B)                          # (; n, nud, hop = e_plus_e_min, hop′ = e_min_e_plus, …)
+ex  = spin_ops(spin_basis(SU2Irrep)).SS       # the exchange pair S⃗ᵢ·S⃗ⱼ, one element on each site
+X   = project(pauli_x(), spin_basis(Trivial)) # any neutral TensorKitTensors operator, projected
 ```
 
-* Each builder is `project(tensor, basis)` of the corresponding tensor, so its result is atomic exactly when the basis makes it so.
+* Each builder is `project(tensor, basis)` of the corresponding TensorKitTensors tensor, so its result is atomic exactly when the basis makes it so; `project` accepts any neutral single-site or two-site TensorKitTensors operator.
 * A stock basis knows its own layout, so `spin_ops` no longer needs the list of sectors that fixes the `m` order today.
 * The stock bases are functions of the symmetry, named after the TensorKitTensors space they live on, and their spaces *are* those spaces, so state conventions match TensorKitTensors by construction:
 
-| basis | space | elements (after the identity) |
-|---|---|---|
-| `spin_basis(symmetry; spin = 1//2)` | `spin_space` | `S⁺, S⁻, Sᶻ` (no symmetry, U(1)), or `S⃗` (SU(2)); higher multipoles for `spin > ½` |
-| `fermion_basis(symmetry)` | `fermion_space` | `c†, c, n` |
-| `hubbard_basis(particle, spin)` | `hubbard_space` | `n, n↑n↓, c†σ, c†σ n_σ̄, cσ, cσ n_σ̄, S±` or `S⃗`, `Δ†, Δ` (spin components combined under SU(2)) |
-| `tj_basis(particle, spin)` | `tj_space` | the projected subset of the Hubbard elements |
-| `boson_basis(symmetry; cutoff)` | `boson_space` | `b†, b, n`, completed with higher powers |
-| `clock_basis(N, symmetry)` | (not in TensorKitTensors yet) | the shift and clock operators `X^a Z^b` |
+| basis | space | defined from the neutral operators | resulting charged elements |
+|---|---|---|---|
+| `spin_basis(symmetry; spin = 1//2)` | `spin_space` | `S⁺S⁻`, `S⁻S⁺`, `Sᶻ` (no symmetry, U(1)); `SS` (SU(2)) | `S⁺, S⁻` or `S⃗`; higher multipoles for `spin > ½` |
+| `fermion_basis(symmetry)` | `fermion_space` | `f⁺f⁻`, `f⁻f⁺`, `n` | `c†, c` |
+| `hubbard_basis(particle, spin)` | `hubbard_space` | `e⁺e⁻`, `e⁻e⁺`, `n`, `nꜛꜜ`, `singlet⁺`, `singlet⁻`, `S⁺S⁻`/`SS` | `c†σ, cσ` (spinors under SU(2)), `Δ†, Δ`, `S±` or `S⃗` |
+| `tj_basis(particle, spin)` | `tj_space` | the t-J counterparts | the projected subset of the Hubbard elements |
+| `boson_basis(symmetry; cutoff)` | `boson_space` | `b⁺b⁻`, `b⁻b⁺`, `n` | `b†, b` |
 
+Every stock basis is completed so that it spans all operators on its space, so that on-site products and `H'` never leave it.
 The tensors come from TensorKitTensors.jl; together with this package that is meant to replace MPSKitModels.jl entirely.
+
+**How a basis is built from neutral pairs.**
+
+* `project` of a neutral two-site operator into matrix units gives, per charge `c` of the first site, a coefficient matrix over the letters of `c` on the first site and of its dual on the second.
+* Its rank factorisation gives the charged single-site pieces: for `e⁺e⁻` under SU(2), rank 1 in the spinor channel, with `c†` on the left and `c` on the right.
+* Pieces from all defining operators are collected, deduplicated by direction, checked for independence, put after the identity and the single-site neutral operators, and completed to span the space.
+* Each piece's normalisation and phase are a gauge choice that the user never sees: user-facing operators are neutral pairs, so a rescaled factor only rescales the pair's coefficient.
+  The convention only needs to be deterministic, e.g. balanced singular values and the first significant entry real and positive, so that repeated calls give the same basis.
 
 ### 3.8 Forming and instantiating the MPO
 
@@ -296,11 +310,7 @@ The tensors come from TensorKitTensors.jl; together with this package that is me
 
 ## 6. Open questions
 
-1. **Charged single-site tensors under a symmetry.**
-   A basis element is a charged single-site operator `V ← V ⊗ C_c`.
-   TensorKitTensors provides those only without symmetry (`S_plus`, …); with a symmetry it provides the neutral operators and two-site products (`e_hopping`, `S_exchange`, `u_plus_u_min`, …).
-   Either TensorKitTensors gains charged single-site operators with an auxiliary charge leg (`c_plus(U1Irrep, SU2Irrep)` as the spinor), or OpSum extracts them by factorising the two-site products, which needs a convention to fix each factor's normalisation and phase.
-2. **The rest of MPSKitModels.**
+1. **The rest of MPSKitModels.**
    Replacing it also means a home for its lattices and named models (`hubbard_model`, `heisenberg_XXZ`, …); in OpSum, or in a third package?
 
 Decided:
@@ -310,11 +320,13 @@ Decided:
 * No basis tag on letters; mismatches are silent for now.
 * `project` without a basis goes away for now.
 * On-site products are written `a[i] * b[i]` and resolved on insertion; the unplaced form `(a * b)[i]` is dropped for now.
-* `*` is defined whenever the overall channel is forced; otherwise it throws, pointing at `couple(…; to = c)` and `dot`.
+* `*` is defined whenever the overall channel is forced, which holds for every product of the neutral user-facing operators; otherwise it throws.
 * `couple` and `*` accept any site order under any symmetry, re-coupling non-abelian factors with F- and R-moves.
 * No separate no-allocation entry for building `N⁴` terms; symbolic operators are integer-indexed already.
 * The builders (`spin`, `spin_ops`, `fermion_ops`, `matrixunit`) take a basis and return symbolic operators in it.
-* Stock bases are memoised functions of the symmetry (`spin_basis`, `fermion_basis`, `hubbard_basis`, `tj_basis`, `boson_basis`, `clock_basis`), on TensorKitTensors' spaces; this package and TensorKitTensors together replace MPSKitModels.
+* Stock bases are memoised functions of the symmetry (`spin_basis`, `fermion_basis`, `hubbard_basis`, `tj_basis`, `boson_basis`), on TensorKitTensors' spaces; this package and TensorKitTensors together replace MPSKitModels.
+* The charged single-site elements are obtained in OpSum by factorising TensorKitTensors' neutral two-site operators; they only define the basis, and every user-facing operator is neutral.
+* Clock (ℤₙ) bases are dropped for now.
 
 ---
 

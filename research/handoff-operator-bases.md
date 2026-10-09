@@ -96,3 +96,46 @@ Once step 5 lands, the same numbers should come out of the spin-free Hamiltonian
 * **An untriaged oddity**: lossless `SVDBondAlgorithm` gave 37 at the central bond of spinful all-to-all hopping where counting gives 22 (the vertex cover gives 42 today, 22 with the right basis).
   It looks like an SVD-backend issue unrelated to this work.
 * **Conventions**: research notes are written one sentence per line; invariant checks are `throw`s through `_invariant`, never `@assert` (CLAUDE.md); format with Runic.
+
+## 7. Step 1 as implemented (branch `feat/operator-basis`, for review)
+
+Written without a go-ahead on the plan, at the author's request; everything below is open to change.
+
+### Where the pass-through sentinel was used, and what changed
+
+The sentinel `IrrepOperator(unit, 0)` became the letter `(unit, 1)`, the identity at element 1.
+In the matrix-unit alphabet, which still exists, the trivial-charge matrix units move up by one (`n ≥ 2`); other charges are unchanged.
+
+| file | use | change |
+|---|---|---|
+| `irreptensoroperators.jl` | `instantiate` of `n = 0` gave bare `id(V)`; `instances` gave `n ≥ 1` | `(unit, 1)` instantiates to `isomorphism(V ← V ⊗ C_unit)`, with the charge leg like every letter; trivial-charge matrix units at `n ≥ 2` (`_muoffset`) |
+| `irrepkey.jl` | `passthrough`, `ispassthrough` | now `(unit, 1)` and `c == unit && n == 1` |
+| `siteoperator.jl` | `SiteOperator(c)`, `isone` | unchanged code, through `passthrough`; docs |
+| `localoperator.jl` | placement drops pass-through slots; `B + α` | unchanged; a projected identity factor is now *the* pass-through, so `project(X ⊗ 𝟙, B)[i]` places as a one-site term |
+| `irrepalgebra.jl` | `O[i]` places the identity as a `K = 0` term; `_checklattice` letter ranges | placement unchanged; `_alphabet` counts the identity among the trivial-charge letters |
+| `irreptermtable.jl`, `irrepgraph.jl`, `irrepgraph_svd.jl` | padding keys, idle sites, start/finish channel keys | unchanged: they build `passthrough(I)`, a letter no placed term contains, so the §2.2 start-channel invariant holds as before |
+| `irrepmpo.jl` | `mpo_terms` skips pass-throughs; `_letter_optensor` special-cased the identity | walk unchanged; `_letter_optensor` is now just `instantiate` |
+| `jordanmpo.jl`, `infinitegraph.jl`, `irrepgraph_vc.jl` | `isone` on bond entries | unchanged |
+| `expterms.jl` | `nothing` in a string means pass-through | an identity letter in a string is mapped to `nothing`, so it is the same channel as the default string |
+| `irrepinstantiate.jl` | — | `_space(site)` so the dense oracle accepts a `Basis` per site |
+
+Behaviour change outside the plan: `instantiate(scalarop(c), V)` now has the trivial charge leg (`V ← V ⊗ C_unit`), so it adds to trivial-charge letters; before, it was `V ← V` and the sum threw.
+
+### What step 1 adds
+
+* `Basis(ops)` (`src/operators/algebra/basis.jl`): neutral single-site operators (or plain matrices without symmetry) are elements as given; neutral two-site operators are factorised into charged pieces by an SVD of their matrix-unit coefficient matrix per charge; the identity is prepended; parallel elements of one charge are deduplicated; independence per charge is checked.
+* `project(O, B)` for one site (a `SiteOperator`) and `project(h, B)` for `K` sites with the same basis in every slot (a `LocalOperator`), by changing coordinates from the exact matrix-unit expansion with the per-charge pseudo-inverse, then checking the residual like `project(h)` does.
+* `instantiate(letter, B)` and `instantiate(::SiteOperator, B)`.
+* The sweep is untouched; `test/test_operator_basis.jl` checks lossless MPOs and the dense operator read back through the basis for ℂ² (XX+YY+ZZ, bond 5 against 6 today, as in §5), U(1) spins, fermions (including a hop across a gap, projected as a 3-site block, against the gapped placement) and SU(2).
+
+### Choices to confirm
+
+1. **The letter index counts within a charge** (`(c, n)` is the `n`-th element of charge `c`), as for matrix units, rather than a global position in the basis.
+2. **Charged elements cannot be given by hand.** `Basis` takes neutral operators only, which is the first unconfirmed item of §2; `_basis_from_elements` takes charged elements and could become public.
+   The other two unconfirmed items (`hop[i, i]`, model code without `couple`) are not touched by step 1.
+3. **Gauge of factorised pieces**: balanced singular values, first entry of the left piece above `rtol` of its largest real and positive.
+   Degenerate singular values (e.g. spinful hopping without symmetry, rank 2) leave a rotation inside the degenerate space to LAPACK, which is deterministic per machine but not canonical.
+   For S⃗·S⃗ under SU(2) the right piece is `-S⃗`, deduplicated against the left one, so the pair projects with coefficient `-1`; the test pins that.
+4. **Parallel elements are dropped silently**, including a user's explicit identity (§3.2 passes `Imat` first); a non-parallel dependent element throws.
+5. **`project(O, V)` and the matrix-unit alphabet stay** until the builders move to bases (step 7), since every existing test and builder uses them.
+6. **No basis on the lattice yet**: an `OperatorSum` over spaces accepts basis letters (they are in range) and compresses them correctly, but `instantiate(H)` and `irrep_mpo_tensors` would read them as matrix units; that is steps 2–3.

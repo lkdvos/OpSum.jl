@@ -265,7 +265,8 @@ The tensors come from TensorKitTensors.jl; together with this package that is me
 * Its rank factorisation gives the charged single-site pieces: for `e⁺e⁻` under SU(2), rank 1 in the spinor channel, with `c†` on the left and `c` on the right.
 * Pieces from all defining operators are collected, deduplicated by direction, checked for independence, put after the identity and the single-site neutral operators, and completed to span the space.
 * Each piece's normalisation and phase are a gauge choice that the user never sees: user-facing operators are neutral pairs, so a rescaled factor only rescales the pair's coefficient.
-  The convention only needs to be deterministic, e.g. balanced singular values and the first significant entry real and positive, so that repeated calls give the same basis.
+  The convention is canonical: the rank factorisation is a column-pivoted reduced row echelon form, not an SVD, and each piece's first coefficient is 1.
+  So there is no rotation within a degenerate singular value, and a pair of single matrix units gives exactly those matrix units (`XX + YY` gives `S⁺` and `S⁻`).
 
 ### 3.8 Forming and instantiating the MPO
 

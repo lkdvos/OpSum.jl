@@ -47,7 +47,7 @@ a hand-made `Basis` is also built from neutral operators only, `hop[i, i]` is an
 ## 3. Still open
 
 * Where MPSKitModels' lattices and named models (`hubbard_model`, `heisenberg_XXZ`, …) go (operator-bases.md §6).
-* The deterministic gauge convention for factorised pieces is only sketched (balanced singular values, first significant entry real and positive); pick one and pin it with a test.
+* ~~The deterministic gauge convention for factorised pieces~~: settled in §7, item 3.
 
 ## 4. The plan
 
@@ -123,19 +123,23 @@ Behaviour change outside the plan: `instantiate(scalarop(c), V)` now has the tri
 
 ### What step 1 adds
 
-* `Basis(ops)` (`src/operators/algebra/basis.jl`): neutral single-site operators (or plain matrices without symmetry) are elements as given; neutral two-site operators are factorised into charged pieces by an SVD of their matrix-unit coefficient matrix per charge; the identity is prepended; parallel elements of one charge are deduplicated; independence per charge is checked.
+* `Basis(ops)` (`src/operators/algebra/basis.jl`): neutral single-site operators (or plain matrices without symmetry) are elements as given; neutral two-site operators are factorised into charged pieces (item 3 below); the identity is prepended; parallel elements of one charge are deduplicated; independence per charge is checked.
 * `project(O, B)` for one site (a `SiteOperator`) and `project(h, B)` for `K` sites with the same basis in every slot (a `LocalOperator`), by changing coordinates from the exact matrix-unit expansion with the per-charge pseudo-inverse, then checking the residual like `project(h)` does.
 * `instantiate(letter, B)` and `instantiate(::SiteOperator, B)`.
 * The sweep is untouched; `test/test_operator_basis.jl` checks lossless MPOs and the dense operator read back through the basis for ℂ² (XX+YY+ZZ, bond 5 against 6 today, as in §5), U(1) spins, fermions (including a hop across a gap, projected as a 3-site block, against the gapped placement) and SU(2).
 
-### Choices to confirm
+### Decided after review (2026-10-09)
 
-1. **The letter index counts within a charge** (`(c, n)` is the `n`-th element of charge `c`), as for matrix units, rather than a global position in the basis.
-2. **Charged elements cannot be given by hand.** `Basis` takes neutral operators only, which is the first unconfirmed item of §2; `_basis_from_elements` takes charged elements and could become public.
-   The other two unconfirmed items (`hop[i, i]`, model code without `couple`) are not touched by step 1.
-3. **Gauge of factorised pieces**: balanced singular values, first entry of the left piece above `rtol` of its largest real and positive.
-   Degenerate singular values (e.g. spinful hopping without symmetry, rank 2) leave a rotation inside the degenerate space to LAPACK, which is deterministic per machine but not canonical.
-   For S⃗·S⃗ under SU(2) the right piece is `-S⃗`, deduplicated against the left one, so the pair projects with coefficient `-1`; the test pins that.
-4. **Parallel elements are dropped silently**, including a user's explicit identity (§3.2 passes `Imat` first); a non-parallel dependent element throws.
-5. **`project(O, V)` and the matrix-unit alphabet stay** until the builders move to bases (step 7), since every existing test and builder uses them.
+1. **The letter index counts within a charge** (`(c, n)` is the `n`-th element of charge `c`), as for matrix units, not a global position in the basis.
+   A `SymbolicMPO` can still hand out a coefficient vector in basis order through an accessor.
+2. **A hand-made `Basis` takes neutral operators only.**
+   `_basis_from_elements` (charged elements) stays internal; making it public later is additive.
+   The other two unconfirmed items of §2 (`hop[i, i]`, model code without `couple`) are not touched by step 1.
+3. **Factorised pieces are canonical, from a column-pivoted reduced row echelon form** of the pair's matrix-unit coefficients (`_factorise_pair`), not an SVD.
+   Each piece's first coefficient is 1, and the pair's scale is its coefficient when projected into the basis.
+   There is no rotation within a degenerate singular value, and a pair of single matrix units gives those matrix units: `XX + YY` gives `S⁺` and `S⁻`, pinned in `test/test_operator_basis.jl`.
+   This closes the gauge item of §3.
+4. **Parallel elements are dropped silently** for now, including a user's explicit identity; a non-parallel dependent element throws.
+   An overcomplete basis may be wanted later; `project` would then need a rule for choosing among equivalent expansions.
+5. **The matrix-unit alphabet and `project(O, V)` are removed in step 7**, with the builders.
 6. **No basis on the lattice yet**: an `OperatorSum` over spaces accepts basis letters (they are in range) and compresses them correctly, but `instantiate(H)` and `irrep_mpo_tensors` would read them as matrix units; that is steps 2–3.

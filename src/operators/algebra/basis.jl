@@ -8,7 +8,7 @@
 
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, space,
     isomorphism, ComplexSpace, Trivial, dual, sectors
-using LinearAlgebra: LinearAlgebra, svd, Hermitian, eigvals, norm
+using LinearAlgebra: LinearAlgebra, Hermitian, eigvals, norm
 
 """
     Basis(ops::AbstractVector; atol = 0, rtol = 1e-12)
@@ -31,10 +31,10 @@ operator outside its span.
 
 Internally each element is a `TensorMap` `V ← V ⊗ Vect[I](c => 1)` of one definite charge `c`, and
 the elements are grouped by charge: an element's letter is `(c, n)`, the `n`-th element of charge `c`
-in basis order. The normalisation and phase of a factorised piece are a gauge choice (balanced
-singular values; the first entry of the left piece above `rtol` of its largest is real and
-positive), which a user only sees through the coefficient of a two-site operator projected into the
-basis.
+in basis order. A two-site operator is factorised canonically (column-pivoted reduced row echelon
+form of its matrix-unit coefficients, see `_factorise_pair`), so a pair of single matrix units gives
+those matrix units; each piece's first coefficient is 1, and the pair's scale shows up as its
+coefficient when it is projected into the basis.
 
 ```julia
 Imat = [1 0; 0 1]; Xmat = [0 1; 1 0]; Ymat = [0 -im; im 0]; Zmat = [1 0; 0 -1]
@@ -183,49 +183,67 @@ _isparallel(a, b, rtol) = abs2(inner(a, b)) >= (1 - rtol) * real(inner(a, a)) * 
 # The matrix-unit letters of charge `c` on `V`, in index order.
 _chargeunits(V, c) = filter(mu -> mu.c == c, instances(IrrepOperator, V))
 
-# The rank factorisation of a neutral two-site operator into charged single-site pieces: per charge
-# `c` of the left factor, the matrix-unit coefficient matrix `M[a, b]` of the pair, `M = U Σ Vᴴ`, with
-# the pieces `√σₖ Σₐ U[a,k] eₐ` on the left and `√σₖ Σ_b conj(V[b,k]) e_b` on the right.
+# The rank factorisation of a neutral two-site operator into charged single-site pieces. Per charge
+# `c` of the left factor, `M[a, b]` is the pair's coefficient on the matrix units `eₐ ⊗ e_b`, and
+# `M = C R` with `C` the pivot columns of `M` (the first columns, in letter order, that are independent
+# of the ones before) and `R` the reduced row echelon form of `M`. The pieces are the columns of `C` on
+# the left and the rows of `R` on the right, each scaled so that its first entry above `rtol` is 1.
+#
+# This is canonical — no singular vectors, so no rotation within a degenerate singular value — and
+# readable: a pair built from single matrix units gives exactly those (`S⁺ ⊗ S⁻ + S⁻ ⊗ S⁺` gives `S⁺`
+# and `S⁻`, not a mixture of them). Only the directions matter: `project` puts the scale back as the
+# pair's coefficient.
 function _factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = 1.0e-12)
     V = codomain(h)[1]
     I = sectortype(V)
-    terms = project(h; atol).terms.terms
-    bych = Dictionary{I, Tuple{Vector{IrrepOperator{I}}, Vector{IrrepOperator{I}}, Vector{Tuple{Int, Int, ComplexF64}}}}()
-    for t in terms
-        a, b = t.keys[1].op, t.keys[2].op
-        L, R, entries = get!(bych, a.c, (IrrepOperator{I}[], IrrepOperator{I}[], Tuple{Int, Int, ComplexF64}[]))
-        ia = findfirst(==(a), L)
-        ia === nothing && (push!(L, a); ia = length(L))
-        ib = findfirst(==(b), R)
-        ib === nothing && (push!(R, b); ib = length(R))
-        push!(entries, (ia, ib, t.coeff))
+    bych = Dictionary{I, Vector{Term{I}}}()
+    for t in project(h; atol).terms.terms
+        push!(get!(bych, t.keys[1].op.c, Term{I}[]), t)
     end
-    σmax = 0.0
-    svds = map(collect(pairs(bych))) do (c, (L, R, entries))
+    blocks = map(sort!(collect(keys(bych)))) do c
+        ts = bych[c]
+        L = sort!(unique!([t.keys[1].op for t in ts]))
+        R = sort!(unique!([t.keys[2].op for t in ts]))
         M = zeros(ComplexF64, length(L), length(R))
-        for (ia, ib, x) in entries
-            M[ia, ib] += x
+        for t in ts
+            M[searchsortedfirst(L, t.keys[1].op), searchsortedfirst(R, t.keys[2].op)] += t.coeff
         end
-        F = svd(M)
-        σmax = max(σmax, maximum(F.S; init = 0.0))
-        return (L, R, F)
+        return (L, R, M)
     end
-    θ = max(float(atol), rtol * σmax)
+    θ = max(float(atol), rtol * maximum(((_, _, M),) -> maximum(abs, M), blocks; init = 0.0))
     pieces = AbstractTensorMap[]
-    for (L, R, F) in svds
-        for k in eachindex(F.S)
-            F.S[k] > θ || continue
-            u, v = F.U[:, k], F.V[:, k]
-            # gauge: the first entry of `u` above `rtol` of its largest is real and positive
-            j = findfirst(x -> abs(x) > rtol * maximum(abs, u), u)
-            φ = conj(u[j]) / abs(u[j])
-            u, v = u * φ, v * φ                      # leaves `u * vᴴ` unchanged
-            s = sqrt(F.S[k])
-            push!(pieces, s * sum(u[m] * instantiate(L[m], V) for m in eachindex(L)))
-            push!(pieces, s * sum(conj(v[m]) * instantiate(R[m], V) for m in eachindex(R)))
+    for (L, R, M) in blocks
+        C, E = _echelon_factors(M, θ)
+        for k in axes(C, 2)
+            l, r = _leadingone(C[:, k], rtol), _leadingone(E[k, :], rtol)
+            push!(pieces, sum(l[m] * instantiate(L[m], V) for m in eachindex(L) if !iszero(l[m])))
+            push!(pieces, sum(r[m] * instantiate(R[m], V) for m in eachindex(R) if !iszero(r[m])))
         end
     end
     return pieces
+end
+
+# `M = C E` with `C = M[:, pivots]` and `E` the reduced row echelon form of `M` (unit vectors in the
+# pivot columns). A column is a pivot when its residual against the earlier pivots exceeds `θ`.
+function _echelon_factors(M::AbstractMatrix, θ::Real)
+    Q = zeros(eltype(M), size(M, 1), 0)
+    pivots = Int[]
+    for j in axes(M, 2)
+        r = M[:, j] - Q * (Q' * M[:, j])
+        norm(r) > θ || continue
+        push!(pivots, j)
+        Q = [Q r / norm(r)]
+    end
+    C = M[:, pivots]
+    return C, C \ M
+end
+
+# `v` scaled so that its first entry above `rtol` of its largest is exactly 1, with entries below
+# `rtol` of the largest set to zero (round-off from the solve, which would otherwise show up as letters).
+function _leadingone(v::AbstractVector, rtol::Real)
+    vmax = maximum(abs, v)
+    w = map(x -> abs(x) > rtol * vmax ? x : zero(x), v)
+    return w / w[findfirst(!iszero, w)]
 end
 
 # Projection into a basis

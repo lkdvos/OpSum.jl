@@ -53,6 +53,19 @@ bonddim(H, b) = ((_, secs) = irrep_mpo(H); densedim(secs, b))
     @test_throws ArgumentError Basis(Any[])
 end
 
+@testset "factorising a pair is canonical, also for equal singular values" begin
+    # XX + YY = 2(S⁺ ⊗ S⁻ + S⁻ ⊗ S⁺) has two equal singular values, so an SVD may return any rotation
+    # of (S⁺, S⁻); the echelon factorisation returns S⁺ and S⁻ themselves
+    V = ℂ^2
+    XXYY = TensorMap(kron(Xmat, Xmat) + kron(Ymat, Ymat), V ⊗ V ← V ⊗ V)
+    B = Basis([XXYY])
+    @test length(B) == 3
+    @test plain(B[2]) ≈ TensorMap(Spmat, V ← V)
+    @test plain(B[3]) ≈ TensorMap(Smmat, V ← V)
+    xy = project(XXYY, B)
+    @test length(xy.terms) == 2 && all(t -> t.coeff ≈ 2, xy.terms)
+end
+
 @testset "project(O, basis) on one space" begin
     B = Basis([Imat, Xmat, Ymat, Zmat])
     X = project(Xmat, B)
@@ -120,9 +133,13 @@ end
     @test Set(keys(B.bycharge)) == Set(U1Irrep[-1, 0, 1])
     @test Basis([SpSm, SmSp, Sz]).elements == B.elements   # deterministic
 
-    # a rank-one pair is its two pieces, with coefficient one
+    # the pieces are the matrix units S⁺ and S⁻, so the pair keeps its matrix-unit coefficient
+    for c in (U1Irrep(1), U1Irrep(-1))
+        e = B[only(B.bycharge[c])]
+        @test any(mu -> mu.c == c && e ≈ instantiate(mu, V), instances(IrrepOperator, V))
+    end
     pm = project(SpSm, B)
-    @test length(pm.terms) == 1 && only(pm.terms).coeff ≈ 1
+    @test length(pm.terms) == 1 && only(pm.terms).coeff ≈ only(project(SpSm).terms).coeff
     @test dense(pm[1], fill(B, 2)) ≈ SpSm
     z = project(Sz, B)
     @test length(z) == 1
@@ -189,10 +206,10 @@ end
     SS = pairop(dot(S[1], S[2]), V)
     B = Basis([SS])
     @test length(B) == 2                                    # 𝟙 and S⃗ (left and right piece agree)
-    # the right piece is minus the left one (the singlet's coupling sign), and the left one is kept,
-    # so the gauge shows up as the pair's coefficient
+    # the piece is the spin-1 matrix unit, so the pair keeps its matrix-unit coefficient
+    @test B[2] ≈ instantiate(IrrepOperator(SU2Irrep(1), 1), V)
     ss = project(SS, B)
-    @test length(ss.terms) == 1 && only(ss.terms).coeff ≈ -1
+    @test length(ss.terms) == 1 && only(ss.terms).coeff ≈ only(project(SS).terms).coeff
     H(N) = opsum(FiniteChain(V, N), (ss[i] for i in 1:(N - 1)))
     Hm(N) = opsum(FiniteChain(V, N), (dot(S[i], S[i + 1]) for i in 1:(N - 1)))
     @test islossless(H(8))

@@ -142,4 +142,16 @@ Behaviour change outside the plan: `instantiate(scalarop(c), V)` now has the tri
 4. **Parallel elements are dropped silently** for now, including a user's explicit identity; a non-parallel dependent element throws.
    An overcomplete basis may be wanted later; `project` would then need a rule for choosing among equivalent expansions.
 5. **The matrix-unit alphabet and `project(O, V)` are removed in step 7**, with the builders.
-6. **No basis on the lattice yet**: an `OperatorSum` over spaces accepts basis letters (they are in range) and compresses them correctly, but `instantiate(H)` and `irrep_mpo_tensors` would read them as matrix units; that is steps 2–3.
+6. ~~No basis on the lattice yet~~: done in step 3, below.
+
+## 8. Step 3 as implemented
+
+Done before step 2, since `instantiate(W)` needs the bases to ride along with the sum.
+
+* `FiniteChain(bases)` / `FiniteChain(B, N)` and `InfiniteChain(bases)` / `InfiniteChain(B)` hold one `Basis` per site; mixed sites are `vcat(B₁, B₂, …)`, which is Base's `vcat` of non-array values and needed no code.
+  The field is now `sites`, not `spaces`.
+* A lattice is all bases or all spaces, of one symmetry (`_checksites`); a lattice of spaces still means the matrix-unit alphabet until step 7.
+* Every consumer that needs the physical space reads `_space(site)`, and every one that interprets a letter calls `instantiate(letter, site)`: `_checklattice` (via `_alphabet(::Basis)`), `instantiate(H)`, `irrep_mpo_tensors` (finite and infinite) and `jordan_mpo_tensors`.
+* `H'` projects each slot back into its site's basis (`project(h, Bs)`, one basis per slot, also public); a basis that is not closed under adjoints throws there, with the hint to extend it.
+* Not done: `opsum(1:N)` without bases (§3.4), which needs `instantiate(W, bases)` from step 2.
+* Tests: `test/test_basis_lattice.jl` (fermions with a hop across a gap against the matrix-unit oracle, densely, through `irrep_mpo_tensors` and in Jordan form; `H'`; a qubit–qutrit mixed chain; an infinite chain).

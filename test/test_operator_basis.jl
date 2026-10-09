@@ -25,6 +25,10 @@ dense(ts, sites) = plain(_instantiate_terms(ts, sites))
 # a neutral two-site operator, built through the matrix-unit pipeline
 pairop(ts, V) = plain(instantiate(opsum(FiniteChain(V, 2), ts)))
 
+# Dense comparisons run on the shortest chain that has every term shape: 3 sites when there is a
+# term across a gap, else 2. Compiling the oracle per chain length and symmetry dominates this file's
+# run time; losslessness and bond dimensions are symbolic, so they use longer chains.
+
 # the dense bond dimension at bond `b`
 bonddim(H, b) = ((_, secs) = irrep_mpo(H); densedim(secs, b))
 
@@ -99,10 +103,10 @@ end
     @test bonddim(Hm, N ÷ 2) == 6
 
     # both are the same operator: the basis MPO, read back through the basis, against the dense one
-    n = 4
-    Hp4 = opsum(FiniteChain(V, n), (couple(O[i], O[i + 1]) for i in 1:(n - 1) for O in (Xp, Yp, Zp)))
-    Hm4 = opsum(FiniteChain(V, n), (couple(O[i], O[i + 1]) for i in 1:(n - 1) for O in (Xm, Ym, Zm)))
-    @test dense(mpo_terms(irrep_mpo(Hp4)), fill(P, n)) ≈ plain(instantiate(Hm4))
+    n = 2
+    Hpn = opsum(FiniteChain(V, n), (couple(O[i], O[i + 1]) for i in 1:(n - 1) for O in (Xp, Yp, Zp)))
+    Hmn = opsum(FiniteChain(V, n), (couple(O[i], O[i + 1]) for i in 1:(n - 1) for O in (Xm, Ym, Zm)))
+    @test dense(mpo_terms(irrep_mpo(Hpn)), fill(P, n)) ≈ plain(instantiate(Hmn))
 end
 
 @testset "U(1) spins: charged elements by factorising neutral pairs" begin
@@ -124,15 +128,13 @@ end
     @test length(z) == 1
 
     # XXZ chain, with a next-nearest-neighbour term across a gap
-    N = 6
     mp = project(SmSp, B)
-    H = opsum(
+    H(N) = opsum(
         FiniteChain(V, N),
         ((pm[i] + mp[i]) / 2 + 0.7 * couple(z[i], z[i + 1]) for i in 1:(N - 1)),
         (0.3 * pm[i, i + 2] for i in 1:(N - 2)),
     )
-    @test islossless(H)
-    Hm = opsum(
+    Hm(N) = opsum(
         FiniteChain(V, N),
         (
             (couple(L.Sp[i], L.Sm[i + 1]) + couple(L.Sm[i], L.Sp[i + 1])) / 2 +
@@ -140,8 +142,9 @@ end
         ),
         (0.3 * couple(L.Sp[i], L.Sm[i + 2]) for i in 1:(N - 2)),
     )
-    @test dense(mpo_terms(irrep_mpo(H)), fill(B, N)) ≈ plain(instantiate(Hm))
-    @test bonddim(H, N ÷ 2) <= bonddim(Hm, N ÷ 2)
+    @test islossless(H(8))
+    @test bonddim(H(8), 4) <= bonddim(Hm(8), 4)
+    @test dense(mpo_terms(irrep_mpo(H(3))), fill(B, 3)) ≈ plain(instantiate(Hm(3)))
 end
 
 @testset "fermions: the identity slot carries the sign across a gap" begin
@@ -163,21 +166,21 @@ end
 
     # placement is monotone for now, so c†ᵢ₊₁cᵢ = -cᵢc†ᵢ₊₁ is the other pair, on the same pieces
     h′ = project(hop′, B)
-    N = 5
-    H = opsum(
+    nb = project(n, B)
+    H(N) = opsum(
         FiniteChain(V, N),
         (-(h[i, i + 1] - h′[i, i + 1]) for i in 1:(N - 1)),
         (0.4 * h[i, i + 2] for i in 1:(N - 2)),
-        (0.5 * project(n, B)[i] for i in 1:N),
+        (0.5 * nb[i] for i in 1:N),
     )
-    @test islossless(H)
-    Hm = opsum(
+    Hm(N) = opsum(
         FiniteChain(V, N),
         (-(couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1)),
         (0.4 * couple(F.cd[i], F.c[i + 2]) for i in 1:(N - 2)),
         (0.5 * F.n[i] for i in 1:N),
     )
-    @test dense(mpo_terms(irrep_mpo(H)), fill(B, N)) ≈ plain(instantiate(Hm))
+    @test islossless(H(8))
+    @test dense(mpo_terms(irrep_mpo(H(3))), fill(B, 3)) ≈ plain(instantiate(Hm(3)))
 end
 
 @testset "SU(2): the exchange pair factorises into one spin-1 element" begin
@@ -190,11 +193,10 @@ end
     # so the gauge shows up as the pair's coefficient
     ss = project(SS, B)
     @test length(ss.terms) == 1 && only(ss.terms).coeff ≈ -1
-    N = 4
-    H = opsum(FiniteChain(V, N), (ss[i] for i in 1:(N - 1)))
-    @test islossless(H)
-    Hm = opsum(FiniteChain(V, N), (dot(S[i], S[i + 1]) for i in 1:(N - 1)))
-    @test dense(mpo_terms(irrep_mpo(H)), fill(B, N)) ≈ plain(instantiate(Hm))
+    H(N) = opsum(FiniteChain(V, N), (ss[i] for i in 1:(N - 1)))
+    Hm(N) = opsum(FiniteChain(V, N), (dot(S[i], S[i + 1]) for i in 1:(N - 1)))
+    @test islossless(H(8))
+    @test dense(mpo_terms(irrep_mpo(H(2))), fill(B, 2)) ≈ plain(instantiate(Hm(2)))
     # a constant part is an all-identity term, which places as a scalar
     sc = project(SS + 2 * id(V ⊗ V), B)
     @test sc[1] ≈ ss[1] + 2 * Terms{SU2Irrep}(OpSum.Term{SU2Irrep}[OpSum.Term(Int[], OpSum.ITOKey{SU2Irrep}[], 1)])

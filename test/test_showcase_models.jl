@@ -42,7 +42,7 @@ const EXPECTED = Dict{String, Any}(
     letters(op) = Dict(pairs(op))
     nup = matrixunit(V, U1Irrep(1), U1Irrep(1))
     @test only(pairs(letters(nup))) ==
-        (IrrepOperator(U1Irrep(0), 2) => ComplexF64(1))
+        (IrrepOperator(U1Irrep(0), 3) => ComplexF64(1))
 
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     vac, occ = FermionNumber(0), FermionNumber(1)

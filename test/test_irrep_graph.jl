@@ -129,7 +129,7 @@ function reference_hamiltonians()
         # A charge-0 letter leaves the running bond trivial, so a pending on-site term can share a
         # suffix class with a started two-site one — the U(1)/fermionic analogue of an `n̂`
         # chemical-potential term colliding with the tail of an `n̂ᵢn̂ⱼ` interaction.
-        z = LO(IrrepOperator(U1Irrep(0), 1))
+        z = LO(IrrepOperator(U1Irrep(0), 2))   # a matrix unit; index 1 is the identity
         push!(
             cases, (
                 "U1 charge-0 on-site collides with two-site tail",

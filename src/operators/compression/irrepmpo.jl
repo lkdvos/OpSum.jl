@@ -217,13 +217,9 @@ function _add_coupler_coeff!(κ, f1, f2, dL::Int, dR::Int, coeff)
     return κ
 end
 
-# The on-site tensor for one ITO letter: `V ← V ⊗ Vect[I](c => 1)`. Pass-through (c = unit) carries a
-# trivial charge leg so the bond contraction below is uniform (`instantiate` would drop it, returning
-# bare `id(V)`).
-function _letter_optensor(letter::IrrepOperator{I}, V) where {I}
-    Vc = Vect[I](letter.c => 1)
-    return ispassthrough(letter) ? isomorphism(ComplexF64, V ← V ⊗ Vc) : instantiate(letter, V)
-end
+# The on-site tensor for one ITO letter: `V ← V ⊗ Vect[I](c => 1)`; the pass-through is the identity
+# with a trivial charge leg, so the bond contraction below is uniform.
+_letter_optensor(letter::IrrepOperator, V) = instantiate(letter, V)
 
 # One letter's site-tensor block for a single `(bL, bR)` bond-charge pair, coefficient `1`: the on-site
 # tensor coupled `(bL, c) → bR` (running bond first, matching the caterpillar). Built from the same

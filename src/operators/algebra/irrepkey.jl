@@ -1,8 +1,7 @@
 # Charge-augmented alphabet + caterpillar fusion helpers: `ITOKey = (op, bond_charge_out, vertex)`,
 # the alphabet the flat `ITOTermTable`/`irrep_mpo` pipeline consumes. Prefixes agreeing on the full
 # `ITOKey` share automaton state, so the automaton is block-diagonal in the bond charge. Idle sites
-# get a distinguished pass-through symbol (trivial charge, `n = 0`) rather than an enumerated `(c,n)`
-# letter or `one(A)`.
+# get the pass-through symbol: the identity, which is letter `(unit, 1)` in every alphabet.
 #
 # `Term` stores keys, not a fusion tree, because for a caterpillar the keys *are* the tree
 # (`bondcharges`/`vertexlabels` project one onto them; `_tree_from_bonds` in irrepalgebra.jl inverts
@@ -15,18 +14,19 @@ using .IrrepTensorOperators: IrrepOperator
 """
     passthrough(::Type{I}) where {I<:Sector}
 
-The distinguished structural pass-through identity symbol: trivial charge `unit(I)` with the
-sentinel index `n = 0`. Fills idle sites, injecting trivial charge and acting as `id(V)`. Not one
-of the enumerated `(c, n)` alphabet letters (`n ≥ 1`) and not a type-level `one`.
+The pass-through symbol: the identity, which is element 1 of every [`Basis`](@ref), i.e. the
+letter of trivial charge `unit(I)` and index `1`. Fills idle sites, injecting trivial charge and
+acting as `id(V)`. Placement drops it, so a placed `Term` never contains it; that is what keeps it
+apart from the letters of real factors in the sweep.
 """
-passthrough(::Type{I}) where {I <: Sector} = IrrepOperator{I}(unit(I), 0)
+passthrough(::Type{I}) where {I <: Sector} = IrrepOperator{I}(unit(I), 1)
 
 """
     ispassthrough(op::IrrepOperator)
 
-Whether `op` is the pass-through identity sentinel (index `n = 0`).
+Whether `op` is the identity, i.e. the pass-through letter `(unit, 1)`.
 """
-ispassthrough(op::IrrepOperator) = op.n == 0
+ispassthrough(op::IrrepOperator) = op.n == 1 && op.c == unit(op.c)
 
 # Augmented trie key
 # ------------------

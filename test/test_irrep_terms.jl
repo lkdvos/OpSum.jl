@@ -19,10 +19,10 @@ treebonds(t::Term) = bondcharges(tree(t))
     pt = passthrough(I)
     @test ispassthrough(pt)
     @test pt.c == unit(I)
-    @test pt.n == 0
+    @test pt.n == 1                                  # element 1 of every basis
     V = SU2Space(1 // 2 => 1)
     @test all(!ispassthrough, instances(IrrepOperator, V))
-    @test convert(Array, instantiate(pt, V)) ≈ Matrix{ComplexF64}(Id, 2, 2)
+    @test reshape(convert(Array, instantiate(pt, V)), 2, 2) ≈ Matrix{ComplexF64}(Id, 2, 2)
 end
 
 @testset "SU(2) Sᵢ·Sⱼ term normal form" begin

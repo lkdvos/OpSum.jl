@@ -201,9 +201,9 @@ Sz = (matrixunit(V, up, up) - matrixunit(V, dn, dn)) / 2
 H  = sum(couple(Sz[i], Sz[i + 1]; to = unit(I)) for i in 1:(N - 1))
 ```
 
-Note that the identity is not an alphabet letter: `project(id(V), V)` returns a sum of
-trivial-charge letters (`n ≥ 1`) rather than `scalarop(1, V)` (which is the `n = 0` pass-through
-sentinel). An operator that is zero (or entirely below tolerance) gives the empty `SiteOperator`, which
+Note that the matrix-unit alphabet does not use its identity letter: `project(id(V), V)` returns a
+sum of trivial-charge matrix units (`n ≥ 2`) rather than `scalarop(1, V)` (the pass-through letter
+`n = 1`). An operator that is zero (or entirely below tolerance) gives the empty `SiteOperator`, which
 does not retain the charge of the input.
 """
 function project(

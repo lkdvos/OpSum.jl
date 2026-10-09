@@ -4,8 +4,9 @@
 # `Dict` (one or two letters in every realistic case, so linear scan beats hashing and keeps ordering
 # deterministic).
 #
-# The bare identity is not a special field: it is the `passthrough` sentinel letter
-# (`IrrepOperator{I}(unit(I), 0)`), which already means "acts as `id(V)`, carries no charge". So
+# The bare identity is not a special field: it is the `passthrough` letter
+# (`IrrepOperator{I}(unit(I), 1)`, element 1 of every basis), which means "acts as `id(V)`, carries no
+# charge". So
 # `scalarop(c, I)` is literally `c · passthrough`, and every consumer branches on `ispassthrough`
 # rather than a separate scalar slot.
 #
@@ -26,7 +27,7 @@ Obtained from [`project`](@ref), [`matrixunit`](@ref), [`spin`](@ref) or [`scala
 combined with ordinary arithmetic (`+ - * /`). Place it on a site with `A[i]`, which produces a
 [`Terms`](@ref) bag.
 
-The identity is represented as the `passthrough` sentinel letter, so `scalarop(c, I)` is `c` times
+The identity is represented as the `passthrough` letter `(unit(I), 1)`, so `scalarop(c, I)` is `c` times
 that letter rather than a distinct kind of object.
 """
 struct SiteOperator{I <: Sector}

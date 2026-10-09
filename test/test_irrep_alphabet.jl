@@ -16,14 +16,17 @@ const σZ = ComplexF64[1 0; 0 -1]
     V = SU2Space(1 // 2 => 1)
     ops = instances(IrrepOperator, V)
 
-    @test ops == [IrrepOperator(SU2Irrep(0), 1), IrrepOperator(SU2Irrep(1), 1)]
+    # index 1 of the trivial charge is the identity, so the matrix units of that charge start at 2
+    @test ops == [IrrepOperator(SU2Irrep(0), 2), IrrepOperator(SU2Irrep(1), 1)]
     @test length(ops) == 2
 
     # trivial-charge element (c = 0): normalized identity for this single-sector space
-    id_op = IrrepOperator(SU2Irrep(0), 1)
+    id_op = IrrepOperator(SU2Irrep(0), 2)
     A = convert(Array, instantiate(id_op, V))
     @test size(A) == (2, 2, 1)
     @test A[:, :, 1] ≈ σI ./ sqrt(2)
+    # and the identity letter is the identity, unnormalised
+    @test convert(Array, instantiate(IrrepOperator(SU2Irrep(0), 1), V))[:, :, 1] ≈ σI
 
     # charge-1 element: the spin / vector operator (rank-1 spherical tensor)
     B = convert(Array, instantiate(IrrepOperator(SU2Irrep(1), 1), V))

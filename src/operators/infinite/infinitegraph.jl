@@ -53,7 +53,7 @@ end
 # --- identity-channel detection ---------------------------------------------------------------
 
 # Rows/columns of `W` that hold exactly one stored entry, and that entry is the bare pass-through
-# (`isone`, i.e. the pass-through sentinel letter with unit coefficient — the identity backbone):
+# (`isone`, i.e. the pass-through letter with unit coefficient — the identity backbone):
 # `rowsucc[r] = c` if row `r`'s only entry is a bare pass-through into column `c` (else 0), and
 # `colpred[c] = r` dually. Bond dimensions are small, so a dense scan over stored entries is fine.
 function _identity_links(W::SparseMatrixCSC, nrows::Int, ncols::Int)

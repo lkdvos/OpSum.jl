@@ -6,6 +6,9 @@ using TensorKit
 using TensorKit: ElementarySpace, FusionTree, unit, dim, id, Vect, domain, permute, insertrightunit
 using .IrrepTensorOperators: IrrepOperator
 
+# The space a site's operators act on: a site is described by its space, or by a `Basis` (basis.jl).
+_space(V::ElementarySpace) = V
+
 # Sum the terms of `h` over `spaces` (one per site). The public entry point is
 # `instantiate(::OperatorSum)`, which has already checked the letters against the spaces.
 function _instantiate_terms(h::Terms, spaces)
@@ -18,7 +21,7 @@ function _instantiate_generic(ops, positions, tree, sites)
     K = length(ops)
     # The trailing total-charge leg is `Vect[I](unit(I) => 1)` for every K ≥ 1 term, so a K = 0
     # identity term needs one too — otherwise an operator mixing the two cannot be summed at all.
-    K == 0 && return insertrightunit(foldl(⊗, (id(V) for V in sites)))
+    K == 0 && return insertrightunit(foldl(⊗, (id(_space(V)) for V in sites)))
     K == 1 && return _embed_field(only(ops), only(positions), sites)
     return _embed_caterpillar(ops, positions, tree, sites)
 end
@@ -32,7 +35,7 @@ _instantiate_basis(ops, tree, sites) = _instantiate_generic(ops, 1:length(ops), 
 function _embed_field(op::IrrepOperator, p, sites)
     N = length(sites)
     loc = instantiate(op, sites[p])                # V_p ← V_p ⊗ V_c
-    full = foldl(⊗, (j == p ? loc : id(sites[j]) for j in 1:N))
+    full = foldl(⊗, (j == p ? loc : id(_space(sites[j])) for j in 1:N))
     cod = ntuple(identity, N)
     charge_global = N + (p + 1)
     dom_wo_charge = (ntuple(m -> N + m, p)..., ntuple(m -> N + p + 1 + m, N - p)...)
@@ -69,7 +72,7 @@ function _embed_block(Wblock, positions, sites)
     N = length(sites)
     K = length(positions)
     idle = [k for k in 1:N if !(k in positions)]
-    full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(sites[k]) for k in idle))
+    full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(_space(sites[k])) for k in idle))
 
     cod_src = (positions..., idle...)
     p_cod = ntuple(j -> findfirst(==(j), cod_src), N)

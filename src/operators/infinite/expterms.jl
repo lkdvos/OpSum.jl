@@ -147,7 +147,8 @@ function _string_terms(::Type{I}, op) where {I <: Sector}
         Tuple{Union{Nothing, A}, ComplexF64}[(nothing, one(ComplexF64))]
     else
         Tuple{Union{Nothing, A}, ComplexF64}[
-            (letter, ComplexF64(c)) for (letter, c) in pairs(op) if !iszero(c)
+            # the identity is the pass-through, however it was written
+            (ispassthrough(letter) ? nothing : letter, ComplexF64(c)) for (letter, c) in pairs(op) if !iszero(c)
         ]
     end
     isempty(terms) && throw(ArgumentError("expterm: the string operator is zero"))

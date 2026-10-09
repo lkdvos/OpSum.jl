@@ -17,8 +17,8 @@ sectortype(::Type{IrrepOperator{I}}) where {I} = I
     instantiate(O::SiteOperator, V::ElementarySpace)
 
 Materialize a single-site operator over the ITO alphabet as the coefficient-weighted sum of its
-letters' tensors. The pass-through letter instantiates to `id(V)`, so a scalar `c·𝟙` comes out as
-`c * id(V)` structurally.
+letters' tensors, `V ← V ⊗ Vect[I](c => 1)`. The pass-through letter is the identity with a trivial
+charge leg, so a scalar `c·𝟙` comes out as `c` times that, and it adds to the trivial-charge letters.
 """
 function instantiate(O::SiteOperator{I}, V::ElementarySpace) where {I}
     isempty(O) && throw(ArgumentError("cannot instantiate an empty SiteOperator without a space"))
@@ -57,8 +57,8 @@ end
     scalarop(c::Number, V::ElementarySpace)
     scalarop(c::Number, ::Type{I<:Sector})
 
-A scalar (identity) local operator `c·𝟙` over the ITO alphabet; instantiates structurally to
-`c * id(V)` (the identity is not an alphabet letter).
+A scalar (identity) local operator `c·𝟙`: `c` times the identity letter `(unit(I), 1)`, element 1
+of every basis. Placed on a site it is a scalar term.
 """
 scalarop(c::Number, ::Type{I}) where {I} = SiteOperator{I}(ComplexF64(c))
 scalarop(c::Number, V::ElementarySpace) = scalarop(c, sectortype(V))
@@ -274,7 +274,8 @@ _termbody(t::Term) = string("[sites=", t.sites, ", ops=", ops(t), ", total=", to
 # `charge => number of letters of that charge on V`
 function _alphabet(V::ElementarySpace, ::Type{I}) where {I <: Sector}
     W = fuse(V ⊗ V')
-    return Dict{I, Int}(c => dim(W, c) for c in sectors(W))
+    # the trivial charge also carries the identity, letter `(unit, 1)`
+    return Dict{I, Int}(c => dim(W, c) + (c == unit(I)) for c in sectors(W))
 end
 
 _tolattice(lat::AbstractLattice) = lat
@@ -422,8 +423,8 @@ function Base.getindex(O::SiteOperator{I}, ind::Integer, inds::Integer...) where
     out = Term{I}[]
     sizehint!(out, length(O))
     for (letter, coeff) in pairs(O)
-        # Pass-through is the bare identity, so it places as a K=0 term. A real trivial-charge
-        # letter (`n ≥ 1`) is a different thing and does place.
+        # Pass-through is the bare identity, so it places as a K=0 term. Any other trivial-charge
+        # letter is a different thing and does place.
         if ispassthrough(letter)
             push!(out, Term{I}(Int[], ITOKey{I}[], ComplexF64(coeff)))
         else

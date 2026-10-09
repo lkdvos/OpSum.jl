@@ -3,7 +3,7 @@ using OpSum
 using OpSum: SiteOperator, scalarop, prune, instantiate, passthrough, ispassthrough
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
-using TensorKit: sectortype
+using TensorKit: sectortype, removeunit
 using VectorInterface: scalartype, scale, add, inner
 using LinearAlgebra: norm
 
@@ -14,7 +14,7 @@ using LinearAlgebra: norm
 # index on nothing). Exercising it through the pipeline alone leaves that surface incidental.
 
 const V = SU2Space(1 // 2 => 1)
-const A = IrrepOperator{SU2Irrep}(SU2Irrep(0), 1)
+const A = IrrepOperator{SU2Irrep}(SU2Irrep(0), 2)   # index 1 is the identity
 const B = IrrepOperator{SU2Irrep}(SU2Irrep(1), 1)
 
 @testset "construction and conversion" begin
@@ -25,7 +25,7 @@ const B = IrrepOperator{SU2Irrep}(SU2Irrep(1), 1)
     @test collect(pairs(SiteOperator(A))) == [A => ComplexF64(1)]
     @test convert(SiteOperator{SU2Irrep}, A) == SiteOperator(A)
 
-    # a scalar is the pass-through sentinel letter, not a separate representation
+    # a scalar is the pass-through (identity) letter, not a separate representation
     s = SiteOperator{SU2Irrep}(2.5)
     @test only(keys(s)) == passthrough(SU2Irrep)
     @test ispassthrough(only(keys(s)))
@@ -74,7 +74,7 @@ end
     @test isone(one(SiteOperator{SU2Irrep}))
     @test isone(scalarop(1, V))
     @test !isone(scalarop(2, V))            # right letter, wrong coefficient
-    @test !isone(SiteOperator(A))           # trivial *charge*, but an enumerated letter, not passthrough
+    @test !isone(SiteOperator(A))           # trivial *charge*, but a matrix unit, not the identity
     @test !isone(scalarop(1, V) + SiteOperator(A))
     @test !isone(zero(SiteOperator{SU2Irrep}))
 end
@@ -163,8 +163,8 @@ end
 end
 
 @testset "instantiation" begin
-    # a scalar materialises structurally as `c * id(V)`, never through `one(::Type)`
-    @test instantiate(scalarop(2.0, V), V) ≈ 2 * id(V)
+    # a scalar materialises as `c` times the identity letter, never through `one(::Type)`
+    @test removeunit(instantiate(scalarop(2.0, V), V), 3) ≈ 2 * id(V)
     # and a combination distributes
     @test instantiate(2 * B, V) ≈ 2 * instantiate(B, V)
     @test_throws ArgumentError instantiate(zero(SiteOperator{SU2Irrep}), V)

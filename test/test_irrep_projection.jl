@@ -128,7 +128,7 @@ end
             for t in ts
                 op = only(ops(t))
                 @test op.c == c
-                @test t.coeff ≈ expected[op.n]
+                @test t.coeff ≈ expected[op.n - (c == unit(I))]   # trivial charge: 1 is the identity
             end
         end
     end
@@ -286,8 +286,8 @@ end
 end
 
 # Hand-checked reference, so this does not depend on `instantiate` at all. For ℂ² there is one
-# 2×2 block with dim(s) = 1, so the letters are the matrix units in column-major order:
-# n = 1 → E₁₁, 2 → E₂₁, 3 → E₁₂, 4 → E₂₂.
+# 2×2 block with dim(s) = 1, so the letters are the matrix units in column-major order, after the
+# identity at n = 1: n = 2 → E₁₁, 3 → E₂₁, 4 → E₁₂, 5 → E₂₂.
 @testset "trivial sector: hand-written matrix-unit reference" begin
     V = ℂ^2
     σX = ComplexF64[0 1; 1 0]
@@ -297,8 +297,8 @@ end
     @test physmatrix(instantiate(opsum([V], project(unit_of(σZ), (1,)))), 1, 2) ≈ σZ
 
     for (M, expected) in (
-            (σZ, Dict((1, 1) => 1.0, (4, 4) => 1.0, (1, 4) => -1.0, (4, 1) => -1.0)),
-            (σX, Dict((2, 2) => 1.0, (3, 3) => 1.0, (2, 3) => 1.0, (3, 2) => 1.0)),
+            (σZ, Dict((2, 2) => 1.0, (5, 5) => 1.0, (2, 5) => -1.0, (5, 2) => -1.0)),
+            (σX, Dict((3, 3) => 1.0, (4, 4) => 1.0, (3, 4) => 1.0, (4, 3) => 1.0)),
         )
         ts = project(unit_of(M) ⊗ unit_of(M), [1, 2])
         @test length(ts) == length(expected)
@@ -380,7 +380,7 @@ end
 @testset "tolerance" begin
     V = SU2Space(1 // 2 => 1)
     scalarpart = couple(
-        LO(IrrepOperator(SU2Irrep(0), 1))[1], LO(IrrepOperator(SU2Irrep(0), 1))[2];
+        LO(IrrepOperator(SU2Irrep(0), 2))[1], LO(IrrepOperator(SU2Irrep(0), 2))[2];   # a matrix unit
         to = SU2Irrep(0)
     )
     h = instantiate(opsum([V, V], dot(spin(V)[1], spin(V)[2]))) + 1.0e-6 * instantiate(opsum([V, V], scalarpart))

@@ -23,9 +23,10 @@ Materializes (via [`instantiate`](@ref)) to a TensorKit `TensorMap`
 
 i.e. an operator `V←V` carrying a dangling charge-`c` leg of degeneracy 1.
 
-The sentinel index `n = 0` (with `c = unit(I)`) is reserved for the Phase-3 pass-through
-identity (see `passthrough`): it is not an enumerated alphabet letter (`instances` yields
-`n ≥ 1`) and instantiates to the structural identity `id(V)`.
+Index `1` of the trivial charge is the identity (see `passthrough`), in every alphabet: it is
+element 1 of a [`Basis`](@ref), and in the matrix-unit alphabet it comes before the trivial-charge
+matrix units, which therefore start at `n = 2` (`instances` does not yield the identity). It
+instantiates to the identity with a trivial charge leg, `isomorphism(V ← V ⊗ Vect[I](unit(I) => 1))`.
 """
 struct IrrepOperator{I <: Sector} <: OperatorBasis
     c::I     # operator charge (the coupled leg)
@@ -39,7 +40,9 @@ end
 # block matrices of `O`, so the number of charge-`c` operators equals `dim(fuse(V ⊗ V'), c)` (and
 # the total over all charges is `dim(V ⊗ V')`). `n` is the flat 1-based index into those entries,
 # in TensorKit's canonical block order (blocks by coupled sector, column-major within each block);
-# `instantiate` and `instances` are the two sides of that single enumeration.
+# `instantiate` and `instances` are the two sides of that single enumeration. The trivial charge is
+# offset by one, since its index 1 is the identity (`_muoffset`).
+_muoffset(c::Sector) = c == unit(c) ? 1 : 0
 
 # Materialization
 # ---------------
@@ -56,14 +59,13 @@ normalizes the alphabet to be orthonormal under TensorKit's qdim-weighted `inner
 function instantiate(op::IrrepOperator{I}, V::TensorKit.ElementarySpace) where {I <: Sector}
     sectortype(V) === I ||
         throw(ArgumentError("ITO sector $I incompatible with space sector $(sectortype(V))"))
-    # pass-through identity sentinel (Phase 3): trivial charge, n == 0, acts as id(V)
     T = scalartype(IrrepOperator{I})
-
-    op.n == 0 && op.c == unit(I) && return id(T, V)
-    op.n >= 1 || throw(ArgumentError("index n=$(op.n) must be ≥ 1 for charge $(op.c)"))
+    # the identity is index 1 of the trivial charge in every alphabet
+    op.n == 1 && op.c == unit(I) && return isomorphism(T, V ← V ⊗ Vect[I](op.c => 1))
+    idx = op.n - _muoffset(op.c)
+    idx >= 1 || throw(ArgumentError("index n=$(op.n) must be ≥ 1 for charge $(op.c)"))
 
     t = zeros(T, V ← V ⊗ Vect[I](op.c => 1))
-    idx = op.n
     for (s, b) in blocks(t)
         if idx <= length(b)
             b[idx] = one(T) / sqrt(dim(s))
@@ -79,13 +81,14 @@ end
 """
     instances(::Type{<:IrrepOperator}, V::ElementarySpace)
 
-Return the full ITO alphabet spanning `End(V)`: all `(c, n)` for every charge `c` appearing in
-`fuse(V ⊗ V')`, with the complete `n` range `1:dim(fuse(V ⊗ V'), c)` (canonical block ordering).
+Return the matrix-unit alphabet spanning `End(V)`: all `(c, n)` for every charge `c` appearing in
+`fuse(V ⊗ V')`, one per scalar entry (canonical block ordering), so `dim(fuse(V ⊗ V'), c)` of them.
+The identity is not among them: the trivial charge's letters are `n = 2, 3, …`.
 """
 function Base.instances(::Type{<:IrrepOperator}, V::TensorKit.ElementarySpace)
     I = sectortype(V)
     W = fuse(V ⊗ V')
-    return IrrepOperator{I}[IrrepOperator{I}(c, n) for c in sectors(W) for n in 1:dim(W, c) ]
+    return IrrepOperator{I}[IrrepOperator{I}(c, n + _muoffset(c)) for c in sectors(W) for n in 1:dim(W, c)]
 end
 
 # Ordering / hashing (sorting Us, Dictionary keys)

@@ -18,13 +18,14 @@ const σZ = ComplexF64[1 0; 0 -1]
 @testset "SiteOperator scalar / sum instantiation" begin
     V = SU2Space(1 // 2 => 1)
 
-    # scalar identity → structural c·id(V), NOT via one(::Type)
+    # scalar identity → c·𝟙 with a trivial charge leg, like every other letter
+    Vu = Vect[SU2Irrep](SU2Irrep(0) => 1)
     Osc = instantiate(scalarop(2.0, V), V)
-    @test space(Osc) == (V ← V)
-    @test convert(Array, Osc) ≈ 2 * Matrix{ComplexF64}(Id, 2, 2)
+    @test space(Osc) == (V ← V ⊗ Vu)
+    @test reshape(convert(Array, Osc), 2, 2) ≈ 2 * Matrix{ComplexF64}(Id, 2, 2)
 
     # scalarop can also be built from the sector type
-    @test space(instantiate(scalarop(1, SU2Irrep), V)) == (V ← V)
+    @test space(instantiate(scalarop(1, SU2Irrep), V)) == (V ← V ⊗ Vu)
 
     # bare ITO
     Osp = instantiate(spin(V), V)

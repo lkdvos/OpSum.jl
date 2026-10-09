@@ -4,6 +4,7 @@ module OpSum
 # ----------
 
 # on-site operators: build them once, outside any loop
+export Basis
 export IrrepOperator, spin, scalarop, project, matrixunit, spin_ops, fermion_ops
 # unplaced K-site operators: project a block once, place it per bond
 export LocalOperator
@@ -60,6 +61,7 @@ include("operators/algebra/irrepalgebra.jl")
 include("operators/algebra/irrepinstantiate.jl")
 include("operators/algebra/localoperator.jl")
 include("operators/algebra/irrepprojection.jl")
+include("operators/algebra/basis.jl")
 include("operators/algebra/builders.jl")
 
 # Operators — compression to a reduced MPO

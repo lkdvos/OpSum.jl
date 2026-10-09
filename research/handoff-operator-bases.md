@@ -155,3 +155,22 @@ Done before step 2, since `instantiate(W)` needs the bases to ride along with th
 * `H'` projects each slot back into its site's basis (`project(h, Bs)`, one basis per slot, also public); a basis that is not closed under adjoints throws there, with the hint to extend it.
 * Not done: `opsum(1:N)` without bases (§3.4), which needs `instantiate(W, bases)` from step 2.
 * Tests: `test/test_basis_lattice.jl` (fermions with a hop across a gap against the matrix-unit oracle, densely, through `irrep_mpo_tensors` and in Jordan form; `H'`; a qubit–qutrit mixed chain; an infinite chain).
+
+## 9. Step 2 as implemented
+
+* `mpo(H)` returns a `SymbolicMPO` (`src/operators/compression/symbolicmpo.jl`): the lattice, per site a sparse matrix of `SiteOperator`s, per bond the charges and the indices of the two identity channels.
+  On a finite chain it is computed like `jordan_mpo_tensors` (`_irrep_channels`, finish channel forced into the cover); with decaying channels it has no Jordan form yet and says so.
+* `instantiate(entry, B)` is the step-1 `instantiate(::SiteOperator, ::Basis)`.
+* `instantiate(W)` gives MPSKit's `FiniteMPOHamiltonian` or `InfiniteMPOHamiltonian`, from `ext/OpSumMPSKitExt.jl` (MPSKit is a weak dependency, compat `0.14`).
+  The infinite Jordan form is new: every bond of the cell carries both identity channels, so each bond is reordered by its own `start`/`done` and nothing is padded.
+* `examples/mpskit.jl` and `test/test_jordan_mpo.jl` use `instantiate(mpo(H))` instead of the hand-written `to_jordan`; the example now also runs VUMPS on an infinite SU(2) chain (−0.443136 against Bethe's −0.443147).
+* `test/test_mpskit_ext.jl` compares `instantiate(W)` with MPSKit's own construction from TensorKitTensors operators on random states (fermions with a hop across a gap, finite and infinite; U(1)×U(1) and SU(2) Hubbard), and pins three rows of §5: Hubbard U(1)×U(1) `N = 10` 10 → 6, SU(2) Hubbard `N = 4` 10 → 6, spinful all-to-all hopping 42 → 22.
+* `research/n2_basis_acceptance.jl` (run with `jld --test run`) reproduces the N₂ rows of operator-bases.md §1 exactly: STO-3G 347 / 677 → 102 / 192 with 860 term tuples instead of 7,295; cc-pVDZ bonds 7, 14, 21: 737 / 1451 → 212 / 408, 2984 / 5924 → 786 / 1542, 765 / 1507 → 226 / 436.
+  The basis is the complete SU(2) Hubbard site (`𝟙, n, nꜛꜜ, a†, n·a†, a, n·a, S⃗, Δ†, Δ`), built from neutral pairs written with the #38 script's own machinery, and the terms are re-expressed letter by letter (`OpSum._rebasis`).
+  The two MPSKit Hamiltonians agree to ~1e-14 on a random 14-electron MPS; this is a check of the basis route against the matrix-unit route, both through the new extension, not against MPSKitExperimental's hand-built MPO.
+* `Basis` now chops pseudo-inverse round-off (entries below `rtol` of the largest), which would otherwise become letters with ~1e-16 coefficients.
+  Re-expressing whole Hamiltonians also leaves ~1e-15 terms where different matrix-unit tuples cancel on one basis term; the acceptance script drops those, and a public route for re-expressing terms (step 7) will need the same.
+* Not done: `irrep_mpo`, `FiniteMPO` and `InfiniteMPO` are still there and exported, so `using OpSum, MPSKit` still leaves `FiniteMPO`/`InfiniteMPO` ambiguous.
+  Removing them is a mechanical rename across ~300 uses in tests, benchmarks, examples and docs, best done as its own change.
+  `instantiate(W, bases)` for `opsum(1:N)` (§3.4) is not done either.
+* The test environment's manifest needed a full `Pkg.update()` (MPSKit `main` is 0.14 now; `test/Project.toml` already asked for it), so BlockTensorKit 0.3.20 and TensorKit 0.17.2 locally.

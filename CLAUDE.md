@@ -114,11 +114,17 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
 
 7. **Jordan-form emission** — `src/operators/compression/jordanmpo.jl`
    - `jordan_mpo_tensors(H[, alg])`: the same compressed MPO as `irrep_mpo_tensors`, but emitted as one `BlockTensorKit.SparseBlockTensorMap` per site — one *level* per bond index — with the bond indices reordered `(start channel, everything else, finish channel)` and identity at `(1,1)` / `(end,end)`.
-     This is the shape MPSKit's `JordanMPOTensor` / `FiniteMPOHamiltonian` consume; OpSum does **not** depend on MPSKit (BlockTensorKit is the shared layer, and the only new dependency).
+     This is the shape MPSKit's `JordanMPOTensor` / `FiniteMPOHamiltonian` consume; MPSKit is only a weak dependency (BlockTensorKit is the shared layer), used by the extension below.
    - The two identity channels come from the sweep (`_irrep_channels`, `g.startidx` / `g.finishidx`), and are *padded* at bonds where the cover spent no index on them.
      The emitted MPO is therefore minimal among Jordan-form MPOs, `≤ +2` per bond over `irrep_mpo`'s unconstrained minimum — in practice `+1` at the first internal bond and `+1` at the last, since both padded channels are pure identity chains that cannot change the operator.
      The one thing that *does* change the cover is `_force_finish!`, which runs only on this path.
    - Diagonal unit pass-throughs are emitted as `TensorKit.BraidingTensor`s, which is how a consumer keeps them out of dense storage — and, for a fermionic bond charge crossing a site, is what carries the sign.
+
+7b. **`SymbolicMPO` and the MPSKit extension** — `src/operators/compression/symbolicmpo.jl`, `ext/OpSumMPSKitExt.jl`
+   - `mpo(H)` returns a `SymbolicMPO{I, L}`: the lattice (its bases), per site a sparse matrix of `SiteOperator`s, per bond the charges and the two identity-channel indices `start`/`finish` (empty when unknown: decaying channels on a finite chain). It is what `irrep_mpo` computes, but through `_irrep_channels` on a finite chain, so the finish channel is forced into the cover as for `jordan_mpo_tensors`.
+   - `jordan_mpo_tensors(W)` works on both lattices: the infinite cell reorders every bond by its own `start`/`finish`, since both channels are live at every bond (`_jordan_tensors` is the shared emission).
+   - `instantiate(W)` calls `_mpskit_hamiltonian(W)`, whose methods come from the extension (`FiniteMPOHamiltonian`/`InfiniteMPOHamiltonian` from the Jordan tensors, through `undef` + `setindex!`, which the boundary tensors need); without MPSKit the fallback throws and says to load it.
+   - `research/n2_basis_acceptance.jl` reproduces the #38 numbers of `research/operator-bases.md` §1 from the test environment.
 
 8. **Infinite chains** — `src/operators/infinite/infinitechain.jl`, `infinitegraph.jl`
    - `irrep_mpo(H)` on an `OperatorSum` over an `InfiniteChain(spaces)` represents `Σ_n translate(H, n·L)`, so `H` is a *generating set* (one representative per translation class — `unitcell_terms(H)` enforces that when the MPO is formed; charge neutrality is checked on insertion).
@@ -153,8 +159,8 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
 
 ### Test structure
 
-- Test files are `test/test_irrep_*.jl`, `test/test_infinite_*.jl`, `test/test_exp_decay.jl`, `test/test_operator_sum.jl` and `test/test_jordan_mpo.jl`; each is standalone (defines its own reference matrices).
+- Test files are `test/test_irrep_*.jl`, `test/test_infinite_*.jl`, `test/test_exp_decay.jl`, `test/test_operator_sum.jl`, `test/test_jordan_mpo.jl`, and for bases `test/test_operator_basis.jl`, `test/test_basis_lattice.jl` and `test/test_mpskit_ext.jl`; each is standalone (defines its own reference matrices).
 - Tests use `ParallelTestRunner` for parallel execution; individual files can be run directly with `julia --project`.
-- MPSKit is a **test-only** dependency, tracked as a `url` + `rev = "main"` source rather than a local path so the test environment still resolves on CI and elsewhere.
+- MPSKit is a **weak** dependency of the package (the extension) and a test dependency, tracked as a `url` + `rev = "main"` source rather than a local path so the test environment still resolves on CI and elsewhere. TensorKitTensors is a test dependency (the Hubbard and fermion operators the basis tests are built from).
   It is `main` and not the registered release because the registered `JordanMPOTensor` predates its `tensors,scalars` field rework.
   The seam is exercised only through API-level entry points (`JordanMPOTensor`, `jordanmpotensortype`, `FiniteMPOHamiltonian`), never struct fields.

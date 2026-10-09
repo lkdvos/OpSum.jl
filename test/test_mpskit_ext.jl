@@ -1,0 +1,156 @@
+using Test
+using OpSum
+using OpSum: LocalOperator, mpo_tensormap, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms
+using TensorKit
+using TensorKit: removeunit, numind, BraidingTensor
+using MPSKit: MPSKit, FiniteMPOHamiltonian, InfiniteMPOHamiltonian, FiniteMPS, InfiniteMPS,
+    expectation_value
+using TensorKitTensors.HubbardOperators: HubbardOperators as HO
+using TensorKitTensors.FermionOperators: FermionOperators as FO
+using Random: Random
+
+include("testutils.jl")
+
+# `instantiate(W::SymbolicMPO)` (ext/OpSumMPSKitExt.jl) against MPSKit's own construction from local
+# operators: the same Hamiltonian, two independent routes, compared on random states. The models are
+# written with operators from TensorKitTensors, projected into bases built from them, as the stock
+# bases of step 7 will be.
+
+Random.seed!(1234)
+
+plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
+
+# `h` on sites (1, 2) of a 3-site block, the identity on site 2 in between; `permute` carries the
+# fermionic sign of moving site 3's legs past site 2's
+function gap3(h2, V)
+    return permute(h2 ⊗ id(V), ((1, 3, 2), (4, 6, 5)))
+end
+
+# the dense bond dimension at bond `b`
+centre(secs, b) = sum(dim, secs[b])
+
+@testset "without MPSKit's methods the fallback says what to load" begin
+    @test_throws ArgumentError OpSum._mpskit_hamiltonian(nothing)
+end
+
+@testset "spinless fermions with a hop across a gap, finite and infinite" begin
+    # parity only: with particle-number symmetry a random infinite MPS has the wrong filling, and
+    # every expectation value vanishes
+    P = Trivial
+    V = FO.fermion_space(P)
+    Vmps = Vect[FermionParity](0 => 4, 1 => 4)
+    hop, hop′ = FO.f_plus_f_min(ComplexF64, P), FO.f_min_f_plus(ComplexF64, P)
+    num = FO.f_num(ComplexF64, P)
+    B = Basis([hop, hop′, num])
+    h, h′, n = project(hop, B), project(hop′, B), project(num, B)
+    @test length(h.terms) == 1 && length(h′.terms) == 1 && length(n) == 1
+    t, t2, μ = 1.0, 0.4, 0.3
+    hh = -t * (hop - hop′)                         # hermitian: c†ᵢcⱼ + c†ⱼcᵢ = c†ᵢcⱼ - cᵢc†ⱼ
+    pair(i, j) = -(h[i, j] - h′[i, j])
+
+    N = 6
+    H = opsum(
+        FiniteChain(B, N),
+        (t * pair(i, i + 1) for i in 1:(N - 1)),
+        (t2 * pair(i, i + 2) for i in 1:(N - 2)),
+        (μ * n[i] for i in 1:N),
+    )
+    W = mpo(H)
+    @test W isa SymbolicMPO
+    Hmps = instantiate(W)
+    @test Hmps isa FiniteMPOHamiltonian
+    ref = FiniteMPOHamiltonian(
+        fill(V, N),
+        ((i, i + 1) => hh for i in 1:(N - 1))...,
+        ((i, i + 1, i + 2) => (t2 / t) * gap3(hh, V) for i in 1:(N - 2))...,
+        ((i,) => μ * num for i in 1:N)...,
+    )
+    ψ = FiniteMPS(randn, ComplexF64, N, V, Vmps)
+    @test expectation_value(ψ, Hmps) ≈ expectation_value(ψ, ref)
+    @test abs(expectation_value(ψ, ref)) > 1.0e-3
+
+    Hi = opsum(InfiniteChain(B), t * pair(1, 2), t2 * pair(1, 3), μ * n[1])
+    Wi = mpo(Hi)
+    Hmpsi = instantiate(Wi)
+    @test Hmpsi isa InfiniteMPOHamiltonian
+    Ts = jordan_mpo_tensors(Wi)
+    @test Ts[1][1, 1, 1, 1] isa BraidingTensor
+    @test Ts[1][end, 1, 1, end] isa BraidingTensor
+    refi = InfiniteMPOHamiltonian([V], (1, 2) => hh, (1, 2, 3) => (t2 / t) * gap3(hh, V), (1,) => μ * num)
+    ψi = InfiniteMPS(V, Vmps)
+    @test expectation_value(ψi, Hmpsi) ≈ expectation_value(ψi, refi)
+    @test abs(expectation_value(ψi, refi)) > 1.0e-3            # a generic state, not a vanishing one
+end
+
+# A Hubbard site with the hopping pieces (spinors under SU(2)), `n` and `nꜛꜜ` as elements.
+function hubbard_site(P, S)
+    V = HO.hubbard_space(P, S)
+    hop, hop′ = HO.e_plus_e_min(ComplexF64, P, S), HO.e_min_e_plus(ComplexF64, P, S)
+    num, ud = HO.e_num(ComplexF64, P, S), HO.ud_num(ComplexF64, P, S)
+    B = Basis([hop, hop′, num, ud])
+    ehop = HO.e_hopping(ComplexF64, P, S)
+    return (; V, B, ehop, ud, e = project(ehop, B), u = project(ud, B))
+end
+
+@testset "Hubbard chains: bond dimension in the right basis, and energies" begin
+    t, U = 1.0, 4.0
+    for (P, S, N, today, now) in ((U1Irrep, U1Irrep, 10, 10, 6), (U1Irrep, SU2Irrep, 4, 10, 6))
+        site = hubbard_site(P, S)
+        H = opsum(FiniteChain(site.B, N), (-t * site.e[i] for i in 1:(N - 1)), (U * site.u[i] for i in 1:N))
+        @test islossless(H)
+        b = N ÷ 2
+        @test centre(irrep_mpo(H).bondsectors, b) == now            # handoff §5
+        # the same model in matrix units
+        Hm = opsum(
+            FiniteChain(site.V, N),
+            (-t * project(site.ehop)[i] for i in 1:(N - 1)),
+            (U * project(site.ud)[i] for i in 1:N),
+        )
+        @test centre(irrep_mpo(Hm).bondsectors, b) == today
+
+        Hmps = instantiate(mpo(H))
+        ref = FiniteMPOHamiltonian(
+            fill(site.V, N), ((i, i + 1) => -t * site.ehop for i in 1:(N - 1))...,
+            ((i,) => U * site.ud for i in 1:N)...,
+        )
+        ψ = FiniteMPS(randn, ComplexF64, N, site.V, oneunit(site.V) ⊕ site.V ⊕ fuse(site.V ⊗ site.V))
+        @test expectation_value(ψ, Hmps) ≈ expectation_value(ψ, ref)
+    end
+end
+
+@testset "spinful all-to-all hopping: 42 in matrix units, 22 in the right basis" begin
+    site = hubbard_site(U1Irrep, U1Irrep)
+    N = 10
+    tij = randn(N, N)
+    pairs_ = [(i, j) for i in 1:N for j in (i + 1):N]
+    H = opsum(FiniteChain(site.B, N), (tij[i, j] * site.e[i, j] for (i, j) in pairs_))
+    @test islossless(H)
+    @test centre(irrep_mpo(H).bondsectors, N ÷ 2) == 22
+    ehop = project(site.ehop)
+    Hm = opsum(FiniteChain(site.V, N), (tij[i, j] * ehop[i, j] for (i, j) in pairs_))
+    @test centre(irrep_mpo(Hm).bondsectors, N ÷ 2) == 42
+end
+
+@testset "the SymbolicMPO itself" begin
+    Xmat, Zmat = ComplexF64[0 1; 1 0], ComplexF64[1 0; 0 -1]
+    P = Basis([Xmat, Zmat])
+    X, Z = project(Xmat, P), project(Zmat, P)
+    N = 4
+    H = opsum(FiniteChain(P, N), (couple(Z[i], Z[i + 1]) for i in 1:(N - 1)), (0.5 * X[i] for i in 1:N))
+    W = mpo(H)
+    @test length(W) == N && W[2] === W.Ws[2] && collect(W) == W.Ws
+    @test W.lattice == H.lattice
+    @test mpo_terms(W) ≈ H.terms
+    @test occursin("SymbolicMPO", sprint(show, W))
+    # one entry's tensor, in the site's basis
+    (r, c), op = first((Tuple(k), v) for (k, v) in OpSum.storedpairs(W[2]) if !isone(v))
+    @test instantiate(op, P) isa AbstractTensorMap
+    @test mpo_tensormap(irrep_mpo_tensors(W)) ≈ instantiate(H)
+
+    # decaying channels on a finite chain: compressed, but no Jordan form yet
+    Hd = opsum(FiniteChain(P, N), expterm(couple(Z[1], Z[2]); decay = 0.5))
+    Wd = mpo(Hd)
+    @test isempty(Wd.start)
+    @test_throws ArgumentError jordan_mpo_tensors(Wd)
+    @test_throws ArgumentError instantiate(Wd)
+end

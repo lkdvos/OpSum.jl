@@ -15,6 +15,7 @@ export OperatorSum, opsum!
 # lattices: the two things an operator can be compressed over
 export AbstractLattice, FiniteChain, InfiniteChain
 # MPO construction
+export mpo, SymbolicMPO
 export irrep_mpo, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export FiniteMPO, InfiniteMPO
 export BipartiteAlgorithm, SVDBondAlgorithm
@@ -77,5 +78,6 @@ include("operators/infinite/infinitechain.jl")
 include("operators/infinite/infinitegraph.jl")
 include("operators/compression/irrepmpo.jl")
 include("operators/compression/jordanmpo.jl")
+include("operators/compression/symbolicmpo.jl")
 
 end

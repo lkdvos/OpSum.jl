@@ -128,7 +128,17 @@ function jordan_mpo_tensors(
     for i in 1:(N - 1)
         pos[i + 1], jsec[i + 1] = _jordan_bond(bondsectors[i], starts[i], finishes[i])
     end
+    return _jordan_tensors(Ws, pos, jsec, sites)
+end
 
+# The emission proper, shared by the finite chain and the infinite unit cell: `pos[i]` maps the old
+# indices of the bond to the *left* of site `i` to their Jordan slots and `jsec[i]` gives the charges
+# of those slots (`length(pos) == length(Ws) + 1`; for a unit cell `pos[1]` is the last bond's).
+function _jordan_tensors(
+        Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}}, pos::Vector{Vector{Int}},
+        jsec::Vector{Vector{I}}, sites
+    ) where {I}
+    N = length(Ws)
     S = typeof(_space(first(sites)))
     TT = AbstractTensorMap{ComplexF64, S, 2, 2}     # abstract: `BraidingTensor`s stay braidings
     spaces = map(sec -> SumSpace([Vect[I](c => 1) for c in sec]), jsec)

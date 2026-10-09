@@ -171,7 +171,11 @@ function _basis_from_elements(V::ElementarySpace, elems::AbstractVector; rtol::R
                     "drop the redundant operator"
             )
         )
-        insert!(pinv, c, G \ A')
+        P = G \ A'
+        # round-off from the solve would otherwise become letters with ~1e-16 coefficients, each of
+        # which costs the sweep a term
+        P[abs.(P) .<= rtol * maximum(abs, P)] .= 0
+        insert!(pinv, c, P)
     end
     return Basis{I, typeof(V), eltype(kept)}(V, kept, letters, bycharge, pinv)
 end
@@ -289,6 +293,40 @@ function project(h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; kwargs...
     return SiteOperator{I}(IrrepOperator{I}[only(t.keys).op for t in ts], ComplexF64[t.coeff for t in ts])
 end
 
+# Matrix-unit terms re-expressed letter by letter in bases: factor `j` of term `t` in the basis
+# `basisof(t, j)`. Each matrix unit `(c, m)` becomes `Σₙ P[n, m] (c, n)` with `P` the basis'
+# pseudo-inverse for charge `c`, exact when the basis spans that matrix unit. A term with a letter whose
+# charge the basis has no element of is dropped, so callers check the result (`_project_terms` through
+# its residual). With `placed = true` identity factors are dropped as placement drops them; otherwise
+# they stay as pass-through slots. Coincident terms are not summed.
+function _rebasis(mu::AbstractVector{Term{I}}, basisof; placed::Bool = false) where {I}
+    out = Term{I}[]
+    for t in mu
+        maps = map(eachindex(t.keys)) do j
+            key, B = t.keys[j], basisof(t, j)
+            P = get(B.pinv, key.op.c, nothing)
+            P === nothing && return nothing                   # a charge the basis has no element of
+            col = P[:, key.op.n - IrrepTensorOperators._muoffset(key.op.c)]
+            return [
+                (ITOKey{I}(IrrepOperator{I}(key.op.c, n), key.bond, key.vertex), col[n])
+                    for n in eachindex(col) if !iszero(col[n])
+            ]
+        end
+        any(isnothing, maps) && continue
+        for combo in Iterators.product(maps...)
+            keys = ITOKey{I}[first(x) for x in combo]
+            c = t.coeff * prod(last, combo)
+            if placed
+                keep = findall(k -> !ispassthrough(k.op), keys)
+                push!(out, Term{I}(t.sites[keep], keys[keep], c))
+            else
+                push!(out, Term{I}(t.sites, keys, c))
+            end
+        end
+    end
+    return Terms{I}(out)
+end
+
 # The terms of `h` on the slots `1:K`, slot `j` expressed in `Bs[j]`. The matrix-unit expansion is
 # exact, so this only changes coordinates, slot by slot, with each basis' per-charge pseudo-inverse;
 # the residual check then decides whether `h` was in the span.
@@ -309,28 +347,10 @@ function _project_terms(
     hnorm = norm(hc)
     θ = max(float(atol), float(rtol) * hnorm)
     mu = project(h; atol = 0, rtol = 0).terms.terms
-    acc = Dictionary{Vector{ITOKey{I}}, ComplexF64}()
-    for t in mu
-        maps = map(enumerate(t.keys)) do (j, key)
-            B = Bs[j]
-            P = get(B.pinv, key.op.c, nothing)
-            P === nothing && return nothing                   # a charge the basis has no element of
-            col = P[:, key.op.n - IrrepTensorOperators._muoffset(key.op.c)]
-            return [
-                (ITOKey{I}(IrrepOperator{I}(key.op.c, n), key.bond, key.vertex), col[n])
-                    for n in eachindex(col) if !iszero(col[n])
-            ]
-        end
-        any(isnothing, maps) && continue
-        for combo in Iterators.product(maps...)
-            keys = ITOKey{I}[first(x) for x in combo]
-            set!(acc, keys, get(acc, keys, zero(ComplexF64)) + t.coeff * prod(last, combo))
-        end
-    end
+    summed = canonicalize!(_rebasis(mu, (_, j) -> Bs[j])).terms
     # drop round-off: a coefficient whose term, at the scale of its elements, is below the tolerance
-    weight(k) = prod(j -> norm(instantiate(k[j].op, Bs[j])), 1:K)
-    slots = collect(1:K)
-    out = Terms{I}(Term{I}[Term{I}(slots, k, c) for (k, c) in pairs(acc) if abs(c) * weight(k) > θ])
+    weight(t) = prod(j -> norm(instantiate(t.keys[j].op, Bs[j])), 1:K)
+    out = Terms{I}(filter(t -> abs(t.coeff) * weight(t) > θ, summed))
 
     resid = isempty(out.terms) ? hnorm : norm(hc - _instantiate_terms(out, Bs))
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, length(mu))) * hnorm

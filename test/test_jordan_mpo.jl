@@ -3,7 +3,7 @@ using OpSum
 using OpSum: instantiate, spin, couple, matrixunit, SiteOperator, opsum, irrep_mpo
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
-using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, nonzero_keys, nonzero_pairs, eachspace
+using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, nonzero_keys, eachspace
 using MPSKit
 using MPSKit: JordanMPOTensor, FiniteMPOHamiltonian, FiniteMPS, DMRG, find_groundstate,
     expectation_value
@@ -163,21 +163,10 @@ end
 
 # ── The MPSKit seam ───────────────────────────────────────────────────────────
 # `JordanMPOTensor(::SparseBlockTensorMap)` is the constructor this emission targets, and it takes the
-# emitted tensors as they are — but only in the *bulk*. It asserts that both diagonal corners are
-# identities, which a boundary tensor cannot satisfy: site 1 has a single row, so its `(end, end)`
-# corner is the `(1, end)` D-block slot (an on-site term, or nothing at all), and symmetrically at
-# site N. So the Hamiltonian is assembled through the routing that constructor itself uses (`undef` +
-# `setindex!`, which is what recognises the braidings), uniformly and without the assert, and the
-# constructor is exercised separately on the bulk. Uniformly, because a mixture of the two gives an
-# abstractly-typed `Vector` of site tensors, and MPSKit's algorithms then run untyped.
-function to_jordan(W)
-    O = MPSKit.jordanmpotensortype(spacetype(W), storagetype(W))(undef, space(W))
-    for (I, v) in nonzero_pairs(W)
-        O[I] = v
-    end
-    return O
-end
-
+# emitted tensors as they are — but only in the *bulk*: it asserts that both diagonal corners are
+# identities, which a boundary tensor cannot satisfy. So `instantiate(mpo(H))` (the MPSKit extension)
+# assembles the Hamiltonian through the routing that constructor itself uses, and the constructor is
+# exercised separately on the bulk.
 @testset "MPSKit round trip — $name" for (name, (H, sites)) in reference_models()
     Ws = jordan_mpo_tensors(H)
 
@@ -188,7 +177,7 @@ end
         @test Set(nonzero_keys(J)) == Set(nonzero_keys(Ws[i]))
     end
 
-    Hmpo = FiniteMPOHamiltonian(map(to_jordan, Ws))
+    Hmpo = instantiate(mpo(H))
     @test Hmpo isa FiniteMPOHamiltonian
     @test length(Hmpo) == length(sites)
     # Site by site, the round trip through MPSKit's block split is lossless. This is the sharp test of
@@ -209,7 +198,7 @@ end
     S = spin(V)
     N = 6
     H = opsum(FiniteChain(V, N), dot(S[i], S[i + 1]) for i in 1:(N - 1))
-    Hmpo = FiniteMPOHamiltonian(map(to_jordan, jordan_mpo_tensors(H)))
+    Hmpo = instantiate(mpo(H))
 
     exact = spectrum(H)[1]
     # half-integer *and* integer spins: an odd bond of a spin-½ chain carries the former

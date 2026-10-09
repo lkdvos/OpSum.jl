@@ -129,12 +129,13 @@ function jordan_mpo_tensors(
         pos[i + 1], jsec[i + 1] = _jordan_bond(bondsectors[i], starts[i], finishes[i])
     end
 
-    S = typeof(first(sites))
+    S = typeof(_space(first(sites)))
     TT = AbstractTensorMap{ComplexF64, S, 2, 2}     # abstract: `BraidingTensor`s stay braidings
     spaces = map(sec -> SumSpace([Vect[I](c => 1) for c in sec]), jsec)
 
     return map(1:N) do i
-        V = sites[i]
+        site = sites[i]                  # the site's basis (or space), which the letters index into
+        V = _space(site)
         secL, secR = jsec[i], jsec[i + 1]
         nrows, ncols = length(secL), length(secR)
 
@@ -183,7 +184,7 @@ function jordan_mpo_tensors(
             end
             blk = nothing
             for (letter, coeff) in pairs(op)
-                B = get!(() -> _letter_block(letter, V, bL, bR), blocks, (letter, bL, bR))
+                B = get!(() -> _letter_block(letter, site, bL, bR), blocks, (letter, bL, bR))
                 blk = blk === nothing ? coeff * B : blk + coeff * B
             end
             W[row, 1, 1, col] = blk

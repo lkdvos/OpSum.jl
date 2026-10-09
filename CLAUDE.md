@@ -38,11 +38,13 @@ OpSum.jl converts sums of symmetric quantum operators (e.g. Hamiltonians) into e
 The pipeline is: symbolic term algebra → flat term list → per-bond-sector bipartite/SVD compression → reduced MPO tensors.
 
 0. **Lattices** — `src/operators/lattices.jl`
-   - `AbstractLattice`, with `FiniteChain(spaces)` / `FiniteChain(V, N)` and `InfiniteChain(spaces)` / `InfiniteChain(V)`.
+   - `AbstractLattice`, with `FiniteChain(bases)` / `FiniteChain(B, N)` and `InfiniteChain(bases)` / `InfiniteChain(B)`: one operator `Basis` per site, which the letters of a term on that site index into; mixed sites are `vcat(B₁, B₂, …)`.
+     A lattice of spaces (`FiniteChain(V, N)`) means the matrix-unit alphabet, until that goes in step 7 of `research/operator-bases.md`; a lattice is all bases or all spaces, of one symmetry (`_checksites`).
+     Whatever needs the physical space reads it through `_space(site)`, and whatever interprets a letter calls `instantiate(letter, site)`, so the two kinds of site share every code path.
      They differ in exactly two observable ways: whether `getindex` wraps, and whether a site outside `1:length` is an error.
    - A lattice is supplied **where terms are added to an `OperatorSum`**, never where they are written (`Terms`, `couple`, `dot` and placement stay latticeless). Three tiers:
-     the term algebra needs only site indices and charges; the whole sweep needs only `N` (`ITOTermTable` reads `length(lat)` and nothing else — no `ElementarySpace` appears anywhere in `irrepgraph*.jl`); only letter validation, `adjoint`, `instantiate` and `irrep_mpo_tensors` need the *spaces*.
-   - So `OperatorSum` (below) is the one place operators and spaces are confronted (`_checklattice`, run when terms *enter*). Any iterable of one space per site is accepted and converted by `_tolattice`.
+     the term algebra needs only site indices and charges; the whole sweep needs only `N` (`ITOTermTable` reads `length(lat)` and nothing else — no `ElementarySpace` appears anywhere in `irrepgraph*.jl`); only letter validation, `adjoint`, `instantiate` and `irrep_mpo_tensors` need the *sites*.
+   - So `OperatorSum` (below) is the one place operators and sites are confronted (`_checklattice`, run when terms *enter*, checks each letter exists in its site's basis). Any iterable of one basis (or space) per site is accepted and converted by `_tolattice`.
 
 1. **Symbolic operator algebra** — `src/operators/algebra/`
    - `SiteOperator{I}` (`siteoperator.jl`): an operator on one site, as a small ordered map from alphabet letter to `ComplexF64` coefficient (two parallel vectors).
@@ -77,7 +79,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
      Placement is indexing: `B[i]` is contiguous (`i:i+K-1`), `B[s₁, …, s_K]` explicit and strictly increasing; it relabels each term's `sites` and nothing else, so it is exact for any symmetry — a gap site is a pass-through the sweep reconstructs, and `test/test_local_operator.jl` pins the fermionic (Jordan–Wigner) sign across a gap against sector-resolved spectra.
      `project(h, sites)` is `project(h)[sites...]` (its label-count error is kept, since one label would otherwise read as a contiguous placement); `project(O, V)` is the single-site form, returning a `SiteOperator`, and `LocalOperator(::SiteOperator)` lifts one to `K = 1` (a pass-through part becomes a pass-through slot).
      `LocalOperator` mirrors `Terms`' arithmetic (`+`/`-` need equal `nsites`, scalar `*`/`/`, `B ± α`, `≈`) by delegating to the bag; `SiteOperator` stays separate because it is the entry type of the sweep's bond matrices.
-   - **Hermitian conjugation** — `_adjoint_terms(h, lat)` (`builders.jl`; public as `H'` on an `OperatorSum`) goes *through* the forward map: materialise the term's `K`-site block, adjoint it, `project` it back, rather than symbolically, because a letter's adjoint carries the dual charge and re-expressing the caterpillar coupler over dual charges is B-symbol data.
+   - **Hermitian conjugation** — `_adjoint_terms(h, lat)` (`builders.jl`; public as `H'` on an `OperatorSum`) goes *through* the forward map: materialise the term's `K`-site block, adjoint it, `project` it back (each slot into its site's basis, `_project_local`; a basis not closed under adjoints throws), rather than symbolically, because a letter's adjoint carries the dual charge and re-expressing the caterpillar coupler over dual charges is B-symbol data.
      Correct by construction (`project` checks its own faithfulness) and memoised per `(keys, spaces)`, so it costs one projection per distinct term *shape*.
      Requires total charge `unit(I)`.
      It is the one term-level operation that genuinely needs the physical spaces, hence it lives on the lattice-carrying container; there is no postfix `h'` on a bare `Terms` (that method throws, pointing at `OperatorSum`).

@@ -1,5 +1,5 @@
 # The lattice-carrying container: a lattice, finite-range terms placed on it, and exponentially
-# decaying channels. Letters are checked against the spaces as terms enter. Design note:
+# decaying channels. Letters are checked against the sites' bases (or spaces) as terms enter. Design note:
 # `research/local-operators.md`.
 
 using Dictionaries: Dictionary, setwith!
@@ -65,7 +65,7 @@ end
 Accumulate `terms` into a new [`OperatorSum`](@ref) on `lat`.
 """
 opsum(lat::AbstractLattice, args...) = opsum!(OperatorSum(lat), args...)
-opsum(sites::AbstractVector{<:ElementarySpace}, args...) = opsum!(OperatorSum(sites), args...)
+opsum(sites::AbstractVector{<:Union{ElementarySpace, Basis}}, args...) = opsum!(OperatorSum(sites), args...)
 
 _collect_op!(out, ch, t::Term{I}, ::Type{I}) where {I} = push!(out, t)
 _collect_op!(out, ch, ts::Terms{I}, ::Type{I}) where {I} = append!(out, ts.terms)
@@ -189,7 +189,7 @@ truncated to the chain ([`chain_terms`](@ref)).
 function instantiate(H::OperatorSum{I, <:FiniteChain}) where {I}
     isempty(H.lattice) && throw(ArgumentError("cannot instantiate over an empty lattice"))
     isempty(H) && throw(ArgumentError("cannot instantiate an empty operator"))
-    return _instantiate_terms(chain_terms(H), H.lattice.spaces)
+    return _instantiate_terms(chain_terms(H), H.lattice.sites)
 end
 instantiate(::OperatorSum{I, <:InfiniteChain}) where {I} = throw(
     ArgumentError("cannot instantiate an operator on an infinite chain")

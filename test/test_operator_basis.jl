@@ -1,7 +1,6 @@
 using Test
 using OpSum
-using OpSum: SiteOperator, LocalOperator, nsites, passthrough, ispassthrough, scalarop, Terms,
-    _instantiate_terms, _space
+using OpSum: SiteOperator, LocalOperator, nsites, passthrough, ispassthrough, scalarop, Terms
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: removeunit, numind
@@ -19,8 +18,8 @@ const Smmat = ComplexF64[0 0; 1 0]
 # a `V ← V` operator from the `V ← V ⊗ unit` form `instantiate` gives
 plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 
-# the dense operator of a placed term bag over per-site bases (or spaces)
-dense(ts, sites) = plain(_instantiate_terms(ts, sites))
+# the dense operator of a placed term bag over per-site bases
+dense(ts, bases) = plain(instantiate(opsum(bases, ts)))
 
 # a neutral two-site operator, built through the matrix-unit pipeline
 pairop(ts, V) = plain(instantiate(opsum(FiniteChain(V, 2), ts)))

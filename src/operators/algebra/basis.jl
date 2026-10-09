@@ -64,6 +64,10 @@ function Base.show(io::IO, B::Basis)
 end
 
 _space(B::Basis) = B.space
+_issite(::Basis) = true
+
+# `charge => number of letters of that charge in B`, what `_checklattice` validates letters against
+_alphabet(B::Basis{I}, ::Type{I}) where {I} = Dict{I, Int}(c => length(ks) for (c, ks) in pairs(B.bycharge))
 
 """
     instantiate(op::IrrepOperator, B::Basis)
@@ -252,11 +256,13 @@ end
 """
     project(O, B::Basis; atol = 0, rtol = 100eps) -> SiteOperator     # O : V ← V, or a matrix
     project(h, B::Basis; atol = 0, rtol = 100eps) -> LocalOperator    # h : V^⊗K ← V^⊗K, K ≥ 2
+    project(h, Bs::AbstractVector{<:Basis}; …)                        # slot j in Bs[j]
 
 Express an operator in the basis `B`: a single-site operator gives a [`SiteOperator`](@ref), a
 coefficient per element; a `K`-site one gives an unplaced [`LocalOperator`](@ref) whose every slot is
-expressed in `B`, placed with `h[i]` or `h[s₁, …, s_K]`. A slot that a term does not act on holds the
-identity (element 1), which placement drops, so a projected `X ⊗ 𝟙` places as a one-site term.
+expressed in `B` (or slot `j` in `Bs[j]`, for sites with different bases), placed with `h[i]` or
+`h[s₁, …, s_K]`. A slot that a term does not act on holds the identity (element 1), which placement
+drops, so a projected `X ⊗ 𝟙` places as a one-site term.
 
 The elements need not be orthogonal: the coefficients solve against the basis per charge. An
 operator outside the span of `B` throws, with the residual; the same tolerance drops coefficients
@@ -273,43 +279,60 @@ function project(O::AbstractMatrix, B::Basis; kwargs...)
     return project(TensorMap(ComplexF64.(O), V ← V), B; kwargs...)
 end
 
-function project(h::AbstractTensorMap, B::Basis{I}; atol::Real = 0, rtol::Real = _default_rtol(h)) where {I}
+project(h::AbstractTensorMap, B::Basis; kwargs...) = project(h, fill(B, numout(h)); kwargs...)
+
+function project(h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; kwargs...) where {I}
+    out = _project_terms(h, Bs; kwargs...)
+    K = length(Bs)
+    K == 1 || return LocalOperator{I}(out, K)
+    ts = canonicalize!(out).terms
+    return SiteOperator{I}(IrrepOperator{I}[only(t.keys).op for t in ts], ComplexF64[t.coeff for t in ts])
+end
+
+# The terms of `h` on the slots `1:K`, slot `j` expressed in `Bs[j]`. The matrix-unit expansion is
+# exact, so this only changes coordinates, slot by slot, with each basis' per-charge pseudo-inverse;
+# the residual check then decides whether `h` was in the span.
+function _project_terms(
+        h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; atol::Real = 0, rtol::Real = _default_rtol(h)
+    ) where {I}
     K = numout(h)
-    all(==(B.space), codomain(h)) || throw(
-        ArgumentError("project: `h` acts on $(codomain(h)), not on copies of the basis space $(B.space)")
+    length(Bs) == K || throw(
+        ArgumentError("project: got $(length(Bs)) bases for an operator on $K sites")
+    )
+    all(j -> codomain(h)[j] == Bs[j].space, 1:K) || throw(
+        ArgumentError(
+            "project: `h` acts on $(codomain(h)), not on the spaces of the bases " *
+                "$(join((B.space for B in Bs), " ⊗ "))"
+        )
     )
     hc, _ = _with_charge_leg(h, K, I)
     hnorm = norm(hc)
     θ = max(float(atol), float(rtol) * hnorm)
-    # the matrix-unit expansion is exact, so this only changes coordinates
     mu = project(h; atol = 0, rtol = 0).terms.terms
     acc = Dictionary{Vector{ITOKey{I}}, ComplexF64}()
-    slotmaps = map(mu) do t
-        map(t.keys) do key
+    for t in mu
+        maps = map(enumerate(t.keys)) do (j, key)
+            B = Bs[j]
             P = get(B.pinv, key.op.c, nothing)
-            P === nothing && return nothing
-            ks = B.bycharge[key.op.c]
-            m = key.op.n - IrrepTensorOperators._muoffset(key.op.c)
-            col = P[:, m]
-            return [(ITOKey{I}(IrrepOperator{I}(key.op.c, n), key.bond, key.vertex), col[n]) for n in eachindex(ks) if !iszero(col[n])]
+            P === nothing && return nothing                   # a charge the basis has no element of
+            col = P[:, key.op.n - IrrepTensorOperators._muoffset(key.op.c)]
+            return [
+                (ITOKey{I}(IrrepOperator{I}(key.op.c, n), key.bond, key.vertex), col[n])
+                    for n in eachindex(col) if !iszero(col[n])
+            ]
         end
-    end
-    for (t, maps) in zip(mu, slotmaps)
-        any(isnothing, maps) && continue                      # a charge the basis has no element of
+        any(isnothing, maps) && continue
         for combo in Iterators.product(maps...)
             keys = ITOKey{I}[first(x) for x in combo]
-            c = t.coeff * prod(last, combo)
-            set!(acc, keys, get(acc, keys, zero(ComplexF64)) + c)
+            set!(acc, keys, get(acc, keys, zero(ComplexF64)) + t.coeff * prod(last, combo))
         end
     end
     # drop round-off: a coefficient whose term, at the scale of its elements, is below the tolerance
-    elnorm(key) = norm(instantiate(key.op, B))
+    weight(k) = prod(j -> norm(instantiate(k[j].op, Bs[j])), 1:K)
     slots = collect(1:K)
-    terms = Term{I}[Term{I}(slots, k, c) for (k, c) in pairs(acc) if abs(c) * prod(elnorm, k) > θ]
-    out = Terms{I}(terms)
+    out = Terms{I}(Term{I}[Term{I}(slots, k, c) for (k, c) in pairs(acc) if abs(c) * weight(k) > θ])
 
-    Bs = fill(B, K)
-    resid = isempty(terms) ? hnorm : norm(hc - _instantiate_terms(out, Bs))
+    resid = isempty(out.terms) ? hnorm : norm(hc - _instantiate_terms(out, Bs))
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, length(mu))) * hnorm
     resid <= θ + slack || throw(
         ArgumentError(
@@ -317,8 +340,5 @@ function project(h::AbstractTensorMap, B::Basis{I}; atol::Real = 0, rtol::Real =
                 "extend the basis"
         )
     )
-    K == 1 || return LocalOperator{I}(out, K)
-    isempty(terms) && return zero(SiteOperator{I})
-    ts = canonicalize!(out).terms
-    return SiteOperator{I}(IrrepOperator{I}[only(t.keys).op for t in ts], ComplexF64[t.coeff for t in ts])
+    return out
 end

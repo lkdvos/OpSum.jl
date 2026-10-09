@@ -112,9 +112,11 @@ end
 
 const _ADJOINT_CACHE = Dict{Any, Any}()
 
-# Re-label a bag built on the local lattice `1:K` onto `sites` (ascending, so nothing is re-sorted).
-_resite(ts::Terms{I}, sites::AbstractVector{Int}) where {I} =
-    Terms{I}(Term{I}[Term{I}(Int[sites[s] for s in t.sites], t.keys, t.coeff) for t in ts.terms])
+# A `K`-site block back in the letters of its sites: each slot in its site's basis, or in matrix units
+# for a lattice of spaces. The result leaves the span when a basis is not closed under adjoints, and
+# then `project` throws with a hint to extend it.
+_project_local(h, Vs::AbstractVector{<:ElementarySpace}) = project(h)
+_project_local(h, Bs::AbstractVector{<:Basis{I}}) where {I} = LocalOperator{I}(_project_terms(h, Bs), length(Bs))
 
 # The per-term-shape machinery behind `adjoint(::OperatorSum)`. Every term must have total charge
 # `unit(I)`: a charged term's adjoint carries the dual charge, which is a different object than a
@@ -134,12 +136,13 @@ function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
                     "term of the same operator. Conjugate charge-neutral terms only."
             )
         )
-        Vs = [lat[s] for s in t.sites]
+        Vs = [lat[s] for s in t.sites]           # the sites' bases (or spaces)
         local_adj = _cached(_ADJOINT_CACHE, (t.keys, Vs)) do
             blk = _instantiate_term(Term{I}(collect(1:K), t.keys, ComplexF64(1)), Vs)
-            return project(removeunit(blk, 2K + 1)', 1:K)
+            return _project_local(removeunit(blk, 2K + 1)', Vs)
         end
-        append!(out, scale(_resite(local_adj, t.sites), conj(t.coeff)).terms)
+        # placement drops the identity slots a basis projection can produce
+        append!(out, scale(local_adj[t.sites...], conj(t.coeff)).terms)
     end
     return Terms{I}(out)
 end

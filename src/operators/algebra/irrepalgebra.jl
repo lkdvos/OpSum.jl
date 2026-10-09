@@ -278,21 +278,24 @@ function _alphabet(V::ElementarySpace, ::Type{I}) where {I <: Sector}
     return Dict{I, Int}(c => dim(W, c) + (c == unit(I)) for c in sectors(W))
 end
 
+# What may describe one site of a lattice: its operator basis (basis.jl) or its space.
+_issite(::ElementarySpace) = true
+_issite(::Any) = false
+
 _tolattice(lat::AbstractLattice) = lat
-_tolattice(sites::AbstractVector{<:ElementarySpace}) = FiniteChain(sites)
 function _tolattice(sites)
     # Guard on iterability first: without it a misplaced argument (an algorithm selector, say) is
     # `collect`ed and fails deep inside Base instead of naming what was wrong.
     applicable(iterate, sites) || _notalattice(sites)
     lat = collect(sites)
-    eltype(lat) <: ElementarySpace || _notalattice(sites)
+    all(_issite, lat) || _notalattice(sites)
     return FiniteChain(lat)
 end
 
 _notalattice(sites) = throw(
     ArgumentError(
-        "a lattice must be a `FiniteChain`, an `InfiniteChain`, or an iterable of " *
-            "`ElementarySpace`s (one per site), got $(typeof(sites))"
+        "a lattice must be a `FiniteChain`, an `InfiniteChain`, or an iterable of operator " *
+            "`Basis`es or `ElementarySpace`s (one per site), got $(typeof(sites))"
     )
 )
 
@@ -318,12 +321,12 @@ function _checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) whe
                 ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
             )
             V = lat[s]
-            info = get!(() -> _alphabet(V, I), seen, V)
+            info = get!(() -> _alphabet(V, I), seen, V)   # V: the site's basis, or its space
             op = key.op
             nmax = get(info, op.c, 0)
             1 <= op.n <= nmax || throw(
                 ArgumentError(
-                    "letter $op does not exist on site $s (space $V): that space carries " *
+                    "letter $op does not exist on site $s ($V): that site carries " *
                         "$nmax operator(s) of charge $(op.c)"
                 )
             )

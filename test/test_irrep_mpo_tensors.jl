@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_tensors, instantiate, spin, scalarop, couple, opsum
+using OpSum: mpo, irrep_mpo_tensors, instantiate, spin, scalarop, couple, opsum
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor
@@ -14,7 +14,7 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix
     # --- N = 2 : single S·S term ---
     sites2 = fill(V, 2)
     H2 = opsum(dot(spin(V)[1], spin(V)[2]))
-    Ws, secs = irrep_mpo(opsum(sites2, H2))
+    Ws, secs = reduced(mpo(opsum(sites2, H2)))
     T = irrep_mpo_tensors(Ws, secs, [V, V])
     @tensor Op2[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
 
@@ -29,7 +29,7 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix
     # --- N = 3 : Heisenberg chain ---
     sites3 = fill(V, 3)
     H3 = opsum(dot(spin(V)[1], spin(V)[2]), dot(spin(V)[2], spin(V)[3]))
-    Ws3, secs3 = irrep_mpo(opsum(sites3, H3))
+    Ws3, secs3 = reduced(mpo(opsum(sites3, H3)))
     T3 = irrep_mpo_tensors(Ws3, secs3, fill(V, 3))
     @tensor Op3[o1 o2 o3 bL; bR i1 i2 i3] :=
         T3[1][bL o1; i1 b1] * T3[2][b1 o2; i2 b2] * T3[3][b2 o3; i3 bR]
@@ -46,7 +46,7 @@ end
         couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial)),
         couple(LO(ops[2])[2], LO(ops[3])[3]; to = unit(Trivial)),
     )
-    Ws, secs = irrep_mpo(opsum(sites, H))
+    Ws, secs = reduced(mpo(opsum(sites, H)))
     T = irrep_mpo_tensors(Ws, secs, fill(V, 3))
     @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
         T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
@@ -60,7 +60,7 @@ end
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
     sites = fill(V, 2)
     H = opsum(dot(raise[1], lower[2]), dot(lower[1], raise[2]))
-    Ws, secs = irrep_mpo(opsum(sites, H))
+    Ws, secs = reduced(mpo(opsum(sites, H)))
     T = irrep_mpo_tensors(Ws, secs, fill(V, 2))
     @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
     @test physmatrix(Op, 2, d) ≈ physmatrix(instantiate(opsum(sites, H)), 2, d)
@@ -73,7 +73,7 @@ end
     # genuine 3-body scalar: ((S₁⊗S₂)→spin-1) ⊗ S₃ → singlet
     sites = fill(V, 3)
     H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
-    Ws, secs = irrep_mpo(opsum(sites, H))
+    Ws, secs = reduced(mpo(opsum(sites, H)))
     T = irrep_mpo_tensors(Ws, secs, fill(V, 3))
     @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
         T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]

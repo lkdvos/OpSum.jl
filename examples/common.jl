@@ -11,7 +11,7 @@
 # or running an example directly from a checkout.
 
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, mpo_tensormap, islossless, instantiate,
+using OpSum: mpo, irrep_mpo_tensors, mpo_terms, mpo_tensormap, islossless, instantiate,
     Term, Terms, OperatorSum, opsum, opsum!, FiniteChain, InfiniteChain, spin, spin_ops, fermion_ops, couple, couple_channels, project,
     matrixunit, expterm, BipartiteAlgorithm, SVDBondAlgorithm
 using OpSum.IrrepTensorOperators: IrrepOperator
@@ -112,9 +112,9 @@ The [`OperatorSum`](@ref OpSum.OperatorSum) carries its lattice, so the model fu
 one value and `build(name, model(...))` takes it as is.
 """
 function build(name, H::OperatorSum; alg = BipartiteAlgorithm(), quiet = false)
-    irrep_mpo(H, alg)   # warm up compilation so the timing is meaningful
-    stats = @timed irrep_mpo(H, alg)
-    Ws, secs = stats.value
+    mpo(H, alg)   # warm up compilation so the timing is meaningful
+    stats = @timed mpo(H, alg)
+    Ws, secs = stats.value.Ws, stats.value.bondsectors
     if !quiet
         println(
             rpad(name, 28),
@@ -143,7 +143,8 @@ end
 # valid for fermions too.
 
 function mpo_matches_oracle(H::OperatorSum; alg = BipartiteAlgorithm())
-    Ws, secs = irrep_mpo(H, alg)
+    m = mpo(H, alg)
+    Ws, secs = m.Ws, m.bondsectors
     return mpo_tensormap(irrep_mpo_tensors(Ws, secs, H.lattice)) ≈ instantiate(H)
 end
 

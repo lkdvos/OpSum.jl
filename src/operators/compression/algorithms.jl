@@ -6,7 +6,7 @@
 # * a **bond-basis strategy** — how one bond's compressed basis is chosen from that bond's (prefix,
 #   suffix) coefficient data. This is the plug point of the reduced-MPO sweep (irrepgraph.jl): the
 #   site step's other four phases are shared, only the basis choice differs.
-# * an **algorithm selector** — the user-facing third argument of `irrep_mpo`, which names a
+# * an **algorithm selector** — the user-facing second argument of `mpo`, which names a
 #   strategy (and, for the SVD, its truncation).
 
 """
@@ -96,6 +96,6 @@ end
 SVDBondAlgorithm(trunc; sweep = IndependentSVD) = SVDBondAlgorithm(sweep(trunc))
 SVDBondAlgorithm(; sweep = IndependentSVD) = SVDBondAlgorithm(sweep(nothing))
 
-# The strategy an algorithm selector names. `irrep_mpo` dispatches the sweep on this.
+# The strategy an algorithm selector names. `mpo` dispatches the sweep on this.
 bondstrategy(::BipartiteAlgorithm) = VertexCover()
 bondstrategy(alg::SVDBondAlgorithm) = alg.strategy

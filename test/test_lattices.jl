@@ -1,7 +1,7 @@
 using Test
 using OpSum
-using OpSum: AbstractLattice, FiniteChain, InfiniteChain, FiniteMPO, InfiniteMPO,
-    windowlattice, _tolattice, _maxsite, irrep_mpo, spin, opsum, fermion_ops, couple,
+using OpSum: AbstractLattice, FiniteChain, InfiniteChain,
+    windowlattice, _tolattice, _maxsite, mpo, spin, opsum, fermion_ops, couple,
     jordan_mpo_tensors, instantiate, Terms
 using TensorKit
 using TensorKit: sectortype
@@ -86,34 +86,31 @@ end
     # the realistic version of that: an algorithm selector one argument too early
     @test_throws ArgumentError _tolattice(BipartiteAlgorithm())
     h = opsum(dot(spin(VSU2)[1], spin(VSU2)[2]))
-    @test_throws ArgumentError irrep_mpo(h, SVDBondAlgorithm())
+    @test_throws ArgumentError mpo(h, SVDBondAlgorithm())
 end
 
-@testset "FiniteMPO / InfiniteMPO surface" begin
+@testset "SymbolicMPO surface" begin
     S = spin(VSU2)
     N = 4
     lat = FiniteChain(VSU2, N)
     h = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
 
-    mpo = irrep_mpo(opsum(lat, h))
-    @test mpo isa FiniteMPO
-    @test length(mpo) == N
-    # destructures as the `(Ws, bondsectors)` pair, the same contract as an InfiniteMPO
-    Ws, secs = mpo
-    @test Ws === mpo.Ws && secs === mpo.bondsectors
+    W = mpo(opsum(lat, h))
+    @test W isa SymbolicMPO{SU2Irrep, <:FiniteChain}
+    @test length(W) == N && W.lattice == lat
+    # iterates over its sites; `reduced` is the `(Ws, bondsectors)` pair
+    @test collect(W) == W.Ws
+    Ws, secs = reduced(W)
+    @test Ws === W.Ws && secs === W.bondsectors
     @test length(Ws) == N && length(secs) == N
-    str = sprint(show, mpo)
-    @test startswith(str, "FiniteMPO{")
+    str = sprint(show, W)
+    @test startswith(str, "SymbolicMPO{")
     @test occursin("N = $N", str)
 
-    inf = irrep_mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
-    @test inf isa InfiniteMPO
+    inf = mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
+    @test inf isa SymbolicMPO{SU2Irrep, <:InfiniteChain}
     @test length(inf) == 1
-    Wi, si = inf
-    @test Wi === inf.Ws && si === inf.bondsectors
-    istr = sprint(show, inf)
-    @test startswith(istr, "InfiniteMPO{")
-    @test occursin("L = 1", istr)
+    @test occursin("InfiniteChain, N = 1", sprint(show, inf))
 end
 
 # Terms are checked as they enter the container, so an operator can never reach a numerical result
@@ -123,7 +120,7 @@ end
     h = opsum(dot(S[i], S[i + 1]) for i in 1:3)
     good = FiniteChain(VSU2, 4)
 
-    @test irrep_mpo(opsum(good, h)) isa FiniteMPO
+    @test mpo(opsum(good, h)) isa SymbolicMPO
 
     # a term past the end of a finite chain
     @test_throws ArgumentError opsum(FiniteChain(VSU2, 3), h)
@@ -136,12 +133,12 @@ end
     @test_throws ArgumentError opsum(FiniteChain(SU2Space(0 => 1), 4), h)
 
     # an InfiniteChain has no site range to violate: a generating term may reach past the cell
-    @test irrep_mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2]))) isa InfiniteMPO
+    @test mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2]))) isa SymbolicMPO
     # but the letters are still checked against its (wrapped) spaces
     @test_throws ArgumentError opsum(InfiniteChain([SU2Space(0 => 1)]), dot(S[1], S[2]))
 
-    # Jordan form is a finite-chain emission
-    @test_throws ArgumentError jordan_mpo_tensors(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
+    # the unit cell has a Jordan form too
+    @test length(jordan_mpo_tensors(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))) == 1
 end
 
 @testset "opsum without a lattice is latticeless; with one it is an OperatorSum" begin
@@ -186,11 +183,11 @@ end
     )
     H = opsum(lat, h)
     @test islossless(H)
-    Ws, secs = irrep_mpo(H)
+    Ws, secs = reduced(mpo(H))
     @test length(secs) == 4
     @test secs[4] == [SU2Irrep(0)]
     # the alternating spaces are what the assembled tensors have to honour
-    Ts = irrep_mpo_tensors(irrep_mpo(H), lat)
+    Ts = irrep_mpo_tensors(mpo(H))
     @test space(Ts[1], 2) == VSU2
     @test space(Ts[2], 2) == VSU2b
 end

@@ -11,7 +11,7 @@
 
 using BenchmarkTools
 using OpSum
-using OpSum: irrep_mpo, BipartiteAlgorithm, SVDBondAlgorithm
+using OpSum: mpo, BipartiteAlgorithm, SVDBondAlgorithm
 
 # `run.jl` includes this file after already loading the models; including it twice would create a
 # second copy of the module and a conflicting-import warning.
@@ -56,13 +56,13 @@ for spec in selected()
         # a time and its (untimed) construction is excluded from the compression measurement.
         g_t["N=$N"] = @benchmarkable $builder($N) samples = p.samples seconds = p.seconds evals = 1
         g_m["N=$N"] = @benchmarkable(
-            irrep_mpo(H, $(BipartiteAlgorithm())),
+            mpo(H, $(BipartiteAlgorithm())),
             setup = (H = $builder($N)),
             samples = p.samples, seconds = p.seconds, evals = 1,
         )
         if WITH_SVD
             g_s["N=$N"] = @benchmarkable(
-                irrep_mpo(H, $(SVDBondAlgorithm())),
+                mpo(H, $(SVDBondAlgorithm())),
                 setup = (H = $builder($N)),
                 samples = min(p.samples, 3), seconds = p.seconds, evals = 1,
             )
@@ -82,6 +82,6 @@ end
 for spec in selected()
     N0 = minimum(get(spec.timesizes, :smoke, [8]))
     H = spec.build(N0)
-    irrep_mpo(H)
-    WITH_SVD && irrep_mpo(H, SVDBondAlgorithm())
+    mpo(H)
+    WITH_SVD && mpo(H, SVDBondAlgorithm())
 end

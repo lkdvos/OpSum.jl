@@ -100,8 +100,8 @@ function run(which)
     Hm = opsum(FiniteChain(Vh, N), terms)
     @printf "terms: %d in matrix units, %d in the basis\n" length(Hm.terms) length(Hb.terms)
 
-    secs_m = irrep_mpo(Hm).bondsectors
-    secs_b = irrep_mpo(Hb).bondsectors
+    secs_m = mpo(Hm).bondsectors
+    secs_b = mpo(Hb).bondsectors
     bonds = which == "STO3G" ? [N ÷ 2] : [7, 14, 21]
     for b in bonds
         @printf "bond %2d: matrix units %4d / %4d   basis %4d / %4d   (channels / dims)\n" b centre(secs_m, b)... centre(secs_b, b)...

@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: ITOTermTable, _op_at_ito, arity, nterms, nvertices, ispassthrough,
-    Term, Terms, spin, scalarop, couple, nterms_raw, irrep_mpo, instantiate,
+    Term, Terms, spin, scalarop, couple, nterms_raw, mpo, instantiate,
     canonicalize!, opsum
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
@@ -144,24 +144,24 @@ end
     H = opsum(terms)
     # a bag is latticeless, so nothing about it knows `sites`; the sweep needs only the site count
     @test nvertices(ITOTermTable(H, length(sites))) == length(sites)
-    @test irrep_mpo(opsum(sites, H)).bondsectors == irrep_mpo(opsum(FiniteChain(su2, 4), H)).bondsectors
+    @test mpo(opsum(sites, H)).bondsectors == mpo(opsum(FiniteChain(su2, 4), H)).bondsectors
 
     # the checks the lattice boundary exists for — the only place letters and spaces are confronted
-    @test_throws ArgumentError irrep_mpo(opsum(fill(su2, 3), H))                 # term past the lattice
-    @test_throws ArgumentError irrep_mpo(opsum(fill(u1, 4), H))                  # wrong sector type
-    @test_throws ArgumentError irrep_mpo(opsum(fill(SU2Space(0 => 1), 4), H))    # no spin-1 letter there
+    @test_throws ArgumentError mpo(opsum(fill(su2, 3), H))                 # term past the lattice
+    @test_throws ArgumentError mpo(opsum(fill(u1, 4), H))                  # wrong sector type
+    @test_throws ArgumentError mpo(opsum(fill(SU2Space(0 => 1), 4), H))    # no spin-1 letter there
     @test_throws ArgumentError instantiate(opsum(fill(su2, 3), H))               # and again at instantiate
     @test_throws ArgumentError islossless(opsum(fill(su2, 3), H))
 
     # appending to a bag is latticeless, so a term past the eventual lattice is caught when it meets one
     H2 = append!(opsum(terms), dot(S[1], S[5]))
     @test nterms_raw(H2) == 4
-    @test_throws ArgumentError irrep_mpo(opsum(sites, H2))
+    @test_throws ArgumentError mpo(opsum(sites, H2))
 
     # `lat` need not already be a `FiniteChain` or a `Vector{<:ElementarySpace}`
-    @test irrep_mpo(opsum!(OperatorSum(su2 for _ in 1:4), H)).bondsectors == irrep_mpo(opsum(sites, H)).bondsectors
-    @test irrep_mpo(opsum!(OperatorSum(ntuple(_ -> su2, 4)), H)).bondsectors == irrep_mpo(opsum(sites, H)).bondsectors
-    @test_throws ArgumentError irrep_mpo(opsum!(OperatorSum([1, 2, 3, 4]), H))
+    @test mpo(opsum!(OperatorSum(su2 for _ in 1:4), H)).bondsectors == mpo(opsum(sites, H)).bondsectors
+    @test mpo(opsum!(OperatorSum(ntuple(_ -> su2, 4)), H)).bondsectors == mpo(opsum(sites, H)).bondsectors
+    @test_throws ArgumentError mpo(opsum!(OperatorSum([1, 2, 3, 4]), H))
 
     # FiniteChain has an edge where InfiniteChain wraps
     @test length(FiniteChain(su2, 4)) == 4

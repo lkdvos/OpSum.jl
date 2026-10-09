@@ -1,5 +1,5 @@
 # Charge-augmented alphabet + caterpillar fusion helpers: `ITOKey = (op, bond_charge_out, vertex)`,
-# the alphabet the flat `ITOTermTable`/`irrep_mpo` pipeline consumes. Prefixes agreeing on the full
+# the alphabet the flat `ITOTermTable`/`mpo` pipeline consumes. Prefixes agreeing on the full
 # `ITOKey` share automaton state, so the automaton is block-diagonal in the bond charge. Idle sites
 # get the pass-through symbol: the identity, which is letter `(unit, 1)` in every alphabet.
 #

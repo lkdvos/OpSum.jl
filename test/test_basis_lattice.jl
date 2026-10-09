@@ -77,7 +77,7 @@ end
     )
     @test instantiate(H) ≈ instantiate(Hm)
     @test islossless(H)
-    @test mpo_tensormap(irrep_mpo_tensors(irrep_mpo(H), H.lattice)) ≈ instantiate(H)
+    @test mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(H)
     Ws = jordan_mpo_tensors(H)
     @test Ws[2][1, 1, 1, 1] isa BraidingTensor
     @test mpo_tensormap(map(TensorMap, Ws)) ≈ instantiate(H)
@@ -114,7 +114,7 @@ end
     Lm = project(TensorMap(Lz, ℂ^3 ← ℂ^3), ℂ^3)
     Hm = opsum(spaces, couple(Zm[1], Lm[2]), 0.5 * Xm[3])
     @test instantiate(H) ≈ instantiate(Hm)
-    @test mpo_tensormap(irrep_mpo_tensors(irrep_mpo(H), H.lattice)) ≈ instantiate(H)
+    @test mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(H)
     @test_throws ArgumentError project(ZL, [P2, P2])                 # slot 2 is a qutrit
 end
 
@@ -122,9 +122,9 @@ end
     P = Basis([Xmat, Ymat, Zmat])
     Os = [project(M, P) for M in (Xmat, Ymat, Zmat)]
     H = opsum(InfiniteChain(P), (couple(O[1], O[2]) for O in Os))
-    Hinf = irrep_mpo(H)
+    Hinf = mpo(H)
     @test sum(dim, Hinf.bondsectors[1]) == 5                       # 3 channels + start + done
-    Ts = irrep_mpo_tensors(Hinf, H.lattice)
+    Ts = irrep_mpo_tensors(Hinf)
     @test space(Ts[1], 1) == space(Ts[1], 4)'
     @test space(Ts[1], 2) == ℂ^2
 end

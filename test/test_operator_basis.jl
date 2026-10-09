@@ -29,7 +29,7 @@ pairop(ts, V) = plain(instantiate(opsum(FiniteChain(V, 2), ts)))
 # run time; losslessness and bond dimensions are symbolic, so they use longer chains.
 
 # the dense bond dimension at bond `b`
-bonddim(H, b) = ((_, secs) = irrep_mpo(H); densedim(secs, b))
+bonddim(H, b) = densedim(mpo(H).bondsectors, b)
 
 @testset "Basis: identity first, letters per charge" begin
     B = Basis([Imat, Xmat, Ymat, Zmat])
@@ -118,7 +118,7 @@ end
     n = 2
     Hpn = opsum(FiniteChain(V, n), (couple(O[i], O[i + 1]) for i in 1:(n - 1) for O in (Xp, Yp, Zp)))
     Hmn = opsum(FiniteChain(V, n), (couple(O[i], O[i + 1]) for i in 1:(n - 1) for O in (Xm, Ym, Zm)))
-    @test dense(mpo_terms(irrep_mpo(Hpn)), fill(P, n)) ≈ plain(instantiate(Hmn))
+    @test dense(mpo_terms(mpo(Hpn)), fill(P, n)) ≈ plain(instantiate(Hmn))
 end
 
 @testset "U(1) spins: charged elements by factorising neutral pairs" begin
@@ -160,7 +160,7 @@ end
     )
     @test islossless(H(8))
     @test bonddim(H(8), 4) <= bonddim(Hm(8), 4)
-    @test dense(mpo_terms(irrep_mpo(H(3))), fill(B, 3)) ≈ plain(instantiate(Hm(3)))
+    @test dense(mpo_terms(mpo(H(3))), fill(B, 3)) ≈ plain(instantiate(Hm(3)))
 end
 
 @testset "fermions: the identity slot carries the sign across a gap" begin
@@ -196,7 +196,7 @@ end
         (0.5 * F.n[i] for i in 1:N),
     )
     @test islossless(H(8))
-    @test dense(mpo_terms(irrep_mpo(H(3))), fill(B, 3)) ≈ plain(instantiate(Hm(3)))
+    @test dense(mpo_terms(mpo(H(3))), fill(B, 3)) ≈ plain(instantiate(Hm(3)))
 end
 
 @testset "SU(2): the exchange pair factorises into one spin-1 element" begin
@@ -212,7 +212,7 @@ end
     H(N) = opsum(FiniteChain(V, N), (ss[i] for i in 1:(N - 1)))
     Hm(N) = opsum(FiniteChain(V, N), (dot(S[i], S[i + 1]) for i in 1:(N - 1)))
     @test islossless(H(8))
-    @test dense(mpo_terms(irrep_mpo(H(2))), fill(B, 2)) ≈ plain(instantiate(Hm(2)))
+    @test dense(mpo_terms(mpo(H(2))), fill(B, 2)) ≈ plain(instantiate(Hm(2)))
     # a constant part is an all-identity term, which places as a scalar
     sc = project(SS + 2 * id(V ⊗ V), B)
     @test sc[1] ≈ ss[1] + 2 * Terms{SU2Irrep}(OpSum.Term{SU2Irrep}[OpSum.Term(Int[], OpSum.ITOKey{SU2Irrep}[], 1)])

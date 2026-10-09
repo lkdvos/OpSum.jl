@@ -248,7 +248,7 @@ end
 # physical sites does not.
 
 let Ns = 8
-    _, secs = irrep_mpo(hubbard(Ns))
+    secs = mpo(hubbard(Ns)).bondsectors
     [densedim(secs, b) for b in eachindex(secs)]
 end
 

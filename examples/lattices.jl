@@ -62,7 +62,8 @@ function impurity(N, at; J = 1.0)
 end
 
 for at in (1, 3, 6)
-    Ws, secs = irrep_mpo(impurity(6, at))
+    m = mpo(impurity(6, at))
+    Ws, secs = m.Ws, m.bondsectors
     println("  impurity at $at:  per-bond D = ", [bonddim(secs, b) for b in eachindex(secs)])
 end
 

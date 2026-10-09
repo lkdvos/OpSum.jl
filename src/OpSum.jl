@@ -16,8 +16,7 @@ export OperatorSum, opsum!
 export AbstractLattice, FiniteChain, InfiniteChain
 # MPO construction
 export mpo, SymbolicMPO
-export irrep_mpo, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
-export FiniteMPO, InfiniteMPO
+export irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
 # exponentially decaying interactions
@@ -70,6 +69,7 @@ include("operators/algebra/builders.jl")
 include("operators/compression/irreptermtable.jl")
 include("operators/infinite/expterms.jl")
 include("operators/operatorsum.jl")
+include("operators/compression/symbolicmpo.jl")
 include("operators/compression/irrepinterning.jl")
 include("operators/compression/irrepgraph.jl")
 include("operators/compression/irrepgraph_vc.jl")
@@ -78,6 +78,5 @@ include("operators/infinite/infinitechain.jl")
 include("operators/infinite/infinitegraph.jl")
 include("operators/compression/irrepmpo.jl")
 include("operators/compression/jordanmpo.jl")
-include("operators/compression/symbolicmpo.jl")
 
 end

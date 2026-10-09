@@ -41,8 +41,8 @@ map(W -> size(W, 4), Ws)
 
 # Those are the Jordan-form bond sizes: `3` in the bulk for a Heisenberg chain, closing to `1` at
 # the right edge. Two of the three bulk indices are the identity channels, which is why a
-# nearest-neighbour model in Jordan form is `+2` over the unconstrained minimum that
-# [`irrep_mpo`](@ref OpSum.irrep_mpo) reports.
+# nearest-neighbour model in Jordan form is `+2` over the minimum the cover itself reaches
+# (`mpo(H).bondsectors`).
 
 # ## Into MPSKit
 #
@@ -120,6 +120,5 @@ space(T∞[1], 1) == space(T∞[end], 4)'
 
 # ## Name clashes
 #
-# `using OpSum, MPSKit` leaves `FiniteMPO` and `InfiniteMPO` ambiguous — both packages export both
-# names, for different types (OpSum's are what the older [`irrep_mpo`](@ref OpSum.irrep_mpo)
-# returns). [`mpo`](@ref OpSum.mpo) and [`SymbolicMPO`](@ref OpSum.SymbolicMPO) avoid them.
+# `using OpSum, MPSKit` is safe: OpSum's MPO type is [`SymbolicMPO`](@ref OpSum.SymbolicMPO), so it
+# does not collide with MPSKit's `FiniteMPO` and `InfiniteMPO`.

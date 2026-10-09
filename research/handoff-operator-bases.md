@@ -170,7 +170,15 @@ Done before step 2, since `instantiate(W)` needs the bases to ride along with th
   The two MPSKit Hamiltonians agree to ~1e-14 on a random 14-electron MPS; this is a check of the basis route against the matrix-unit route, both through the new extension, not against MPSKitExperimental's hand-built MPO.
 * `Basis` now chops pseudo-inverse round-off (entries below `rtol` of the largest), which would otherwise become letters with ~1e-16 coefficients.
   Re-expressing whole Hamiltonians also leaves ~1e-15 terms where different matrix-unit tuples cancel on one basis term; the acceptance script drops those, and a public route for re-expressing terms (step 7) will need the same.
-* Not done: `irrep_mpo`, `FiniteMPO` and `InfiniteMPO` are still there and exported, so `using OpSum, MPSKit` still leaves `FiniteMPO`/`InfiniteMPO` ambiguous.
-  Removing them is a mechanical rename across ~300 uses in tests, benchmarks, examples and docs, best done as its own change.
-  `instantiate(W, bases)` for `opsum(1:N)` (§3.4) is not done either.
+* `irrep_mpo`, `FiniteMPO` and `InfiniteMPO` are removed in a separate change (§10).
+  `instantiate(W, bases)` for `opsum(1:N)` (§3.4) is not done.
 * The test environment's manifest needed a full `Pkg.update()` (MPSKit `main` is 0.14 now; `test/Project.toml` already asked for it), so BlockTensorKit 0.3.20 and TensorKit 0.17.2 locally.
+
+## 10. `irrep_mpo` → `mpo`
+
+* `irrep_mpo`, `FiniteMPO` and `InfiniteMPO` are gone; `mpo(H)` returns a `SymbolicMPO` on either lattice, so `using OpSum, MPSKit` no longer leaves anything ambiguous.
+  A `SymbolicMPO` iterates over its sites and does not destructure into `(Ws, bondsectors)`; tests use `reduced(W)` from `test/testutils.jl`, other code the fields `W.Ws`, `W.bondsectors`.
+* `irrep_mpo_tensors(W)`, `jordan_mpo_tensors(W)`, `mpo_terms(W)`, `mpo_terms_window(W, ncells)` take the `SymbolicMPO` alone, since it carries its lattice; the identity channels are `W.start` / `W.finish` (`done` before).
+* One behavioural difference: `mpo` on a finite chain without channels forces the finish channel into the cover (what the Jordan form needs), where `irrep_mpo` did not.
+  On every showcase model and on the N₂ acceptance numbers that costs nothing, but a constant (`K = 0`) term next to two two-site terms costs one trivial-charge index at the first bond; `test/test_irrep_graph.jl` pins both covers.
+* `jordan_mpo_tensors` (and so `instantiate`) now also covers infinite chains with decaying channels, checked against MPSKit with the tail truncated at range 40 in `test/test_mpskit_ext.jl`; a finite chain with decaying channels still has no Jordan form.

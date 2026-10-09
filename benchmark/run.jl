@@ -89,7 +89,7 @@ const PROVENANCE = (
 )
 
 # ── Bond-dimension metrics ────────────────────────────────────────────────────
-# Deterministic and machine-independent: one `irrep_mpo` call per point. Because that is far cheaper
+# Deterministic and machine-independent: one `mpo` call per point. Because that is far cheaper
 # than a timing measurement, these sweeps run to roughly twice the system size.
 
 sweepsym = Symbol(OPTS.sweep)

@@ -4,8 +4,8 @@
 # shape instead.
 #
 # Both identity channels are padded in at every internal bond even where the cover spent no index on
-# them, so the result is minimal *among Jordan-form MPOs*, at most `+2` per bond over `irrep_mpo`'s
-# unconstrained minimum — padded channels are pure identity chains and cannot change the operator.
+# them, so the result is minimal *among Jordan-form MPOs*, at most `+2` per bond over the cover's
+# minimum — padded channels are pure identity chains and cannot change the operator.
 # `_force_finish!` (irrepgraph.jl) is the one thing that touches the cover for this path.
 
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, SumSpace, eachspace
@@ -15,52 +15,28 @@ using .IrrepTensorOperators: IrrepOperator
 """
     jordan_mpo_tensors(H::OperatorSum[, alg]) -> Vector{<:SparseBlockTensorMap}
 
-Compress `H` (on its lattice, a [`FiniteChain`](@ref) without exponentially decaying channels) into a
-reduced MPO (as [`irrep_mpo`](@ref)) and emit it in **Jordan form**: one
-`BlockTensorKit.SparseBlockTensorMap` per site, `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, whose virtual legs
-are `SumSpace`s carrying one level `Vect[I](charge => 1)` per bond index, ordered as
+`jordan_mpo_tensors(mpo(H, alg))`: compress `H` (see [`mpo`](@ref)) and emit it in **Jordan form**,
+one `BlockTensorKit.SparseBlockTensorMap` per site (of the chain, or of the unit cell),
+`W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, whose virtual legs are `SumSpace`s carrying one level
+`Vect[I](charge => 1)` per bond index, ordered as
 
     (start channel, everything else, finish channel)
 
-with the identity at `(1, 1)` and `(end, end)`. The boundary bonds `B_0` and `B_N` are
-one-dimensional and trivially charged, so `H` must have total charge `unit(I)`.
+with the identity at `(1, 1)` and `(end, end)`. On a finite chain the boundary bonds `B_0` and `B_N`
+are one-dimensional and trivially charged, so `H` must have total charge `unit(I)`.
 
 Diagonal pass-through entries with unit coefficient are emitted as `TensorKit.BraidingTensor`s, which
-is what lets a consumer store them as scalars rather than dense blocks.
-
-This is the shape MPSKit's `JordanMPOTensor` / `FiniteMPOHamiltonian` consume; OpSum does not depend
-on MPSKit, and nothing here does more than name the convention. Use [`irrep_mpo_tensors`](@ref) for
-the dense per-site `TensorMap`s instead.
+is what lets a consumer store them as scalars rather than dense blocks. This is the shape MPSKit's
+`JordanMPOTensor` / `MPOHamiltonian` consume, which `instantiate(mpo(H))` builds with MPSKit loaded;
+use [`irrep_mpo_tensors`](@ref) for the dense per-site `TensorMap`s instead.
 
 `alg` defaults to [`BipartiteAlgorithm`](@ref). An [`SVDBondAlgorithm`](@ref) bond basis is a
 *mixture* of prefix states in which neither identity channel is a basis vector, so both are padded at
 every bond; a truncation aggressive enough to empty a bond is rejected, since a Jordan-form MPO with a
-zero-dimensional bond cannot carry its identity corners.
+zero-dimensional bond cannot carry its identity corners. Exponentially decaying channels on a finite
+chain have no Jordan form yet.
 """
-function jordan_mpo_tensors(
-        H::OperatorSum{I, <:FiniteChain},
-        alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
-    ) where {I}
-    isempty(H.channels) || throw(
-        ArgumentError(
-            "jordan_mpo_tensors does not support exponentially decaying channels; use irrep_mpo"
-        )
-    )
-    lat = H.lattice
-    tt = ITOTermTable(H.terms, length(lat))
-    N = nvertices(tt)
-    Ws, bondsectors, starts, finishes = _irrep_channels(tt, N, bondstrategy(alg))
-    isempty(Ws) && throw(
-        ArgumentError("cannot emit a Jordan MPO for an empty operator: it has no bond structure")
-    )
-    return jordan_mpo_tensors(Ws, bondsectors, starts, finishes, lat)
-end
-
-jordan_mpo_tensors(H::OperatorSum{I, <:InfiniteChain}, args...) where {I} = throw(
-    ArgumentError(
-        "jordan_mpo_tensors is defined on a finite chain; got a $(typeof(H.lattice))"
-    )
-)
+jordan_mpo_tensors(H::OperatorSum, args...) = jordan_mpo_tensors(mpo(H, args...))
 
 # Reorder one internal bond; `s`/`f` are the start/finish indices (`0` if the cover spent none).
 # Slots `1`/`end` are *reserved* for them live or not, so padding needs no separate bookkeeping.
@@ -95,7 +71,7 @@ end
 """
     jordan_mpo_tensors(Ws, bondsectors, starts, finishes, sites) -> Vector{<:SparseBlockTensorMap}
 
-The reduced-data form of [`jordan_mpo_tensors`](@ref): `(Ws, bondsectors)` as `irrep_mpo` returns
+The reduced-data form of [`jordan_mpo_tensors`](@ref): `(Ws, bondsectors)` as an [`mpo`](@ref) holds
 them, plus the per-bond start/finish channel indices from `_irrep_channels` (`0` where the cover did
 not spend an index — that channel is then padded).
 

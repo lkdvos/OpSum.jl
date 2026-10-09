@@ -37,7 +37,7 @@ using OpSum: arity
 # their lattice. The term algebra itself (`dot`, `couple`, `A[i]`) is **latticeless** — it needs no
 # physical space, and the compression needs only the number of sites — so the lattice enters here,
 # when the terms are added, which is also where every letter is checked against the space of the
-# site it sits on. [`irrep_mpo`](@ref OpSum.irrep_mpo), `instantiate`, `islossless` and `H'` all take
+# site it sits on. [`mpo`](@ref OpSum.mpo), `instantiate`, `islossless` and `H'` all take
 # the `OperatorSum`.
 
 V = SU2Space(1 // 2 => 1)

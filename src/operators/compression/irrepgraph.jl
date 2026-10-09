@@ -218,7 +218,7 @@ makes the sweep cost `Θ(Σ_terms span)` instead of `Θ(N·M)`. `lazy = false` s
 which is the form the `SequentialSVD` strategy uses (its per-bond dense SVD dominates anyway).
 
 `jordan = true` additionally forces the finish class into every cover (`_force_finish!`), which is
-what Jordan emission needs and what `irrep_mpo` deliberately does not do.
+what Jordan emission needs; `mpo` asks for it on a finite chain without decaying channels.
 
 `channels` are lowered exponentially decaying interactions ([`_lower_channels`](@ref)). They are not
 terms and never enter the table: each *enters* on the start channel at every site matching its phase
@@ -747,7 +747,8 @@ is a *mixture* of prefix states, in which neither channel is a basis vector — 
 
 `jordan = true` also forces the finish class into every cover ([`_force_finish!`](@ref)), which is why
 this is a separate entry point rather than extra return values on `_irrep_graph_sweep`: it can change
-the bond basis, and `irrep_mpo` promises the unconstrained minimum.
+the bond basis away from the unconstrained minimum (rarely: a constant term next to two-site terms
+costs one index at the first bond, `test/test_irrep_graph.jl` pins it; no showcase model is affected).
 """
 function _irrep_graph_channels(
         tt::ITOTermTable{I}, N::Int, strategy::GraphStrategy, jordan::Bool;
@@ -773,7 +774,7 @@ end
     _irrep_sweep(tt::ITOTermTable{I}, N, strategy::BondStrategy) -> (Ws, bondsectors)
 
 Run the reduced-MPO compression of `tt` over `N` sites with the given bond-basis strategy. This is
-the single entry point `irrep_mpo` (irrepmpo.jl) dispatches to; the strategy decides whether that is
+the entry point `mpo` (symbolicmpo.jl) dispatches to when it needs no identity channels; the strategy decides whether that is
 the persistent-graph sweep or the independent per-bond pass.
 """
 _irrep_sweep(

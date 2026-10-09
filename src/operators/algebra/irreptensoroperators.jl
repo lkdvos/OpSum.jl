@@ -24,7 +24,7 @@ Materializes (via [`instantiate`](@ref)) to a TensorKit `TensorMap`
 i.e. an operator `V←V` carrying a dangling charge-`c` leg of degeneracy 1.
 
 Index `1` of the trivial charge is the identity (see `passthrough`), in every alphabet: it is
-element 1 of a [`Basis`](@ref), and in the matrix-unit alphabet it comes before the trivial-charge
+element 1 of a [`Basis`](@ref OpSum.Basis), and in the matrix-unit alphabet it comes before the trivial-charge
 matrix units, which therefore start at `n = 2` (`instances` does not yield the identity). It
 instantiates to the identity with a trivial charge leg, `isomorphism(V ← V ⊗ Vect[I](unit(I) => 1))`.
 """

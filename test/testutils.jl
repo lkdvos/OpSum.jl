@@ -12,6 +12,10 @@ using OpSum
 using OpSum: Term, Terms, SiteOperator, ops, tree, total, arity
 using TensorKit: dim
 
+# The reduced data of an `mpo(H)`: `Ws, secs = reduced(mpo(H))`. A `SymbolicMPO` iterates over its
+# sites, so it does not destructure into this pair itself.
+reduced(W::SymbolicMPO) = (W.Ws, W.bondsectors)
+
 # Wrap a bare alphabet letter as a `SiteOperator`, for comparing against reduced bond-matrix entries.
 LO(x) = SiteOperator(x)
 

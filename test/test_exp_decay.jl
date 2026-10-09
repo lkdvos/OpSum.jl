@@ -2,8 +2,8 @@ using Test
 using TensorKit
 using LinearAlgebra: dot
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
-    unitcell_terms, maxspan, InfiniteMPO, spin, matrixunit, couple, scalarop, instantiate,
+using OpSum: mpo, irrep_mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
+    unitcell_terms, maxspan, spin, matrixunit, couple, scalarop, instantiate,
     expterm, expand_channels, chain_terms, channelspan, ExpSum, _lower_channels,
     _entriesequal, _infinite_window, storedpairs, ispassthrough, _irrep_sweep, ITOTermTable
 using OpSum.IrrepTensorOperators: IrrepOperator
@@ -118,7 +118,7 @@ function faithful(H, spaces; ncells = 6)
     gen = unitcell_terms(H)
     R = maxspan(gen)
     N = ncells * L
-    got = Dict(t => t.coeff for t in mpo_terms_window(irrep_mpo(H), chain, ncells))
+    got = Dict(t => t.coeff for t in mpo_terms_window(mpo(H), ncells))
     want = Dict(t => t.coeff for t in window_terms(gen, ncells))
 
     for (t, v) in got
@@ -147,13 +147,13 @@ end
     λ = 0.5
     ncells = 12
     chain = InfiniteChain([VSU2])
-    geo = irrep_mpo(opsum(chain, expterm(dot(S[1], S[2]); decay = λ)))
+    geo = mpo(opsum(chain, expterm(dot(S[1], S[2]); decay = λ)))
     @test densedim(geo.bondsectors[1]) == 5
-    got = Dict(t => t.coeff for t in mpo_terms_window(geo, chain, ncells))
+    got = Dict(t => t.coeff for t in mpo_terms_window(geo, ncells))
 
     for Rmax in (2, 4, 7)
         gen = unitcell_terms(sum([λ^(r - 1) * dot(S[1], S[1 + r]) for r in 1:Rmax]), 1)
-        trunc = irrep_mpo(opsum(chain, gen))
+        trunc = mpo(opsum(chain, gen))
         @test densedim(trunc.bondsectors[1]) == 3Rmax + 2      # grows with the range …
         @test densedim(geo.bondsectors[1]) == 5                # … and this one does not
 
@@ -169,11 +169,11 @@ end
     # `nothing`, so a channel whose diagonal were a bare scalar would assemble into a silently wrong
     # tensor. λ rides as an edge weight, so the entry is a scaled *letter*.
     λ = 0.4
-    H = irrep_mpo(opsum(InfiniteChain([VSU2]), expterm(dot(S[1], S[2]); decay = λ)))
+    H = mpo(opsum(InfiniteChain([VSU2]), expterm(dot(S[1], S[2]); decay = λ)))
     W = only(H.Ws)
     diag = [
         (Tuple(idx)[1], only(pairs(op))) for (idx, op) in storedpairs(W)
-            if Tuple(idx)[1] == Tuple(idx)[2] && Tuple(idx)[1] ∉ (H.start[1], H.done[1])
+            if Tuple(idx)[1] == Tuple(idx)[2] && Tuple(idx)[1] ∉ (H.start[1], H.finish[1])
     ]
     @test length(diag) == 1
     m, (letter, coeff) = only(diag)
@@ -182,7 +182,7 @@ end
     # the channel is the spin-1 index, and it both receives the entry letter and emits the exit letter
     @test H.bondsectors[1][m] == SU2Irrep(1)
     @test any(Tuple(idx) == (H.start[1], m) for (idx, _) in storedpairs(W))
-    @test any(Tuple(idx) == (m, H.done[1]) for (idx, _) in storedpairs(W))
+    @test any(Tuple(idx) == (m, H.finish[1]) for (idx, _) in storedpairs(W))
 end
 
 @testset "merging: what costs a channel and what does not" begin
@@ -191,7 +191,7 @@ end
     ops = LO.(instances(IrrepOperator, VTR)[2:4])
     a, b, c = ops
     lat = InfiniteChain([VTR])
-    D(H) = densedim(irrep_mpo(opsum(lat, H)).bondsectors[1])
+    D(H) = densedim(mpo(opsum(lat, H)).bondsectors[1])
 
     one_channel = D(expterm(couple(a[1], b[2]); decay = 0.5))
     @test one_channel == 3                                        # start + channel + done
@@ -221,11 +221,11 @@ end
     lat = InfiniteChain([VSU2])
     # a geometric channel *replaces* the in-flight spin-1 multiplet of a nearest-neighbour model rather
     # than adding to it, so exponentially decaying Heisenberg is as cheap as the nearest-neighbour one
-    @test densedim(irrep_mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]) == 5
-    @test densedim(irrep_mpo(opsum(lat, dot(S[1], S[2]))).bondsectors[1]) == 5
+    @test densedim(mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]) == 5
+    @test densedim(mpo(opsum(lat, dot(S[1], S[2]))).bondsectors[1]) == 5
     # adding the bare nearest-neighbour bond back on top does cost one more spin-1 channel
     @test densedim(
-        irrep_mpo(opsum(lat, dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]
+        mpo(opsum(lat, dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]
     ) == 8
 
     # A channel's *period* is part of its declaration, so writing the same physical model on a larger
@@ -234,7 +234,7 @@ end
     # The terms are identical (checked in the round-trip testset above); the bond dimension is not.
     for L in 1:3
         H = sum([expterm(dot(S[a], S[a + d]); decay = 0.5) for a in 1:L for d in 1:L])
-        Hinf = irrep_mpo(opsum(InfiniteChain(fill(VSU2, L)), H))
+        Hinf = mpo(opsum(InfiniteChain(fill(VSU2, L)), H))
         @test length(H.channels) == L^2
         @test all(j -> densedim(Hinf.bondsectors[j]) == 3L + 2, 1:L)
     end
@@ -249,7 +249,7 @@ end
         for nc in (13, 21)
             alt = _infinite_window(gen; ncells = nc)
             @test alt.bondsectors == base.bondsectors
-            @test (alt.start, alt.done) == (base.start, base.done)
+            @test (alt.start, alt.finish) == (base.start, base.finish)
             @test all(j -> _entriesequal(alt.Ws[j], base.Ws[j]), 1:L)
         end
     end
@@ -264,7 +264,7 @@ end
     for perm in (reverse(eachindex(parts)), circshift(collect(eachindex(parts)), 1))
         alt = _infinite_window(unitcell_terms(opsum(chain1, parts[collect(perm)]...)))
         @test alt.bondsectors == base.bondsectors
-        @test (alt.start, alt.done) == (base.start, base.done)
+        @test (alt.start, alt.finish) == (base.start, base.finish)
         @test _entriesequal(only(alt.Ws), only(base.Ws))
     end
 end
@@ -272,19 +272,19 @@ end
 @testset "the unit cell closes and reports two identity channels" begin
     for (name, H, spaces) in reference_models()
         L = length(spaces)
-        Hinf = irrep_mpo(H)
+        Hinf = mpo(H)
         I = sectortype(spaces[1])
         @test length(Hinf) == L
         for j in 1:L
             @test size(Hinf.Ws[j], 1) == length(Hinf.bondsectors[mod1(j - 1, L)])
             @test size(Hinf.Ws[j], 2) == length(Hinf.bondsectors[j])
         end
-        @test all(j -> Hinf.start[j] != Hinf.done[j], 1:L)
+        @test all(j -> Hinf.start[j] != Hinf.finish[j], 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.start[j]] == unit(I), 1:L)
-        @test all(j -> Hinf.bondsectors[j][Hinf.done[j]] == unit(I), 1:L)
+        @test all(j -> Hinf.bondsectors[j][Hinf.finish[j]] == unit(I), 1:L)
 
         lat = InfiniteChain(spaces)
-        Ts = irrep_mpo_tensors(Hinf, lat)
+        Ts = irrep_mpo_tensors(Hinf)
         @test length(Ts) == L
         @test space(Ts[1], 1) == space(Ts[L], 4)'
         @test all(j -> space(Ts[j], 2) == spaces[j], 1:L)
@@ -313,13 +313,13 @@ end
     for (name, H, spaces, ncells) in cases
         L = length(spaces)
         lat = InfiniteChain(spaces)
-        Hinf = irrep_mpo(opsum(lat, H...))
+        Hinf = mpo(opsum(lat, H...))
         N = ncells * L
         sites = [spaces[mod1(j, L)] for j in 1:N]
-        Ts = irrep_mpo_tensors(Hinf, lat)
+        Ts = irrep_mpo_tensors(Hinf)
         tiled = [Ts[mod1(j, L)] for j in 1:N]
-        O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.done[L])
-        oracle = instantiate(opsum(sites, mpo_terms_window(Hinf, lat, ncells)))
+        O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.finish[L])
+        oracle = instantiate(opsum(sites, mpo_terms_window(Hinf, ncells)))
         @test O ≈ oracle || (println("  $name mismatch"); false)
     end
 end
@@ -341,7 +341,8 @@ end
     for (name, parts, sites) in cases
         N = length(sites)
         H = opsum(FiniteChain(sites), parts...)
-        Ws, secs = irrep_mpo(H)
+        W = mpo(H)
+        Ws, secs = W.Ws, W.bondsectors
         @test length(secs[N]) == 1                      # vacuum-terminated, as on a FiniteChain
         want = Dict(t => t.coeff for t in chain_terms(H))
         got = Dict(t => t.coeff for t in mpo_terms(Ws, secs))
@@ -364,15 +365,16 @@ end
     # the shared sweep must be untouched when there are no channels
     H = dot(S[1], S[2]) + 0.5 * dot(S[1], S[3])
     chain = InfiniteChain([VSU2])
-    a = irrep_mpo(opsum(chain, H))
+    a = mpo(opsum(chain, H))
     b = _infinite_window(unitcell_terms(opsum(chain, H, ExpSum{SU2Irrep}())))
     @test a.bondsectors == b.bondsectors
-    @test (a.start, a.done) == (b.start, b.done)
+    @test (a.start, a.finish) == (b.start, b.finish)
     @test _entriesequal(only(a.Ws), only(b.Ws))
 
-    # the finite path: the bond-strategy route and the explicit channel route agree
-    Wa, sa = irrep_mpo(opsum(FiniteChain(VSU2, 5), H))
+    # the finite path: the sweep without channels and with an empty channel list agree (`mpo` itself
+    # forces the finish channel into the cover, a different route)
     tt = ITOTermTable(H, 5)
+    Wa, sa = _irrep_sweep(tt, 5, OpSum.VertexCover())
     Wb, sb = _irrep_sweep(
         tt, 5, OpSum.VertexCover(); channels = _lower_channels(ExpSum{SU2Irrep}(), 1)
     )
@@ -396,21 +398,21 @@ end
         lat, expterm(couple(S[1], S[2]; to = SU2Irrep(1)); decay = 0.5)
     )
     # one representative per translation class, exactly as for terms
-    @test_throws ArgumentError irrep_mpo(
+    @test_throws ArgumentError mpo(
         opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[2], S[3]); decay = 0.5))
     )
     # … but the same two on a two-site cell is a different, legitimate model
-    @test irrep_mpo(
+    @test mpo(
         opsum(
             InfiniteChain([VSU2, VSU2]),
             expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[2], S[3]); decay = 0.5)
         )
-    ) isa InfiniteMPO
+    ) isa SymbolicMPO
     # the SVD backend has no notion of a bond index with a diagonal
-    @test_throws ArgumentError irrep_mpo(
+    @test_throws ArgumentError mpo(
         opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5)), SVDBondAlgorithm()
     )
-    @test_throws ArgumentError irrep_mpo(
+    @test_throws ArgumentError mpo(
         opsum(FiniteChain(VSU2, 4), expterm(dot(S[1], S[2]); decay = 0.5)), SVDBondAlgorithm()
     )
 end

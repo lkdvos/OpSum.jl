@@ -38,7 +38,7 @@ julia> Pkg.add(url="https://github.com/lkdvos/OpSum.jl")
 # The SU(2) Heisenberg chain — nearest-neighbour spin-spin coupling on a spin-½ chain — end to end:
 
 using OpSum
-using OpSum: irrep_mpo, mpo_terms, spin
+using OpSum: mpo, mpo_terms, spin
 using TensorKit
 using LinearAlgebra: dot
 
@@ -49,7 +49,9 @@ chain = FiniteChain(V, N)          # the lattice: one space per site
 S = spin(V)                        # the SU(2) rank-1 vector operator
 H = opsum(chain, dot(S[i], S[i + 1]) for i in 1:(N - 1))   # the terms on the lattice, in one pass
 
-Ws, sectors = irrep_mpo(H)         # reduced bond matrices + per-bond charge sectors
+m = mpo(H)         # reduced bond matrices + per-bond charge sectors
+
+Ws, sectors = m.Ws, m.bondsectors
 
 # The bond dimension: `sectors[b]` lists the irrep labels on the bond to the right of site `b`, so
 # its length is the number of symmetry-resolved indices, and the quantum-dimension-weighted sum is

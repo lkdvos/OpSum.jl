@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: project, matrixunit, instantiate, spin, scalarop, couple, irrep_mpo, opsum,
+using OpSum: project, matrixunit, instantiate, spin, scalarop, couple, mpo, opsum,
     irrep_mpo_tensors, mpo_terms, Term, Terms, total, ops, tree, bondcharges,
     caterpillar_trees, _instantiate_basis
 using OpSum.IrrepTensorOperators: IrrepOperator
@@ -356,7 +356,7 @@ end
         @testset "$label" begin
             H = opsum((project(h, [i, i + 1]) for i in 1:(N - 1)))
 
-            Ws, secs = irrep_mpo(opsum(sites, H))
+            Ws, secs = reduced(mpo(opsum(sites, H)))
             @test length(secs) == N
 
             # faithful at the reduced level

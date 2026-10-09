@@ -174,7 +174,7 @@ return, what `+`, `-`, `*` and `/` combine, and what [`opsum`](@ref) accumulates
 
 Nothing in the term algebra, and nothing in the MPO sweep, needs a physical space — the sweep needs
 only the site *count* — so the lattice enters when the terms are added to an [`OperatorSum`](@ref),
-which is what `irrep_mpo`, `instantiate`, `islossless` and `adjoint` take.
+which is what `mpo`, `instantiate`, `islossless` and `adjoint` take.
 
 Terms are appended as given, so the bag is unnormalised until [`canonicalize!`](@ref) puts it in
 normal form in place. `length(ts)`, iteration, indexing and `≈` all go through that, so they report

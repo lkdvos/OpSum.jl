@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: irrep_mpo, mpo_terms, instantiate
+using OpSum: mpo, mpo_terms, instantiate
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: norm
@@ -72,7 +72,8 @@ end
         @test !isempty(H)
         @test length(H.lattice) == N
 
-        Ws, secs = irrep_mpo(H)
+        W = mpo(H)
+        Ws, secs = W.Ws, W.bondsectors
         @test length(secs) == N
 
         # Faithfulness: the reduced MPO reconstructs every original term exactly.

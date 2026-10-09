@@ -30,11 +30,12 @@ h = dot(S[1], S[2])
 
 lat = FiniteChain(V, 2)
 H2 = opsum(lat, h)
-mpo = irrep_mpo(H2)
+W = mpo(H2)
 
-# The MPO destructures as the pair it holds, on either lattice:
+# A [`SymbolicMPO`](@ref OpSum.SymbolicMPO) holds, per site, a sparse matrix of on-site operators
+# (`W[i]`, or `W.Ws`), and per bond the charges of its indices (`W.bondsectors`), on either lattice:
 
-Ws, secs = mpo
+Ws, secs = W.Ws, W.bondsectors
 length(secs)
 
 # ## Three ways to check it

@@ -218,11 +218,11 @@ sweeps(smoke, ci, full) = Dict(:smoke => smoke, :ci => ci, :full => full)
 # all-to-all models are `Θ(N³)` -- there the bond coefficient matrix `J(n,m)` restricted to
 # `n <= b < m` is genuinely dense, so that is intrinsic to an exact minimum-vertex-cover sweep rather
 # than an artefact. Use `SVDBondAlgorithm` with truncation for large long-range systems.
-# Bond-dimension metrics cost a single `irrep_mpo` call while timings cost several samples, so the
+# Bond-dimension metrics cost a single `mpo` call while timings cost several samples, so the
 # metric sweeps run to roughly twice the size.
 #
 # NOTE on reading the timing figures: with the compression linear, the plotted *total* for a
-# finite-range model is now dominated by the symbolic term accumulation, not by `irrep_mpo`. The
+# finite-range model is now dominated by the symbolic term accumulation, not by `mpo`. The
 # `phases` figure breaks the two apart, and it is the one to look at when judging the compression.
 const MODELS = ModelSpec[
     ModelSpec(
@@ -332,7 +332,8 @@ Deterministic (timing-free) MPO statistics for one model at one size.
 """
 function model_metrics(spec::ModelSpec, N::Int)
     H = spec.build(N)
-    Ws, secs = irrep_mpo(H)
+    m = mpo(H)
+    Ws, secs = m.Ws, m.bondsectors
     return (
         size = N,
         nterms = length(H),

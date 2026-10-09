@@ -99,14 +99,14 @@ end
         H = opsum(FiniteChain(site.B, N), (-t * site.e[i] for i in 1:(N - 1)), (U * site.u[i] for i in 1:N))
         @test islossless(H)
         b = N ÷ 2
-        @test centre(irrep_mpo(H).bondsectors, b) == now            # handoff §5
+        @test centre(mpo(H).bondsectors, b) == now            # handoff §5
         # the same model in matrix units
         Hm = opsum(
             FiniteChain(site.V, N),
             (-t * project(site.ehop)[i] for i in 1:(N - 1)),
             (U * project(site.ud)[i] for i in 1:N),
         )
-        @test centre(irrep_mpo(Hm).bondsectors, b) == today
+        @test centre(mpo(Hm).bondsectors, b) == today
 
         Hmps = instantiate(mpo(H))
         ref = FiniteMPOHamiltonian(
@@ -125,10 +125,10 @@ end
     pairs_ = [(i, j) for i in 1:N for j in (i + 1):N]
     H = opsum(FiniteChain(site.B, N), (tij[i, j] * site.e[i, j] for (i, j) in pairs_))
     @test islossless(H)
-    @test centre(irrep_mpo(H).bondsectors, N ÷ 2) == 22
+    @test centre(mpo(H).bondsectors, N ÷ 2) == 22
     ehop = project(site.ehop)
     Hm = opsum(FiniteChain(site.V, N), (tij[i, j] * ehop[i, j] for (i, j) in pairs_))
-    @test centre(irrep_mpo(Hm).bondsectors, N ÷ 2) == 42
+    @test centre(mpo(Hm).bondsectors, N ÷ 2) == 42
 end
 
 @testset "the SymbolicMPO itself" begin
@@ -153,4 +153,21 @@ end
     @test isempty(Wd.start)
     @test_throws ArgumentError jordan_mpo_tensors(Wd)
     @test_throws ArgumentError instantiate(Wd)
+end
+
+@testset "an infinite chain with a decaying interaction" begin
+    # Σ_{i<j} λ^{j-i-1} Zᵢ Zⱼ + h Σ Xᵢ against MPSKit's own construction, truncated at range R
+    λ, hx, R = 0.4, 0.3, 40
+    Zm, Xm = ComplexF64[1 0; 0 -1], ComplexF64[0 1; 1 0]
+    P = Basis([Xm, Zm])
+    Z, X = project(Zm, P), project(Xm, P)
+    H = opsum(InfiniteChain(P), expterm(couple(Z[1], Z[2]); decay = λ), hx * X[1])
+    Hmps = instantiate(mpo(H))
+    V = ℂ^2
+    ZZ = TensorMap(kron(Zm, Zm), V ⊗ V ← V ⊗ V)
+    ref = InfiniteMPOHamiltonian(
+        [V], ((1, 1 + r) => λ^(r - 1) * ZZ for r in 1:R)..., (1,) => hx * TensorMap(Xm, V ← V)
+    )
+    ψ = InfiniteMPS([V], [ℂ^6])
+    @test expectation_value(ψ, Hmps) ≈ expectation_value(ψ, ref) atol = 1.0e-10
 end

@@ -7,7 +7,7 @@
 #   julia --project research/progression.jl
 
 using OpSum
-using OpSum: IrrepTensorOperators, instantiate, irrep_mpo, irrep_mpo_tensors, mpo_terms,
+using OpSum: IrrepTensorOperators, instantiate, mpo, irrep_mpo_tensors, mpo_terms,
     mpo_tensormap, islossless, jordan_mpo_tensors, opsum, couple, couple_channels, spin, spin_ops, fermion_ops,
     matrixunit, scalarop, project, expterm, OperatorSum, opsum!, FiniteChain, InfiniteChain
 using TensorKit
@@ -15,7 +15,7 @@ using TensorKit: FermionParity, FermionNumber, U1Irrep, SU2Irrep, removeunit, nu
 using MatrixAlgebraKit: truncrank
 using LinearAlgebra: dot, norm
 
-report(label, H) = let m = irrep_mpo(H)
+report(label, H) = let m = mpo(H)
     D = maximum(length, m.bondsectors)
     Dd = maximum(s -> sum(dim, s), m.bondsectors)
     ok = islossless(H)
@@ -32,10 +32,10 @@ S = spin(V½)
 
 lat = FiniteChain(V½, 2)                         # the lattice ...
 H0 = opsum(lat, dot(S[1], S[2]))                 # ... enters with the terms: an OperatorSum
-mpo = report("0.1 one bond", H0)
-Ws, secs = mpo                                   # FiniteMPO destructures as the pair
+W0 = report("0.1 one bond", H0)
+Ws, secs = W0.Ws, W0.bondsectors                 # a SymbolicMPO's reduced data
 @assert mpo_terms(Ws, secs) ≈ H0.terms           # faithfulness compares latticeless term bags
-@assert mpo_tensormap(irrep_mpo_tensors(mpo, lat)) ≈ instantiate(H0)
+@assert mpo_tensormap(irrep_mpo_tensors(W0)) ≈ instantiate(H0)
 
 # ── Tier 1 · the on-site alphabet, abelian ─────────────────────────────────────────────────────
 # 1.1 trivial sector: write the matrices down and project them
@@ -177,7 +177,8 @@ powerlaw(N; α = 2.0) = opsum(
 report("7.1 power law α=2, N=10", powerlaw(10))
 let H6 = powerlaw(6), oracle = instantiate(H6), l6 = H6.lattice
     for k in (8, 4, 2)
-        Wt, st = irrep_mpo(H6, SVDBondAlgorithm(truncrank(k)))
+        m = mpo(H6, SVDBondAlgorithm(truncrank(k)))
+        Wt, st = m.Ws, m.bondsectors
         err = norm(mpo_tensormap(irrep_mpo_tensors(Wt, st, l6)) - oracle) / norm(oracle)
         println(
             "     truncrank($k): D_dense=", maximum(s -> sum(dim, s), st),
@@ -188,23 +189,23 @@ end
 
 # ── Tier 8 · infinite chains ───────────────────────────────────────────────────────────────────
 # the *same* container and call; only the lattice and the return type change
-inf1 = irrep_mpo(opsum(InfiniteChain([V½]), dot(S[1], S[2])))
+inf1 = mpo(opsum(InfiniteChain([V½]), dot(S[1], S[2])))
 println(rpad("8.1 infinite Heisenberg (L=1)", 42), " ", inf1)
-inf2 = irrep_mpo(
+inf2 = mpo(
     opsum(InfiniteChain([V½, V½]), 0.6 * dot(S[1], S[2]) + 1.4 * dot(S[2], S[3])),
 )
 println(rpad("8.2 dimerised, L=2", 42), " ", inf2)
 # 8.3 exponential decay: finite and infinite, same operator
 hexp = (dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.4))
-println(rpad("8.3 exp decay, FiniteChain", 42), " ", irrep_mpo(opsum(FiniteChain(V½, 8), hexp)))
-println(rpad("8.3 exp decay, InfiniteChain", 42), " ", irrep_mpo(opsum(InfiniteChain([V½]), hexp)))
+println(rpad("8.3 exp decay, FiniteChain", 42), " ", mpo(opsum(FiniteChain(V½, 8), hexp)))
+println(rpad("8.3 exp decay, InfiniteChain", 42), " ", mpo(opsum(InfiniteChain([V½]), hexp)))
 
 # ── Tier 9 · operators that are not Hamiltonians ───────────────────────────────────────────────
 Sops = spin_ops(Vu, up, dn)
 lat5 = FiniteChain(Vu, 5)
 report("9.1 total magnetisation Σ Sᶻ", opsum(lat5, Sops.Sz[i] for i in 1:5))
 report("9.2 correlator Sᶻ₁Sᶻ₄", opsum(lat5, couple(Sops.Sz[1], Sops.Sz[4])))
-# 9.3 a *charged* operator: fine for irrep_mpo, refused by the Jordan emission
+# 9.3 a *charged* operator: fine for mpo, refused by the Jordan emission
 chg = opsum(FiniteChain(Vf, 4), F.cd[2])
 report("9.3 charged: c†₂", chg)
 println(
@@ -221,7 +222,7 @@ report("9.4 string n₁n₂n₃n₄", opsum(FiniteChain(Vf, 4), couple(F.n[1], F
 # ── Tier 10 · handing it onward ────────────────────────────────────────────────────────────────
 Wj = jordan_mpo_tensors(heisenberg(6))
 println(rpad("10.2 Jordan form bond sizes", 42), " ", map(W -> size(W, 4), Wj))
-Ti = irrep_mpo_tensors(inf1, InfiniteChain([V½]))
+Ti = irrep_mpo_tensors(inf1)
 println(
     rpad("10.3 infinite tensors tile", 42), " ",
     space(Ti[1], 1) == space(Ti[end], 4)'

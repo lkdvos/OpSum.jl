@@ -29,13 +29,13 @@ tail = expterm(dot(S[1], S[2]); decay = 0.6)
 # lattice — the channel is just another argument of `opsum`.
 
 H = opsum(InfiniteChain([V]), dot(S[1], S[2]), tail)
-irrep_mpo(H)
+mpo(H)
 
 # One extra bond index buys the entire tail. Compare the same model without it:
 
 let cell = InfiniteChain([V])
-    bare = irrep_mpo(opsum(cell, dot(S[1], S[2])))
-    with = irrep_mpo(H)
+    bare = mpo(opsum(cell, dot(S[1], S[2])))
+    with = mpo(H)
     println("  nearest neighbour only:  D=", map(length, bare.bondsectors))
     println("  + geometric tail:        D=", map(length, with.bondsectors))
 end
@@ -49,7 +49,7 @@ end
 # by `L`.
 
 Hfinite = opsum(FiniteChain(V, 8), dot(S[1], S[2]), tail)
-irrep_mpo(Hfinite)
+mpo(Hfinite)
 
 # The finite MPO is not translation-invariant at the edges — the tail has fewer places to start near
 # the right end — which is why its bond dimensions taper. The interior is what the infinite cell
@@ -59,7 +59,8 @@ irrep_mpo(Hfinite)
 # [`OpSum.chain_terms`](@ref) writes them out. So the finite case is checkable the ordinary way:
 
 let H6 = opsum(FiniteChain(V, 6), dot(S[1], S[2]), tail)
-    Ws, secs = irrep_mpo(H6)
+    m = mpo(H6)
+    Ws, secs = m.Ws, m.bondsectors
     mpo_terms(Ws, secs) ≈ OpSum.chain_terms(H6)
 end
 
@@ -73,7 +74,8 @@ end
 base = only(dot(S[1], S[2])).coeff
 
 let lat = FiniteChain(V, 5), λ = 0.5
-    Ws, secs = irrep_mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = λ)))
+    m = mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = λ)))
+    Ws, secs = m.Ws, m.bondsectors
     for t in mpo_terms(Ws, secs)
         gap = t.sites[end] - t.sites[1] - 1
         println("  sites=", t.sites, "  gap=", gap, "  coeff/base=", round(real(t.coeff / base); digits = 6))
@@ -90,7 +92,8 @@ end
 # coupling; it doubles the coefficient at sites `[1, 2]` and nowhere else:
 
 let lat = FiniteChain(V, 4), λ = 0.5
-    Ws, secs = irrep_mpo(opsum(lat, dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = λ)))
+    m = mpo(opsum(lat, dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = λ)))
+    Ws, secs = m.Ws, m.bondsectors
     for t in mpo_terms(Ws, secs)
         println("  sites=", t.sites, "  coeff/base=", round(real(t.coeff / base); digits = 6))
     end
@@ -120,7 +123,7 @@ Hstring = opsum(
     couple(Su.Sp[1], Su.Sm[2]),
     expterm(couple(Su.Sp[1], Su.Sm[2]); decay = 0.5, string = parity)
 )
-irrep_mpo(Hstring)
+mpo(Hstring)
 
 # ## Multi-site blocks on either end
 #
@@ -130,7 +133,7 @@ irrep_mpo(Hstring)
 Hblock = expterm(
     couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[4]); decay = 0.5, exitsite = 4
 )
-irrep_mpo(opsum(InfiniteChain([V]), dot(S[1], S[2]), Hblock))
+mpo(opsum(InfiniteChain([V]), dot(S[1], S[2]), Hblock))
 
 # ## A sum of exponentials
 #
@@ -140,12 +143,12 @@ irrep_mpo(opsum(InfiniteChain([V]), dot(S[1], S[2]), Hblock))
 
 let cell = InfiniteChain([V]), λs = (0.9, 0.5, 0.1)
     h = opsum(cell, dot(S[1], S[2]), (expterm(dot(S[1], S[2]); decay = λ) for λ in λs))
-    println("  three decays:   D=", map(length, irrep_mpo(h).bondsectors))
+    println("  three decays:   D=", map(length, mpo(h).bondsectors))
     dup = opsum(
         cell, dot(S[1], S[2]),
         expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[1], S[2]); decay = 0.5)
     )
-    println("  two identical:  D=", map(length, irrep_mpo(dup).bondsectors))
+    println("  two identical:  D=", map(length, mpo(dup).bondsectors))
 end
 
 # So the cost is one index per *distinct* channel, and a fitted power law costs what its fit needs —

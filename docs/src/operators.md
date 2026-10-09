@@ -8,7 +8,7 @@ material through concrete models; [Reference](@ref) lists every docstring.
 ## The shape of the pipeline
 
 ```
-TensorMap ──project──► SiteOperator / LocalOperator ──A[i], B[i, j]──► Terms ──opsum(lat, …)──► OperatorSum ──irrep_mpo──► MPO
+TensorMap ──project──► SiteOperator / LocalOperator ──A[i], B[i, j]──► Terms ──opsum(lat, …)──► OperatorSum ──mpo──► SymbolicMPO
 ```
 
 
@@ -16,7 +16,7 @@ A bag of terms is **latticeless**: nothing in the term algebra needs a physical 
 compression itself needs only the *number* of sites.
 The lattice enters when the terms are added to an [`OperatorSum`](@ref OpSum.OperatorSum), which
 is the one container that holds a lattice, the terms placed on it, and any exponentially decaying
-channels — and the one thing `irrep_mpo`, `instantiate` and `islossless` take.
+channels — and the one thing `mpo`, `instantiate` and `islossless` take.
 Six types carry the whole interface:
 
 | Type | What it is | How you get one |
@@ -26,14 +26,14 @@ Six types carry the whole interface:
 | [`Terms`](@ref OpSum.Terms) | the compressible operator: a bag of [`Term`](@ref OpSum.Term)s, no lattice | `A[i]`, `B[i]` / `B[i, j]`, [`couple`](@ref OpSum.couple), [`couple_channels`](@ref OpSum.couple_channels), `dot`, [`project`](@ref OpSum.project)`(h, sites)`, [`opsum`](@ref OpSum.opsum), `+`, `*`, `append!`, `copy`, `zero`, `one` |
 | [`FiniteChain`](@ref OpSum.FiniteChain) / [`InfiniteChain`](@ref OpSum.InfiniteChain) | the lattice: one physical space per site | `FiniteChain(V, N)`, `InfiniteChain([V])` |
 | [`OperatorSum`](@ref OpSum.OperatorSum) | a lattice plus the terms (and channels) on it; letters are checked against the spaces as they enter | [`opsum`](@ref OpSum.opsum)`(lat, terms...)`, `OperatorSum(lat)` + [`opsum!`](@ref OpSum.opsum!), `+`, `*`, `H'` |
-| [`FiniteMPO`](@ref OpSum.FiniteMPO) / [`InfiniteMPO`](@ref OpSum.InfiniteMPO) | the reduced MPO | [`irrep_mpo`](@ref OpSum.irrep_mpo) |
+| [`SymbolicMPO`](@ref OpSum.SymbolicMPO) | the compressed MPO, on either lattice; with MPSKit loaded `instantiate(W)` is MPSKit's Hamiltonian | [`mpo`](@ref OpSum.mpo) |
 
 Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
 list.
 The full surface is `IrrepOperator`, `spin`, `spin_ops`, `fermion_ops`, `scalarop`, `project`,
 `LocalOperator`, `matrixunit`, `islossless`, `mpo_tensormap`, `Term`, `Terms`, `couple`, `opsum`,
-`canonicalize!`, `OperatorSum`, `opsum!`, `AbstractLattice`, `FiniteChain`, `InfiniteChain`, `irrep_mpo`,
-`irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`, `instantiate`, `FiniteMPO`, `InfiniteMPO`,
+`canonicalize!`, `OperatorSum`, `opsum!`, `AbstractLattice`, `FiniteChain`, `InfiniteChain`, `Basis`,
+`mpo`, `SymbolicMPO`, `irrep_mpo_tensors`, `jordan_mpo_tensors`, `mpo_terms`, `instantiate`,
 `expterm`, `ExpSum`,
 `BipartiteAlgorithm`, `SVDBondAlgorithm` and the bond-basis strategies `VertexCover`,
 `IndependentSVD`, `SequentialSVD`.
@@ -319,15 +319,15 @@ the input, throwing if the result is not faithful.
 ## Building the MPO
 
 ```@example ops
-mpo = irrep_mpo(Hxxz)
-Ws, secs = mpo                    # a FiniteMPO destructures as the pair
+W = mpo(Hxxz)
+Ws, secs = W.Ws, W.bondsectors    # per site a sparse bond matrix, per bond its charges
 map(length, secs)
 ```
 
 `Ws[i]` is the sparse bond matrix at site `i` and `secs[i]` lists the charge of each bond index to
 its right, so `length(secs[i])` is the reduced bond dimension and `sum(dim, secs[i])` the
 dense-equivalent one.
-`irrep_mpo_tensors(mpo, sites)` assembles symmetric `TensorMap`s in the
+`irrep_mpo_tensors(W)` assembles symmetric `TensorMap`s in the
 MPSKit leg convention ``B_{i-1} \otimes V_i \leftarrow V_i \otimes B_i``.
 
 The optional second argument selects the bond algorithm: `BipartiteAlgorithm()` (default, lossless
@@ -342,7 +342,7 @@ Three tiers:
 | needs | what |
 |---|---|
 | site indices and charges only | `couple`, `dot`, placement, `Terms`' `opsum`, `canonicalize!`, `≈` |
-| the site **count** `N` (or the cell period `L`) | the whole sweep: `irrep_mpo`, `mpo_terms` |
+| the site **count** `N` (or the cell period `L`) | the whole sweep: `mpo`, `mpo_terms` |
 | the **spaces** | letter validation, `H'`, `instantiate`, `irrep_mpo_tensors` |
 
 The compression never looks at a physical space: it reads `N` off the lattice and works on charges
@@ -368,7 +368,7 @@ The natural shape for a model builder is to return the `OperatorSum`:
 ```julia
 heisenberg(N; J = 1.0) = opsum(FiniteChain(Vsu2, N), J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
 
-irrep_mpo(heisenberg(64))
+mpo(heisenberg(64))
 ```
 
 `FiniteChain(V, N)` is the uniform chain, and replaces the `fill(V, N)` idiom.
@@ -383,8 +383,8 @@ when `trunc === nothing`, and differ only once truncation bites:
 | `SequentialSVD` | `k` retained indices **after upstream truncation** — each bond is compressed in the basis the previous bond left behind, so an aggressive early truncation can starve the downstream bonds |
 
 ```julia
-irrep_mpo(H, SVDBondAlgorithm(truncrank(8)))                        # per-bond
-irrep_mpo(H, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
+mpo(H, SVDBondAlgorithm(truncrank(8)))                        # per-bond
+mpo(H, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
 ```
 
 ### Jordan form, for an MPO library
@@ -407,8 +407,8 @@ Wsj = jordan_mpo_tensors(Hxxz)
 map(W -> size(W, 4), Wsj)
 ```
 
-This is what MPSKit's `JordanMPOTensor` and `FiniteMPOHamiltonian` consume; OpSum itself does not
-depend on MPSKit.
+This is what MPSKit's `JordanMPOTensor` and `FiniteMPOHamiltonian` / `InfiniteMPOHamiltonian`
+consume; with MPSKit loaded, `instantiate(mpo(H))` builds them (MPSKit is only a weak dependency).
 Since every bond space is already known exactly, the consumer needs no
 space-deduction fixed point.
 
@@ -417,7 +417,7 @@ bond index on them: a chain with no on-site fields has nothing starting to the r
 bonds, so the minimum vertex cover legitimately omits the start channel there, and nothing has
 finished yet at the first bonds.
 The emitted MPO is therefore minimal among *Jordan-form* MPOs and
-can exceed `irrep_mpo`'s unconstrained minimum by at most two indices per bond — in practice `+1` at
+can exceed the cover's minimum (`mpo(H).bondsectors`) by at most two indices per bond — in practice `+1` at
 the first internal bond and `+1` at the last, `0` in the bulk.
 The padded channels are pure identity
 chains that cost no dense storage and cannot change the operator.
@@ -435,13 +435,13 @@ string order parameter is one term with a run of active sites.
 
 The one place the two paths genuinely diverge is a **charged** operator — total charge other than
 `unit(I)`, such as a bare `F.cd[2]`.
-[`irrep_mpo`](@ref OpSum.irrep_mpo) compresses it happily, and
+[`mpo`](@ref OpSum.mpo) compresses it happily, and
 [`irrep_mpo_tensors`](@ref OpSum.irrep_mpo_tensors) assembles it: the bond data carries the charge
 and the last bond is simply not the unit sector.
 [`jordan_mpo_tensors`](@ref OpSum.jordan_mpo_tensors) **refuses** it, for the reason in the paragraph
 above — a Jordan MPO's right boundary is an identity, and a charged operator has no such boundary.
 So
-build charged objects and measure with them through `irrep_mpo`; the Jordan emission is for
+build charged objects and measure with them through `mpo` and `irrep_mpo_tensors`; the Jordan emission is for
 Hamiltonians handed to an MPS algorithm.
 
 ## Infinite chains
@@ -454,31 +454,30 @@ chain = InfiniteChain([V])            # one site per unit cell
 Hgen = opsum(
     chain, 0.5 * couple(Sp[1], Sm[2]) + 0.5 * couple(Sm[1], Sp[2]) + couple(Sz[1], Sz[2])
 )
-Hinf = irrep_mpo(Hgen)
+Hinf = mpo(Hgen)
 ```
 
 The call has the same shape as the finite one: the operator is an
 [`OperatorSum`](@ref OpSum.OperatorSum) — its terms exactly what `couple` returns — and the lattice
 says which chain to tile it over.
-The only difference is what comes back, an [`InfiniteMPO`](@ref OpSum.InfiniteMPO) rather than a
-[`FiniteMPO`](@ref OpSum.FiniteMPO).
+What comes back is a [`SymbolicMPO`](@ref OpSum.SymbolicMPO) on the infinite chain.
 
 The argument is a **generating set**, not the Hamiltonian: the operator represented is
 ``\sum_{n \in \mathbb{Z}} \mathrm{translate}(H, nL)``, so each translation class must appear exactly
 once.
 Writing both `couple(Sz[1], Sz[2])` and `couple(Sz[2], Sz[3])` on a one-site cell would count the
-same class twice and is rejected by `irrep_mpo`; on a two-site cell they are different bonds and both are needed.
+same class twice and is rejected by `mpo`; on a two-site cell they are different bonds and both are needed.
 
 ```@example ops
-Hinf.bondsectors, Hinf.start, Hinf.done
+Hinf.bondsectors, Hinf.start, Hinf.finish
 ```
 
-An [`InfiniteMPO`](@ref OpSum.InfiniteMPO) holds `L` bond matrices and `L` bond-charge lists, with
-bond `0` identified with bond `L`, so `Ws, secs = Hinf` destructures exactly like a `FiniteMPO`.
+It holds `L` bond matrices and `L` bond-charge lists, with bond `0` identified with bond `L`, exactly
+like a finite one holds `N`.
 It also
 carries the two boundary vectors as bond indices: `start[j]` is the channel on which nothing has begun
-and `done[j]` the one on which everything has finished.
-`irrep_mpo_tensors(Hinf, chain)` assembles `L`
+and `finish[j]` the one on which everything has finished.
+`irrep_mpo_tensors(Hinf)` assembles `L`
 site tensors that tile — site 1's left virtual space is site `L`'s right virtual space.
 
 !!! note
@@ -509,12 +508,12 @@ Hexp = opsum(
     0.5 * couple(Sp[1], Sm[2]) + 0.5 * couple(Sm[1], Sp[2]),                  # nearest neighbour
     expterm(couple(Sz[1], Sz[2]); decay = 0.6),                               # + geometric Sᶻ tail
 )                                                # or a FiniteChain
-Hgeo = irrep_mpo(Hexp)
+Hgeo = mpo(Hexp)
 Hgeo.bondsectors
 ```
 
 The `expterm` channels live in the same [`OperatorSum`](@ref OpSum.OperatorSum) as the finite-range
-terms, so all four finite/infinite × plain/decaying cases use `irrep_mpo(H)`.
+terms, so all four finite/infinite × plain/decaying cases use `mpo(H)`.
 The lattice fixes the translation period: on an
 `L`-site cell the entry and the exit both step by `L` (and, as above, `H` is a generating set), while on
 a [`FiniteChain`](@ref OpSum.FiniteChain) every site is a possible entry and the operator represented
@@ -617,7 +616,7 @@ islossless(Hxxz)
 ```@example ops
 # 2. Tensor assembly — contract the MPO with `mpo_tensormap` and compare against the dense oracle.
 #    Exponential in N, but it stays inside TensorKit, so it is valid for fermions too.
-mpo_tensormap(irrep_mpo_tensors(mpo, sites)) ≈ instantiate(Hxxz)
+mpo_tensormap(irrep_mpo_tensors(W)) ≈ instantiate(Hxxz)
 ```
 
 3. **Spectrum** — the physics check, and the only honest route for fermions against an external
@@ -638,7 +637,7 @@ compression.
 | `couple: no pair of terms of the operands fuses to …` | the requested total charge is unreachable from the operands' charges |
 | `couple: every term of the second operand must be a single-site charged operator` | the right operand has a scalar (identity) part, or spans several sites |
 | `placement sites must be strictly increasing` | sorted-unique sites are a downstream invariant; placing a `LocalOperator` will not permute its slots for you, since that needs braiding and flips fermionic signs |
-| `irrep_mpo no longer takes a lattice` | the old `irrep_mpo(h, lat)`; write `irrep_mpo(opsum(lat, h))` |
+| `mpo takes an OperatorSum` | a bare term bag; write `mpo(opsum(lat, h))` |
 | `a term acts on site …, outside the lattice 1:N` | raised when the term is added: it reaches past the `FiniteChain` of the `OperatorSum` |
 | `letter … does not exist on site …` | the lattice's space at that site carries no operator of that charge — operator and lattice do not match |
 | `cannot add an operator over J to an OperatorSum on a lattice of sector type I` | operator and lattice carry different symmetries |

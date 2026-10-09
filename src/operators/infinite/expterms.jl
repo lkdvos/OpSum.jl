@@ -190,7 +190,7 @@ exit both step by `L`, on a finite chain by one site. `decay` counts per *site* 
 must satisfy `0 < |λ| < 1` — `λ = 1` is not summable.
 
 Add the result to an [`OperatorSum`](@ref) next to the finite-range terms, `opsum(lat, h, expterm(h;
-decay = λ))`, which is what `irrep_mpo` consumes.
+decay = λ))`, which is what `mpo` consumes.
 """
 function expterm(
         t::Terms{I}; decay, exitsite = nothing, string = nothing

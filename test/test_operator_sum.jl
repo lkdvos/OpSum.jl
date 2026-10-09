@@ -1,8 +1,7 @@
 using Test
 using OpSum
-using OpSum: OperatorSum, opsum!, opsum, irrep_mpo, irrep_mpo_tensors, jordan_mpo_tensors,
-    instantiate, islossless, mpo_tensormap, chain_terms, expterm, Terms, FiniteChain, InfiniteChain,
-    FiniteMPO, InfiniteMPO, couple, spin, spin_ops, fermion_ops
+using OpSum: OperatorSum, opsum!, opsum, mpo, irrep_mpo_tensors, jordan_mpo_tensors,
+    instantiate, islossless, mpo_tensormap, chain_terms, expterm, Terms, FiniteChain, InfiniteChain, couple, spin, spin_ops, fermion_ops
 using TensorKit
 using LinearAlgebra: dot
 
@@ -29,16 +28,16 @@ end
 @testset "the four cells share one container and one signature" begin
     fin, inf = FiniteChain(VSU2, 8), InfiniteChain(VSU2)
     cells = [
-        (opsum(fin, (b[i] for i in 1:7)), FiniteMPO, [4, 5, 5, 5, 5, 5, 4, 1]),
-        (opsum(inf, b[1]), InfiniteMPO, [5]),
-        (opsum(fin, b[1], expterm(b[1]; decay = 0.4)), FiniteMPO, [7, 5, 5, 5, 5, 5, 4, 1]),
-        (opsum(inf, b[1], expterm(b[1]; decay = 0.4)), InfiniteMPO, [8]),
+        (opsum(fin, (b[i] for i in 1:7)), FiniteChain, [4, 5, 5, 5, 5, 5, 4, 1]),
+        (opsum(inf, b[1]), InfiniteChain, [5]),
+        (opsum(fin, b[1], expterm(b[1]; decay = 0.4)), FiniteChain, [7, 5, 5, 5, 5, 5, 4, 1]),
+        (opsum(inf, b[1], expterm(b[1]; decay = 0.4)), InfiniteChain, [8]),
     ]
-    for (H, T, D) in cells
+    for (H, L, D) in cells
         @test H isa OperatorSum
-        mpo = irrep_mpo(H)
-        @test mpo isa T
-        @test [densedim(mpo.bondsectors, k) for k in eachindex(mpo.bondsectors)] == D
+        W = mpo(H)
+        @test W isa SymbolicMPO{SU2Irrep, <:L}
+        @test [densedim(W.bondsectors, k) for k in eachindex(W.bondsectors)] == D
         # islossless is a finite-chain check; an infinite chain is refused
         H.lattice isa FiniteChain ? (@test islossless(H)) : @test_throws ArgumentError islossless(H)
     end
@@ -46,14 +45,17 @@ end
     # the dense oracle of a decaying model is the geometric sum truncated to the chain
     Hs = opsum(FiniteChain(VSU2, 4), b[1], expterm(b[1]; decay = 0.4))
     @test instantiate(Hs) ≈ instantiate(opsum(FiniteChain(VSU2, 4), chain_terms(Hs)))
-    @test mpo_tensormap(irrep_mpo_tensors(irrep_mpo(Hs), Hs.lattice)) ≈ instantiate(Hs)
+    @test mpo_tensormap(irrep_mpo_tensors(mpo(Hs))) ≈ instantiate(Hs)
 
-    # SVD and Jordan form exist on a plain finite chain only
-    @test irrep_mpo(cells[1][1], SVDBondAlgorithm(truncrank(6))) isa FiniteMPO
+    # SVD exists on a plain finite chain only; the Jordan form everywhere but on a finite chain with
+    # decaying channels, whose identity channels are not identified yet
+    @test mpo(cells[1][1], SVDBondAlgorithm(truncrank(6))) isa SymbolicMPO
     @test length(jordan_mpo_tensors(cells[1][1])) == 8
+    @test length(jordan_mpo_tensors(cells[2][1])) == 1
+    @test_throws ArgumentError jordan_mpo_tensors(cells[3][1])
+    @test length(jordan_mpo_tensors(cells[4][1])) == 1
     for i in 2:4
-        @test_throws ArgumentError jordan_mpo_tensors(cells[i][1])
-        @test_throws ArgumentError irrep_mpo(cells[i][1], SVDBondAlgorithm(truncrank(6)))
+        @test_throws ArgumentError mpo(cells[i][1], SVDBondAlgorithm(truncrank(6)))
     end
     @test_throws ArgumentError instantiate(cells[2][1])
 end
@@ -108,7 +110,7 @@ end
     @test Tf + Tf' ≈ opsum(FiniteChain(VF, 5), hops(i) for i in 1:4)
     ilat = InfiniteChain(VF)
     Ti = opsum(ilat, -1.0 * couple(F.cd[1], F.c[2]))
-    @test irrep_mpo(Ti + Ti').bondsectors == irrep_mpo(opsum(ilat, hops(1))).bondsectors
+    @test mpo(Ti + Ti').bondsectors == mpo(opsum(ilat, hops(1))).bondsectors
     @test_throws ArgumentError couple(F.cd[1], F.c[2])'                       # bare bag: no h'
     @test_throws ArgumentError opsum(FiniteChain(VSU2, 2), S[1])'             # charged term
     @test_throws ArgumentError opsum(lat, expterm(couple(U.Sp[1], U.Sm[2]); decay = 0.3))'
@@ -131,12 +133,12 @@ end
     @test_throws ArgumentError opsum(inf, expterm(couple(S[1], S[2]; to = SU2Irrep(1)); decay = 0.5))
     @test_throws ArgumentError opsum(InfiniteChain(VSU2_0), expterm(b[1]; decay = 0.5))
     # two representatives of one translation class are only visible across the set
-    @test occursin("translates of each other", argerr(() -> irrep_mpo(opsum(inf, b[1], b[2]))))
-    @test irrep_mpo(opsum(inf, b[1], b[1])) isa InfiniteMPO                   # a term twice is one term
+    @test occursin("translates of each other", argerr(() -> mpo(opsum(inf, b[1], b[2]))))
+    @test mpo(opsum(inf, b[1], b[1])) isa SymbolicMPO                   # a term twice is one term
 
     @test_throws ArgumentError instantiate(OperatorSum(lat))
     # the old `(h, lat)` forms point at the container
-    @test occursin("opsum(lat", argerr(() -> irrep_mpo(b[1], lat)))
+    @test occursin("opsum(lat", argerr(() -> mpo(b[1], lat)))
     @test_throws MethodError islossless(b[1], lat)
 end
 

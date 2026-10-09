@@ -132,7 +132,7 @@ end
         for perm in (reverse(eachindex(parts)), circshift(collect(eachindex(parts)), 1))
             alt = _infinite_window(unitcell_terms(opsum(chain, parts[collect(perm)])))
             @test alt.bondsectors == base.bondsectors
-            @test (alt.start, alt.done) == (base.start, base.done)
+            @test (alt.start, alt.finish) == (base.start, base.finish)
             @test all(j -> _entriesequal(alt.Ws[j], base.Ws[j]), 1:L)
         end
     end
@@ -141,11 +141,11 @@ end
 @testset "identity-channel detection" begin
     S = spin(VSU2)
     H = _infinite_window(unitcell_terms(opsum(InfiniteChain([VSU2]), dot(S[1], S[2]))))
-    @test _identity_channels(H.Ws, H.bondsectors) == (H.start, H.done)
+    @test _identity_channels(H.Ws, H.bondsectors) == (H.start, H.finish)
 
     # the start channel's column and the done channel's row each hold exactly one stored entry
     W = H.Ws[1]
-    s, d = H.start[1], H.done[1]
+    s, d = H.start[1], H.finish[1]
     @test count(idx -> Tuple(idx)[2] == s, first.(collect(OpSum.storedpairs(W)))) == 1
     @test count(idx -> Tuple(idx)[1] == d, first.(collect(OpSum.storedpairs(W)))) == 1
 
@@ -166,7 +166,7 @@ end
     S = spin(VSU2)
     for N in (4, 6, 8)
         H = sum([dot(S[i], S[i + 1]) for i in 1:(N - 1)])
-        _, secs = OpSum.irrep_mpo(opsum(FiniteChain(VSU2, N), H))
+        secs = OpSum.mpo(opsum(FiniteChain(VSU2, N), H)).bondsectors
         dense = [sum(dim, sec) for sec in secs]
         @test dense[1] == 4                       # spin-1 channel + identity
         @test all(==(5), dense[2:(N - 2)])        # bulk

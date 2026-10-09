@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate, spin, couple, matrixunit, SiteOperator, opsum, irrep_mpo
+using OpSum: instantiate, spin, couple, matrixunit, SiteOperator, opsum, mpo
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, nonzero_keys, eachspace
@@ -121,11 +121,11 @@ end
 end
 
 @testset "Jordan padding costs at most the two identity channels" begin
-    # `irrep_mpo` is minimal among all MPOs with its sparsity pattern; the Jordan form is minimal
+    # `mpo`'s cover is minimal among all MPOs with its sparsity pattern; the Jordan form is minimal
     # among *Jordan-form* MPOs, and the gap is exactly the padded start/finish channels.
     for (_, (H, sites)) in reference_models()
         N = length(sites)
-        _, secs = irrep_mpo(H)
+        _, secs = reduced(mpo(H))
         Ws = jordan_mpo_tensors(H)
         for i in 1:(N - 1)
             @test length(secs[i]) <= size(Ws[i], 4) <= length(secs[i]) + 2
@@ -140,7 +140,7 @@ end
     N = 6
     sites = FiniteChain(V, N)
     H = opsum(sites, dot(S[i], S[i + 1]) for i in 1:(N - 1))
-    @test map(length, irrep_mpo(H).bondsectors) == [2, 3, 3, 3, 2, 1]
+    @test map(length, mpo(H).bondsectors) == [2, 3, 3, 3, 2, 1]
     Ws = jordan_mpo_tensors(H)
     @test [size(W, 4) for W in Ws] == [3, 3, 3, 3, 3, 1]
     @test [size(W, 1) for W in Ws] == [1, 3, 3, 3, 3, 3]
@@ -153,8 +153,9 @@ end
     @test_throws ArgumentError jordan_mpo_tensors(opsum(FiniteChain(V, 3), S[i] for i in 1:3))
     # an empty operator has no bond structure at all
     @test_throws ArgumentError jordan_mpo_tensors(OperatorSum(FiniteChain(V, 3)))
-    # an infinite chain is not a Jordan-form target
-    @test_throws ArgumentError jordan_mpo_tensors(opsum(InfiniteChain([V]), dot(S[1], S[2])))
+    # an infinite chain's unit cell has a Jordan form, with both identity channels live
+    cell = jordan_mpo_tensors(opsum(InfiniteChain([V]), dot(S[1], S[2])))
+    @test length(cell) == 1 && cell[1][1, 1, 1, 1] isa BraidingTensor
     # a truncation aggressive enough to empty a bond cannot carry the identity corners
     H = opsum(FiniteChain(V, 4), dot(S[i], S[i + 1]) for i in 1:3)
     alg = SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD)

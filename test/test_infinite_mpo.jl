@@ -2,8 +2,8 @@ using Test
 using TensorKit
 using LinearAlgebra: dot
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms_window, window_terms, unitcell_terms,
-    translate, maxspan, termspan, InfiniteMPO, spin, matrixunit, couple, scalarop, instantiate
+using OpSum: mpo, irrep_mpo_tensors, mpo_terms_window, window_terms, unitcell_terms,
+    translate, maxspan, termspan, spin, matrixunit, couple, scalarop, instantiate
 using OpSum.IrrepTensorOperators: IrrepOperator
 
 # Reference models
@@ -87,7 +87,7 @@ function faithful(H, spaces; ncells = 5)
     N > R + 1 || error("window too small for the guard")
     # iterating a term bag canonicalises it, so coincident terms are already summed; `Term`'s `==`
     # and `hash` ignore the coefficient, which is what makes it the dictionary key here
-    got = Dict(t => t.coeff for t in mpo_terms_window(irrep_mpo(H), chain, ncells))
+    got = Dict(t => t.coeff for t in mpo_terms_window(mpo(H), ncells))
     want = Dict(t => t.coeff for t in window_terms(gen, ncells))
 
     for (t, v) in got                                    # soundness
@@ -111,7 +111,7 @@ end
 @testset "the unit cell closes and reports two identity channels" begin
     for (name, H, spaces) in reference_models()
         L = length(spaces)
-        Hinf = irrep_mpo(opsum(InfiniteChain(spaces), H))
+        Hinf = mpo(opsum(InfiniteChain(spaces), H))
         @test length(Hinf) == L
         @test length(Hinf.bondsectors) == L
         for j in 1:L                                     # bond 0 is bond L
@@ -120,9 +120,9 @@ end
         end
         # both channels exist everywhere, are distinct, and are charge-neutral
         I = sectortype(spaces[1])
-        @test all(j -> Hinf.start[j] != Hinf.done[j], 1:L)
+        @test all(j -> Hinf.start[j] != Hinf.finish[j], 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.start[j]] == unit(I), 1:L)
-        @test all(j -> Hinf.bondsectors[j][Hinf.done[j]] == unit(I), 1:L)
+        @test all(j -> Hinf.bondsectors[j][Hinf.finish[j]] == unit(I), 1:L)
         # so every bond carries at least the two identity channels
         @test all(j -> length(Hinf.bondsectors[j]) >= 2, 1:L)
     end
@@ -133,10 +133,10 @@ end
     # site-for-site: this is the sharp statement that the compression is translation-covariant, and
     # `L = 1` is where it is hardest because every bond then poses the same problem.
     S = spin(VSU2)
-    d1 = irrep_mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
+    d1 = mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
     for L in 2:4
         gen = sum([dot(S[i], S[i + 1]) for i in 1:L])
-        dL = irrep_mpo(opsum(InfiniteChain(fill(VSU2, L)), gen))
+        dL = mpo(opsum(InfiniteChain(fill(VSU2, L)), gen))
         @test length(dL) == L
         @test all(j -> dL.bondsectors[j] == d1.bondsectors[1], 1:L)
         @test all(j -> densedim(dL.bondsectors[j]) == 5, 1:L)
@@ -144,8 +144,8 @@ end
 
     # and the same for a model whose range exceeds the cell
     j1j2 = dot(S[1], S[2]) + 0.5 * dot(S[1], S[3])
-    a = irrep_mpo(opsum(InfiniteChain([VSU2]), j1j2))
-    b = irrep_mpo(
+    a = mpo(opsum(InfiniteChain([VSU2]), j1j2))
+    b = mpo(
         opsum(
             InfiniteChain([VSU2, VSU2]),
             dot(S[1], S[2]) + dot(S[2], S[3]) + 0.5 * (dot(S[1], S[3]) + dot(S[2], S[4]))
@@ -158,16 +158,16 @@ end
 @testset "reference bond dimensions" begin
     S = spin(VSU2)
     # textbook infinite Heisenberg: identity, one spin-1 channel in flight, identity
-    H = irrep_mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
+    H = mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
     @test H.bondsectors == [[SU2Irrep(0), SU2Irrep(1), SU2Irrep(0)]]
-    @test (H.start[1], H.done[1]) == (1, 3)
+    @test (H.start[1], H.finish[1]) == (1, 3)
     @test densedim(H.bondsectors[1]) == 5
 
     # one extra spin-1 channel per extra neighbour
     for (k, D) in ((2, 8), (3, 11), (4, 14))
         gen = sum([dot(S[1], S[1 + r]) for r in 1:k])
-        @test densedim(irrep_mpo(opsum(InfiniteChain([VSU2]), gen)).bondsectors[1]) == 3k + 2
-        @test densedim(irrep_mpo(opsum(InfiniteChain([VSU2]), gen)).bondsectors[1]) == D
+        @test densedim(mpo(opsum(InfiniteChain([VSU2]), gen)).bondsectors[1]) == 3k + 2
+        @test densedim(mpo(opsum(InfiniteChain([VSU2]), gen)).bondsectors[1]) == D
     end
 end
 
@@ -180,7 +180,7 @@ end
         for nc in (12, 19, 26)
             alt = OpSum._infinite_window(gen; ncells = nc)
             @test alt.bondsectors == base.bondsectors
-            @test (alt.start, alt.done) == (base.start, base.done)
+            @test (alt.start, alt.finish) == (base.start, base.finish)
             @test all(j -> OpSum._entriesequal(alt.Ws[j], base.Ws[j]), 1:L)
         end
     end
@@ -190,8 +190,8 @@ end
     for (name, H, spaces) in reference_models()
         L = length(spaces)
         lat = InfiniteChain(spaces)
-        Hinf = irrep_mpo(opsum(lat, H))
-        Ts = irrep_mpo_tensors(Hinf, lat)
+        Hinf = mpo(opsum(lat, H))
+        Ts = irrep_mpo_tensors(Hinf)
         @test length(Ts) == L
         # the tensors tile: site 1's left virtual space is site L's right virtual space
         @test space(Ts[1], 1) == space(Ts[L], 4)'
@@ -208,12 +208,12 @@ end
 
     # a translation class written twice would be counted twice (seen across the whole set, so when
     # the MPO is formed)
-    @test_throws ArgumentError irrep_mpo(opsum(lat, dot(S[1], S[2]) + dot(S[2], S[3])))
-    @test_throws ArgumentError irrep_mpo(opsum(lat, dot(S[1], S[3]) + dot(S[4], S[6])))
+    @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[2]) + dot(S[2], S[3])))
+    @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[3]) + dot(S[4], S[6])))
     # ... but the same pair of bonds is fine on a two-site cell
-    @test irrep_mpo(
+    @test mpo(
         opsum(InfiniteChain([VSU2, VSU2]), dot(S[1], S[2]) + dot(S[2], S[3]))
-    ) isa InfiniteMPO
+    ) isa SymbolicMPO
 
     # the per-term rules are checked as the term enters the container
     # `Σ_n c·𝟙` does not converge
@@ -221,12 +221,9 @@ end
     # a charged term has no translation-invariant running bond charge
     @test_throws ArgumentError opsum(lat, couple(S[1], S[2]; to = SU2Irrep(1)))
     # the SVD backend has no bond basis that closes on itself
-    @test_throws ArgumentError irrep_mpo(opsum(lat, dot(S[1], S[2])), SVDBondAlgorithm())
+    @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[2])), SVDBondAlgorithm())
 
     @test_throws ArgumentError InfiniteChain(typeof(VSU2)[])
-    # a unit-cell length mismatch between MPO and lattice
-    Hinf = irrep_mpo(opsum(lat, dot(S[1], S[2])))
-    @test_throws ArgumentError irrep_mpo_tensors(Hinf, InfiniteChain([VSU2, VSU2]))
 end
 
 @testset "translate / unitcell_terms / maxspan" begin
@@ -270,14 +267,14 @@ end
     for (name, H, spaces, ncells) in cases
         L = length(spaces)
         lat = InfiniteChain(spaces)
-        Hinf = irrep_mpo(opsum(lat, H))
+        Hinf = mpo(opsum(lat, H))
         N = ncells * L
         sites = [spaces[mod1(j, L)] for j in 1:N]
 
-        Ts = irrep_mpo_tensors(Hinf, lat)
+        Ts = irrep_mpo_tensors(Hinf)
         tiled = [Ts[mod1(j, L)] for j in 1:N]
-        O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.done[L])
-        oracle = instantiate(opsum(sites, mpo_terms_window(Hinf, lat, ncells)))
+        O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.finish[L])
+        oracle = instantiate(opsum(sites, mpo_terms_window(Hinf, ncells)))
         @test O ≈ oracle || (println("  $name mismatch"); false)
     end
 end

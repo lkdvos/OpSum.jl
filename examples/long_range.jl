@@ -122,7 +122,8 @@ end
 # what transfers, not the error.
 
 function truncation_error(H, alg; oracle = instantiate(H))
-    Ws, secs = irrep_mpo(H, alg)
+    m = mpo(H, alg)
+    Ws, secs = m.Ws, m.bondsectors
     nempty = count(b -> bonddim(secs, b) == 0, eachindex(secs))
     ## An emptied bond is not a large error but a degenerate MPO: the assembled tensor then carries
     ## an *empty* trailing charge leg, and subtracting the oracle throws a `SpaceMismatch` rather
@@ -182,7 +183,8 @@ end
 let H = powerlaw(8; α = 2.0), oracle = instantiate(H)
     for sweep in (IndependentSVD, SequentialSVD)
         for k in (6, 4, 2)
-            Ws, secs = irrep_mpo(H, SVDBondAlgorithm(truncrank(k); sweep))
+            m = mpo(H, SVDBondAlgorithm(truncrank(k); sweep))
+            Ws, secs = m.Ws, m.bondsectors
             r = truncation_error(H, SVDBondAlgorithm(truncrank(k); sweep); oracle)
             println(
                 "  ", rpad(string(sweep), 15), " truncrank($k)  per-bond = ", map(length, secs),
@@ -206,8 +208,8 @@ end
 # Losslessly the two coincide, which is the statement that neither sweep is doing anything exotic:
 
 let H = powerlaw(6; α = 3.0)
-    a = irrep_mpo(H, SVDBondAlgorithm(; sweep = IndependentSVD))
-    b = irrep_mpo(H, SVDBondAlgorithm(; sweep = SequentialSVD))
+    a = mpo(H, SVDBondAlgorithm(; sweep = IndependentSVD))
+    b = mpo(H, SVDBondAlgorithm(; sweep = SequentialSVD))
     (; same_bonds = a.bondsectors == b.bondsectors, both_lossless = islossless(H))
 end
 

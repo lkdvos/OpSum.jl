@@ -10,7 +10,7 @@ using TensorKit: Sector
 
 A Hamiltonian on a lattice: the lattice, a [`Terms`](@ref) bag of finite-range terms and an
 [`ExpSum`](@ref) of decaying channels. Build it with `opsum(lat, terms...)` or fill an
-`OperatorSum(lat)` with [`opsum!`](@ref); `irrep_mpo(H)`, `islossless(H)`, `instantiate(H)` and
+`OperatorSum(lat)` with [`opsum!`](@ref); `mpo(H)`, `islossless(H)`, `instantiate(H)` and
 `jordan_mpo_tensors(H)` take it. Terms are checked against the lattice as they enter. On an
 infinite chain `H` is a generating set, so terms must be charge-neutral and have `K ≥ 1`.
 """

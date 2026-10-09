@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: irrep_mpo, mpo_terms, spin, scalarop, couple, opsum
+using OpSum: mpo, mpo_terms, spin, scalarop, couple, opsum
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot
@@ -14,7 +14,7 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, islossless, densedim
         H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
         @test islossless(opsum(sites, H))
 
-        Ws, secs = irrep_mpo(opsum(sites, H))
+        Ws, secs = reduced(mpo(opsum(sites, H)))
         # right boundary is the trivial (singlet) total charge
         @test secs[N] == [SU2Irrep(0)]
         # every bond charge is 0 or 1 (nearest-neighbour spin coupling)
@@ -26,8 +26,10 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, islossless, densedim
     # bulk (deep-interior) bond of a longer chain: canonical Heisenberg structure
     N = 6
     V = SU2Space(1 // 2 => 1)
-    _, secs = irrep_mpo(
-        opsum(FiniteChain(V, N), dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+    _, secs = reduced(
+        mpo(
+            opsum(FiniteChain(V, N), dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+        )
     )
     b = 3    # a bulk bond
     @test count(==(SU2Irrep(0)), secs[b]) == 2      # identity-in + identity-out
@@ -48,7 +50,7 @@ end
     )
     @test islossless(opsum(sites, H))
 
-    _, secs = irrep_mpo(opsum(sites, H))
+    _, secs = reduced(mpo(opsum(sites, H)))
     @test secs[N] == [U1Irrep(0)]
     # internal bonds carry the flowing charges 0 and ±1
     @test all(all(c -> c in (U1Irrep(0), U1Irrep(1), U1Irrep(-1)), s) for s in secs)
@@ -65,7 +67,7 @@ end
         (couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:(N - 1))
     )
     @test islossless(opsum(sites, H))
-    _, secs = irrep_mpo(opsum(sites, H))
+    _, secs = reduced(mpo(opsum(sites, H)))
     @test all(all(==(unit(Trivial)), s) for s in secs)   # only the trivial charge exists
 end
 
@@ -76,7 +78,7 @@ end
     # a constant plus a coupling — both total charge 0
     H = opsum(scalarop(2.5, V)[1], dot(spin(V)[1], spin(V)[2]))
     @test islossless(opsum(sites, H))
-    _, secs = irrep_mpo(opsum(sites, H))
+    _, secs = reduced(mpo(opsum(sites, H)))
     @test secs[N] == [SU2Irrep(0)]
 end
 
@@ -86,7 +88,7 @@ end
     sites = fill(V, N)
     H = opsum(spin(V)[1], spin(V)[2], spin(V)[3])   # each term total charge 1
     @test islossless(opsum(sites, H))
-    _, secs = irrep_mpo(opsum(sites, H))
+    _, secs = reduced(mpo(opsum(sites, H)))
     @test secs[N] == [SU2Irrep(1)]
 end
 
@@ -96,7 +98,7 @@ end
     sites = fill(V, 3)
     H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
     @test islossless(opsum(sites, H))
-    _, secs = irrep_mpo(opsum(sites, H))
+    _, secs = reduced(mpo(opsum(sites, H)))
     @test secs[3] == [SU2Irrep(0)]
     # the internal bonds carry the caterpillar inner line (spin-1 after the first pair)
     @test SU2Irrep(1) in secs[2]
@@ -117,7 +119,7 @@ end
     )
     @test islossless(opsum(sites, H))
 
-    _, secs = irrep_mpo(opsum(sites, H))
+    _, secs = reduced(mpo(opsum(sites, H)))
     @test secs[N] == [SU2Irrep(0)]
     @test count(==(SU2Irrep(0)), secs[2]) == 2      # "identity so far" + "first pair already closed"
     @test count(==(SU2Irrep(0)), secs[3]) == 2
@@ -132,7 +134,7 @@ end
     # charges (1, 1, -1) fusing through inner line 2 to a net charge 1
     H = opsum(couple(couple(raise[1], raise[2]; to = U1Irrep(2)), lower[3]; to = U1Irrep(1)))
     @test islossless(opsum(sites, H))
-    _, secs = irrep_mpo(opsum(sites, H))
+    _, secs = reduced(mpo(opsum(sites, H)))
     @test secs[3] == [U1Irrep(1)]
     @test U1Irrep(2) in secs[2]           # inner-line charge on the bond after site 2
 end

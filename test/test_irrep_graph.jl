@@ -18,7 +18,7 @@
 
 using Test
 using OpSum
-using OpSum: irrep_mpo, irrep_mpo_tensors, mpo_terms, instantiate, spin, couple, scalarop,
+using OpSum: mpo, irrep_mpo_tensors, mpo_terms, instantiate, spin, couple, scalarop,
     opsum
 using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, VertexCover, IndependentSVD, SequentialSVD
 using OpSum: ITOTermTable, _irrep_sweep
@@ -181,7 +181,9 @@ const EXPECTED_BONDS = Dict{String, Vector{Vector{Pair{String, Int}}}}(
     "trivial on-site collides with two-site tail" => [["Trivial()" => 1], ["Trivial()" => 1], ["Trivial()" => 1]],
     "pure identity" => [["Irrep[SU₂](0)" => 1], ["Irrep[SU₂](0)" => 1], ["Irrep[SU₂](0)" => 1]],
     "identity plus bond" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1], ["Irrep[SU₂](0)" => 1]],
-    "identity plus two bonds" => [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
+    # `mpo` forces the finish channel into the cover (for the Jordan form), which here costs one
+    # trivial-charge index at bond 1; the unconstrained cover is pinned separately below
+    "identity plus two bonds" => [["Irrep[SU₂](0)" => 2, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]],
 )
 
 # the same, for the 8-site Heisenberg chain of the incremental-merge testset
@@ -190,7 +192,7 @@ const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["I
 @testset "VertexCover sweep — lossless, dense-exact, pinned bond sectors" begin
     for (name, H, sites) in reference_hamiltonians()
         N = length(sites)
-        Ws, secs = irrep_mpo(opsum(sites, H), BipartiteAlgorithm())
+        Ws, secs = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
         @testset "$name" begin
             # 1. faithfulness: the reduced MPO reconstructs the original term-sum exactly
             back = mpo_terms(Ws, secs)
@@ -214,8 +216,8 @@ end
     N = 4
     sites = fill(V, N)
     H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
-    Wdef, sdef = irrep_mpo(opsum(sites, H))
-    Wsel, ssel = irrep_mpo(opsum(sites, H), BipartiteAlgorithm())
+    Wdef, sdef = reduced(mpo(opsum(sites, H)))
+    Wsel, ssel = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     Wstr, sstr = _irrep_sweep(ITOTermTable(H, N), N, VertexCover())
     @test bondprofile(sdef) == bondprofile(ssel) == bondprofile(sstr)
     @test mpo_operator(Wdef, sdef, sites) ≈ mpo_operator(Wsel, ssel, sites)
@@ -235,7 +237,7 @@ end
         N = length(sites)
         2 <= N <= 3 || continue
         d = dim(sites[1])
-        Wg, sg = irrep_mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = SequentialSVD))
+        Wg, sg = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = SequentialSVD)))
         # `physmatrix` drops the boundary/charge legs, so it needs a densifiable (dim-1 total charge)
         # operator; a net-charge Hamiltonian (e.g. the spin-1 field sum) is excluded here.
         all(c -> dim(c) == 1, sg[end]) || continue
@@ -255,8 +257,8 @@ end
     for (name, H, sites) in reference_hamiltonians()
         N = length(sites)
         N >= 2 || continue
-        _, si = irrep_mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = IndependentSVD))
-        _, ss = irrep_mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = SequentialSVD))
+        _, si = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = IndependentSVD)))
+        _, ss = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = SequentialSVD)))
         @testset "$name" begin
             @test bondprofile(si[1:(N - 1)]) == bondprofile(ss[1:(N - 1)])
         end
@@ -270,7 +272,7 @@ end
     N = 8
     sites = fill(V, N)
     H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
-    Ws, secs = irrep_mpo(opsum(sites, H), BipartiteAlgorithm())
+    Ws, secs = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     @test bondprofile(secs) == HEISENBERG8_BONDS
     @test islossless(opsum(sites, H))
 end
@@ -291,13 +293,21 @@ end
                 opsum(scalarop(-1.5, V)[1], dot(S[1], S[2]), dot(S[2], S[3])),
             ),
         )
-        Ws, secs = irrep_mpo(opsum(sites, H), BipartiteAlgorithm())
+        Ws, secs = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
         @testset "$name" begin
             @test bondprofile(secs) == EXPECTED_BONDS[name]
             @test islossless(opsum(sites, H))
             @test mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ instantiate(opsum(sites, H))
         end
     end
+
+    # the same model without the forced finish channel: the cover's unconstrained minimum is one
+    # index smaller at bond 1, and is just as lossless
+    H = opsum(FiniteChain(sites), scalarop(-1.5, V)[1], dot(S[1], S[2]), dot(S[2], S[3]))
+    tt = OpSum.ITOTermTable(H.terms, 3)
+    Ws, secs = OpSum._irrep_sweep(tt, 3, OpSum.VertexCover())
+    @test bondprofile(secs) == [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]]
+    @test mpo_terms(Ws, secs) ≈ H.terms
 end
 
 @testset "suffix signature needs the running bond charge" begin
@@ -327,7 +337,7 @@ end
     @test OpSum._op_at_ito(tt, 1, 4) == OpSum._op_at_ito(tt, 2, 4)
     @test OpSum._op_at_ito(tt, 1, 3) != OpSum._op_at_ito(tt, 2, 3)
 
-    Wg, sg = irrep_mpo(opsum(sites, H), BipartiteAlgorithm())
+    Wg, sg = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     back = mpo_terms(Wg, sg)
     @test back ≈ H
     @test norm(instantiate(opsum(sites, back)) - instantiate(opsum(sites, H))) < 1.0e-10
@@ -357,7 +367,7 @@ end
     @test OpSum._op_at_ito(tt, 1, 3) == OpSum._op_at_ito(tt, 2, 3)
     @test OpSum._op_at_ito(tt, 1, 1) != OpSum._op_at_ito(tt, 2, 1)
 
-    Wg, sg = irrep_mpo(opsum(sites, H), BipartiteAlgorithm())
+    Wg, sg = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     @test length.(sg) == [1, 1, 1]          # the merge, exploited; naive lazy insertion gives [2,2,1]
     back = mpo_terms(Wg, sg)
     @test back ≈ H

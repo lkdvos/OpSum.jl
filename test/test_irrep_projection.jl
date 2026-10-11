@@ -403,7 +403,7 @@ end
     V = SU2Space(1 // 2 => 1)
     h = instantiate(opsum([V, V], dot(spin(V)[1], spin(V)[2])))
 
-    @test_throws ArgumentError project(h, [2, 1])                  # not increasing
+    @test project(h, [2, 1]) ≈ project(h, [1, 2])                 # out of order: re-coupled, S⃗₂·S⃗₁ = S⃗₁·S⃗₂
     # a repeated site is the on-site product: S⃗·S⃗ on one spin-½ is 3/4, once resolved in a sum
     @test convert(Array, instantiate(opsum(FiniteChain(V, 1), project(h, [1, 1]))))[:, :, 1] ≈
         0.75 * ComplexF64[1 0; 0 1]

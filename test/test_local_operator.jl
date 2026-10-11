@@ -110,7 +110,7 @@ end
 @testset "errors" begin
     B = project(instantiate(opsum([Vsu2, Vsu2], dot(S[1], S[2]))))
     @test_throws ArgumentError B[1, 2, 3]         # wrong index count
-    @test_throws ArgumentError B[2, 1]            # out of order: non-abelian reordering is deferred
+    @test B[2, 1] ≈ B[1, 2]                      # out of order: re-coupled, and S⃗₂·S⃗₁ = S⃗₁·S⃗₂
     @test_throws ArgumentError B[0]               # site < 1
     @test_throws ArgumentError LocalOperator(dot(S[1], S[3]), 2)     # support is not 1:K
     @test_throws ArgumentError B + project(instantiate(opsum(fill(Vsu2, 3), couple(S[1], S[2], S[3]))))

@@ -42,10 +42,10 @@ using LinearAlgebra: dot, eigvals, norm
 # Nothing is ever converted to a dense array, which matters for fermionic sectors where
 # `convert(Array, t)` is not a well-defined operation.
 #
-# Under an abelian symmetry the operands of `couple` may be written in any site order — the stored
-# form is site-ordered, so an out-of-order leg is inserted and the braiding phase (for fermions, the
-# anticommutation sign) comes with it. Non-abelian coupling still needs increasing site indices, since
-# reordering there would need F-moves. `H'` gives the hermitian-conjugate partner either way; it is
+# The operands of `couple` may be written in any site order — the stored form is site-ordered, so an
+# out-of-order leg is inserted and the braiding phase (for fermions, the anticommutation sign) comes
+# with it; under a non-abelian symmetry the legs are re-coupled into site order, which can give
+# several terms. `H'` gives the hermitian-conjugate partner either way; it is
 # the one operation on a term bag that needs the physical spaces, so it lives on the lattice-carrying
 # `OperatorSum` (`opsum(lat, terms...)`), where letters are also checked against the spaces.
 #

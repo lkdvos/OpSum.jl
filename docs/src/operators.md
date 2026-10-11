@@ -144,17 +144,16 @@ term = couple(Sz[1], Sz[2])
 
 Four rules govern `couple`:
 
-1. **Site order is free under an abelian symmetry, increasing otherwise.**
+1. **Site order is free.**
    A term is *stored* in site
    order, so an operand acting to the left of an earlier one has its leg inserted rather than
    appended, and the braiding phase that costs comes with it.
    Under a `UniqueFusion` symmetry — which
-   includes every fermionic sector — `couple` does that itself, so ``c^†_{i+1} c_i`` is written as it
+   includes every fermionic sector — that is a single sign, so ``c^†_{i+1} c_i`` is written as it
    reads and comes out as ``-c_i c^†_{i+1}``.
-   Under a non-abelian symmetry reordering would need
-   F-moves, so each operand must act strictly to the right of the ones before it.
-   (`dot` accepts
-   either order for any symmetry: two legs coupling to the unit sector need no F-move.)
+   Under a non-abelian symmetry the coupling is formed in the order written and re-coupled into
+   site order with F- and R-symbols (computed by TensorKit, cached per term shape), so one term
+   written out of order can become several.
 2. **Composite operands are fine.**
    Every side may have several letters; the coupling distributes
    over every combination, and combinations whose charges cannot fuse to `to` are dropped.
@@ -633,10 +632,10 @@ compression.
 
 | Message | Cause |
 |---|---|
-| `couple: … left of site … reordering the legs of a SimpleFusion() coupling needs F-moves` | out-of-order site indices under a non-abelian symmetry, where the reordering is not available; write them increasing |
 | `couple: no pair of terms of the operands fuses to …` | the requested total charge is unreachable from the operands' charges |
 | `couple: every term of the second operand must be a single-site charged operator` | the right operand has a scalar (identity) part, or spans several sites |
-| `… reordering the legs of a … coupling needs F-moves` (placement or `*`) | operators written out of site order under a non-abelian symmetry; write them in increasing site order (abelian symmetries reorder with the braiding phase, and a shared site is an on-site product) |
+| `re-coupling the legs of a … coupling … is not supported` | operators written out of site order under a symmetry with fusion multiplicities or non-symmetric braiding; write them in increasing site order |
+| `` `*` needs a forced channel `` | a product of two charged operators under a non-abelian symmetry; name the channel with `couple(…; to = c)` |
 | `… unresolved on-site product(s) …` | `length`, iteration or `≈` on a bag holding `a[i] * b[i]`; it is resolved in the site's basis when it enters an `OperatorSum` |
 | `mpo takes an OperatorSum` | a bare term bag; write `mpo(opsum(lat, h))` |
 | `a term acts on site …, outside the lattice 1:N` | raised when the term is added: it reaches past the `FiniteChain` of the `OperatorSum` |

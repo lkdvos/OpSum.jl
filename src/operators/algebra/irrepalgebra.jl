@@ -495,7 +495,9 @@ _isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(
 # checked (one `Nsymbol`) and no tree is built. When `b` acts further left its leg is *inserted* at
 # position `p` instead (see `_canreorder`): the running bond charges from `p` on are recomputed
 # (forced, by unique fusion) and the coefficient picks up one R-symbol per leg of `a` that `b` braids
-# past — for fermions, exactly the anticommutation sign.
+# past — for fermions, exactly the anticommutation sign. Under a non-abelian symmetry the leg is
+# appended in written order and the caterpillar re-coupled into site order (`_recouple`), which may
+# give several terms.
 function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
     out = Term{I}[]
     sizehint!(out, length(a) * length(b))
@@ -522,13 +524,6 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
                 s == sb && throw(ArgumentError("couple: operators must act on distinct sites"))
                 s > sb && (p = j; break)
             end
-            (p > na || reorder) || throw(
-                ArgumentError(
-                    "couple: the second operand acts on site $sb, left of site $(ta.sites[p]) of " *
-                        "the first, and reordering the legs of a $(FusionStyle(I)) coupling needs " *
-                        "F-moves, which is deferred. Write the operands in increasing site order."
-                )
-            )
 
             tgt = target(run, opb)
             # `nothing`: no channel of this pair can reach the requested total, so drop it — the
@@ -544,6 +539,12 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             coeff = ta.coeff * tb.coeff
             # graded tensor product of two operators: -1 iff both are fermion-odd
             _isfermionodd(run) && _isfermionodd(opb.c) && (coeff = -coeff)
+            if p <= na && !reorder
+                # non-abelian: append in written order, then re-couple into site order
+                keys_w = vcat(ta.keys, ITOKey{I}(opb, tot, 1))
+                append!(out, _recouple(vcat(ta.sites, sb), keys_w, coeff))
+                continue
+            end
             for j in 1:(p - 1)
                 sites[j] = ta.sites[j]
                 keys[j] = ta.keys[j]
@@ -589,10 +590,9 @@ costs is inserted with it. For a fermionic sector that phase *is* the anticommut
 couple(cd[i + 1], c[i]) == -couple(c[i], cd[i + 1])       # both spellings are available
 ```
 
-so a hand-written sign is now only a way to get it wrong. Under a
-non-abelian symmetry reordering needs F-moves and still throws: each operand after the first must
-then act to the **right** of every site before it. ([`dot`](@ref) accepts either order for any
-symmetry — with only two legs coupling to the unit sector, no F-move arises.)
+so a hand-written sign is now only a way to get it wrong. Under a non-abelian symmetry the operands
+may be written in any site order too: the coupling is formed in the order written and re-coupled
+into site order, so one pair of terms can give several, with F- and R-symbol coefficients.
 
 Both operands may be composite (several terms, e.g. from [`project`](@ref)): the coupling
 distributes over every pair of terms, and pairs whose charges cannot fuse to `to` are dropped. It is

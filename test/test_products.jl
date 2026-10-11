@@ -100,10 +100,14 @@ end
     @test D(ss[1, 3] * ss[2, 3]) ≈ D(ss[1, 3]) * D(ss[2, 3])                     # interleaved, shared site
     @test D(ss[3, 4] * ss[1, 2]) ≈ D(ss[3, 4]) * D(ss[1, 2])                     # disjoint: they commute
     @test (ss[3, 4] * ss[1, 2]) ≈ (ss[1, 2] * ss[3, 4])
-    # what is deferred, or not forced
-    @test_throws ArgumentError ss[1, 3] * ss[2, 4]               # interleaved without a shared site
-    @test_throws ArgumentError ss[2, 1]                           # reordering needs F-moves
+    @test D(ss[1, 3] * ss[2, 4]) ≈ D(ss[1, 3]) * D(ss[2, 4])                     # interleaved: re-coupled
+    @test D(ss[1, 4] * ss[3, 2]) ≈ D(ss[1, 4]) * D(ss[3, 2])
+    @test ss[2, 1] ≈ ss[1, 2]
     @test_throws ArgumentError S[1] * S[2]                        # charged: the channel is not forced
+    # a charged factor first: the two caterpillars are merged (F-moves), then re-coupled
+    Dc(x) = instantiate(opsum(lat, x))
+    @test Dc(S[3] * ss[1, 2]) ≈ Dc(ss[1, 2] * S[3])
+    @test Dc(S[2] * ss[1, 3]) ≈ Dc(ss[1, 3] * S[2])
 
     # the SU(2) Hubbard site: Σσ a†σ aσ on one site is n
     P, Sy = U1Irrep, SU2Irrep
@@ -115,6 +119,57 @@ end
     @test dense(lath, E[1, 1]) ≈ dense(lath, n[1])
     # a·n on one site is the second spinor element, which this basis lacks: resolving it throws
     @test_throws ArgumentError opsum(lath, E[1, 2] * E[2, 2])
+end
+
+# The oracle for re-coupling: the written-order caterpillar, materialised as written
+# (`_written_block` multiplies the letters' tensors in written order and fuses their charge legs by the
+# written tree), against the site-order terms it is re-expressed as.
+function recouples(sites, keys, coeff, Vs)
+    out = Terms{sectortype(first(Vs))}()
+    OpSum._written!(out, sites, keys, ComplexF64(coeff))
+    return OpSum._instantiate_terms(out, Vs) ≈ coeff * OpSum._written_block(keys, sites, Vs)
+end
+
+@testset "non-abelian re-coupling against the written-order product" begin
+    J = SU2Irrep
+    S1 = spin(SU2Space(1 => 1))
+    letter(x) = only(only(x).keys).op
+    Vs = fill(SU2Space(1 => 1), 4)
+    for j in (0, 1, 2), tot in J(j) ⊗ J(1)                       # every channel, three sites
+        a = only(couple(S1[1], S1[3]; to = J(j)))
+        keys = vcat(a.keys, OpSum.ITOKey{J}(letter(S1[2]), tot, 1))
+        @test recouples([1, 3, 2], keys, 0.7, Vs[1:3])
+        @test recouples([3, 2, 1], keys, 1.0, Vs[1:3])
+    end
+    a = only(couple(couple(S1[1], S1[3]; to = J(2)), S1[4]; to = J(1)))   # four sites, two orders
+    keys = vcat(a.keys, OpSum.ITOKey{J}(letter(S1[2]), J(1), 1))
+    @test recouples([1, 3, 4, 2], keys, 0.7, Vs)
+    @test recouples([4, 1, 3, 2], keys, 1.0, Vs)
+    # `couple` out of order gives the same terms
+    a = only(couple(S1[1], S1[3]; to = J(1)))
+    x = couple(Terms{J}([a]), S1[2]; to = J(1))
+    keys = vcat(a.keys, OpSum.ITOKey{J}(letter(S1[2]), J(1), 1))
+    @test OpSum._instantiate_terms(x, Vs[1:3]) ≈
+        a.coeff * only(S1[2]).coeff * OpSum._written_block(keys, [1, 3, 2], Vs[1:3])
+
+    # under an abelian symmetry the re-coupling is the R-symbol bookkeeping
+    t = only(couple(F.cd[1], F.c[2], F.cd[3], F.c[4]))
+    for p in ([3, 1, 4, 2], [2, 4, 1, 3], [4, 3, 2, 1])
+        out = Terms{FermionNumber}()
+        OpSum._written!(out, p, t.keys, 1.0 + 0im)
+        @test Terms{FermionNumber}(OpSum._recouple(p, t.keys, 1.0 + 0im)) ≈ out
+    end
+
+    # fermions under SU(2): E[q, p] = E[p, q]†, and interleaved products of spin-summed hoppings
+    P, Sy = U1Irrep, SU2Irrep
+    Bh = Basis([HO.e_plus_e_min(ComplexF64, P, Sy), HO.e_min_e_plus(ComplexF64, P, Sy), HO.e_num(ComplexF64, P, Sy)])
+    E = project(HO.e_plus_e_min(ComplexF64, P, Sy), Bh)
+    lat3, lat4 = FiniteChain(Bh, 3), FiniteChain(Bh, 4)
+    @test dense(lat3, E[3, 1]) ≈ dense(lat3, E[1, 3])'
+    @test dense(lat3, E[2, 1]) ≈ dense(lat3, E[1, 2])'
+    D(x) = dense(lat4, x)
+    @test D(E[1, 3] * E[2, 4]) ≈ D(E[1, 3]) * D(E[2, 4])
+    @test D(E[4, 1] * E[3, 2]) ≈ D(E[4, 1]) * D(E[3, 2])
 end
 
 @testset "on-site products on an infinite chain" begin

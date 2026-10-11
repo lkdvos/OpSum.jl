@@ -316,10 +316,13 @@ end
     @test_throws ArgumentError couple(F.cd[2], F.c[2])
     @test_throws ArgumentError couple(couple(F.cd[1], F.c[3]), F.n[3])
 
-    # non-abelian reordering needs F-moves and is refused
+    # non-abelian: re-coupled into site order (test_products.jl checks it against the dense product);
+    # to a singlet, three spin-½ vectors leave only j₁₂ = 1
     Vs = SU2Space(1 // 2 => 1)
     S2 = spin(Vs)
-    @test_throws ArgumentError couple(couple(S2[1], S2[3]; to = SU2Irrep(1)), S2[2])
+    t = only(couple(couple(S2[1], S2[3]; to = SU2Irrep(1)), S2[2]))
+    @test t.sites == [1, 2, 3]
+    @test bondcharges(tree(t)) == SU2Irrep[1, 1, 0]
 end
 
 @testset "the sign out-of-order couple supplies is the physical one" begin

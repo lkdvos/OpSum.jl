@@ -95,7 +95,8 @@ end
 # ``(\vec{S}_1\!\cdot\!\vec{S}_2)(\vec{S}_3\!\cdot\!\vec{S}_4)`` — the `j₁₂ = 0` channel is exactly
 # that product. The other two pairings, ``(\vec{S}_1\!\cdot\!\vec{S}_3)(\vec{S}_2\!\cdot\!\vec{S}_4)``
 # and ``(\vec{S}_1\!\cdot\!\vec{S}_4)(\vec{S}_2\!\cdot\!\vec{S}_3)``, are *linear combinations* of all
-# three channels, with coefficients given by recoupling (F-move) symbols.
+# three channels, with coefficients given by recoupling (F-move) symbols. Those need not be worked out
+# by hand: `dot(S[1], S[3]) * dot(S[2], S[4])` is that product, re-coupled into site order.
 #
 # So a specific physical ring-exchange operator is a particular linear combination of the three
 # channels rather than a single one. Since every combination has the same MPO bond structure, the

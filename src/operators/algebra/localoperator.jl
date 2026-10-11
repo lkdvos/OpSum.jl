@@ -58,8 +58,8 @@ so it is exact for any symmetry; sites inside a gap are pass-throughs, and pass-
 dropped.
 
 Other placements are products in slot order (operator-bases.md §3.5): on distinct sites out of order
-the legs are reordered with their braiding phase under an abelian symmetry (non-abelian reordering
-is deferred), and on a repeated site, `hop[i, i]`, the slots form an on-site product, kept unevaluated
+the legs are reordered with their braiding phase under an abelian symmetry and re-coupled into site
+order under a non-abelian one, and on a repeated site, `hop[i, i]`, the slots form an on-site product, kept unevaluated
 until the operator enters an [`OperatorSum`](@ref) and resolved there in the site's basis.
 """
 function Base.getindex(B::LocalOperator{I}, ind::Integer, inds::Integer...) where {I}
@@ -94,7 +94,7 @@ function _place_written(B::LocalOperator{I}, sites::Vector{Int}) where {I}
     out = Terms{I}()
     for t in canonicalize!(B.terms).terms
         keep = findall(k -> !ispassthrough(k.op), t.keys)
-        _push!(out, _written(sites[keep], t.keys[keep], t.coeff))
+        _written!(out, sites[keep], t.keys[keep], t.coeff)
     end
     return out
 end

@@ -182,3 +182,17 @@ Done before step 2, since `instantiate(W)` needs the bases to ride along with th
 * One behavioural difference: `mpo` on a finite chain without channels forces the finish channel into the cover (what the Jordan form needs), where `irrep_mpo` did not.
   On every showcase model and on the N₂ acceptance numbers that costs nothing, but a constant (`K = 0`) term next to two two-site terms costs one trivial-charge index at the first bond; `test/test_irrep_graph.jl` pins both covers.
 * `jordan_mpo_tensors` (and so `instantiate`) now also covers infinite chains with decaying channels, checked against MPSKit with the tail truncated at range 40 in `test/test_mpskit_ext.jl`; a finite chain with decaying channels still has no Jordan form.
+
+## 11. Step 4 as implemented
+
+Confirmed by the author before starting (2026-10-11): `hop[i, i]` is an on-site product (the second unconfirmed item of §2), and only products that share a site are resolved densely in this step; interleaved non-abelian `*` without a shared site stays for step 5's F/R moves.
+
+* `a * b` on placed operators (`src/operators/algebra/products.jl`) is the operator product in written order.
+  Every product is written as one caterpillar in written order, coefficient `cₐ c_b (-1)^{p(a)p(b)}` with `p` the fermion parity of each factor's total — the graded sign `couple` applies; with it `c†ᵢ * cᵢ = nᵢ` and `cᵢ * c†ᵢ = 1 - nᵢ` hold.
+* On distinct sites the product is a `Term` at once: as written when in site order; reordered with one R-symbol per swapped pair under an abelian symmetry (what `couple` does when it inserts a leg); and under a non-abelian one, neutral factors on disjoint, non-interleaved supports are swapped (they commute), interleaved ones throw (step 5).
+  `*` needs a forced channel: always under an abelian symmetry, neutral factors under a non-abelian one.
+* A product that repeats a site is a `PendingTerm` in the bag's new `pending` vector; such a bag has no normal form, so `length`, iteration and `≈` throw (and say why), `show` reports it, and `couple`, `dot` and `expterm` refuse it.
+  `opsum!` resolves it with the lattice: the letters' embedded tensors multiplied in written order, their charge legs fused by the written caterpillar (`_written_block`), projected back into the sites' bases (or matrix units) and placed, memoised per shape. A product outside a basis' span throws there with the hint to extend it — e.g. `a·n` on the SU(2) Hubbard site built from `e⁺e⁻`, `e⁻e⁺`, `n` alone.
+* Placement on sites that are not strictly increasing is the same product: `hop[i, i]` an on-site product, and `hop[i + 1, i]` (abelian) the reordered operator, so the hermitian-conjugate partner of a pair no longer needs a second pair.
+* `test/test_products.jl` checks everything against the dense operator product: single-site fermion identities, products of hopping operators sharing sites, `hop[i, i]` and reversed placement in a basis, SU(2) `S⃗·S⃗` on one site (`3/4`), products of exchange pairs sharing a site or disjoint, the SU(2) Hubbard `Σσ a†σ aσ` on one site (`n`), and an infinite chain.
+* Not done: the spin-free chemistry Hamiltonian of operator-bases.md §3.6 needs interleaved non-abelian products (step 5); its coincident-index terms already work.

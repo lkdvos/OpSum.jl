@@ -50,11 +50,17 @@ nsites(B::LocalOperator) = B.nsites
 
 """
     B[i]               -> Terms      # contiguous: sites i:i+K-1
-    B[s₁, s₂, …, s_K]  -> Terms      # explicit, strictly increasing
+    B[s₁, s₂, …, s_K]  -> Terms      # explicit
 
-Place a `K`-slot [`LocalOperator`](@ref) on the lattice. Placement relabels the sites and nothing
-else, so it is exact for any symmetry; sites inside a gap are pass-throughs, and pass-through slots
-are dropped. Non-monotone placement is not supported.
+Place a `K`-slot [`LocalOperator`](@ref) on the lattice: slot `k` acts on site `sₖ`, and the slots
+multiply in slot order. On strictly increasing sites placement relabels the sites and nothing else,
+so it is exact for any symmetry; sites inside a gap are pass-throughs, and pass-through slots are
+dropped.
+
+Other placements are products in slot order (operator-bases.md §3.5): on distinct sites out of order
+the legs are reordered with their braiding phase under an abelian symmetry (non-abelian reordering
+is deferred), and on a repeated site, `hop[i, i]`, the slots form an on-site product, kept unevaluated
+until the operator enters an [`OperatorSum`](@ref) and resolved there in the site's basis.
 """
 function Base.getindex(B::LocalOperator{I}, ind::Integer, inds::Integer...) where {I}
     K = B.nsites
@@ -63,9 +69,7 @@ function Base.getindex(B::LocalOperator{I}, ind::Integer, inds::Integer...) wher
         sites = collect(Int(ind):(Int(ind) + K - 1))
     elseif n == K
         sites = Int[Int(ind), (Int(s) for s in inds)...]
-        all(k -> sites[k] < sites[k + 1], 1:(K - 1)) || throw(
-            ArgumentError("placement sites must be strictly increasing, got $sites")
-        )
+        all(k -> sites[k] < sites[k + 1], 1:(K - 1)) || return _place_written(B, sites)
     else
         throw(
             ArgumentError(
@@ -82,6 +86,17 @@ function Base.getindex(B::LocalOperator{I}, ind::Integer, inds::Integer...) wher
             Term{I}(sites[keep], t.keys[keep], t.coeff)
     end
     return Terms{I}(out)
+end
+
+# Placement on sites that are not strictly increasing: each term is a product in slot order.
+function _place_written(B::LocalOperator{I}, sites::Vector{Int}) where {I}
+    minimum(sites) >= 1 || throw(ArgumentError("site indices must be ≥ 1, got $sites"))
+    out = Terms{I}()
+    for t in canonicalize!(B.terms).terms
+        keep = findall(k -> !ispassthrough(k.op), t.keys)
+        _push!(out, _written(sites[keep], t.keys[keep], t.coeff))
+    end
+    return out
 end
 
 function Base.:+(a::LocalOperator{I}, b::LocalOperator{I}) where {I}

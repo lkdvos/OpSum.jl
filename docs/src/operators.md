@@ -636,7 +636,8 @@ compression.
 | `couple: … left of site … reordering the legs of a SimpleFusion() coupling needs F-moves` | out-of-order site indices under a non-abelian symmetry, where the reordering is not available; write them increasing |
 | `couple: no pair of terms of the operands fuses to …` | the requested total charge is unreachable from the operands' charges |
 | `couple: every term of the second operand must be a single-site charged operator` | the right operand has a scalar (identity) part, or spans several sites |
-| `placement sites must be strictly increasing` | sorted-unique sites are a downstream invariant; placing a `LocalOperator` will not permute its slots for you, since that needs braiding and flips fermionic signs |
+| `… reordering the legs of a … coupling needs F-moves` (placement or `*`) | operators written out of site order under a non-abelian symmetry; write them in increasing site order (abelian symmetries reorder with the braiding phase, and a shared site is an on-site product) |
+| `… unresolved on-site product(s) …` | `length`, iteration or `≈` on a bag holding `a[i] * b[i]`; it is resolved in the site's basis when it enters an `OperatorSum` |
 | `mpo takes an OperatorSum` | a bare term bag; write `mpo(opsum(lat, h))` |
 | `a term acts on site …, outside the lattice 1:N` | raised when the term is added: it reaches past the `FiniteChain` of the `OperatorSum` |
 | `letter … does not exist on site …` | the lattice's space at that site carries no operator of that charge — operator and lattice do not match |

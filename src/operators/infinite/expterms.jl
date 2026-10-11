@@ -208,6 +208,12 @@ function expterm(
         ArgumentError("expterm: need |decay| < 1 for a summable interaction, got |λ| = $(abs(λ))")
     )
     isempty(t.terms) && throw(ArgumentError("expterm: the representative has no terms"))
+    isempty(t.pending) || throw(
+        ArgumentError(
+            "expterm: the representative holds an unresolved on-site product; write the on-site " *
+                "operator as one operator in the site's basis instead"
+        )
+    )
     str = _string_terms(I, string)
 
     d = Dictionary{ExpKey{I}, ComplexF64}()

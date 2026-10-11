@@ -71,6 +71,10 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
      Coupling two operands of fermion-odd total charge also multiplies the coefficient by `-1` (the graded tensor product), so `couple(cd[i], c[j])` is the physical `c†ᵢcⱼ`; the letters themselves are unchanged.
      Gated on `_canreorder(I)` = `UniqueFusion` **and** `SymmetricBraiding`; non-abelian reordering needs F-moves and still throws.
      `dot` accepts either order for *any* symmetry (two legs to the unit sector need no F-move) and inserts the same scalar R-symbol — which is `-1` for odd fermionic charges and for half-integer SU(2) charges.
+   - **Products** (`products.jl`, design note `research/operator-bases.md` §3.5): `a * b` on placed operators is the operator product in written order. Every product is first written as one caterpillar in written order with coefficient `cₐ c_b (-1)^{p(a)p(b)}` (the graded sign `couple` uses); `_written` then turns it into a `Term` (distinct sites; out of order only under an abelian symmetry, with one R-symbol per swapped pair — what `couple` does when inserting a leg) or a `PendingTerm` (a site repeats).
+     `*` needs a forced channel: always under an abelian symmetry, neutral factors under a non-abelian one; interleaved non-abelian factors without a shared site throw until step 5.
+     Placement on sites that are not strictly increasing goes through the same `_written` (`hop[i, i]` is an on-site product, `hop[i + 1, i]` a reordering).
+     A bag with pending products has no normal form: `canonicalize!` (and so `length`, iteration, `≈`) throws; `show` says so. `opsum!` resolves them with the lattice (`_resolve`): `_written_block` multiplies the letters' embedded tensors in written order, fuses their charge legs by the written caterpillar, and `_project_local` projects back into the sites' bases, memoised per shape. A product outside a basis' span throws there.
    - **Unplaced `couple`/`dot`/`couple_channels`** (`localoperator.jl`): `SiteOperator`/`LocalOperator` operands give a `LocalOperator` on `Σ nsites` slots, by lowering onto consecutive slots and calling the *placed* implementation (no reordering, no R-symbol). Later operands must be single-slot.
    - **Pass-through slots.** A slot a term does not act on (`B + α`, a scalar part of an operand) holds the `passthrough` letter, whose `bond` is the running charge; placement drops those keys, so placed `Term`s never contain one.
 
@@ -141,8 +145,8 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
 
 ### Key design patterns
 
-- **Concrete types, not expression trees**: there is no lazy symbolic algebra.
-  `SiteOperator` is a flat letter→coefficient map; on-site products are not symbolic — build the `TensorMap` and `project` it.
+- **Concrete types, not expression trees**: there is no lazy symbolic algebra, with one exception.
+  `SiteOperator` is a flat letter→coefficient map. The exception is the on-site product: `a[i] * b[i]` (or `hop[i, i]`) is a `PendingTerm` in the bag's `pending` vector, resolved when it enters an `OperatorSum` (see products below).
 - **Invariant checks are real `throw`s, never `@assert`**: the sector-purity / cover-validity checks guard *silently wrong output*, and `@assert` is strippable.
   They go through the `@noinline _invariant` helper so the cost is one never-taken branch.
 - **`VectorInterface` integration**: the algebra types implement `VectorInterface` norms/inner products for truncation/compression.

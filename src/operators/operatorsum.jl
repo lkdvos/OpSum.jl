@@ -43,11 +43,14 @@ Add `Term`s, `Terms`, `ExpSum`s or (nested) iterables of those to `H` in place, 
 against the lattice before anything is added. (`H + x` copies `H`.)
 """
 function opsum!(H::OperatorSum{I}, args...) where {I}
-    terms = Term{I}[]
+    buf = Terms{I}()
     chans = Dictionary{ExpKey{I}, ComplexF64}()
     for a in args
-        _collect_op!(terms, chans, a, I)
+        _collect_op!(buf, chans, a, I)
     end
+    terms = buf.terms
+    # on-site products are resolved here, where the sites' bases are known
+    isempty(buf.pending) || append!(terms, _resolve(buf.pending, H.lattice))
     _checkinsert(H.lattice, terms, chans)
     append!(H.terms.terms, terms)
     if !isempty(chans)
@@ -67,8 +70,8 @@ Accumulate `terms` into a new [`OperatorSum`](@ref) on `lat`.
 opsum(lat::AbstractLattice, args...) = opsum!(OperatorSum(lat), args...)
 opsum(sites::AbstractVector{<:Union{ElementarySpace, Basis}}, args...) = opsum!(OperatorSum(sites), args...)
 
-_collect_op!(out, ch, t::Term{I}, ::Type{I}) where {I} = push!(out, t)
-_collect_op!(out, ch, ts::Terms{I}, ::Type{I}) where {I} = append!(out, ts.terms)
+_collect_op!(out, ch, t::Term{I}, ::Type{I}) where {I} = push!(out.terms, t)
+_collect_op!(out, ch, ts::Terms{I}, ::Type{I}) where {I} = _collect_terms!(out, ts, I)
 function _collect_op!(out, ch, es::ExpSum{I}, ::Type{I}) where {I}
     for (k, v) in pairs(es.channels)
         setwith!(+, ch, k, v)

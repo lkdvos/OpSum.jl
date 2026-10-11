@@ -63,6 +63,7 @@ include("operators/algebra/localoperator.jl")
 include("operators/algebra/irrepprojection.jl")
 include("operators/algebra/basis.jl")
 include("operators/algebra/builders.jl")
+include("operators/algebra/products.jl")
 
 # Operators — compression to a reduced MPO
 # ------------------------------------------

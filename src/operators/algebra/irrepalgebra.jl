@@ -166,6 +166,21 @@ function Base.show(io::IO, t::Term)
 end
 
 """
+    PendingTerm{I<:Sector}
+
+A product that acts more than once on one site — `a[i] * b[i]`, or a pair placed on one site,
+`hop[i, i]` — kept unevaluated until it enters an [`OperatorSum`](@ref), where it is resolved in the
+sites' bases (products.jl). The letters are in written order, with the running bond charges of the
+written-order caterpillar, and the operator is `coeff` times that caterpillar's product
+(`_written_block`).
+"""
+struct PendingTerm{I <: Sector}
+    sites::Vector{Int}
+    keys::Vector{ITOKey{I}}
+    coeff::ComplexF64
+end
+
+"""
     Terms{I<:Sector}
 
 The compressible ITO operator: a bag of [`Term`](@ref)s, with **no lattice**. What `A[i]` and
@@ -182,7 +197,9 @@ the *canonical* operator and never the append count (`nterms_raw(ts)` is that, f
 """
 struct Terms{I <: Sector}
     terms::Vector{Term{I}}
+    pending::Vector{PendingTerm{I}}
 end
+Terms{I}(terms::Vector{Term{I}}) where {I <: Sector} = Terms{I}(terms, PendingTerm{I}[])
 Terms{I}() where {I <: Sector} = Terms{I}(Term{I}[])
 Terms(terms::Vector{Term{I}}) where {I} = Terms{I}(terms)
 Terms(t::Term{I}) where {I} = Terms{I}(Term{I}[t])
@@ -208,11 +225,14 @@ Base.firstindex(::Terms) = 1
 Base.lastindex(ts::Terms) = length(ts)
 
 # Copies, so older values stay valid — but folding it over M terms is quadratic; use `opsum`.
-Base.:+(a::Terms{I}, b::Terms{I}) where {I} = Terms{I}(vcat(a.terms, b.terms))
-Base.:+(a::Terms{I}, t::Term{I}) where {I} = Terms{I}(vcat(a.terms, [t]))
-Base.:+(t::Term{I}, a::Terms{I}) where {I} = Terms{I}(vcat([t], a.terms))
-VectorInterface.scale(ts::Terms{I}, α::Number) where {I} =
-    Terms{I}(Term{I}[scale(t, α) for t in ts.terms])
+Base.:+(a::Terms{I}, b::Terms{I}) where {I} =
+    Terms{I}(vcat(a.terms, b.terms), vcat(a.pending, b.pending))
+Base.:+(a::Terms{I}, t::Term{I}) where {I} = Terms{I}(vcat(a.terms, [t]), copy(a.pending))
+Base.:+(t::Term{I}, a::Terms{I}) where {I} = Terms{I}(vcat([t], a.terms), copy(a.pending))
+VectorInterface.scale(ts::Terms{I}, α::Number) where {I} = Terms{I}(
+    Term{I}[scale(t, α) for t in ts.terms],
+    PendingTerm{I}[PendingTerm{I}(p.sites, p.keys, p.coeff * ComplexF64(α)) for p in ts.pending]
+)
 Base.:*(α::Number, ts::Terms) = scale(ts, α)
 Base.:*(ts::Terms, α::Number) = scale(ts, α)
 Base.:/(ts::Terms, α::Number) = scale(ts, inv(α))
@@ -247,7 +267,7 @@ Base.empty(::Terms{I}) where {I} = Terms{I}()
 A shallow copy that owns its own term vector, so `append!` and [`canonicalize!`](@ref) on the copy
 leave `ts` alone. The [`Term`](@ref)s themselves are never mutated, so they are shared.
 """
-Base.copy(ts::Terms{I}) where {I} = Terms{I}(copy(ts.terms))
+Base.copy(ts::Terms{I}) where {I} = Terms{I}(copy(ts.terms), copy(ts.pending))
 
 """
     isapprox(a::Terms, b::Terms; kwargs...)
@@ -263,7 +283,11 @@ Base.isapprox(a::Terms{I}, b::Terms{I}; kwargs...) where {I} =
 Base.:(==)(a::Terms{I}, b::Terms{I}) where {I} =
     _termsequal(canonicalize!(a).terms, canonicalize!(b).terms)
 
-function Base.show(io::IO, ts::Terms)
+function Base.show(io::IO, ts::Terms{I}) where {I}
+    isempty(ts.pending) || return print(
+        io, "Terms{", I, "}(", length(ts.terms), " term(s) and ", length(ts.pending),
+        " unresolved on-site product(s); add it to an OperatorSum to resolve them)"
+    )
     canonicalize!(ts)
     print(io, "Terms(")
     join(io, ("$(t.coeff) * $(_termbody(t))" for t in ts.terms), " + ")
@@ -372,14 +396,14 @@ function opsum(args...)
                 "`Terms{I}()` for the empty operator"
         )
     )
-    return Terms(out)
+    return out
 end
 
 # Establishing `I`: the accumulator is `nothing` until the first term fixes the sector type. Only
 # that one step is dynamically dispatched; everything after it runs through the typed collector, so
 # `opsum` stays `Θ(M)` with the same constants as when the lattice supplied `I`.
-_collect_any(::Nothing, t::Term{I}) where {I} = Term{I}[t]
-_collect_any(::Nothing, ts::Terms{I}) where {I} = copy(ts.terms)
+_collect_any(::Nothing, t::Term{I}) where {I} = Terms{I}(Term{I}[t])
+_collect_any(::Nothing, ts::Terms{I}) where {I} = copy(ts)
 function _collect_any(::Nothing, itr)
     out = nothing
     for a in itr
@@ -387,20 +411,23 @@ function _collect_any(::Nothing, itr)
     end
     return out
 end
-_collect_any(out::Vector{Term{I}}, a) where {I} = (_collect_terms!(out, a, I); out)
+_collect_any(out::Terms{I}, a) where {I} = (_collect_terms!(out, a, I); out)
 
-_collect_terms!(out::Vector{Term{I}}, t::Term{I}, ::Type{I}) where {I} = push!(out, t)
-_collect_terms!(out::Vector{Term{I}}, ts::Terms{I}, ::Type{I}) where {I} =
-    append!(out, ts.terms)
-function _collect_terms!(out::Vector{Term{I}}, itr, ::Type{I}) where {I}
+_collect_terms!(out::Terms{I}, t::Term{I}, ::Type{I}) where {I} = (push!(out.terms, t); out)
+function _collect_terms!(out::Terms{I}, ts::Terms{I}, ::Type{I}) where {I}
+    append!(out.terms, ts.terms)
+    append!(out.pending, ts.pending)
+    return out
+end
+function _collect_terms!(out::Terms{I}, itr, ::Type{I}) where {I}
     for a in itr
         _collect_terms!(out, a, I)
     end
     return out
 end
 # A term over a different symmetry than the one already accumulated is a mistake worth naming.
-_collect_terms!(::Vector{Term{I}}, ::Term{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
-_collect_terms!(::Vector{Term{I}}, ::Terms{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
+_collect_terms!(::Terms{I}, ::Term{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
+_collect_terms!(::Terms{I}, ::Terms{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
 _wrongsector(I, J) = throw(
     ArgumentError("cannot combine an operator over $J with one over $I")
 )
@@ -413,7 +440,7 @@ operator. Same argument forms as [`opsum`](@ref).
 """
 function Base.append!(ts::Terms{I}, args...) where {I}
     for a in args
-        _collect_terms!(ts.terms, a, I)
+        _collect_terms!(ts, a, I)
     end
     return ts
 end

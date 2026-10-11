@@ -404,7 +404,9 @@ end
     h = instantiate(opsum([V, V], dot(spin(V)[1], spin(V)[2])))
 
     @test_throws ArgumentError project(h, [2, 1])                  # not increasing
-    @test_throws ArgumentError project(h, [1, 1])                  # not unique
+    # a repeated site is the on-site product: S⃗·S⃗ on one spin-½ is 3/4, once resolved in a sum
+    @test convert(Array, instantiate(opsum(FiniteChain(V, 1), project(h, [1, 1]))))[:, :, 1] ≈
+        0.75 * ComplexF64[1 0; 0 1]
     @test_throws ArgumentError project(h, [1])                     # wrong label count
     @test_throws ArgumentError project(h, [1, 2, 3])
     @test_throws ArgumentError project(randn(ComplexF64, V ← V ⊗ V ⊗ V), (1,))   # numin ∉ (K, K+1)

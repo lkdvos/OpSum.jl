@@ -13,7 +13,16 @@ a repeat call re-sorts rather than returning early — hence the sweep normalise
 [`ITOTermTable`](@ref) boundary. Bags are not normalised as they are built, so everything that
 observes the term set (`length`, iteration, `≈`, `==`, `show`) goes through this.
 """
-canonicalize!(ts::Terms) = (_canonicalize!(ts.terms); ts)
+canonicalize!(ts::Terms) = (isempty(ts.pending) || _pendingerror(ts); _canonicalize!(ts.terms); ts)
+
+_pendingerror(ts::Terms) = throw(
+    ArgumentError(
+        "this operator holds $(length(ts.pending)) unresolved on-site product(s) (`a[i] * b[i]`, " *
+            "or a pair placed on one site), which are only resolved in the sites' bases when it " *
+            "enters an OperatorSum: `opsum(lat, h)`. Until then it has no normal form, so its " *
+            "length, terms and `≈` are not defined."
+    )
+)
 
 # sort, merge adjacent equals, drop cancellations
 function _canonicalize!(terms::Vector{Term{I}}) where {I}

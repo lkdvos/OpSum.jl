@@ -48,6 +48,16 @@ The total bond dimension falls about 3.8× and ends up 8–20% *below* the hand-
 Term construction also gets faster: 860 term tuples instead of 7,295 for STO-3G, built in 1.3 s instead of 28 s.
 So a user-chosen basis is enough to close the gap in #38; the SU(2) coupling paths suspected in the issue are not a significant factor.
 
+The acceptance numbers the implementation reproduces (centre bond, `sum(dim, bondsectors)`; the tests pin them):
+
+| model | matrix units | the right basis |
+|---|---|---|
+| `XX+YY+ZZ` chain, ℂ², `N = 8` | 6 | 5 |
+| spinful Hubbard, U₁⊠U₁, `N = 10` | 10 | 6 |
+| spinful all-to-all hopping, random `tᵢⱼ`, `N = 10` | 42 | 22 |
+| SU(2) Hubbard, `N = 4` | 10 | 6 |
+| N₂/STO-3G, channels / dims | 347 / 677 | 102 / 192 |
+
 ---
 
 ## 2. Why this is cheap to support

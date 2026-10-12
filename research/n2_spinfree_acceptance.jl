@@ -1,4 +1,4 @@
-# Acceptance check for step 5 (operator-bases.md §3.6, handoff §5): the #38 N₂ Hamiltonians written
+# Acceptance check for step 5 (operator-bases.md §3.6 and §1): the #38 N₂ Hamiltonians written
 # spin-free, from the spin-summed excitation operator `E[p, q] = Σσ a†_pσ a_qσ` alone,
 #
 #     H = Σ h[p, q] E[p, q] + ½ Σ (pq|rs) (E[p, q] * E[r, s] - δ(q, r) E[p, s]),

@@ -161,3 +161,16 @@ end
     @test !(mats[1] ≈ mats[3])
     @test !(mats[2] ≈ mats[3])
 end
+
+# `≈` compares the canonical terms as sparse vectors: round-off left over from a cancellation is no
+# difference, a term of comparable size is, and `==` stays exact.
+@testset "≈ on term sets tolerates round-off leftovers" begin
+    S = spinvector(unitbasis(SU2Space(1 // 2 => 1)))
+    a = dot(S[1], S[2])
+    b = dot(S[2], S[3])
+    @test a + 1.0e-17 * b ≈ a
+    @test a + 1.0e-17 * b != a
+    @test !(a + 1.0e-3 * b ≈ a)
+    @test !(a ≈ a + b) && !(a + b ≈ a)
+    @test isapprox(a, a + 1.0e-3 * b; atol = 1.0e-2)
+end

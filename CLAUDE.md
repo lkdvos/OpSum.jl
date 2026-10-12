@@ -156,7 +156,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
 - **`VectorInterface` integration**: the algebra types implement `VectorInterface` norms/inner products for truncation/compression.
 - **Instantiation**: `instantiate(op, V)` materializes symbolic ITOs into `TensorMap`s; `instantiate(H::OperatorSum)` is the correctness oracle in tests (`_instantiate_terms(ts, spaces)` is the internal latticeless entry point), kept separate in `src/operators/algebra/irrepinstantiate.jl` since it's needed for verification only, never to build or combine terms.
   `project` is its inverse.
-- **Faithfulness is `≈`**: `islossless(H)` — i.e. `mpo_terms(mpo(H)) ≈ chain_terms(H)` (finite chains) — compares canonical term *sets* exactly and coefficients approximately. No lattice is involved in the comparison, which is why the reconstructed bag compares equal.
+- **Faithfulness is `≈`**: `islossless(H)` — i.e. `mpo_terms(mpo(H)) ≈ chain_terms(H)` (finite chains) — compares the canonical terms as sparse vectors (a missing term has coefficient zero; `==` is exact). No lattice is involved in the comparison, which is why the reconstructed bag compares equal.
 - **`couple` distributes**: both operands may be composite (several terms, e.g. from `project`); pairs whose charges cannot fuse to `to` are dropped, and it is an error if none do.
   `dot` does *not* distribute — its `-√dim(c)` factor is per-letter.
 - **Build local operators wherever reads best.**

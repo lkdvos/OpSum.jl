@@ -245,8 +245,9 @@ Base.copy(ts::Terms{I}) where {I} = Terms{I}(copy(ts.terms), copy(ts.pending))
     isapprox(a::Terms, b::Terms; kwargs...)
     a ≈ b
 
-Whether two operators carry the same terms with matching coefficients: the canonical term sets must
-be **equal** (a dropped term is never "approximately" absent) and the coefficients `≈`. No lattice is
+Whether two operators are close as sparse vectors over their canonical terms (a term missing from one
+side counts with coefficient zero): `‖a - b‖ ≤ max(atol, rtol · max(‖a‖, ‖b‖))`, so round-off left
+over from a cancellation does not make two operators differ, and `==` compares exactly. No lattice is
 involved, so an operator reconstructed by [`mpo_terms`](@ref) — which knows the bonds but not the
 physical spaces — compares equal to the one it came from. This is the faithfulness check.
 """

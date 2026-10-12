@@ -75,7 +75,7 @@ That is where the agreed design puts the basis.
 3. **Operators are projected into a basis**: `project(O, basis)` gives a *symbolic* operator, a coefficient vector over the basis elements.
    The operators a user projects and writes with are always neutral: single-site neutral operators, and neutral pairs such as hopping or exchange.
 4. **Each site has a basis, and spaces come from the bases.**
-   A sum is built over a list of per-site bases, wrapped as `FiniteChain(bases)` or `InfiniteChain(bases)` (a unit cell); a bare vector or `1:N` means a finite chain.
+   A sum is built over a list of per-site bases, wrapped as `FiniteChain(bases)` or `InfiniteChain(bases)` (a unit cell); a bare vector of bases means a finite chain.
    There is no separate lattice of spaces.
 5. **Several spaces on one lattice** (e.g. fermions and spins on different sites) are combined with `vcat(basis_f, basis_s)`.
    Indices stay local to each site's basis: a letter is `(charge, index)` as today, and index 1 is the identity of whichever basis the site has.
@@ -153,10 +153,10 @@ H = opsum(FiniteChain(bases)) do i   # bases[i] is the basis of site i; fill(bas
     …
 end
 H = opsum(InfiniteChain(cell)) do i … end   # a unit cell of bases; terms may reach past the cell
-H = opsum(1:N) do i … end            # only the site range; the bases are supplied at `instantiate`
 ```
 
-* The bases given to `opsum` ride along to the MPO, so `instantiate(W)` needs no further arguments; with `1:N` they are passed to `instantiate` instead.
+* The bases given to `opsum` ride along to the MPO, so `instantiate(W)` needs no further arguments.
+  There is no `opsum(1:N)` with the bases supplied at `instantiate`: on-site products, `H'`, the letter and channel checks and truncating SVD (which measures in the bases' metric) all need the bases when terms are added, and a letter means nothing outside the basis it was projected into. The latticeless `opsum(terms...)` returns a `Terms` for basis-free work.
 * There is no check that an operator was projected into its site's basis (decision 6).
   The one cheap check left is that each letter `(c, k)` exists in the site's basis.
 * `a[i] * b[j]` with `i ≠ j` is `couple(a[i], b[j]; to = c)` with the forced channel `c`.
@@ -164,7 +164,6 @@ H = opsum(1:N) do i … end            # only the site range; the bases are supp
   `couple(…; to = c)` stays the underlying primitive, which `*` calls with the forced channel; model code built from neutral operators does not need it.
 * `a[i] * b[i]` is the on-site product, described in §3.5.
 * `dot`, multi-site `project(h, bases)` blocks, `expterm` and `H'` keep their current meaning; `project` of a `K`-site block expresses each slot in that slot's basis.
-  `H'` needs the bases, so it is available on sums built over bases, not on `opsum(1:N)`.
 
 ### 3.5 On-site products, resolved on insertion
 
@@ -187,8 +186,7 @@ end
   `opsum!` evaluates every node in its site's basis — instantiate the factors, multiply, project back — memoised per (basis, letters).
   The resolved terms then enter the normal form like any other; a product outside the span of the basis throws there.
 * **What it requires.**
-  * The bases: `opsum(1:N)` cannot hold products, since there is nothing to resolve them in and the sweep needs letters.
-    It throws and asks for bases, as `H'` does.
+  * The bases, which every sum is built over.
   * A bag with unresolved products is not canonical, since such terms cannot be merged with others.
     `length`, `≈` and `show` are therefore only meaningful on the sum, after insertion; on a bare `Terms` bag they throw while products are pending.
   * Until insertion a term has two kinds of site factor: a resolved key, or a product node.
@@ -311,8 +309,12 @@ The tensors come from TensorKitTensors.jl; together with this package that is me
 
 ## 6. Open questions
 
-1. **The rest of MPSKitModels.**
-   Replacing it also means a home for its lattices and named models (`hubbard_model`, `heisenberg_XXZ`, …); in OpSum, or in a third package?
+1. **The rest of MPSKitModels**, for a later PR.
+   Proposed: a lattice stays a chain of bases; 2D geometries (cylinder, helix, ladder, strip) become index helpers on it (a coordinate → site map and neighbour iterators such as `nearest_neighbours`), not new `AbstractLattice` types, since the sweep only needs `N`.
+   Named models (`heisenberg_XXZ`, `hubbard_model`, …) are a thin layer over the builders: OpSum's `examples/` for now, a separate package once there are enough.
+2. **An overcomplete basis**, deferred until there is a use.
+   It would be an opt-in on `Basis`: `project` takes the minimum-norm expansion, the SVD metric needs an eigendecomposition in place of Cholesky, and the vertex cover would no longer merge two spellings of one operator.
+   `Basis(ops)` already accepts a redundant list and keeps the first spelling.
 
 Decided:
 
@@ -324,7 +326,7 @@ Decided:
 * `*` is defined whenever the overall channel is forced, which holds for every product of the neutral user-facing operators; otherwise it throws.
 * `couple` and `*` accept any site order under any symmetry, re-coupling non-abelian factors with F- and R-moves.
 * No separate no-allocation entry for building `N⁴` terms; symbolic operators are integer-indexed already.
-* The builders (`spin`, `spin_ops`, `fermion_ops`, `matrixunit`) take a basis and return symbolic operators in it.
+* The builders (`spin_ops`, `fermion_ops`, `boson_ops`, `hubbard_ops`, `tj_ops`) take the symmetry and return every neutral TensorKitTensors operator of the site in its stock basis, named after the TensorKitTensors function; `spin` and `matrixunit` are gone.
 * Stock bases are memoised functions of the symmetry (`spin_basis`, `fermion_basis`, `hubbard_basis`, `tj_basis`, `boson_basis`), on TensorKitTensors' spaces; this package and TensorKitTensors together replace MPSKitModels.
 * The charged single-site elements are obtained in OpSum by factorising TensorKitTensors' neutral two-site operators; they only define the basis, and every user-facing operator is neutral.
 * Clock (ℤₙ) bases are dropped for now.

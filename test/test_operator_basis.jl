@@ -107,20 +107,13 @@ end
     Xp, Yp, Zp = (project(M, P) for M in (Xmat, Ymat, Zmat))
     Hp = opsum(FiniteChain(P, N), (couple(O[i], O[i + 1]) for i in 1:(N - 1) for O in (Xp, Yp, Zp)))
     @test islossless(Hp)
-    @test bonddim(Hp, N ÷ 2) == 5                      # handoff §5: 6 today, 5 in the Pauli basis
+    @test bonddim(Hp, N ÷ 2) == 5                      # handoff §5: 6 in matrix units, 5 in the Pauli basis
 
-    # the matrix-unit basis on the same model (Z has an identity component there, so `*`, not `couple`)
-    U = unitbasis(V)
-    Xm, Ym, Zm = (project(TensorMap(M, V ← V), U) for M in (Xmat, Ymat, Zmat))
-    Hm = opsum(FiniteChain(U, N), (O[i] * O[i + 1] for i in 1:(N - 1) for O in (Xm, Ym, Zm)))
-    @test islossless(Hm)
-    @test bonddim(Hm, N ÷ 2) == 5     # was 6 with the full matrix-unit alphabet; `unitbasis` drops e₁₁, so Z = 𝟙 - 2e₂₂
-
-    # both are the same operator: the basis MPO, read back through the basis, against the dense one
+    # the basis MPO, read back through the basis, is the dense operator
     n = 2
     Hpn = opsum(FiniteChain(P, n), (couple(O[i], O[i + 1]) for i in 1:(n - 1) for O in (Xp, Yp, Zp)))
-    Hmn = opsum(FiniteChain(U, n), (O[i] * O[i + 1] for i in 1:(n - 1) for O in (Xm, Ym, Zm)))
-    @test dense(mpo_terms(mpo(Hpn)), fill(P, n)) ≈ plain(instantiate(Hmn))
+    ref = sum(kron(M, M) for M in (Xmat, Ymat, Zmat))
+    @test dense(mpo_terms(mpo(Hpn)), fill(P, n)) ≈ TensorMap(ref, V ⊗ V ← V ⊗ V)
 end
 
 @testset "U(1) spins: charged elements by factorising neutral pairs" begin

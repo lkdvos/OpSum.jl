@@ -52,18 +52,22 @@ function _canonicalize!(terms::Vector{Term{I}}) where {I}
 end
 
 # Already in normal form and sorted the same way, so a positional walk is a set comparison.
-function _termscompare(ta::Vector{Term{I}}, tb::Vector{Term{I}}, coeffcmp) where {I}
-    length(ta) == length(tb) || return false
-    for (x, y) in zip(ta, tb)
-        x == y || return false
-        coeffcmp(x.coeff, y.coeff) || return false
-    end
-    return true
+function _termsequal(ta::Vector{Term{I}}, tb::Vector{Term{I}}) where {I}
+    return length(ta) == length(tb) && all(((x, y),) -> x == y && x.coeff == y.coeff, zip(ta, tb))
 end
 
-_termsapprox(ta::Vector{Term{I}}, tb::Vector{Term{I}}; kwargs...) where {I} =
-    _termscompare(ta, tb, (x, y) -> isapprox(x, y; kwargs...))
-_termsequal(ta::Vector{Term{I}}, tb::Vector{Term{I}}) where {I} = _termscompare(ta, tb, ==)
+# The two operators as sparse vectors over terms (a missing term has coefficient zero), compared like
+# `isapprox` on vectors: `‖a - b‖ ≤ max(atol, rtol · max(‖a‖, ‖b‖))`.
+function _termsapprox(
+        ta::Vector{Term{I}}, tb::Vector{Term{I}}; atol::Real = 0, rtol::Real = Base.rtoldefault(Float64)
+    ) where {I}
+    diff = Dict{Term{I}, ComplexF64}(t => t.coeff for t in ta)
+    for t in tb
+        diff[t] = get(diff, t, zero(ComplexF64)) - t.coeff
+    end
+    nrm(ts) = sqrt(sum(t -> abs2(t.coeff), ts; init = 0.0))
+    return sqrt(sum(abs2, values(diff); init = 0.0)) <= max(atol, rtol * max(nrm(ta), nrm(tb)))
+end
 
 # the symbol an inactive (padded) slot carries, matching `_op_at_ito`'s reconstruction
 _padkey(::Type{I}) where {I <: Sector} = ITOKey{I}(passthrough(I), unit(I), 1)

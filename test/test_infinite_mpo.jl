@@ -3,8 +3,10 @@ using TensorKit
 using LinearAlgebra: dot
 using OpSum
 using OpSum: mpo, irrep_mpo_tensors, mpo_terms_window, window_terms, unitcell_terms,
-    translate, maxspan, termspan, spin, matrixunit, couple, scalarop, instantiate
+    translate, maxspan, termspan, couple, scalarop, instantiate
 using OpSum.IrrepTensorOperators: IrrepOperator
+
+include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, element, matrixunit, spinvector
 
 # Reference models
 # ================
@@ -15,57 +17,57 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
 const VTR = ComplexSpace(2)
+const BSU2 = unitbasis(VSU2)
+const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter, so `couple(Sz, Sz)` is legal
+const BTR = unitbasis(VTR)
 
 function su2_models()
-    S = spin(VSU2)
+    S = spinvector(BSU2)
     return [
-        ("SU2 Heisenberg L=1", dot(S[1], S[2]), [VSU2]),
-        ("SU2 Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), [VSU2, VSU2]),
-        ("SU2 Heisenberg L=3", dot(S[1], S[2]) + dot(S[2], S[3]) + dot(S[3], S[4]), [VSU2, VSU2, VSU2]),
-        ("SU2 dimerised L=2", dot(S[1], S[2]) + 0.4 * dot(S[2], S[3]), [VSU2, VSU2]),
-        ("SU2 J1-J2 L=1", dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), [VSU2]),
+        ("SU2 Heisenberg L=1", dot(S[1], S[2]), [BSU2]),
+        ("SU2 Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), [BSU2, BSU2]),
+        ("SU2 Heisenberg L=3", dot(S[1], S[2]) + dot(S[2], S[3]) + dot(S[3], S[4]), [BSU2, BSU2, BSU2]),
+        ("SU2 dimerised L=2", dot(S[1], S[2]) + 0.4 * dot(S[2], S[3]), [BSU2, BSU2]),
+        ("SU2 J1-J2 L=1", dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), [BSU2]),
         (
             "SU2 J1-J2 L=2", dot(S[1], S[2]) + dot(S[2], S[3]) +
-                0.5 * (dot(S[1], S[3]) + dot(S[2], S[4])), [VSU2, VSU2],
+                0.5 * (dot(S[1], S[3]) + dot(S[2], S[4])), [BSU2, BSU2],
         ),
-        ("SU2 J1-J2-J3 L=1", dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]) + 0.25 * dot(S[1], S[4]), [VSU2]),
+        ("SU2 J1-J2-J3 L=1", dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]) + 0.25 * dot(S[1], S[4]), [BSU2]),
         # K = 3: the caterpillar inner line is not fixed by (charges, total)
-        ("SU2 3-site chain L=1", couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]), [VSU2]),
+        ("SU2 3-site chain L=1", couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]), [BSU2]),
     ]
 end
 
 function u1_models()
-    Sp = matrixunit(VU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
-    Sm = matrixunit(VU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
-    Sz = 0.5 * (
-        matrixunit(VU1, U1Irrep(1 // 2), U1Irrep(1 // 2)) -
-            matrixunit(VU1, U1Irrep(-1 // 2), U1Irrep(-1 // 2))
-    )
+    Sp = matrixunit(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+    Sm = matrixunit(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
+    Sz = spin_ops(U1Irrep).S_z
     xxz(i, j; Δ = 1.0) =
         0.5 * couple(Sp[i], Sm[j]) + 0.5 * couple(Sm[i], Sp[j]) + Δ * couple(Sz[i], Sz[j])
     return [
-        ("U1 XXZ L=1", xxz(1, 2; Δ = 0.7), [VU1]),
+        ("U1 XXZ L=1", xxz(1, 2; Δ = 0.7), [BU1]),
         # a charge-0 on-site letter against a two-site tail: the §2.2 pending↔started collision,
         # which on a periodic lattice fires at *every* bond instead of being unreachable
-        ("U1 XXZ + hSz L=1", xxz(1, 2) + 0.3 * Sz[1], [VU1]),
-        ("U1 XXZ + hSz L=2", xxz(1, 2) + xxz(2, 3) + 0.3 * Sz[1] + 0.3 * Sz[2], [VU1, VU1]),
-        ("U1 XXZ + staggered hSz L=2", xxz(1, 2) + xxz(2, 3) + 0.3 * Sz[1] - 0.3 * Sz[2], [VU1, VU1]),
-        ("U1 next-nearest hop L=1", couple(Sp[1], Sm[3]) + couple(Sm[1], Sp[3]), [VU1]),
+        ("U1 XXZ + hSz L=1", xxz(1, 2) + 0.3 * Sz[1], [BU1]),
+        ("U1 XXZ + hSz L=2", xxz(1, 2) + xxz(2, 3) + 0.3 * Sz[1] + 0.3 * Sz[2], [BU1, BU1]),
+        ("U1 XXZ + staggered hSz L=2", xxz(1, 2) + xxz(2, 3) + 0.3 * Sz[1] - 0.3 * Sz[2], [BU1, BU1]),
+        ("U1 next-nearest hop L=1", couple(Sp[1], Sm[3]) + couple(Sm[1], Sp[3]), [BU1]),
     ]
 end
 
 LO(x) = OpSum.SiteOperator(x)
 
 # `ℂ^2` has multiplicity 2 in the trivial sector, so the alphabet is the four matrix units rather than
-# `matrixunit` (which needs multiplicity-one sectors)
+# `matrixunit` (which needs multiplicity-one sectors); `unitbasis` carries all four
 function trivial_models()
-    A, B = LO.(instances(IrrepOperator, VTR)[2:3])
+    A, B = element(BTR, 2), element(BTR, 3)
     return [
-        ("trivial 2-site L=1", couple(A[1], B[2]), [VTR]),
+        ("trivial 2-site L=1", couple(A[1], B[2]), [BTR]),
         # same collision, trivial sector: every bond charge is the unit, so it degenerates to "a
         # pending term's whole content equals a started term's tail"
-        ("trivial 2-site + on-site L=1", couple(A[1], B[2]) + 0.7 * B[1], [VTR]),
-        ("trivial 3rd-neighbour L=1", couple(A[1], B[2]) + 0.5 * couple(A[1], B[4]), [VTR]),
+        ("trivial 2-site + on-site L=1", couple(A[1], B[2]) + 0.7 * B[1], [BTR]),
+        ("trivial 3rd-neighbour L=1", couple(A[1], B[2]) + 0.5 * couple(A[1], B[4]), [BTR]),
     ]
 end
 
@@ -119,7 +121,7 @@ end
             @test size(Hinf.Ws[j], 2) == length(Hinf.bondsectors[j])
         end
         # both channels exist everywhere, are distinct, and are charge-neutral
-        I = sectortype(spaces[1])
+        I = sectortype(TensorKit.space(spaces[1]))
         @test all(j -> Hinf.start[j] != Hinf.finish[j], 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.start[j]] == unit(I), 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.finish[j]] == unit(I), 1:L)
@@ -132,11 +134,11 @@ end
     # Writing a translation-invariant model on a larger cell must reproduce the same MPO
     # site-for-site: this is the sharp statement that the compression is translation-covariant, and
     # `L = 1` is where it is hardest because every bond then poses the same problem.
-    S = spin(VSU2)
-    d1 = mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
+    S = spinvector(BSU2)
+    d1 = mpo(opsum(InfiniteChain([BSU2]), dot(S[1], S[2])))
     for L in 2:4
         gen = sum([dot(S[i], S[i + 1]) for i in 1:L])
-        dL = mpo(opsum(InfiniteChain(fill(VSU2, L)), gen))
+        dL = mpo(opsum(InfiniteChain(fill(BSU2, L)), gen))
         @test length(dL) == L
         @test all(j -> dL.bondsectors[j] == d1.bondsectors[1], 1:L)
         @test all(j -> densedim(dL.bondsectors[j]) == 5, 1:L)
@@ -144,10 +146,10 @@ end
 
     # and the same for a model whose range exceeds the cell
     j1j2 = dot(S[1], S[2]) + 0.5 * dot(S[1], S[3])
-    a = mpo(opsum(InfiniteChain([VSU2]), j1j2))
+    a = mpo(opsum(InfiniteChain([BSU2]), j1j2))
     b = mpo(
         opsum(
-            InfiniteChain([VSU2, VSU2]),
+            InfiniteChain([BSU2, BSU2]),
             dot(S[1], S[2]) + dot(S[2], S[3]) + 0.5 * (dot(S[1], S[3]) + dot(S[2], S[4]))
         )
     )
@@ -156,9 +158,9 @@ end
 end
 
 @testset "reference bond dimensions" begin
-    S = spin(VSU2)
+    S = spinvector(BSU2)
     # textbook infinite Heisenberg: identity, one spin-1 channel in flight, identity
-    H = mpo(opsum(InfiniteChain([VSU2]), dot(S[1], S[2])))
+    H = mpo(opsum(InfiniteChain([BSU2]), dot(S[1], S[2])))
     @test H.bondsectors == [[SU2Irrep(0), SU2Irrep(1), SU2Irrep(0)]]
     @test (H.start[1], H.finish[1]) == (1, 3)
     @test densedim(H.bondsectors[1]) == 5
@@ -166,8 +168,8 @@ end
     # one extra spin-1 channel per extra neighbour
     for (k, D) in ((2, 8), (3, 11), (4, 14))
         gen = sum([dot(S[1], S[1 + r]) for r in 1:k])
-        @test densedim(mpo(opsum(InfiniteChain([VSU2]), gen)).bondsectors[1]) == 3k + 2
-        @test densedim(mpo(opsum(InfiniteChain([VSU2]), gen)).bondsectors[1]) == D
+        @test densedim(mpo(opsum(InfiniteChain([BSU2]), gen)).bondsectors[1]) == 3k + 2
+        @test densedim(mpo(opsum(InfiniteChain([BSU2]), gen)).bondsectors[1]) == D
     end
 end
 
@@ -196,15 +198,15 @@ end
         # the tensors tile: site 1's left virtual space is site L's right virtual space
         @test space(Ts[1], 1) == space(Ts[L], 4)'
         for j in 1:L
-            @test space(Ts[j], 2) == spaces[j]
+            @test space(Ts[j], 2) == TensorKit.space(spaces[j])
             @test space(Ts[j], 1) == space(Ts[mod1(j - 1, L)], 4)'
         end
     end
 end
 
 @testset "input validation" begin
-    S = spin(VSU2)
-    lat = InfiniteChain([VSU2])
+    S = spinvector(BSU2)
+    lat = InfiniteChain([BSU2])
 
     # a translation class written twice would be counted twice (seen across the whole set, so when
     # the MPO is formed)
@@ -212,22 +214,22 @@ end
     @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[3]) + dot(S[4], S[6])))
     # ... but the same pair of bonds is fine on a two-site cell
     @test mpo(
-        opsum(InfiniteChain([VSU2, VSU2]), dot(S[1], S[2]) + dot(S[2], S[3]))
+        opsum(InfiniteChain([BSU2, BSU2]), dot(S[1], S[2]) + dot(S[2], S[3]))
     ) isa SymbolicMPO
 
     # the per-term rules are checked as the term enters the container
     # `Σ_n c·𝟙` does not converge
-    @test_throws ArgumentError opsum(lat, dot(S[1], S[2]) + scalarop(1.0, VSU2)[1])
+    @test_throws ArgumentError opsum(lat, dot(S[1], S[2]) + scalarop(1.0, BSU2)[1])
     # a charged term has no translation-invariant running bond charge
     @test_throws ArgumentError opsum(lat, couple(S[1], S[2]; to = SU2Irrep(1)))
     # the SVD backend has no bond basis that closes on itself
     @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[2])), SVDBondAlgorithm())
 
-    @test_throws ArgumentError InfiniteChain(typeof(VSU2)[])
+    @test_throws ArgumentError InfiniteChain(typeof(BSU2)[])
 end
 
 @testset "translate / unitcell_terms / maxspan" begin
-    S = spin(VSU2)
+    S = spinvector(BSU2)
     H = dot(S[3], S[5])
     @test only(translate(H, 4)).sites == [7, 9]
     @test translate(H, 0) === H
@@ -242,7 +244,7 @@ end
     @test only(unitcell_terms(translate(H, -6), 3)).sites == [3, 5]
 
     # window_terms keeps exactly the translates that fit
-    chain = InfiniteChain([VSU2])
+    chain = InfiniteChain([BSU2])
     gen = unitcell_terms(opsum(chain, dot(S[1], S[2])))
     for nc in 1:5
         w = window_terms(gen, nc)
@@ -256,13 +258,13 @@ end
     # boundary vectors and compare against `instantiate` of the terms the MPO claims to generate.
     # `mpo_terms_window` has already been pinned against `window_terms` above, so this closes the
     # loop from term sum to symmetric tensors.
-    S = spin(VSU2)
-    A, B = LO.(instances(IrrepOperator, VTR)[2:3])
+    S = spinvector(BSU2)
+    A, B = element(BTR, 2), element(BTR, 3)
     cases = [
-        ("SU2 Heisenberg L=1", dot(S[1], S[2]), [VSU2], 4),
-        ("SU2 J1-J2 L=1", dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), [VSU2], 4),
-        ("trivial 2-site + on-site L=1", couple(A[1], B[2]) + 0.7 * B[1], [VTR], 4),
-        ("SU2 Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), [VSU2, VSU2], 2),
+        ("SU2 Heisenberg L=1", dot(S[1], S[2]), [BSU2], 4),
+        ("SU2 J1-J2 L=1", dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), [BSU2], 4),
+        ("trivial 2-site + on-site L=1", couple(A[1], B[2]) + 0.7 * B[1], [BTR], 4),
+        ("SU2 Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), [BSU2, BSU2], 2),
     ]
     for (name, H, spaces, ncells) in cases
         L = length(spaces)

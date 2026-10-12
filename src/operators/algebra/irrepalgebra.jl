@@ -25,36 +25,8 @@ function instantiate(O::SiteOperator{I}, V::ElementarySpace) where {I}
     return sum(((l, c),) -> c * instantiate(l, V), pairs(O))
 end
 
-const _SPIN_CACHE = Dict{ElementarySpace, Any}()
-
 """
-    spin(V::ElementarySpace)
-
-The SU(2) rank-1 vector operator on a single-sector SU(2) space `V`, normalized so `spin(V)[i] ·
-spin(V)[j]` densifies to the Cartesian `Sˣ⊗Sˣ + Sʸ⊗Sʸ + Sᶻ⊗Sᶻ`. Concretely
-`spin(V) = √(s(s+1)(2s+1)) · IrrepOperator(SU2Irrep(1), 1)` (the reduced matrix element).
-
-Memoised per space, so calling it inside a term loop is a dictionary lookup. See also
-[`spin_ops`](@ref) for the U(1)-graded `(Sp, Sm, Sz)` form.
-"""
-function spin(V::ElementarySpace)
-    return _cached(_SPIN_CACHE, V) do
-        _spin(V)
-    end
-end
-
-function _spin(V::ElementarySpace)
-    sectortype(V) === SU2Irrep ||
-        throw(ArgumentError("spin(V) requires an SU(2)-graded space, got $(sectortype(V))"))
-    length(collect(sectors(V))) == 1 ||
-        throw(ArgumentError("spin(V) requires a single SU(2) irrep sector"))
-    s = only(sectors(V)).j
-    scale = sqrt(s * (s + 1) * (2s + 1))
-    return scale * SiteOperator(IrrepOperator{SU2Irrep}(SU2Irrep(1), 1))
-end
-
-"""
-    scalarop(c::Number, V::ElementarySpace)
+    scalarop(c::Number, B::Basis)
     scalarop(c::Number, ::Type{I<:Sector})
 
 A scalar (identity) local operator `c·𝟙`: `c` times the identity letter `(unit(I), 1)`, element 1
@@ -302,8 +274,7 @@ function _alphabet(V::ElementarySpace, ::Type{I}) where {I <: Sector}
     return Dict{I, Int}(c => dim(W, c) + (c == unit(I)) for c in sectors(W))
 end
 
-# What may describe one site of a lattice: its operator basis (basis.jl) or its space.
-_issite(::ElementarySpace) = true
+# What may describe one site of a lattice: its operator basis (basis.jl).
 _issite(::Any) = false
 
 _tolattice(lat::AbstractLattice) = lat
@@ -319,7 +290,7 @@ end
 _notalattice(sites) = throw(
     ArgumentError(
         "a lattice must be a `FiniteChain`, an `InfiniteChain`, or an iterable of operator " *
-            "`Basis`es or `ElementarySpace`s (one per site), got $(typeof(sites))"
+            "`Basis`es (one per site), got $(typeof(sites))"
     )
 )
 
@@ -368,7 +339,8 @@ Accumulate terms into one operator, in **one pass** over each argument, so build
 Hamiltonian costs `Θ(M)`:
 
 ```julia
-h = opsum(J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
+SS = spin_ops(SU2Irrep).S_exchange
+h = opsum(J * SS[i, i + 1] for i in 1:(N - 1))
 ```
 
 Each argument may be a [`Term`](@ref), a [`Terms`](@ref) bag, or any iterable of those, nested
@@ -412,6 +384,15 @@ function _collect_any(::Nothing, itr)
     return out
 end
 _collect_any(out::Terms{I}, a) where {I} = (_collect_terms!(out, a, I); out)
+# a bare space is iterable, so a vector of them would otherwise be read as a nest of terms
+_collect_any(::Nothing, ::ElementarySpace) = _spaceaslattice()
+_collect_terms!(out::Terms{I}, ::ElementarySpace, ::Type{I}) where {I} = _spaceaslattice()
+_spaceaslattice() = throw(
+    ArgumentError(
+        "opsum: got an ElementarySpace where an operator was expected; a lattice is one operator " *
+            "`Basis` per site (e.g. `FiniteChain(spin_basis(SU2Irrep), N)`), not a list of spaces"
+    )
+)
 
 _collect_terms!(out::Terms{I}, t::Term{I}, ::Type{I}) where {I} = (push!(out.terms, t); out)
 function _collect_terms!(out::Terms{I}, ts::Terms{I}, ::Type{I}) where {I}
@@ -581,6 +562,12 @@ Left-nested (caterpillar) irrep coupling: extend the composite `a` (any K ≥ 1 
 coupling charges) by one single-site operator `b`, fusing the running total of `a` with `b`'s charge
 to `to` at a new vertex. `to` defaults to the unit sector, which is what a term of a Hamiltonian
 needs — pass it explicitly to build a charged object.
+
+`couple` is the primitive under `*` and placement, which is what model code writes (`hop[i, j]`,
+`a[i] * b[j]` with neutral operators from a builder or `project(O, B)`). Its operands are *charged*
+single-site operators: a basis' charged elements, which a charged single-site tensor
+`t : V ← V ⊗ Vect[I](c => 1)` projects onto (`project(t, B)`). Below, `cd` and `c` are a fermion's
+creation and annihilation operators and `S` the SU(2) spin vector, obtained that way.
 
 Under an **abelian** symmetry the operands may be written in any site order: the stored form is
 site-ordered, so an out-of-order leg is inserted rather than appended, and the braiding phase that
@@ -823,7 +810,7 @@ general out-of-order [`couple`](@ref) is not. The Cartesian factor is read off t
 up on the left, which changes nothing — the two charges must fuse to the unit sector, i.e. be each
 other's dual, and dual sectors have equal quantum dimension. The braiding phase does *not* always
 cancel, though: `dot(a, b) == R · dot(b, a)` with `R = Rsymbol(cₐ, c_b, unit)`, which is `+1` for
-bosonic integer charges (so `spin`, and hence every spin chain here, is order-independent) and `-1`
+bosonic integer charges (so the SU(2) spin vector, and hence every spin chain, is order-independent) and `-1`
 for a pair of odd fermionic charges or of half-integer SU(2) charges.
 
 Unlike [`couple`](@ref) this does not distribute over composite operands: the Cartesian factor

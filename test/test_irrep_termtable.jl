@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: ITOTermTable, _op_at_ito, arity, nterms, nvertices, ispassthrough,
-    Term, Terms, spin, scalarop, couple, nterms_raw, mpo, instantiate,
+    Term, Terms, scalarop, couple, nterms_raw, mpo, instantiate,
     canonicalize!, opsum
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
@@ -15,7 +15,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
 @testset "ITOTermTable — flat ITO storage" begin
 
     @testset "construction sanity" begin
-        H = opsum((dot(spin(su2)[i], spin(su2)[i + 1]) for i in 1:3))
+        H = opsum((dot(spinvector(unitbasis(su2))[i], spinvector(unitbasis(su2))[i + 1]) for i in 1:3))
         tt = ITOTermTable(H, 4)
         @test nvertices(tt) == 4
         @test nterms(tt) == length(H)
@@ -28,7 +28,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
 
     @testset "_op_at_ito reconstructs the running-bond pass-through path" begin
         # a single two-body term on sites (1,3) of a 4-site chain, coupled to a singlet
-        tt = ITOTermTable(opsum(dot(spin(su2)[1], spin(su2)[3])), 4)
+        tt = ITOTermTable(opsum(dot(spinvector(unitbasis(su2))[1], spinvector(unitbasis(su2))[3])), 4)
         @test nterms(tt) == 1
         path = [_op_at_ito(tt, 1, s) for s in 1:4]
 
@@ -45,7 +45,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
     end
 
     @testset "K=0 identity term is all pass-through (trivial running charge)" begin
-        tt = ITOTermTable(opsum(scalarop(2.0, su2)[1]), 3)
+        tt = ITOTermTable(opsum(scalarop(2.0, unitbasis(su2))[1]), 3)
         @test nterms(tt) == 1
         @test all(==(0), tt.sites)                 # no active factors
         path = [_op_at_ito(tt, 1, s) for s in 1:3]
@@ -68,8 +68,8 @@ end
 
 # A bag until `canonicalize!` merges it; the pre-merge append count must not be observable.
 @testset "append-then-canonicalise" begin
-    S = spin(su2)
-    sites2 = fill(su2, 2)
+    S = spinvector(unitbasis(su2))
+    sites2 = fill(unitbasis(su2), 2)
     t = dot(S[1], S[2])
 
     H = opsum(t, t)
@@ -87,7 +87,7 @@ end
     @test_throws ArgumentError instantiate(opsum(sites2, opsum(t, -t)))
 
     # every accumulation route agrees, whatever its cost
-    sites6 = fill(su2, 6)
+    sites6 = fill(unitbasis(su2), 6)
     terms = [dot(S[i], S[i + 1]) for i in 1:5]
     ref = opsum(terms)
     @test length(ref) == 5
@@ -137,37 +137,43 @@ end
 end
 
 @testset "the lattice enters when terms meet an OperatorSum" begin
-    S = spin(su2)
+    S = spinvector(unitbasis(su2))
     terms = [dot(S[i], S[i + 1]) for i in 1:3]
-    sites = fill(su2, 4)
+    sites = fill(unitbasis(su2), 4)
 
     H = opsum(terms)
     # a bag is latticeless, so nothing about it knows `sites`; the sweep needs only the site count
     @test nvertices(ITOTermTable(H, length(sites))) == length(sites)
-    @test mpo(opsum(sites, H)).bondsectors == mpo(opsum(FiniteChain(su2, 4), H)).bondsectors
+    @test mpo(opsum(sites, H)).bondsectors == mpo(opsum(FiniteChain(unitbasis(su2), 4), H)).bondsectors
 
     # the checks the lattice boundary exists for — the only place letters and spaces are confronted
-    @test_throws ArgumentError mpo(opsum(fill(su2, 3), H))                 # term past the lattice
-    @test_throws ArgumentError mpo(opsum(fill(u1, 4), H))                  # wrong sector type
-    @test_throws ArgumentError mpo(opsum(fill(SU2Space(0 => 1), 4), H))    # no spin-1 letter there
-    @test_throws ArgumentError instantiate(opsum(fill(su2, 3), H))               # and again at instantiate
-    @test_throws ArgumentError islossless(opsum(fill(su2, 3), H))
+    @test_throws ArgumentError mpo(opsum(fill(unitbasis(su2), 3), H))                 # term past the lattice
+    @test_throws ArgumentError mpo(opsum(fill(unitbasis(u1), 4), H))                  # wrong sector type
+    @test_throws ArgumentError mpo(opsum(fill(unitbasis(SU2Space(0 => 1)), 4), H))    # no spin-1 letter there
+    @test_throws ArgumentError instantiate(opsum(fill(unitbasis(su2), 3), H))               # and again at instantiate
+    @test_throws ArgumentError islossless(opsum(fill(unitbasis(su2), 3), H))
 
     # appending to a bag is latticeless, so a term past the eventual lattice is caught when it meets one
     H2 = append!(opsum(terms), dot(S[1], S[5]))
     @test nterms_raw(H2) == 4
     @test_throws ArgumentError mpo(opsum(sites, H2))
 
-    # `lat` need not already be a `FiniteChain` or a `Vector{<:ElementarySpace}`
-    @test mpo(opsum!(OperatorSum(su2 for _ in 1:4), H)).bondsectors == mpo(opsum(sites, H)).bondsectors
-    @test mpo(opsum!(OperatorSum(ntuple(_ -> su2, 4)), H)).bondsectors == mpo(opsum(sites, H)).bondsectors
+    # `lat` need not already be a `FiniteChain` or a `Vector{<:Basis}`
+    @test mpo(opsum!(OperatorSum(unitbasis(su2) for _ in 1:4), H)).bondsectors == mpo(opsum(sites, H)).bondsectors
+    @test mpo(opsum!(OperatorSum(ntuple(_ -> unitbasis(su2), 4)), H)).bondsectors == mpo(opsum(sites, H)).bondsectors
     @test_throws ArgumentError mpo(opsum!(OperatorSum([1, 2, 3, 4]), H))
 
     # FiniteChain has an edge where InfiniteChain wraps
-    @test length(FiniteChain(su2, 4)) == 4
-    @test FiniteChain(sites) == FiniteChain(su2, 4)
-    @test_throws BoundsError FiniteChain(su2, 4)[5]
-    @test InfiniteChain([su2])[5] == su2
+    @test length(FiniteChain(unitbasis(su2), 4)) == 4
+    @test FiniteChain(sites) == FiniteChain(unitbasis(su2), 4)
+    @test_throws BoundsError FiniteChain(unitbasis(su2), 4)[5]
+    @test InfiniteChain([unitbasis(su2)])[5] == unitbasis(su2)
+
+    # a lattice of bare spaces (the removed matrix-unit alphabet) is an error
+    @test_throws ArgumentError FiniteChain(su2, 4)
+    @test_throws ArgumentError FiniteChain(fill(su2, 4))
+    @test_throws ArgumentError InfiniteChain([su2])
+    @test_throws ArgumentError OperatorSum(fill(su2, 4))
 
     # the empty operator
     @test isempty(Terms{SU2Irrep}())
@@ -176,8 +182,8 @@ end
 
 # The container surface a consumer touches; all of it goes through the normal form.
 @testset "container and display surface" begin
-    S = spin(su2)
-    sites = fill(su2, 3)
+    S = spinvector(unitbasis(su2))
+    sites = fill(unitbasis(su2), 3)
     t = dot(S[1], S[2])
     u = dot(S[2], S[3])
     H = opsum(t, 2 * u)
@@ -200,7 +206,7 @@ end
     @test H * 2 == 2 * H
     @test (H * 2) / 2 == H
     @test -H == -1 * H
-    @test opsum(one(t)) * 3 ≈ opsum(scalarop(3.0, su2)[1])
+    @test opsum(one(t)) * 3 ≈ opsum(scalarop(3.0, unitbasis(su2))[1])
 
     # a `Term` is comparable and hashable on its content, ignoring the coefficient
     @test only(t) == only(2 * t)

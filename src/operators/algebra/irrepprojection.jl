@@ -77,47 +77,14 @@ function _ito_coefficients(
     return out, ncand
 end
 
-"""
-    project(h::AbstractTensorMap; atol = 0, rtol = 100eps) -> LocalOperator
-    project(h::AbstractTensorMap, sites; kwargs...) -> Terms
-
-Project a symmetric `K`-site operator onto the ITO term basis — the inverse of
-[`instantiate`](@ref). `h` must have one of the two shapes `instantiate` produces, with
-`K = numout(h)`:
-
-    h :  V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K                          # charge-neutral
-    h :  V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K ⊗ Vect[I](tot => 1)      # total charge `tot`
-
-The result is an unplaced [`LocalOperator`](@ref) on `K` slots, placed with `B[i]` or
-`B[s₁, …, s_K]`; `project(h, sites)` is `project(h)[sites...]`. The coefficients are exact inner
-products against an orthogonal, complete basis, so no fit is involved.
-
-Coefficients whose norm contribution falls at or below `max(atol, rtol * norm(h))` are dropped;
-the result is then re-materialized and compared against `h`, and an `ArgumentError` is thrown if
-the residual exceeds that same tolerance. A projected operator therefore provably represents its
-input. An operator that is zero (or entirely below tolerance) gives an empty `LocalOperator`.
-
-Every returned term is active on **all** `K` slots: an on-site identity factor comes back as a
-trivial-charge letter, not as a shorter term. So `project ∘ instantiate` is the identity only for
-operators whose terms all have full support on the sites projected.
-
-```jldoctest
-julia> using TensorKit
-
-julia> V = SU2Space(1//2 => 1);
-
-julia> h = OpSum.instantiate(opsum([V, V], couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0))));
-
-julia> B = project(h); (length(B.terms), OpSum.nsites(B))
-(1, 2)
-
-julia> project(h, [2, 5]) ≈ B[2, 5]
-true
-```
-
-See also [`matrixunit`](@ref), [`couple`](@ref).
-"""
-function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rtol(h))
+# The exact expansion of a symmetric `K`-site operator in the matrix-unit letters of its spaces, as an
+# unplaced `LocalOperator` on `K` slots: the coordinates every `Basis` is defined and projected
+# through (basis.jl). `h` is `V₁ ⊗ … ⊗ V_K ← V₁ ⊗ … ⊗ V_K`, optionally with a trailing total-charge
+# leg. The coefficients are exact inner products against an orthogonal, complete basis; those at or
+# below `max(atol, rtol‖h‖)` are dropped, and the result is re-materialised and checked against `h`.
+# Every term is active on all `K` slots (an identity factor is a trivial-charge matrix unit). Not
+# public: the matrix-unit alphabet is internal since operator-bases.md §7, step 7.
+function _project_units(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rtol(h))
     K = numout(h)
     K >= 1 ||
         throw(ArgumentError("project: `h` must act on at least one site, got numout(h) = $K"))
@@ -170,93 +137,4 @@ function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rto
     )
 
     return LocalOperator{I}(out, K)
-end
-
-# Checked here, not in `getindex`, where one label would read as a contiguous placement.
-function project(h::AbstractTensorMap, sites; kwargs...)
-    sitev = collect(sites)
-    eltype(sitev) <: Integer || throw(
-        ArgumentError("project: site labels must be lattice indices (`Integer`), got $(eltype(sitev))")
-    )
-    B = project(h; kwargs...)
-    K = nsites(B)
-    length(sitev) == K || throw(
-        ArgumentError("project: got $(length(sitev)) site labels for an operator on $K sites")
-    )
-    return B[sitev...]
-end
-
-"""
-    project(O::AbstractTensorMap, V::ElementarySpace; atol = 0, rtol = 100eps) -> SiteOperator
-
-Expand a single-site operator in the ITO alphabet of `V`, as an [`SiteOperator`](@ref) that is not yet
-placed on the lattice. `O` must be either `V ← V` or `V ← V ⊗ Vect[I](c => 1)`. The result carries
-one letter per surviving alphabet element.
-
-Because a `SiteOperator` supports ordinary arithmetic, composite on-site operators read the way you
-would write them on paper, and `A[i]` then places the whole expansion:
-
-```julia
-Sz = (matrixunit(V, up, up) - matrixunit(V, dn, dn)) / 2
-H  = sum(couple(Sz[i], Sz[i + 1]; to = unit(I)) for i in 1:(N - 1))
-```
-
-Note that the matrix-unit alphabet does not use its identity letter: `project(id(V), V)` returns a
-sum of trivial-charge matrix units (`n ≥ 2`) rather than `scalarop(1, V)` (the pass-through letter
-`n = 1`). An operator that is zero (or entirely below tolerance) gives the empty `SiteOperator`, which
-does not retain the charge of the input.
-"""
-function project(
-        O::AbstractTensorMap, V::ElementarySpace; atol::Real = 0, rtol::Real = _default_rtol(O)
-    )
-    numout(O) == 1 || throw(
-        ArgumentError("project: a single-site operator must have one output leg, got $(numout(O))")
-    )
-    codomain(O)[1] == V ||
-        throw(ArgumentError("project: `O` acts on $(codomain(O)[1]), not on the given space $V"))
-
-    I = sectortype(V)
-    B = project(O; atol, rtol)
-    isempty(B.terms) && return zero(SiteOperator{I})
-    letters = IrrepOperator{I}[only(t.keys).op for t in B.terms]
-    coeffs = ComplexF64[t.coeff for t in B.terms]
-    return SiteOperator{I}(letters, coeffs)
-end
-
-"""
-    matrixunit(V::ElementarySpace, out::I, in::I) -> SiteOperator
-
-The matrix unit ``|out⟩⟨in|`` on a space whose sectors are one-dimensional and appear with
-multiplicity one (abelian or fermionic: `Vect[U₁]`, `Vect[FermionNumber]`, and products thereof).
-The operator charge follows from the fusion `out ⊗ in' → c`, and the alphabet letters are *derived*
-by [`project`](@ref) rather than named by index.
-
-```julia
-V = Vect[FermionNumber](0 => 1, 1 => 1)
-vac, occ = FermionNumber(0), FermionNumber(1)
-c  = matrixunit(V, vac, occ)   # annihilation
-cd = matrixunit(V, occ, vac)   # creation
-n  = matrixunit(V, occ, occ)   # number
-```
-
-Memoised per `(V, out, in)`, so the projection is paid once even when this is called inside a term
-loop. [`fermion_ops`](@ref) and [`spin_ops`](@ref) bundle the sets above.
-"""
-function matrixunit(V::ElementarySpace, out::I, in::I) where {I <: Sector}
-    return _cached(_MATRIXUNIT_CACHE, (V, out, in)) do
-        _matrixunit(V, out, in)
-    end
-end
-
-const _MATRIXUNIT_CACHE = Dict{Tuple{ElementarySpace, Sector, Sector}, Any}()
-
-function _matrixunit(V::ElementarySpace, out::I, in::I) where {I <: Sector}
-    dim(out) == 1 && dim(in) == 1 ||
-        throw(ArgumentError("matrixunit requires one-dimensional sectors, got $out and $in"))
-    dim(V, out) == 1 && dim(V, in) == 1 ||
-        throw(ArgumentError("matrixunit requires multiplicity-one sectors in $V, got $out and $in"))
-    c = only(⊗(out, dual(in)))
-    t = zeros(ComplexF64, V ← V ⊗ Vect[I](c => 1))
-    block(t, out) .= 1
-    return project(t, V)
 end

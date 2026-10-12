@@ -6,21 +6,24 @@ using TensorKit: removeunit, numind
 using LinearAlgebra: norm
 import TensorKitTensors.FermionOperators as FO
 
+include("testutils.jl")
+
 # A truncating SVD in a basis that is not orthogonal (operator-bases.md §4): the backends truncate in
 # the Hilbert–Schmidt metric of the basis (src/operators/compression/metric.jl), so the truncated
 # operator depends on the span of the basis and not on how it was written.
 
 dense(W) = mpo_tensormap(irrep_mpo_tensors(W))
 plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
-pairop(ts, V) = plain(instantiate(opsum(FiniteChain(V, 2), ts)))
+pairop(ts, B) = plain(instantiate(opsum(FiniteChain(B, 2), ts)))
 
 @testset "the orthonormal letters carry the operator's norm" begin
     # Σ |coeff|² over the orthonormal letters is ‖H‖² / dot(𝟙, 𝟙)^N, also across the dim(c) of an
     # SU(2) charge and for a fermion basis whose `n` overlaps the identity
     V = SU2Space(1 // 2 => 1)
-    S = spin(V)
-    B = Basis([pairop(dot(S[1], S[2]), V)])
-    ss = project(pairop(dot(S[1], S[2]), V), B)
+    BU = unitbasis(V)
+    S = spinvector(BU)
+    B = Basis([pairop(dot(S[1], S[2]), BU)])
+    ss = project(pairop(dot(S[1], S[2]), BU), B)
     Hs = opsum(FiniteChain(B, 3), ss[1, 2], 0.4 * ss[1, 3], -0.3 * ss[2, 3])
     V2 = FO.fermion_space(Trivial)
     hop, hop′, num = FO.f_plus_f_min(ComplexF64, Trivial), FO.f_min_f_plus(ComplexF64, Trivial),

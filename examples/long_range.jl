@@ -26,16 +26,16 @@ include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 # second. Folding `H = H + term` instead copies the accumulated list on every step and so is
 # quadratic; it is fine for a handful of terms and the wrong choice here.
 
-V = SU2Space(1 // 2 => 1)
-S = spin(V)
+B = spin_basis(SU2Irrep)
+ex = spin_ops(SU2Irrep).S_exchange      # S⃗ᵢ·S⃗ⱼ
 
-chain(N) = FiniteChain(V, N)
+chain(N) = FiniteChain(B, N)
 
 function haldane_shastry(N; J = 1.0)
     pref = J * π^2 / N^2
     return opsum(
         chain(N),
-        (pref / sin(π * (m - n) / N)^2) * dot(S[n], S[m])
+        (pref / sin(π * (m - n) / N)^2) * ex[n, m]
             for n in 1:(N - 1) for m in (n + 1):N
     )
 end
@@ -83,7 +83,7 @@ all(
 function powerlaw(N; α = 3.0, J = 1.0)
     return opsum(
         chain(N),
-        (J * abs(m - n)^(-α)) * dot(S[n], S[m])
+        (J * abs(m - n)^(-α)) * ex[n, m]
             for n in 1:(N - 1) for m in (n + 1):N
     )
 end

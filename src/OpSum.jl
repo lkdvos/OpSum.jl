@@ -7,7 +7,7 @@ module OpSum
 export Basis
 export spin_basis, fermion_basis, boson_basis, hubbard_basis, tj_basis
 export boson_ops, hubbard_ops, tj_ops
-export IrrepOperator, spin, scalarop, project, matrixunit, spin_ops, fermion_ops
+export IrrepOperator, scalarop, project, spin_ops, fermion_ops
 # unplaced K-site operators: project a block once, place it per bond
 export LocalOperator
 # term algebra: place and couple. Latticeless — the lattice enters with the `OperatorSum`

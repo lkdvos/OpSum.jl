@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: instantiate, Term, Terms, total, passthrough, ispassthrough,
-    bondcharges, caterpillar_trees, spin, scalarop, couple, opsum, tree
+    bondcharges, caterpillar_trees, scalarop, couple, opsum, tree
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, I as Id
@@ -27,7 +27,8 @@ end
 
 @testset "SU(2) Sᵢ·Sⱼ term normal form" begin
     V = SU2Space(1 // 2 => 1)
-    ts = dot(spin(V)[1], spin(V)[2])
+    S = spinvector(unitbasis(V))
+    ts = dot(S[1], S[2])
     @test length(ts) == 1
     tk = onlyterm(ts)
 
@@ -39,7 +40,7 @@ end
     @test tk.coeff ≈ (3 / 2) * (-sqrt(3))               # ⟨½‖S‖½⟩² · (−√dim(1))
 
     # non-singlet target: unit Clebsch–Gordan (no −√dim factor)
-    tk2 = onlyterm(couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(1)))
+    tk2 = onlyterm(couple(S[1], S[2]; to = SU2Irrep(1)))
     @test tk2.coeff ≈ (3 / 2)
     @test termbonds(tk2) == [SU2Irrep(1), SU2Irrep(1)]
     @test treebonds(tk2) == termbonds(tk2)
@@ -78,7 +79,7 @@ end
     @test dot(raise[1], lower[2]) ≈ dot(lower[2], raise[1])   # charges +1 and -1, not equal
 
     Vs = SU2Space(1 // 2 => 1)
-    S = spin(Vs)
+    S = spinvector(unitbasis(Vs))
     @test dot(S[1], S[2]) ≈ dot(S[2], S[1])
 
     # charges that cannot reach the unit sector have no scalar product at all
@@ -128,8 +129,9 @@ end
     end
 
     for N in (2, 3)
-        sites = fill(V, N)
-        H = reduce(+, dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+        sites = fill(unitbasis(V), N)
+        S = spinvector(unitbasis(V))
+        H = reduce(+, dot(S[i], S[i + 1]) for i in 1:(N - 1))
         direct = instantiate(opsum(sites, H))
         @test to_matrix(direct, N) ≈ heis_ref(N)
     end
@@ -139,7 +141,7 @@ end
 # total)` cannot capture — the stored caterpillar tree keeps the channels distinct.
 @testset "K=3 SU(2): distinct coupling channels" begin
     V = SU2Space(1 // 2 => 1)
-    Sop = spin(V)
+    Sop = spinvector(unitbasis(V))
     channels = (SU2Irrep(0), SU2Irrep(1), SU2Irrep(2))     # (S₁⊗S₂) → b₂, fuse with S₃ to total 1
     terms = [couple(couple(Sop[1], Sop[2]; to = b2), Sop[3]; to = SU2Irrep(1)) for b2 in channels]
     ks = [onlyterm(t) for t in terms]
@@ -154,7 +156,7 @@ end
     ]
 
     # and they materialize to genuinely different operators
-    mats = [convert(Array, instantiate(opsum(fill(V, 3), t))) for t in terms]
+    mats = [convert(Array, instantiate(opsum(fill(unitbasis(V), 3), t))) for t in terms]
     @test !(mats[1] ≈ mats[2])
     @test !(mats[1] ≈ mats[3])
     @test !(mats[2] ≈ mats[3])

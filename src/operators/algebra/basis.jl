@@ -68,6 +68,7 @@ function Base.show(io::IO, B::Basis)
 end
 
 _space(B::Basis) = B.space
+scalarop(c::Number, B::Basis) = scalarop(c, sectortype(B))
 _issite(::Basis) = true
 
 # `charge => number of letters of that charge in B`, what `_checklattice` validates letters against
@@ -226,7 +227,7 @@ function _factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = 1.0e
     V = codomain(h)[1]
     I = sectortype(V)
     bych = Dictionary{I, Vector{Term{I}}}()
-    for t in project(h; atol).terms.terms
+    for t in _project_units(h; atol).terms.terms
         push!(get!(bych, t.keys[1].op.c, Term{I}[]), t)
     end
     blocks = map(sort!(collect(keys(bych)))) do c
@@ -367,7 +368,7 @@ function _project_terms(
     hc, _ = _with_charge_leg(h, K, I)
     hnorm = norm(hc)
     θ = max(float(atol), float(rtol) * hnorm)
-    mu = project(h; atol = 0, rtol = 0).terms.terms
+    mu = _project_units(h; atol = 0, rtol = 0).terms.terms
     summed = canonicalize!(_rebasis(mu, (_, j) -> Bs[j])).terms
     # drop round-off: a coefficient whose term, at the scale of its elements, is below the tolerance
     weight(t) = prod(j -> norm(instantiate(t.keys[j].op, Bs[j])), 1:K)

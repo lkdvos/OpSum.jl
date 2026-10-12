@@ -3,7 +3,7 @@ using TensorKit
 using LinearAlgebra: dot
 using OpSum
 using OpSum: mpo, irrep_mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
-    unitcell_terms, maxspan, spin, matrixunit, couple, scalarop, instantiate,
+    unitcell_terms, maxspan, couple, scalarop, instantiate,
     expterm, expand_channels, chain_terms, channelspan, ExpSum, _lower_channels,
     _entriesequal, _infinite_window, storedpairs, ispassthrough, _irrep_sweep, ITOTermTable
 using OpSum.IrrepTensorOperators: IrrepOperator
@@ -28,19 +28,21 @@ const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
 const VTR = ComplexSpace(2)
 
+include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, element, matrixunit, spinvector
+const BSU2 = unitbasis(VSU2)
+const BU1 = spin_basis(U1Irrep)      # stock basis: Sᶻ is one atomic letter, so `couple(Sz, Sz)` is legal
+const BTR = unitbasis(VTR)
+
 LO(x) = OpSum.SiteOperator(x)
 densedim(sec) = sum(dim, sec; init = 0)
 
-S = spin(VSU2)
-Sp = matrixunit(VU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
-Sm = matrixunit(VU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
-Sz = 0.5 * (
-    matrixunit(VU1, U1Irrep(1 // 2), U1Irrep(1 // 2)) -
-        matrixunit(VU1, U1Irrep(-1 // 2), U1Irrep(-1 // 2))
-)
+S = spinvector(BSU2)
+Sp = matrixunit(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+Sm = matrixunit(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
+Sz = spin_ops(U1Irrep).S_z
 xxz(i, j; Δ = 1.0) =
     0.5 * couple(Sp[i], Sm[j]) + 0.5 * couple(Sm[i], Sp[j]) + Δ * couple(Sz[i], Sz[j])
-A3, B3 = LO.(instances(IrrepOperator, VTR)[2:3])
+A3, B3 = element(BTR, 2), element(BTR, 3)
 
 # Every model here is a *generating set* on a cell of `length(spaces)` sites, as an `OperatorSum` on
 # the infinite chain of that cell.
@@ -49,61 +51,61 @@ infchain(spaces) = InfiniteChain(spaces)
 function reference_models()
     m(spaces, parts...) = opsum(infchain(spaces), parts...)
     return [
-        ("pure exp SU2 L=1", m([VSU2], expterm(dot(S[1], S[2]); decay = 0.5)), [VSU2]),
+        ("pure exp SU2 L=1", m([BSU2], expterm(dot(S[1], S[2]); decay = 0.5)), [BSU2]),
         (
             "exp + NN SU2 L=1",
-            m([VSU2], dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5)), [VSU2],
+            m([BSU2], dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5)), [BSU2],
         ),
-        ("exp beyond 2nd neighbour", m([VSU2], expterm(dot(S[1], S[3]); decay = 0.5)), [VSU2]),
+        ("exp beyond 2nd neighbour", m([BSU2], expterm(dot(S[1], S[3]); decay = 0.5)), [BSU2]),
         (
             "two decays",
             m(
-                [VSU2], expterm(dot(S[1], S[2]); decay = 0.5),
+                [BSU2], expterm(dot(S[1], S[2]); decay = 0.5),
                 expterm(dot(S[1], S[2]); decay = -0.25)
-            ), [VSU2],
+            ), [BSU2],
         ),
         (
             "exp L=2",
             m(
-                [VSU2, VSU2], expterm(dot(S[1], S[2]); decay = 0.5),
+                [BSU2, BSU2], expterm(dot(S[1], S[2]); decay = 0.5),
                 expterm(dot(S[2], S[3]); decay = 0.5)
-            ), [VSU2, VSU2],
+            ), [BSU2, BSU2],
         ),
         (
             "exp all pairs L=2",
-            m([VSU2, VSU2], (expterm(dot(S[a], S[a + d]); decay = 0.5) for a in 1:2 for d in 1:2)),
-            [VSU2, VSU2],
+            m([BSU2, BSU2], (expterm(dot(S[a], S[a + d]); decay = 0.5) for a in 1:2 for d in 1:2)),
+            [BSU2, BSU2],
         ),
-        ("exp XXZ U1", m([VU1], expterm(xxz(1, 2); decay = 0.5)), [VU1]),
+        ("exp XXZ U1", m([BU1], expterm(xxz(1, 2); decay = 0.5)), [BU1]),
         (
             "exp XXZ + field U1",
-            m([VU1], expterm(xxz(1, 2); decay = 0.5), 0.3 * Sz[1]), [VU1],
+            m([BU1], expterm(xxz(1, 2); decay = 0.5), 0.3 * Sz[1]), [BU1],
         ),
         # a charge-neutral but non-trivial string on the stretched gap
         (
             "exp hop with Sᶻ string",
-            m([VU1], expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)), [VU1],
+            m([BU1], expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)), [BU1],
         ),
-        ("exp trivial sector", m([VTR], expterm(couple(A3[1], B3[2]); decay = 0.4)), [VTR]),
+        ("exp trivial sector", m([BTR], expterm(couple(A3[1], B3[2]); decay = 0.4)), [BTR]),
         # a two-site entry block (the loop starts after the block completes) …
         (
             "multi-site entry block",
             m(
-                [VSU2],
+                [BSU2],
                 expterm(
                     couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]); decay = 0.5, exitsite = 3
                 )
-            ), [VSU2],
+            ), [BSU2],
         ),
         # … and a two-site exit block (the loop exits onto an ordinary finite tail)
         (
             "multi-site exit block",
             m(
-                [VSU2],
+                [BSU2],
                 expterm(
                     couple(couple(S[1], S[3]; to = SU2Irrep(1)), S[4]); decay = 0.5, exitsite = 3
                 )
-            ), [VSU2],
+            ), [BSU2],
         ),
     ]
 end
@@ -146,7 +148,7 @@ end
     # geometric bond dimension stays `Rmax`-independent and the truncated one grows linearly.
     λ = 0.5
     ncells = 12
-    chain = InfiniteChain([VSU2])
+    chain = InfiniteChain([BSU2])
     geo = mpo(opsum(chain, expterm(dot(S[1], S[2]); decay = λ)))
     @test densedim(geo.bondsectors[1]) == 5
     got = Dict(t => t.coeff for t in mpo_terms_window(geo, ncells))
@@ -169,7 +171,7 @@ end
     # `nothing`, so a channel whose diagonal were a bare scalar would assemble into a silently wrong
     # tensor. λ rides as an edge weight, so the entry is a scaled *letter*.
     λ = 0.4
-    H = mpo(opsum(InfiniteChain([VSU2]), expterm(dot(S[1], S[2]); decay = λ)))
+    H = mpo(opsum(InfiniteChain([BSU2]), expterm(dot(S[1], S[2]); decay = λ)))
     W = only(H.Ws)
     diag = [
         (Tuple(idx)[1], only(pairs(op))) for (idx, op) in storedpairs(W)
@@ -188,9 +190,9 @@ end
 @testset "merging: what costs a channel and what does not" begin
     # The design table of `research/infinite-mpo.md` §7, as bond dimensions in the trivial sector (every
     # letter is charge-neutral there, so each channel index costs exactly 1).
-    ops = LO.(instances(IrrepOperator, VTR)[2:4])
+    ops = [element(BTR, n) for n in 2:4]
     a, b, c = ops
-    lat = InfiniteChain([VTR])
+    lat = InfiniteChain([BTR])
     D(H) = densedim(mpo(opsum(lat, H)).bondsectors[1])
 
     one_channel = D(expterm(couple(a[1], b[2]); decay = 0.5))
@@ -218,7 +220,7 @@ end
 end
 
 @testset "reference bond dimensions" begin
-    lat = InfiniteChain([VSU2])
+    lat = InfiniteChain([BSU2])
     # a geometric channel *replaces* the in-flight spin-1 multiplet of a nearest-neighbour model rather
     # than adding to it, so exponentially decaying Heisenberg is as cheap as the nearest-neighbour one
     @test densedim(mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]) == 5
@@ -234,7 +236,7 @@ end
     # The terms are identical (checked in the round-trip testset above); the bond dimension is not.
     for L in 1:3
         H = sum([expterm(dot(S[a], S[a + d]); decay = 0.5) for a in 1:L for d in 1:L])
-        Hinf = mpo(opsum(InfiniteChain(fill(VSU2, L)), H))
+        Hinf = mpo(opsum(InfiniteChain(fill(BSU2, L)), H))
         @test length(H.channels) == L^2
         @test all(j -> densedim(Hinf.bondsectors[j]) == 3L + 2, 1:L)
     end
@@ -259,7 +261,7 @@ end
         expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[1], S[3]); decay = -0.25),
         0.3 * dot(S[1], S[2]),
     ]
-    chain1 = InfiniteChain([VSU2])
+    chain1 = InfiniteChain([BSU2])
     base = _infinite_window(unitcell_terms(opsum(chain1, parts...)))
     for perm in (reverse(eachindex(parts)), circshift(collect(eachindex(parts)), 1))
         alt = _infinite_window(unitcell_terms(opsum(chain1, parts[collect(perm)]...)))
@@ -273,7 +275,7 @@ end
     for (name, H, spaces) in reference_models()
         L = length(spaces)
         Hinf = mpo(H)
-        I = sectortype(spaces[1])
+        I = sectortype(TensorKit.space(spaces[1]))
         @test length(Hinf) == L
         for j in 1:L
             @test size(Hinf.Ws[j], 1) == length(Hinf.bondsectors[mod1(j - 1, L)])
@@ -287,7 +289,7 @@ end
         Ts = irrep_mpo_tensors(Hinf)
         @test length(Ts) == L
         @test space(Ts[1], 1) == space(Ts[L], 4)'
-        @test all(j -> space(Ts[j], 2) == spaces[j], 1:L)
+        @test all(j -> space(Ts[j], 2) == TensorKit.space(spaces[j]), 1:L)
     end
 end
 
@@ -296,18 +298,18 @@ end
     # boundary vectors against `instantiate` of the terms the MPO claims to generate. This is what
     # exercises the pass-through-on-a-*charged*-bond coupler that a channel's diagonal needs.
     cases = [
-        ("pure exp trivial", [expterm(couple(A3[1], B3[2]); decay = 0.4)], [VTR], 4),
+        ("pure exp trivial", [expterm(couple(A3[1], B3[2]); decay = 0.4)], [BTR], 4),
         (
-            "exp + NN SU2", [dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5)], [VSU2], 4,
+            "exp + NN SU2", [dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5)], [BSU2], 4,
         ),
         (
             "exp with Sᶻ string",
-            [expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)], [VU1], 4,
+            [expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)], [BU1], 4,
         ),
         (
             "exp L=2",
             [expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[2], S[3]); decay = 0.5)],
-            [VSU2, VSU2], 2,
+            [BSU2, BSU2], 2,
         ),
     ]
     for (name, H, spaces, ncells) in cases
@@ -329,14 +331,14 @@ end
     # geometric sum restricted to the chain — `chain_terms` spells it out. States that could no longer
     # complete are pruned, which is what keeps the right boundary one-dimensional.
     cases = [
-        ("exp SU2", [expterm(dot(S[1], S[2]); decay = 0.5)], fill(VSU2, 5)),
+        ("exp SU2", [expterm(dot(S[1], S[2]); decay = 0.5)], fill(BSU2, 5)),
         (
             "exp + NN SU2",
             [(dot(S[i], S[i + 1]) for i in 1:4), expterm(dot(S[1], S[2]); decay = 0.5)],
-            fill(VSU2, 5),
+            fill(BSU2, 5),
         ),
-        ("exp gap trivial", [expterm(couple(A3[1], B3[3]); decay = 0.4)], fill(VTR, 5)),
-        ("exp XXZ U1", [expterm(xxz(1, 2); decay = 0.5)], fill(VU1, 4)),
+        ("exp gap trivial", [expterm(couple(A3[1], B3[3]); decay = 0.4)], fill(BTR, 5)),
+        ("exp XXZ U1", [expterm(xxz(1, 2); decay = 0.5)], fill(BU1, 4)),
     ]
     for (name, parts, sites) in cases
         N = length(sites)
@@ -354,7 +356,7 @@ end
     end
 
     # and the terms it stands for are exactly the pairs that fit
-    ts = chain_terms(opsum(FiniteChain(VSU2, 4), expterm(dot(S[1], S[2]); decay = 0.5)))
+    ts = chain_terms(opsum(FiniteChain(BSU2, 4), expterm(dot(S[1], S[2]); decay = 0.5)))
     @test sort([t.sites for t in ts]) ==
         [[1, 2], [1, 3], [1, 4], [2, 3], [2, 4], [3, 4]]
     @test only(t.coeff for t in ts if t.sites == [1, 4]) ≈
@@ -364,7 +366,7 @@ end
 @testset "a channel-free OperatorSum is the plain term bag" begin
     # the shared sweep must be untouched when there are no channels
     H = dot(S[1], S[2]) + 0.5 * dot(S[1], S[3])
-    chain = InfiniteChain([VSU2])
+    chain = InfiniteChain([BSU2])
     a = mpo(opsum(chain, H))
     b = _infinite_window(unitcell_terms(opsum(chain, H, ExpSum{SU2Irrep}())))
     @test a.bondsectors == b.bondsectors
@@ -383,7 +385,7 @@ end
 end
 
 @testset "expterm input validation" begin
-    lat = InfiniteChain([VSU2])
+    lat = InfiniteChain([BSU2])
     @test_throws ArgumentError expterm(dot(S[1], S[2]); decay = 1.0)      # not summable
     @test_throws ArgumentError expterm(dot(S[1], S[2]); decay = 1.5)
     @test_throws ArgumentError expterm(dot(S[1], S[2]); decay = 0.0)
@@ -404,7 +406,7 @@ end
     # … but the same two on a two-site cell is a different, legitimate model
     @test mpo(
         opsum(
-            InfiniteChain([VSU2, VSU2]),
+            InfiniteChain([BSU2, BSU2]),
             expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[2], S[3]); decay = 0.5)
         )
     ) isa SymbolicMPO
@@ -413,7 +415,7 @@ end
         opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5)), SVDBondAlgorithm()
     )
     @test_throws ArgumentError mpo(
-        opsum(FiniteChain(VSU2, 4), expterm(dot(S[1], S[2]); decay = 0.5)), SVDBondAlgorithm()
+        opsum(FiniteChain(BSU2, 4), expterm(dot(S[1], S[2]); decay = 0.5)), SVDBondAlgorithm()
     )
 end
 
@@ -427,7 +429,7 @@ end
     # scaling and adding behave like a term bag's
     @test only(values((2 * e).channels)) ≈ 2 * only(values(e.channels))
     @test isempty((e - e).channels)
-    H = opsum(FiniteChain(VSU2, 3), dot(S[1], S[2]), e)
+    H = opsum(FiniteChain(BSU2, 3), dot(S[1], S[2]), e)
     @test H isa OperatorSum
     @test length(H.terms.terms) == 1 && length(H.channels) == 1
     @test length((H + e).channels) == 1                      # same descriptor, coefficients add

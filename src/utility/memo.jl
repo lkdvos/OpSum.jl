@@ -1,7 +1,6 @@
-# Memoisation of the on-site operator builders. `spin(V)` recomputes a square root and
-# `matrixunit(V, out, in)` runs a whole `project` (a dense contraction per candidate letter) — both
-# cheap in isolation but naturally called inside a term loop. Caching by space/sector keeps the caches
-# small (a program uses a handful) and needs no invalidation, since both functions are pure and
+# Memoisation of the stock bases and operator builders (stockbases.jl), which run a whole `project`
+# per operator but are naturally called inside a term loop. Caching by symmetry keeps the caches small
+# (a program uses a handful) and needs no invalidation, since the functions are pure and
 # `SiteOperator` has no in-place API. The lock guards concurrent building across threads.
 
 const _OPCACHE_LOCK = ReentrantLock()

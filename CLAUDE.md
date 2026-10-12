@@ -39,7 +39,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
 
 0. **Lattices** — `src/operators/lattices.jl`
    - `AbstractLattice`, with `FiniteChain(bases)` / `FiniteChain(B, N)` and `InfiniteChain(bases)` / `InfiniteChain(B)`: one operator `Basis` per site, which the letters of a term on that site index into; mixed sites are `vcat(B₁, B₂, …)`.
-     A lattice of spaces (`FiniteChain(V, N)`) means the matrix-unit alphabet, until that goes in step 7 of `research/operator-bases.md`; a lattice is all bases or all spaces, of one symmetry (`_checksites`).
+     Every site is a `Basis`, all of one symmetry (`_checksites`); a lattice of bare spaces throws (the public matrix-unit alphabet went in step 7 of `research/operator-bases.md`).
      Whatever needs the physical space reads it through `_space(site)`, and whatever interprets a letter calls `instantiate(letter, site)`, so the two kinds of site share every code path.
      They differ in exactly two observable ways: whether `getindex` wraps, and whether a site outside `1:length` is an error.
    - A lattice is supplied **where terms are added to an `OperatorSum`**, never where they are written (`Terms`, `couple`, `dot` and placement stay latticeless). Three tiers:
@@ -54,7 +54,8 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
    - `Basis` (`basis.jl`, design note `research/operator-bases.md`): an explicit on-site basis, built from neutral operators (two-site ones are factorised into charged pieces, `_factorise_pair`), identity always element 1.
      `project(O, B)` expresses an operator in it (one site → `SiteOperator`, `K` sites → `LocalOperator`), and a letter `(c, n)` is then the `n`-th element of charge `c` in `B`.
      Nothing records which alphabet a letter came from; only `instantiate(letter, B)` interprets it, and the `_instantiate_terms` oracle accepts a `Basis` per site in place of a space.
-     The matrix-unit alphabet (`instances(IrrepOperator, V)`, `project(O, V)`) still exists, with its trivial-charge letters starting at `n = 2`.
+     The matrix-unit alphabet (`instances(IrrepOperator, V)`, `instantiate(letter, V)`, `_project_units(h)`) is internal only: it is the coordinate system `Basis` is defined and projected through (trivial-charge letters start at `n = 2`).
+   - **Stock bases and builders** (`stockbases.jl`, design note §3.7): `spin_basis`, `fermion_basis`, `boson_basis`, `hubbard_basis`, `tj_basis` are memoised functions of the symmetry on TensorKitTensors' spaces, defined from an ordered list of its neutral operators (an operator the symmetry does not admit, or an element already spanned, is skipped: `_basis_from_elements(…; skipdependent = true)`) and completed with matrix units, so products and `H'` never leave them. `spin_ops`, `fermion_ops`, `boson_ops`, `hubbard_ops`, `tj_ops` return every neutral TensorKitTensors operator of the site projected into it, named after its TensorKitTensors function. `Basis(ops; complete = true)` completes a hand-made basis.
    - `IrrepOperator{I}` (`irreptensoroperators.jl`): the irreducible-tensor-operator (ITO) alphabet, `A = IrrepOperator{I}`.
      The fusion-resolved global algebra lives in `irrepalgebra.jl` as three plain immutable structs:
    - `Term{I}` — one term: `sites` (ascending), one `ITOKey` each, and a `coeff`.
@@ -80,15 +81,15 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
    - **Pass-through slots.** A slot a term does not act on (`B + α`, a scalar part of an operand) holds the `passthrough` letter, whose `bond` is the running charge; placement drops those keys, so placed `Term`s never contain one.
 
 2. **Projection (numeric → symbolic)** — `src/operators/algebra/irrepprojection.jl`, `localoperator.jl`
-   - `project(h)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning an **unplaced** `LocalOperator{I}` — a `Terms` bag on the relative slots `1:K` plus `nsites = K` (stored explicitly so an empty operator remembers `K`; every term has `sites == 1:K`, checked in the constructor).
+   - `project(h, B)` / `project(h, [B₁, …, B_K])` (`basis.jl`) expresses an operator in bases, by changing coordinates from the internal exact matrix-unit expansion `_project_units(h)`: expand a symmetric `K`-site `TensorMap` (`V₁⊗…⊗V_K ← V₁⊗…⊗V_K`, optionally with a trailing `Vect[I](tot=>1)` charge leg) in the ITO term basis, returning an **unplaced** `LocalOperator{I}` — a `Terms` bag on the relative slots `1:K` plus `nsites = K` (stored explicitly so an empty operator remembers `K`; every term has `sites == 1:K`, checked in the constructor).
      Placement is indexing: `B[i]` is contiguous (`i:i+K-1`), `B[s₁, …, s_K]` explicit and strictly increasing; it relabels each term's `sites` and nothing else, so it is exact for any symmetry — a gap site is a pass-through the sweep reconstructs, and `test/test_local_operator.jl` pins the fermionic (Jordan–Wigner) sign across a gap against sector-resolved spectra.
-     `project(h, sites)` is `project(h)[sites...]` (its label-count error is kept, since one label would otherwise read as a contiguous placement); `project(O, V)` is the single-site form, returning a `SiteOperator`, and `LocalOperator(::SiteOperator)` lifts one to `K = 1` (a pass-through part becomes a pass-through slot).
+     `project(O, B)` is the single-site form, returning a `SiteOperator` (a charged `V ← V ⊗ Vect[I](c => 1)` projects too, onto the basis' charged elements), and `LocalOperator(::SiteOperator)` lifts one to `K = 1` (a pass-through part becomes a pass-through slot).
      `LocalOperator` mirrors `Terms`' arithmetic (`+`/`-` need equal `nsites`, scalar `*`/`/`, `B ± α`, `≈`) by delegating to the bag; `SiteOperator` stays separate because it is the entry type of the sweep's bond matrices.
    - **Hermitian conjugation** — `_adjoint_terms(h, lat)` (`builders.jl`; public as `H'` on an `OperatorSum`) goes *through* the forward map: materialise the term's `K`-site block, adjoint it, `project` it back (each slot into its site's basis, `_project_local`; a basis not closed under adjoints throws), rather than symbolically, because a letter's adjoint carries the dual charge and re-expressing the caterpillar coupler over dual charges is B-symbol data.
      Correct by construction (`project` checks its own faithfulness) and memoised per `(keys, spaces)`, so it costs one projection per distinct term *shape*.
      Requires total charge `unit(I)`.
      It is the one term-level operation that genuinely needs the physical spaces, hence it lives on the lattice-carrying container; there is no postfix `h'` on a bare `Terms` (that method throws, pointing at `OperatorSum`).
-   - Every projected term has full support on all `K` sites: an on-site identity factor appears as a trivial-charge letter, not a shorter term.
+   - In matrix units (`_project_units`) every term has full support on all `K` sites (an identity factor is a trivial-charge letter); in a `Basis` an identity factor is element 1, the pass-through, so `project(h, B)` can give shorter terms (a `K = 0` constant, a one-site term from `X ⊗ 𝟙`).
 
 3. **Normal form + flat term storage** — `src/operators/compression/irreptermtable.jl`
    - `canonicalize!(ts)`: the single place the normal form is taken — sort the terms, sum coincident ones, drop cancelled ones, **in place**.
@@ -159,7 +160,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
 - **`couple` distributes**: both operands may be composite (several terms, e.g. from `project`); pairs whose charges cannot fuse to `to` are dropped, and it is an error if none do.
   `dot` does *not* distribute — its `-√dim(c)` factor is per-letter.
 - **Build local operators wherever reads best.**
-  `spin`, `matrixunit`, `spin_ops`, `fermion_ops` are memoised; so is `adjoint` per term shape.
+  The stock bases and builders are memoised; so is `adjoint` per term shape. Model code uses neutral operators only (builders, `project(O, B)`), combined with `*` and placement; charged letters appear only inside a basis and in tests of the algebra (`test/testutils.jl`: `unitbasis`, `spinvector`, `matrixunit`, `fermionmode`).
   Model code should never mention a bare `IrrepOperator(c, n)` — `n` follows TensorKit's block order, so hard-coding it is a latent bug.
 - **`couple` defaults `to` to `unit(I)`** (what a Hamiltonian term needs) and accepts a variadic form for abelian sectors (`FusionStyle(I) isa UniqueFusion`), where every intermediate caterpillar charge is forced by the charges: `couple(cd[1], c[2], cd[3], c[4])`.
   Non-abelian sectors must nest to name each channel — the variadic form throws.
@@ -169,6 +170,6 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
 
 - Test files are `test/test_irrep_*.jl`, `test/test_infinite_*.jl`, `test/test_exp_decay.jl`, `test/test_operator_sum.jl`, `test/test_jordan_mpo.jl`, and for bases `test/test_operator_basis.jl`, `test/test_basis_lattice.jl`, `test/test_basis_svd.jl` and `test/test_mpskit_ext.jl`; each is standalone (defines its own reference matrices).
 - Tests use `ParallelTestRunner` for parallel execution; individual files can be run directly with `julia --project`.
-- MPSKit is a **weak** dependency of the package (the extension) and a test dependency, tracked as a `url` + `rev = "main"` source rather than a local path so the test environment still resolves on CI and elsewhere. TensorKitTensors is a test dependency (the Hubbard and fermion operators the basis tests are built from).
+- MPSKit is a **weak** dependency of the package (the extension) and a test dependency, tracked as a `url` + `rev = "main"` source rather than a local path so the test environment still resolves on CI and elsewhere. TensorKitTensors is a full dependency (the stock bases are built from its operators).
   It is `main` and not the registered release because the registered `JordanMPOTensor` predates its `tensors,scalars` field rework.
   The seam is exercised only through API-level entry points (`JordanMPOTensor`, `jordanmpotensortype`, `FiniteMPOHamiltonian`), never struct fields.

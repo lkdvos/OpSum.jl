@@ -15,14 +15,15 @@ include("testutils.jl")
 
 plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 dense(lat, x) = plain(instantiate(opsum(lat, x)))
-pairop(ts, V) = plain(instantiate(opsum(FiniteChain(V, 2), ts)))
+pairop(ts, B) = plain(instantiate(opsum(FiniteChain(B, 2), ts)))
 
 const Vf = Vect[FermionNumber](0 => 1, 1 => 1)
-const F = fermion_ops(Vf)
+const Bf = unitbasis(Vf)
+const F = fermionmode(Bf, FermionNumber(0), FermionNumber(1))
 
 @testset "fermions in matrix units: single-site physics and the dense product" begin
-    lat1, lat3 = FiniteChain(Vf, 1), FiniteChain(Vf, 3)
-    one1 = dense(lat1, scalarop(1, Vf)[1])
+    lat1, lat3 = FiniteChain(Bf, 1), FiniteChain(Bf, 3)
+    one1 = dense(lat1, scalarop(1, Bf)[1])
     @test dense(lat1, F.cd[1] * F.c[1]) ≈ dense(lat1, F.n[1])            # c†c = n
     @test dense(lat1, F.c[1] * F.cd[1]) ≈ one1 - dense(lat1, F.n[1])     # cc† = 1 - n
     @test dense(lat1, F.n[1] * F.n[1]) ≈ dense(lat1, F.n[1])
@@ -45,7 +46,7 @@ const F = fermion_ops(Vf)
     @test Dc(F.cd[1] * F.cd[2] * F.c[2]) ≈ Dc(couple(F.cd[1], F.n[2]; to = FermionNumber(1)))
     # scalars and the identity
     @test D((2 * one(h12)) * h12) ≈ 2 * D(h12)
-    @test D(h12 * (h12 + 1.5 * one(h12))) ≈ D(h12) * (D(h12) + 1.5 * D(scalarop(1, Vf)[1] + 0 * F.n[1]))
+    @test D(h12 * (h12 + 1.5 * one(h12))) ≈ D(h12) * (D(h12) + 1.5 * D(scalarop(1, Bf)[1] + 0 * F.n[1]))
 end
 
 @testset "a product that shares a site has no normal form until it is placed in a sum" begin
@@ -57,9 +58,9 @@ end
     @test_throws ArgumentError expterm(x * couple(F.cd[1], F.c[2]); decay = 0.5)
     # sums, scaling and opsum carry it along
     y = opsum(2 * x, F.n[2], x)
-    @test dense(FiniteChain(Vf, 2), y) ≈ 3 * dense(FiniteChain(Vf, 2), F.n[1]) + dense(FiniteChain(Vf, 2), F.n[2])
+    @test dense(FiniteChain(Bf, 2), y) ≈ 3 * dense(FiniteChain(Bf, 2), F.n[1]) + dense(FiniteChain(Bf, 2), F.n[2])
     # an `OperatorSum` holds resolved terms only
-    H = opsum(FiniteChain(Vf, 2), y)
+    H = opsum(FiniteChain(Bf, 2), y)
     @test H.terms ≈ opsum(3 * F.n[1], F.n[2])
 end
 
@@ -88,8 +89,9 @@ end
 
 @testset "non-abelian: neutral factors, on one site and across" begin
     V = SU2Space(1 // 2 => 1)
-    S = spin(V)
-    SS = pairop(dot(S[1], S[2]), V)
+    BU = unitbasis(V)
+    S = spinvector(BU)
+    SS = pairop(dot(S[1], S[2]), BU)
     B = Basis([SS])
     ss = project(SS, B)
     lat = FiniteChain(B, 4)
@@ -132,9 +134,10 @@ end
 
 @testset "non-abelian re-coupling against the written-order product" begin
     J = SU2Irrep
-    S1 = spin(SU2Space(1 => 1))
+    B1 = unitbasis(SU2Space(1 => 1))
+    S1 = spinvector(B1)
     letter(x) = only(only(x).keys).op
-    Vs = fill(SU2Space(1 => 1), 4)
+    Vs = fill(B1, 4)
     for j in (0, 1, 2), tot in J(j) ⊗ J(1)                       # every channel, three sites
         a = only(couple(S1[1], S1[3]; to = J(j)))
         keys = vcat(a.keys, OpSum.ITOKey{J}(letter(S1[2]), tot, 1))

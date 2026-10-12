@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, instantiate, spin, scalarop, couple, opsum
+using OpSum: mpo, irrep_mpo_tensors, instantiate, scalarop, couple, opsum
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor
@@ -12,10 +12,11 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix
     d = 2
 
     # --- N = 2 : single S·S term ---
-    sites2 = fill(V, 2)
-    H2 = opsum(dot(spin(V)[1], spin(V)[2]))
+    sites2 = fill(unitbasis(V), 2)
+    S2 = spinvector(unitbasis(V))
+    H2 = opsum(dot(S2[1], S2[2]))
     Ws, secs = reduced(mpo(opsum(sites2, H2)))
-    T = irrep_mpo_tensors(Ws, secs, [V, V])
+    T = irrep_mpo_tensors(Ws, secs, sites2)
     @tensor Op2[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
 
     M_mpo = physmatrix(Op2, 2, d)
@@ -27,10 +28,10 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix
     @test M_mpo ≈ 0.25 * (kron(σX, σX) + kron(σY, σY) + kron(σZ, σZ))
 
     # --- N = 3 : Heisenberg chain ---
-    sites3 = fill(V, 3)
-    H3 = opsum(dot(spin(V)[1], spin(V)[2]), dot(spin(V)[2], spin(V)[3]))
+    sites3 = fill(unitbasis(V), 3)
+    H3 = opsum(dot(spinvector(unitbasis(V))[1], spinvector(unitbasis(V))[2]), dot(spinvector(unitbasis(V))[2], spinvector(unitbasis(V))[3]))
     Ws3, secs3 = reduced(mpo(opsum(sites3, H3)))
-    T3 = irrep_mpo_tensors(Ws3, secs3, fill(V, 3))
+    T3 = irrep_mpo_tensors(Ws3, secs3, fill(unitbasis(V), 3))
     @tensor Op3[o1 o2 o3 bL; bR i1 i2 i3] :=
         T3[1][bL o1; i1 b1] * T3[2][b1 o2; i2 b2] * T3[3][b2 o3; i3 bR]
 
@@ -40,14 +41,14 @@ end
 @testset "trivial sector (ℂ²) MPO tensors contract to the operator" begin
     V = ℂ^2
     d = 2
-    ops = instances(IrrepOperator, V)
-    sites = fill(V, 3)
+    ops = [IrrepOperator(unit(Trivial), n) for n in 1:4]
+    sites = fill(unitbasis(V), 3)
     H = opsum(
         couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial)),
         couple(LO(ops[2])[2], LO(ops[3])[3]; to = unit(Trivial)),
     )
     Ws, secs = reduced(mpo(opsum(sites, H)))
-    T = irrep_mpo_tensors(Ws, secs, fill(V, 3))
+    T = irrep_mpo_tensors(Ws, secs, fill(unitbasis(V), 3))
     @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
         T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
     @test physmatrix(Op, 3, d) ≈ physmatrix(instantiate(opsum(sites, H)), 3, d)
@@ -58,10 +59,10 @@ end
     d = 2
     raise = LO(IrrepOperator(U1Irrep(1), 1))
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
-    sites = fill(V, 2)
+    sites = fill(unitbasis(V), 2)
     H = opsum(dot(raise[1], lower[2]), dot(lower[1], raise[2]))
     Ws, secs = reduced(mpo(opsum(sites, H)))
-    T = irrep_mpo_tensors(Ws, secs, fill(V, 2))
+    T = irrep_mpo_tensors(Ws, secs, fill(unitbasis(V), 2))
     @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
     @test physmatrix(Op, 2, d) ≈ physmatrix(instantiate(opsum(sites, H)), 2, d)
 end
@@ -69,12 +70,12 @@ end
 @testset "K=3 SU(2) MPO tensors contract to the operator" begin
     V = SU2Space(1 // 2 => 1)
     d = 2
-    S = spin(V)
+    S = spinvector(unitbasis(V))
     # genuine 3-body scalar: ((S₁⊗S₂)→spin-1) ⊗ S₃ → singlet
-    sites = fill(V, 3)
+    sites = fill(unitbasis(V), 3)
     H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
     Ws, secs = reduced(mpo(opsum(sites, H)))
-    T = irrep_mpo_tensors(Ws, secs, fill(V, 3))
+    T = irrep_mpo_tensors(Ws, secs, fill(unitbasis(V), 3))
     @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
         T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
     @test physmatrix(Op, 3, d) ≈ physmatrix(instantiate(opsum(sites, H)), 3, d)
@@ -84,7 +85,7 @@ end
 # ((S₁⊗S₂)→1)⊗S₃→0 channel is proportional to the scalar spin chirality S₁·(S₂×S₃).
 @testset "K=3 SU(2) scalar ∝ spin chirality" begin
     V = SU2Space(1 // 2 => 1)
-    S = spin(V)
+    S = spinvector(unitbasis(V))
     Sx = ComplexF64[0 1; 1 0] / 2
     Sy = ComplexF64[0 -im; im 0] / 2
     Sz = ComplexF64[1 0; 0 -1] / 2
@@ -100,7 +101,7 @@ end
     end
 
     H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
-    Hmat = physmatrix(instantiate(opsum(fill(V, 3), H)), 3, 2)
+    Hmat = physmatrix(instantiate(opsum(fill(unitbasis(V), 3), H)), 3, 2)
     α = dot(vec(chi), vec(Hmat)) / dot(vec(chi), vec(chi))   # least-squares proportionality constant
     @test abs(α) > 1.0e-6
     @test Hmat ≈ α * chi

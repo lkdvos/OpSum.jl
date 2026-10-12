@@ -2,7 +2,7 @@ using Test
 using TensorKit
 using LinearAlgebra: dot
 using OpSum
-using OpSum: spin, couple, matrixunit, translate, unitcell_terms, window_terms, maxspan,
+using OpSum: couple, translate, unitcell_terms, window_terms, maxspan,
     ITOTermTable, ITOGraph, _irrep_sweep, _rel_suffix_ids, _suffix_ids, _rdesc,
     _fixedpoint_cell, _entriesequal, _cellsequal, _identity_channels, _infinite_window,
     _at_site!, arity, nterms
@@ -22,8 +22,12 @@ using OpSum: spin, couple, matrixunit, translate, unitcell_terms, window_terms, 
 const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
 
+include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, matrixunit, spinvector
+const BSU2 = unitbasis(VSU2)
+const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter, so `couple(Sz, Sz)` is legal
+
 @testset "relative suffix ids are translation invariant" begin
-    S = spin(VSU2)
+    S = spinvector(BSU2)
     # the same two-site term at four different positions
     H = sum([dot(S[i], S[i + 2]) for i in 1:4])
     tt = ITOTermTable(opsum(H), 8)
@@ -49,10 +53,10 @@ end
     # equals the one at bond `i + L` once the sweep is in the bulk. Recorded straight after each site
     # step (which leaves the cursors at site `i`, plus the classes injected for `i + 1` — themselves
     # periodic, so the comparison still holds).
-    S = spin(VSU2)
+    S = spinvector(BSU2)
     for (L, H, spaces) in [
-            (1, dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), [VSU2]),
-            (2, dot(S[1], S[2]) + dot(S[2], S[3]), [VSU2, VSU2]),
+            (1, dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), [BSU2]),
+            (2, dot(S[1], S[2]) + dot(S[2], S[3]), [BSU2, BSU2]),
         ]
         gen = unitcell_terms(H, L)
         ncells = 12
@@ -73,11 +77,11 @@ end
 @testset "bulk bonds of an unrolled sweep are literally equal" begin
     # The property `_fixedpoint_cell` rests on, and the one that fails without canonicalisation: bulk
     # site tensors are equal entry for entry, not merely of equal size.
-    S = spin(VSU2)
+    S = spinvector(BSU2)
     for (name, H, L, spaces) in [
-            ("Heisenberg L=1", dot(S[1], S[2]), 1, [VSU2]),
-            ("J1-J2 L=1", dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), 1, [VSU2]),
-            ("Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), 2, [VSU2, VSU2]),
+            ("Heisenberg L=1", dot(S[1], S[2]), 1, [BSU2]),
+            ("J1-J2 L=1", dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), 1, [BSU2]),
+            ("Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), 2, [BSU2, BSU2]),
         ]
         gen = unitcell_terms(H, L)
         R = maxspan(gen)
@@ -102,27 +106,24 @@ end
     # derives its right-vertex ids and adjacency order from where each class was first encountered.
     # Before canonicalisation that could change which minimum cover was found; now the reduced MPO is
     # identical entry for entry.
-    S = spin(VSU2)
-    Sp = matrixunit(VU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
-    Sm = matrixunit(VU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
-    Sz = 0.5 * (
-        matrixunit(VU1, U1Irrep(1 // 2), U1Irrep(1 // 2)) -
-            matrixunit(VU1, U1Irrep(-1 // 2), U1Irrep(-1 // 2))
-    )
+    S = spinvector(BSU2)
+    Sp = matrixunit(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+    Sm = matrixunit(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
+    Sz = spin_ops(U1Irrep).S_z
     cases = [
         (
-            "SU2 J1-J2", 1, VSU2,
+            "SU2 J1-J2", 1, BSU2,
             [dot(S[1], S[2]), 0.5 * dot(S[1], S[3]), 0.25 * dot(S[1], S[4])],
         ),
         (
-            "U1 XXZ + field", 1, VU1,
+            "U1 XXZ + field", 1, BU1,
             [
                 0.5 * couple(Sp[1], Sm[2]), 0.5 * couple(Sm[1], Sp[2]),
                 couple(Sz[1], Sz[2]), 0.3 * Sz[1],
             ],
         ),
         (
-            "SU2 dimerised", 2, VSU2,
+            "SU2 dimerised", 2, BSU2,
             [dot(S[1], S[2]), 0.4 * dot(S[2], S[3]), 0.2 * dot(S[1], S[3])],
         ),
     ]
@@ -139,8 +140,8 @@ end
 end
 
 @testset "identity-channel detection" begin
-    S = spin(VSU2)
-    H = _infinite_window(unitcell_terms(opsum(InfiniteChain([VSU2]), dot(S[1], S[2]))))
+    S = spinvector(BSU2)
+    H = _infinite_window(unitcell_terms(opsum(InfiniteChain([BSU2]), dot(S[1], S[2]))))
     @test _identity_channels(H.Ws, H.bondsectors) == (H.start, H.finish)
 
     # the start channel's column and the done channel's row each hold exactly one stored entry
@@ -163,10 +164,10 @@ end
 @testset "canonicalisation leaves the finite path's bond dimensions alone" begin
     # A guard on the shared code: the finite sweep is exercised in full by `test_irrep_graph.jl`, but
     # pin the textbook numbers here too so a regression in `_canonicalise_bond!` is attributed here.
-    S = spin(VSU2)
+    S = spinvector(BSU2)
     for N in (4, 6, 8)
         H = sum([dot(S[i], S[i + 1]) for i in 1:(N - 1)])
-        secs = OpSum.mpo(opsum(FiniteChain(VSU2, N), H)).bondsectors
+        secs = OpSum.mpo(opsum(FiniteChain(BSU2, N), H)).bondsectors
         dense = [sum(dim, sec) for sec in secs]
         @test dense[1] == 4                       # spin-1 channel + identity
         @test all(==(5), dense[2:(N - 2)])        # bulk

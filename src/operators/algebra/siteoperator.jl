@@ -1,5 +1,5 @@
-# On-site operators: a sparse combination of alphabet letters. `SiteOperator{I}` is what `project`,
-# `matrixunit`, `spin` and `scalarop` return, and the element type of the reduced MPO's bond matrices
+# On-site operators: a sparse combination of alphabet letters. `SiteOperator{I}` is what `project`
+# (into a `Basis`) and `scalarop` return, and the element type of the reduced MPO's bond matrices
 # — a small ordered map `IrrepOperator{I} => ComplexF64`, stored as two parallel vectors rather than a
 # `Dict` (one or two letters in every realistic case, so linear scan beats hashing and keeps ordering
 # deterministic).
@@ -23,7 +23,7 @@ using VectorInterface: VectorInterface, inner
 An operator on a **single** site, not yet placed on the lattice: a sparse combination of ITO
 alphabet letters, `Σₖ coeffs[k] · letters[k]`.
 
-Obtained from [`project`](@ref), [`matrixunit`](@ref), [`spin`](@ref) or [`scalarop`](@ref), and
+Obtained from [`project`](@ref) into a [`Basis`](@ref), a builder such as [`spin_ops`](@ref), or [`scalarop`](@ref), and
 combined with ordinary arithmetic (`+ - * /`). Place it on a site with `A[i]`, which produces a
 [`Terms`](@ref) bag.
 

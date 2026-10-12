@@ -7,7 +7,7 @@
 # | model | symmetry | reduced ``D`` | dense-equivalent ``D`` |
 # |:--|:--|--:|--:|
 # | Heisenberg | SU(2) | 3 | 5 |
-# | XXZ | U(1) | 6 | 6 |
+# | XXZ | U(1) | 5 | 5 |
 # | ``J_1``–``J_2`` | SU(2) | 4 | 8 |
 #
 # The reduced bond dimension counts symmetry-resolved indices — what a DMRG sweep actually pays
@@ -24,27 +24,28 @@ using OpSum: arity
 # H = J \sum_i \vec{S}_i \cdot \vec{S}_{i+1}
 # ```
 #
-# With SU(2) symmetry there is a single on-site operator to speak of: the rank-1 vector operator
-# ``\vec{S}``, provided by [`spin`](@ref OpSum.spin). `dot` contracts two of them into the rotationally
-# invariant scalar product, so the Hamiltonian is a one-liner.
+# With SU(2) symmetry there is a single neutral two-site spin operator: the rotationally invariant
+# scalar product ``\vec S_i \!\cdot\! \vec S_j``. The builder [`spin_ops`](@ref OpSum.spin_ops) calls it
+# `S_exchange`, and the Hamiltonian is a one-liner. (The rank-1 vector operator ``\vec S`` itself is
+# a charged element of the basis, `spin_basis(SU2Irrep)`; the builder pairs it up for you.)
 #
-# Note the two idioms used here and throughout. `S = spin(V)` is hoisted out of the loop (it is
-# memoised, so this is taste rather than necessity), and the terms are handed to
+# Note the two idioms used here and throughout. The operators are looked up once, outside the loop
+# (they are memoised, so this is taste rather than necessity), and the terms are handed to
 # [`opsum`](@ref OpSum.opsum) in one pass — it is the linear accumulator, where folding `+` would
 # copy on every step.
 #
 # `opsum(lat, terms...)` returns an [`OperatorSum`](@ref OpSum.OperatorSum): the terms together with
-# their lattice. The term algebra itself (`dot`, `couple`, `A[i]`) is **latticeless** — it needs no
-# physical space, and the compression needs only the number of sites — so the lattice enters here,
-# when the terms are added, which is also where every letter is checked against the space of the
-# site it sits on. [`mpo`](@ref OpSum.mpo), `instantiate`, `islossless` and `H'` all take
-# the `OperatorSum`.
+# their lattice, one basis per site. The term algebra itself (placement, `*`) is **latticeless** — it
+# needs no physical space, and the compression needs only the number of sites — so the lattice
+# enters here, when the terms are added, which is also where every letter is checked against the
+# basis of the site it sits on. [`mpo`](@ref OpSum.mpo), `instantiate`, `islossless` and `H'` all
+# take the `OperatorSum`.
 
-V = SU2Space(1 // 2 => 1)
-S = spin(V)
+B = spin_basis(SU2Irrep)
+ops = spin_ops(SU2Irrep)
 
-su2chain(N) = FiniteChain(V, N)          # `FiniteChain(V, N)` replaces `fill(V, N)`
-heisenberg(N; J = 1.0) = opsum(su2chain(N), J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
+su2chain(N) = FiniteChain(B, N)
+heisenberg(N; J = 1.0) = opsum(su2chain(N), J * ops.S_exchange[i, i + 1] for i in 1:(N - 1))
 
 N = 8
 H_heis = heisenberg(N)
@@ -70,31 +71,26 @@ res_heis.D, res_heis.Ddense
 #     + J \Delta \sum_i S^z_i S^z_{i+1}
 # ```
 #
-# Keeping only ``U(1)`` means naming individual raising, lowering and ``S^z`` operators. Rather
-# than hard-coding alphabet indices, `spin_ops` derives them from the matrix units, which is robust
-# against how `V` happens to be written down. It takes the sectors in *descending* ``m`` — the labels
-# themselves cannot say which is which, since a `Vect[U₁]` spin site is as often labelled by particle
-# number as by ``m``, exactly as here.
+# Keeping only ``U(1)`` leaves three neutral operators: `S_z` on one site, and the flip-flop
+# products `S_plus_S_min` and `S_min_S_plus` on two. The charged ``S^\pm`` are inside the basis, so
+# nothing has to be named by an index and nothing depends on how the space happens to be written
+# down. ``S^z`` is a single element of the basis.
 
-Vu = Rep[U₁](0 => 1, 1 => 1)
-dn, up = U1Irrep(0), U1Irrep(1)
+Bu = spin_basis(U1Irrep)
+ou = spin_ops(U1Irrep)
 
-Sp, Sm, Sz = spin_ops(Vu, up, dn)                        # ``S^+``, ``S^-``, ``S^z``
+length(ou.S_z)
 
-# ``S^z`` is a genuinely *composite* on-site operator — a two-letter combination:
+# The ``S^z S^z`` term is the operator product of two placed operators, `*`, so it reads as it is
+# printed. (It is also available as the builder's `S_z_S_z`, and the two agree.)
 
-length(Sz)
-
-# `couple` distributes over both expansions, so a composite operand needs no special handling: the
-# ``S^z S^z`` term is written exactly like the single-letter ones.
-
-u1chain(N) = FiniteChain(Vu, N)
+u1chain(N) = FiniteChain(Bu, N)
 function xxz(N; J = 1.0, Δ = 1.0)
     return opsum(
         u1chain(N),
-        J / 2 * couple(Sp[i], Sm[i + 1]) +
-            J / 2 * couple(Sm[i], Sp[i + 1]) +
-            J * Δ * couple(Sz[i], Sz[i + 1])
+        J / 2 * ou.S_plus_S_min[i, i + 1] +
+            J / 2 * ou.S_min_S_plus[i, i + 1] +
+            J * Δ * ou.S_z[i] * ou.S_z[i + 1]
             for i in 1:(N - 1)
     )
 end
@@ -104,21 +100,19 @@ res_xxz = build("XXZ U(1)", H_xxz)
 
 islossless(H_xxz)
 
+opsum(u1chain(4), ou.S_z[i] * ou.S_z[i + 1] for i in 1:3) ≈ opsum(u1chain(4), ou.S_z_S_z[i, i + 1] for i in 1:3)
+
 # At ``\Delta = 1`` the XXZ chain *is* the Heisenberg chain. The two builds live on different
-# spaces with different symmetry groups, so the sharpest available check is that they have the
+# bases with different symmetry groups, so the sharpest available check is that they have the
 # same spectrum:
 
 spectrum(heisenberg(6)) ≈ spectrum(xxz(6))
 
 # The same operator, but not the same MPO. The SU(2) build needs 3 symmetry-resolved indices where
-# the U(1) build needs 6, because a single spin-1 multiplet replaces three separate abelian channels
-# (``+1``, ``-1``, ``0``). The reduced number is what a DMRG sweep pays for, so this factor of two
-# is the practical benefit of imposing the larger symmetry.
-#
-# The dense-equivalent sizes differ slightly too (5 versus 6). That is a property of how each
-# Hamiltonian is *written*: ``S^z`` is a two-letter operator, so ``S^z_i S^z_j`` enters as four
-# letter pairs which do not collapse into a single channel, whereas the SU(2) scalar product is one
-# irreducible object.
+# the U(1) build needs 5, because a single spin-1 multiplet replaces three separate abelian channels
+# (``S^+``, ``S^-``, ``S^z``). The reduced number is what a DMRG sweep pays for, so this factor of
+# almost two is the practical benefit of imposing the larger symmetry. The dense-equivalent sizes
+# agree (5 and 5), as they must: the open channels carry the same three operators either way.
 
 (su2 = (res_heis.D, res_heis.Ddense), u1 = (res_xxz.D, res_xxz.Ddense))
 
@@ -126,20 +120,18 @@ spectrum(heisenberg(6)) ≈ spectrum(xxz(6))
 #
 # Naming the on-site factors is not the only option. If you already have the two-site bond operator
 # as a `TensorMap` — from a paper's matrix, from an ED code, from `kron` — hand it straight to
-# `project`, which expands it in the two-site ITO term basis. Nothing has to factorize into
-# ``A_i B_j``: a generic two-site block works, and the coefficients are exact inner products
-# against a complete orthogonal basis, so the expansion is not a fit.
+# [`project`](@ref OpSum.project) together with the basis, which expands it in the two-site term
+# basis of that site. Nothing has to factorize into ``A_i B_j``: a generic two-site block works, and
+# the coefficients are exact inner products, so the expansion is not a fit.
 
 h_bond = instantiate(
     opsum(
-        [Vu, Vu],
-        (1 / 2) * couple(Sp[1], Sm[2]) +
-            (1 / 2) * couple(Sm[1], Sp[2]) +
-            couple(Sz[1], Sz[2]),
+        FiniteChain(Bu, 2),
+        (1 / 2) * ou.S_plus_S_min[1, 2] + (1 / 2) * ou.S_min_S_plus[1, 2] + ou.S_z_S_z[1, 2],
     )
 )
 
-B_xxz = project(h_bond)
+B_xxz = project(h_bond, Bu)
 
 # The result is a [`LocalOperator`](@ref OpSum.LocalOperator): the two-site operator *before* it is
 # told where it acts. `B_xxz[i]` places it on sites `i, i + 1`, so the projection — and its
@@ -152,37 +144,30 @@ H_proj = opsum(u1chain(N), B_xxz[i] for i in 1:(N - 1))
 
 H_proj ≈ H_xxz
 
-# The one thing to know: every projected term is active on *all* `K` slots. An on-site identity
-# factor comes back as a trivial-charge letter rather than a shorter term, so `project` inverts
-# `instantiate` only for operators whose terms have full support on the block.
-
-# ## There is no symbolic on-site product
+# ## Products of operators
 #
-# The bilinear-biquadratic spin-1 chain is the sharpest case for `project`, and the motivation comes
-# from the physics rather than from the API:
+# The bilinear-biquadratic spin-1 chain is a good test of the operator product, and the motivation
+# comes from the physics rather than from the API:
 #
 # ```math
 # H = \sum_i \left[ \vec{S}_i\!\cdot\!\vec{S}_{i+1} + \beta \left( \vec{S}_i\!\cdot\!\vec{S}_{i+1} \right)^2 \right]
 # ```
 #
-# The square is a *product of two-site operators*, and OpSum has no lazy symbolic algebra to
-# multiply them in: `Terms` is a flat bag of terms, not an expression tree. So the way to square
-# something is to build the block, square *that*, and project the result.
+# The square is a product of two-site operators on the *same* two sites. `*` between placed
+# operators is the operator product, in the order written; a product on a repeated site is resolved
+# in the site's basis when it enters the `OperatorSum`. The spin-1 basis is complete, so the
+# quadrupole operators the square needs are in it.
 
-V1 = SU2Space(1 => 1)
-S1 = spin(V1)
-bond = removeunit(instantiate(opsum([V1, V1], dot(S1[1], S1[2]))), 5)
-
-# `instantiate` returns the operator with a trailing trivial charge leg, and `removeunit` drops it,
-# leaving the ordinary ``V \otimes V \leftarrow V \otimes V`` map that can be multiplied:
-
-space(bond)
+B1 = spin_basis(SU2Irrep; spin = 1)
+ex1 = spin_ops(SU2Irrep; spin = 1).S_exchange
 
 # At ``\beta = 1/3`` this is the AKLT chain, whose ground state is the valence-bond solid:
 
 function bilinear_biquadratic(N; β = 1 / 3)
-    B = project(bond + β * (bond * bond))
-    return opsum(FiniteChain(V1, N), B[i] for i in 1:(N - 1))
+    return opsum(
+        FiniteChain(B1, N),
+        ex1[i, i + 1] + β * ex1[i, i + 1] * ex1[i, i + 1] for i in 1:(N - 1)
+    )
 end
 
 H_aklt = bilinear_biquadratic(6)
@@ -196,27 +181,37 @@ for β in (0.0, 1 / 3, 1.0)
     println("  β=$(rpad(round(β; digits = 3), 5))  D=$(r.D)  D_dense=$(r.Ddense)")
 end
 
-# The ``\beta = 0`` row is the plain spin-1 Heisenberg chain, and here the round trip is exact as a
-# *term bag*, not merely as an operator — `project` recovers the very terms `dot` would have
-# produced:
+# The ``\beta = 0`` row is the plain spin-1 Heisenberg chain, and the result is the same *term bag*,
+# not merely the same operator:
 
-let plain = opsum(FiniteChain(V1, 6), dot(S1[i], S1[i + 1]) for i in 1:5)
+let plain = opsum(FiniteChain(B1, 6), ex1[i, i + 1] for i in 1:5)
     (; same_bag = bilinear_biquadratic(6; β = 0.0) ≈ plain, nterms = length(plain))
 end
 
-# That is worth separating from the full-support property, because the two are easy to conflate. A
-# projected term is active on *all* `K` slots of the block, and the reason it costs nothing above is
-# that both terms of a `dot` already span both sites. Add a piece that does not — an identity, say —
-# and it comes back padded, as a two-slot term carrying a trivial-charge letter rather than as a
-# shorter term:
+# The same operator can come from `project`: build the two-site block densely, square *that*, and
+# expand the result in the basis. It is the same Hamiltonian, written through a different route,
+# which makes it a good independent check of the product:
 
-let padded = project(bond + one(bond) / 4)[1]
-    (; nterms = length(padded), arities = unique(arity(t) for t in padded))
+let
+    bond = removeunit(instantiate(opsum(FiniteChain(B1, 2), ex1[1, 2])), 5)
+    block = project(bond + (1 / 3) * (bond * bond), B1)
+    opsum(FiniteChain(B1, 6), block[i] for i in 1:5) ≈ H_aklt
 end
 
-# Both terms have arity 2: the identity did not come back as a `K = 0` term. So `project` inverts
-# `instantiate` for operators whose terms have full support on the block, and pads everything else —
-# which is exactly what makes it a faithful expansion of a *block* rather than a factorization.
+# `instantiate` returns the operator with a trailing trivial charge leg, and `removeunit` drops it,
+# leaving the ordinary ``V \otimes V \leftarrow V \otimes V`` map that can be multiplied.
+
+# A projected block is a sum of terms, and its terms need not all have the same support. Adding a
+# constant to the bond — `project(bond + one(bond) / 4, B1)` — gives the two-site term and a
+# `K = 0` term, because the identity is the first element of every basis and placement treats it as
+# a pass-through. (Terms of arity 0 compress too, but on a finite chain one next to two-site terms
+# costs one index at the first bond.)
+
+let
+    bond = removeunit(instantiate(opsum(FiniteChain(B1, 2), ex1[1, 2])), 5)
+    padded = project(bond + one(bond) / 4, B1)[1]
+    (; nterms = length(padded), arities = sort(unique(arity(t) for t in padded)))
+end
 
 # ## ``J_1``–``J_2``
 #
@@ -225,13 +220,14 @@ end
 # ```
 #
 # Adding a next-nearest-neighbour coupling means two spin-1 channels can be open across a bond at
-# once, so the bond dimension grows — but it is still independent of ``N``.
+# once, so the bond dimension grows — but it is still independent of ``N``. The placement
+# `S_exchange[i, i + 2]` skips a site, which is a pass-through.
 
 function j1j2(N; J1 = 1.0, J2 = 0.5)
     return opsum(
         su2chain(N),
-        (J1 * dot(S[i], S[i + 1]) for i in 1:(N - 1)),
-        (J2 * dot(S[i], S[i + 2]) for i in 1:(N - 2)),
+        (J1 * ops.S_exchange[i, i + 1] for i in 1:(N - 1)),
+        (J2 * ops.S_exchange[i, i + 2] for i in 1:(N - 2)),
     )
 end
 

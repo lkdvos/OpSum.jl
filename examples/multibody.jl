@@ -1,147 +1,127 @@
 # # Multi-body interactions
 #
-# Everything so far has been two-body. `couple` is not limited to pairs: nesting it builds a
-# *caterpillar* fusion tree, so three- and four-body SU(2)-invariant interactions are expressible
-# directly, with the intermediate fusion channels as explicit physical labels.
+# Everything so far has been two-body. Products of operators are not limited to pairs: `*` between
+# placed operators is the operator product, in the order written, so three- and four-body
+# SU(2)-invariant interactions are written as products of the two-body ones that physics suggests —
+# ``(\vec S_1\!\cdot\!\vec S_2)(\vec S_2\!\cdot\!\vec S_3)``, ``(\vec S_1\!\cdot\!\vec S_2)(\vec S_3\!\cdot\!\vec S_4)``.
+# The fusion channels between the sites are inside the basis, so nothing has to be named.
 #
-# This page shows how those channels work, which ones exist, and what they cost in bond dimension.
+# This page shows how products behave, which independent operators exist, and what they cost in bond
+# dimension.
 
 using OpSum: OpSum
 include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 
-V = SU2Space(1 // 2 => 1)
-S = spin(V)
-chain(N) = FiniteChain(V, N)
+B = spin_basis(SU2Irrep)
+ex = spin_ops(SU2Irrep).S_exchange
+chain(N) = FiniteChain(B, N)
 
-# ## Three-body terms and the channel constraint
+# ## Three-body terms
 #
-# A three-body scalar built from three rank-1 operators is
-#
-# ```math
-# \left( \vec{S}_1 \times \vec{S}_2 \right) \cdot \vec{S}_3
-# ```
-#
-# and in the caterpillar basis it is `couple(couple(S[1], S[2]; to = j₁₂), S[3]; to = 0)`. The
-# intermediate label ``j_{12}`` is a genuine degree of freedom, but it is not free: the *last* inner
-# line must be able to fuse with the final operator charge to reach the total charge.
-# `couple_channels` answers which labels survive that constraint, so there is no need to guess:
+# Two bonds that share a site multiply into a three-site operator. The shared site is an on-site
+# *product*, which is resolved in the basis of that site when the term enters the `OperatorSum`, so
+# the (complete) spin-½ basis always contains the answer:
 
-couple_channels(S[1], S[2], S[3]; to = SU2Irrep(0))
+H3 = opsum(chain(3), ex[1, 2] * ex[2, 3])
+build("K=3 (S₁·S₂)(S₂·S₃)", H3)
 
-# Since each ``\vec{S}`` carries charge 1, reaching a singlet forces ``j_{12} = 1``. One channel
-# means there is nothing left to name, so the variadic `couple` builds the operator directly:
+# The factors do not commute, so the order matters, and the hermitian conjugate reverses it:
 
-H3 = opsum(chain(3), couple(S[1], S[2], S[3]))
-build("K=3 chirality", H3)
-H3 ≈ opsum(chain(3), couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
+H3' ≈ opsum(chain(3), ex[2, 3] * ex[1, 2])
 
-# The labels the query leaves out are not a limitation but a consistency check: those operators do
-# not exist as SU(2) scalars, and asking for one is an error rather than a silently empty operator.
+# Their commutator is the scalar spin chirality, ``\left[\vec S_1\!\cdot\!\vec S_2,
+# \vec S_2\!\cdot\!\vec S_3\right] = i\, \vec S_1\!\cdot\!(\vec S_2\times\vec S_3)``, a genuinely
+# three-body operator that is anti-hermitian (so ``i`` times it is the hermitian chirality). The
+# check is against the dense operator, which is small here:
 
-try
-    couple(couple(S[1], S[2]; to = SU2Irrep(0)), S[3]; to = SU2Irrep(0))
-catch e
-    println("  j12=0  rejected: ", sprint(showerror, e))
-end
+chirality = opsum(chain(3), ex[1, 2] * ex[2, 3] - ex[2, 3] * ex[1, 2])
+instantiate(chirality') ≈ -instantiate(chirality)
 
 # ## Four-body terms
 #
-# With four rank-1 operators there are two inner lines, ``(j_{12}, j_{123})``. The same reasoning
-# forces ``j_{123} = 1``, leaving exactly **three** singlet channels:
+# With four sites there are three ways to pair them up, and so three products of two scalar products:
 
-channels = couple_channels(S[1], S[2], S[3], S[4]; to = SU2Irrep(0))
-
-# Three channels, so here there *is* something to name, and the variadic form refuses rather than
-# choosing for you — its error lists exactly the tuples above:
-
-try
-    couple(S[1], S[2], S[3], S[4])
-catch e
-    println(sprint(showerror, e))
+pairings = [
+    opsum(chain(4), ex[1, 2] * ex[3, 4]),
+    opsum(chain(4), ex[1, 3] * ex[2, 4]),
+    opsum(chain(4), ex[1, 4] * ex[2, 3]),
+]
+for p in pairings
+    build("pairing", p)
 end
 
-# Nesting is how you say which one you mean:
+# Placement may be in any site order, so the interleaved ``(1,3)(2,4)`` pairing is written exactly as
+# it reads; under a non-abelian symmetry the legs are re-coupled into site order for you (which can
+# make one written term several stored ones). Whether they are really three *different* four-body
+# operators is a question about the dense operators, and the answer is in their overlap matrix:
 
-for (j12, j123) in channels
-    H = opsum(
-        chain(4),
-        couple(couple(couple(S[1], S[2]; to = j12), S[3]; to = j123), S[4]; to = SU2Irrep(0))
-    )
-    r = build("k4", H; quiet = true)
-    println("  (j12=$(j12.j), j123=$(j123.j))  valid    D_dense=$(r.Ddense)")
+let ops = [instantiate(p) for p in pairings]
+    G = [real(dot(a, b) / (norm(a) * norm(b))) for a in ops, b in ops]
+    (; overlaps = round.(G; digits = 6), rank = rank(G))
 end
 
-# These three are not merely distinct labels — they are **mutually orthogonal operators**, i.e. a
-# complete orthogonal basis for four-body SU(2)-invariant interactions on four ordered sites:
-
-let
-    ops = [
-        instantiate(
-            opsum(
-                chain(4),
-                couple(couple(couple(S[1], S[2]; to = a), S[3]; to = b), S[4]; to = SU2Irrep(0))
-            )
-        ) for (a, b) in channels
-    ]
-    [
-        round(real(dot(ops[i], ops[j]) / (norm(ops[i]) * norm(ops[j]))); digits = 10)
-            for i in eachindex(ops), j in eachindex(ops)
-    ]
-end
+# They are linearly independent but not orthogonal (any two overlap by ``1/3``), and the three-site
+# structure shows in the cost: the pairing of neighbours has one bond index everywhere, the other two
+# need three. Three is exactly the number of independent
+# singlet couplings of four spin-1 operators, which is what ``\vec S_i`` carries.
 
 # ### A note on ring exchange
 #
-# The caterpillar tree fixes the *site order*, so the ``j_{12}`` channel corresponds to the pairing
-# ``(\vec{S}_1\!\cdot\!\vec{S}_2)(\vec{S}_3\!\cdot\!\vec{S}_4)`` — the `j₁₂ = 0` channel is exactly
-# that product. The other two pairings, ``(\vec{S}_1\!\cdot\!\vec{S}_3)(\vec{S}_2\!\cdot\!\vec{S}_4)``
-# and ``(\vec{S}_1\!\cdot\!\vec{S}_4)(\vec{S}_2\!\cdot\!\vec{S}_3)``, are *linear combinations* of all
-# three channels, with coefficients given by recoupling (F-move) symbols. Those need not be worked out
-# by hand: `dot(S[1], S[3]) * dot(S[2], S[4])` is that product, re-coupled into site order.
+# The physical ring-exchange operator of four spins on a plaquette is a particular linear
+# combination of these products: with the ring running ``a \to b \to c \to d``, it is the two
+# pairings of *adjacent* sites minus the pairing of the *diagonals*,
 #
-# So a specific physical ring-exchange operator is a particular linear combination of the three
-# channels rather than a single one. Since every combination has the same MPO bond structure, the
-# cost story below is unaffected by which one you pick.
-
-# ## Under an abelian symmetry there is never anything to name
+# ```math
+# (\vec S_a\!\cdot\!\vec S_b)(\vec S_c\!\cdot\!\vec S_d)
+# + (\vec S_a\!\cdot\!\vec S_d)(\vec S_b\!\cdot\!\vec S_c)
+# - (\vec S_a\!\cdot\!\vec S_c)(\vec S_b\!\cdot\!\vec S_d).
+# ```
 #
-# Everything above is about a *choice* of channel, and that choice exists only because SU(2) fusion
-# is not unique. Grade the site by a charge instead and every intermediate is forced by the charges
-# alone — so a four-body term folds in one call, with no channel argument and no nesting:
+# Nothing has to be worked out by hand — no recoupling coefficients — since `*` and placement do it.
+# The cost of a ring exchange is that of its most expensive pairing, which is what the ladder below
+# measures.
 
-Vf = Vect[FermionNumber](0 => 1, 1 => 1)
-F = fermion_ops(Vf)
-ring4 = couple(F.cd[1], F.c[2], F.cd[3], F.c[4])
+# ## Four fermions: the same, and the sign is free
+#
+# The same idea holds for any symmetry, and the sign of a fermionic product is part of it. A
+# four-fermion term is a product of two hops, ``c^\dagger_1 c_2\, c^\dagger_3 c_4``:
+
+F = fermion_ops()
+ring4 = F.f_plus_f_min[1, 2] * F.f_plus_f_min[3, 4]
 length(ring4)
 
-# The query says the same thing: one legal tuple, so nothing is left to choose.
+# Each hop is bosonic, so two hops commute, even when their sites interleave and the legs have to
+# pass each other. `*` and placement carry the braiding sign of every leg that passes another, which
+# is the whole Jordan–Wigner bookkeeping, and the check that they got it right is that the order of
+# the factors does not matter:
 
-couple_channels(F.cd[1], F.c[2], F.cd[3], F.c[4])
+let lat = FiniteChain(fermion_basis(), 4), A = F.f_plus_f_min[1, 3], Bhop = F.f_plus_f_min[2, 4]
+    opsum(lat, A * Bhop) ≈ opsum(lat, Bhop * A)
+end
 
-# Read back off the term, the forced channels are the running particle numbers along the chain —
-# `+1` after the first `c†`, back to `0` after the first `c`, and so on:
+# Read back off the term, the forced channels are the running fermion parity along the chain —
+# odd after the first ``c^\dagger``, back to even after the first ``c``, and so on:
 
 using OpSum: bondcharges, tree
 bondcharges(tree(only(ring4)))
 
-# This is the same `couple` and the same rule as the SU(2) case: take the channel the charges force,
-# refuse only where there is a genuine choice. What differs is the *symmetry*, not the interface —
-# under unique fusion the "genuine choice" case simply never arises.
-
 # ## A four-body model on a ladder
 #
-# To see multi-body terms in a Hamiltonian rather than in isolation, add plaquette terms to a
-# two-leg ladder. With column-major ordering the four sites of the plaquette at column ``x`` are the
-# consecutive indices ``2x-1, \ldots, 2x+2``, so the `j₁₂ = 0` channel couples rung ``x`` to
-# rung ``x+1``.
+# To see multi-body terms in a Hamiltonian rather than in isolation, add ring-exchange terms to a
+# two-leg ladder. With column-major ordering, rung ``x`` is sites ``2x-1, 2x``, so the four sites of
+# the plaquette between rungs ``2k-1`` and ``2k`` are the consecutive indices ``4k-3, \ldots, 4k``
+# (rungs `(4k-3, 4k-2)` and `(4k-1, 4k)`, legs `(4k-3, 4k-1)` and `(4k-2, 4k)`). The ring runs
+# ``4k-3 \to 4k-2 \to 4k \to 4k-1``, so the diagonals are `(4k-3, 4k)` and `(4k-2, 4k-1)`.
 
-function plaquette_ladder(Lx; J = 1.0, K = 0.3, j12 = 0)
+function plaquette_ladder(Lx; J = 1.0, K = 0.3)
     bonds = ladder_bonds(Lx, 2)
-    two_body = [J * dot(S[i], S[j]) for (i, j) in bonds]
+    two_body = [J * ex[i, j] for (i, j) in bonds]
     plaquettes = [
-        K * couple(
-            couple(couple(S[4x - 3], S[4x - 2]; to = SU2Irrep(j12)), S[4x - 1]; to = SU2Irrep(1)),
-            S[4x]; to = SU2Irrep(0)
-        ) for x in 1:(div(Lx, 2))
+        K * (
+            ex[4k - 3, 4k - 2] * ex[4k - 1, 4k] +      # rungs
+                ex[4k - 3, 4k - 1] * ex[4k - 2, 4k] -      # ... legs
+                ex[4k - 3, 4k] * ex[4k - 2, 4k - 1]        # diagonals
+        ) for k in 1:(div(Lx, 2))
     ]
     return opsum(chain(2Lx), two_body, plaquettes)
 end
@@ -153,7 +133,7 @@ islossless(H4)
 # Compare against the pure two-body ladder to isolate what the four-body terms cost:
 
 let Lx = 6
-    two_only = opsum(chain(2Lx), dot(S[i], S[j]) for (i, j) in ladder_bonds(Lx, 2))
+    two_only = opsum(chain(2Lx), ex[i, j] for (i, j) in ladder_bonds(Lx, 2))
     two = build("ladder only", two_only; quiet = true)
     println("  two-body only:        D=$(two.D)  D_dense=$(two.Ddense)")
     println("  with plaquettes:      D=$(res4.D)  D_dense=$(res4.Ddense)")

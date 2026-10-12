@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, mpo_terms, instantiate, spin, scalarop, couple,
+using OpSum: mpo, irrep_mpo_tensors, mpo_terms, instantiate, scalarop, couple,
     opsum
 using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, IndependentSVD, SequentialSVD
 using OpSum.IrrepTensorOperators: IrrepOperator
@@ -25,16 +25,16 @@ mpo_operator(Ws, secs, sites) = instantiate(opsum(sites, mpo_terms(Ws, secs)))
     V = SU2Space(1 // 2 => 1)
     d = 2
 
-    sites = fill(V, 2)
-    H2 = opsum(dot(spin(V)[1], spin(V)[2]))
+    sites = fill(unitbasis(V), 2)
+    H2 = opsum(dot(spinvector(unitbasis(V))[1], spinvector(unitbasis(V))[2]))
     Ws, secs = reduced(mpo(opsum(sites, H2), SVDBondAlgorithm()))
-    T = irrep_mpo_tensors(Ws, secs, [V, V])
+    T = irrep_mpo_tensors(Ws, secs, sites)
     @test physmatrix(contract2(T), 2, d) ≈ physmatrix(instantiate(opsum(sites, H2)), 2, d)
 
-    sites3 = fill(V, 3)
-    H3 = opsum(dot(spin(V)[1], spin(V)[2]), dot(spin(V)[2], spin(V)[3]))
+    sites3 = fill(unitbasis(V), 3)
+    H3 = opsum(dot(spinvector(unitbasis(V))[1], spinvector(unitbasis(V))[2]), dot(spinvector(unitbasis(V))[2], spinvector(unitbasis(V))[3]))
     Ws3, secs3 = reduced(mpo(opsum(sites3, H3), SVDBondAlgorithm()))
-    T3 = irrep_mpo_tensors(Ws3, secs3, fill(V, 3))
+    T3 = irrep_mpo_tensors(Ws3, secs3, fill(unitbasis(V), 3))
     @test physmatrix(contract3(T3), 3, d) ≈ physmatrix(instantiate(opsum(sites3, H3)), 3, d)
 end
 
@@ -42,8 +42,8 @@ end
     # SVD keeps the exact numerical bond rank; the bipartite min-vertex-cover is an upper bound.
     V = SU2Space(1 // 2 => 1)
     for N in (3, 4, 5)
-        sites = fill(V, N)
-        H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+        sites = fill(unitbasis(V), N)
+        H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
 
         Wb, sb = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
         Ws, ss = reduced(mpo(opsum(sites, H), SVDBondAlgorithm()))
@@ -63,7 +63,7 @@ end
     raise = LO(IrrepOperator(U1Irrep(1), 1))
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
     N = 4
-    sites = fill(V, N)
+    sites = fill(unitbasis(V), N)
     H = opsum(
         (dot(raise[i], lower[i + 1]) for i in 1:(N - 1)),
         (dot(lower[i], raise[i + 1]) for i in 1:(N - 1)),
@@ -74,8 +74,8 @@ end
     @test ss[N] == [U1Irrep(0)]
 
     Vt = ℂ^2
-    ops = instances(IrrepOperator, Vt)
-    st = fill(Vt, 3)
+    ops = [IrrepOperator(unit(Trivial), n) for n in 1:4]
+    st = fill(unitbasis(Vt), 3)
     Ht = opsum(couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2)
     Wst, sst = reduced(mpo(opsum(st, Ht), SVDBondAlgorithm()))
     @test mpo_operator(Wst, sst, st) ≈ instantiate(opsum(st, Ht))
@@ -84,8 +84,8 @@ end
 
 @testset "lossless SVD — K=3 SU(2) three-body scalar" begin
     V = SU2Space(1 // 2 => 1)
-    S = spin(V)
-    sites = fill(V, 3)
+    S = spinvector(unitbasis(V))
+    sites = fill(unitbasis(V), 3)
     H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
     Ws, ss = reduced(mpo(opsum(sites, H), SVDBondAlgorithm()))
     @test mpo_operator(Ws, ss, sites) ≈ instantiate(opsum(sites, H))
@@ -96,8 +96,8 @@ end
 @testset "truncation shrinks the bond globally across sectors" begin
     V = SU2Space(1 // 2 => 1)
     N = 3
-    sites = fill(V, N)
-    H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+    sites = fill(unitbasis(V), N)
+    H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
 
     _, sb = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     _, sfull = reduced(mpo(opsum(sites, H), SVDBondAlgorithm()))
@@ -127,8 +127,8 @@ end
     # difference is the whole reason both are exposed.
     V = SU2Space(1 // 2 => 1)
     N = 4
-    sites = fill(V, N)
-    H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+    sites = fill(unitbasis(V), N)
+    H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
 
     # the bare / positional constructors keep meaning the per-bond-independent sweep
     @test SVDBondAlgorithm().strategy isa IndependentSVD

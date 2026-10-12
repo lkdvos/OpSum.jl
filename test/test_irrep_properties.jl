@@ -23,11 +23,12 @@ include(joinpath(@__DIR__, "testutils.jl"))   # physmatrix, densedim
 # whole term space over those sites — every inner line, every letter, in one shot — and the generator
 # inherits `project`'s own faithfulness check as a precondition.
 
+# (the site basis is the complete matrix-unit basis of the space, `unitbasis`)
 const PROPERTY_SPACES = [
-    "Trivial" => ℂ^2,
-    "U1Irrep" => Rep[U₁](0 => 1, 1 => 1),
-    "SU2Irrep" => SU2Space(1 // 2 => 1),
-    "FermionNumber" => Vect[FermionNumber](0 => 1, 1 => 1),
+    "Trivial" => unitbasis(ℂ^2),
+    "U1Irrep" => unitbasis(Rep[U₁](0 => 1, 1 => 1)),
+    "SU2Irrep" => unitbasis(SU2Space(1 // 2 => 1)),
+    "FermionNumber" => unitbasis(Vect[FermionNumber](0 => 1, 1 => 1)),
 ]
 
 # `K` random active sites out of `1:N`, ascending (`project`'s and the sweep's convention).
@@ -37,28 +38,30 @@ randsites(rng, N, K) = sort!(shuffle(rng, collect(1:N))[1:K])
 A random charge-neutral operator on `N` sites: one `project`ed random block per entry of `Ks`.
 `K = 0` contributes the identity term, which is the one shape `project` cannot produce.
 """
-function random_termsum(rng, V, N, Ks)
+function random_termsum(rng, B, N, Ks)
+    V = space(B)
     I = sectortype(V)
     parts = Terms{I}[]
     for K in Ks
         if iszero(K)
-            push!(parts, scalarop(randn(rng, ComplexF64), V)[1])
+            push!(parts, scalarop(randn(rng, ComplexF64), B)[1])
             continue
         end
         sites = randsites(rng, N, K)
         Vs = fill(V, K)
         h = randn(rng, ComplexF64, foldl(⊗, Vs) ← foldl(⊗, Vs))
-        push!(parts, project(h, sites))
+        push!(parts, project(h, B)[sites...])
     end
     return opsum(parts)
 end
 
-@testset "random term sums compress losslessly — $name" for (name, V) in PROPERTY_SPACES
+@testset "random term sums compress losslessly — $name" for (name, B) in PROPERTY_SPACES
+    V = space(B)
     N = 5
-    sites = fill(V, N)
+    sites = fill(B, N)
     for seed in (1, 2, 3)
         rng = Xoshiro(seed)
-        H = random_termsum(rng, V, N, [0, 1, 1, 2, 2, 2, 3, 3])
+        H = random_termsum(rng, B, N, [0, 1, 1, 2, 2, 2, 3, 3])
         @test !isempty(H)
         # every term is charge-neutral, so the right boundary bond must be trivial
         @test all(t -> total(t) == unit(sectortype(V)), H)
@@ -79,14 +82,15 @@ end
     end
 end
 
-@testset "K = 4 terms — $name" for (name, V) in PROPERTY_SPACES
+@testset "K = 4 terms — $name" for (name, B) in PROPERTY_SPACES
+    V = space(B)
     # `K ≥ 4` was previously exercised only by `examples/multibody.jl`. A four-site term is the first
     # one with *two* caterpillar inner lines, so it is the first that can distinguish two couplings of
     # the same four letters.
     N = 5
-    sites = fill(V, N)
+    sites = fill(B, N)
     rng = Xoshiro(7)
-    H = random_termsum(rng, V, N, [4, 4, 2])
+    H = random_termsum(rng, B, N, [4, 4, 2])
     @test !isempty(H)
     @test islossless(opsum(sites, H))
     @test maximum(length(t.sites) for t in H) == 4
@@ -98,23 +102,24 @@ end
     @test size(Js[1], 1) == 1 && size(Js[N], 4) == 1
 end
 
-@testset "random term sums assemble to the same tensor — $name" for (name, V) in
+@testset "random term sums assemble to the same tensor — $name" for (name, B) in
     PROPERTY_SPACES[[3, 4]]
     # The dense oracle, on the two sectors where a fusion coefficient or a braiding sign could be
     # wrong. Contracting an N-site MPO costs a fresh `ncon` specialization per (length, sectortype),
     # so it runs at one size, on one seed, for two sectors — the symbolic check above is the one that
     # runs broadly.
+    V = space(B)
     N = 4
-    sites = fill(V, N)
-    H = random_termsum(Xoshiro(11), V, N, [0, 1, 2, 2, 3])
+    sites = fill(B, N)
+    H = random_termsum(Xoshiro(11), B, N, [0, 1, 2, 2, 3])
     exact = instantiate(opsum(sites, H))
     Ws, secs = reduced(mpo(opsum(sites, H)))
-    @test mpo_tensormap(irrep_mpo_tensors(Ws, secs, fill(V, N))) ≈ exact
+    @test mpo_tensormap(irrep_mpo_tensors(Ws, secs, fill(B, N))) ≈ exact
     @test mpo_tensormap(map(TensorMap, jordan_mpo_tensors(opsum(sites, H)))) ≈ exact
     # the SVD bond bases represent the same operator, which is what `islossless` cannot say for them
     for alg in (SVDBondAlgorithm(), SVDBondAlgorithm(; sweep = SequentialSVD))
         Wsv, ssv = reduced(mpo(opsum(sites, H), alg))
-        @test mpo_tensormap(irrep_mpo_tensors(Wsv, ssv, fill(V, N))) ≈ exact
+        @test mpo_tensormap(irrep_mpo_tensors(Wsv, ssv, fill(B, N))) ≈ exact
     end
 end
 
@@ -125,15 +130,16 @@ end
 
 # A long-range Heisenberg chain: its exact bond dimension grows with `N`, so there is a real spectrum
 # of singular values to truncate rather than a handful of exactly-needed channels.
-function powerlaw_chain(V, N; α = 2.0)
-    S = spin(V)
+function powerlaw_chain(B, N; α = 2.0)
+    S = spinvector(B)
     return opsum(abs(m - n)^(-α) * dot(S[n], S[m]) for n in 1:(N - 1) for m in (n + 1):N)
 end
 
 const TRUNC_V = SU2Space(1 // 2 => 1)
 const TRUNC_N = 5
-const TRUNC_H = powerlaw_chain(TRUNC_V, TRUNC_N)
-const TRUNC_LAT = FiniteChain(TRUNC_V, TRUNC_N)
+const TRUNC_B = unitbasis(TRUNC_V)
+const TRUNC_H = powerlaw_chain(TRUNC_B, TRUNC_N)
+const TRUNC_LAT = FiniteChain(TRUNC_B, TRUNC_N)
 const TRUNC_EXACT = instantiate(opsum(TRUNC_LAT, TRUNC_H))
 const TRUNC_NORM = norm(TRUNC_EXACT)
 
@@ -143,7 +149,7 @@ const TRUNC_NORM = norm(TRUNC_EXACT)
 # operator, which is what this measures.
 function mpo_relerror(alg)
     Ws, secs = reduced(mpo(opsum(TRUNC_LAT, TRUNC_H), alg))
-    Os = irrep_mpo_tensors(Ws, secs, fill(TRUNC_V, TRUNC_N))
+    Os = irrep_mpo_tensors(Ws, secs, fill(TRUNC_B, TRUNC_N))
     return norm(mpo_tensormap(Os) - TRUNC_EXACT) / TRUNC_NORM
 end
 

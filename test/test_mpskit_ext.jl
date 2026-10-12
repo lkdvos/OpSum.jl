@@ -101,10 +101,12 @@ end
         b = N ÷ 2
         @test centre(mpo(H).bondsectors, b) == now            # handoff §5
         # the same model in matrix units
+        BU = unitbasis(site.V)
+        ehopm, udm = project(site.ehop, BU), project(site.ud, BU)
         Hm = opsum(
-            FiniteChain(site.V, N),
-            (-t * project(site.ehop)[i] for i in 1:(N - 1)),
-            (U * project(site.ud)[i] for i in 1:N),
+            FiniteChain(BU, N),
+            (-t * ehopm[i] for i in 1:(N - 1)),
+            (U * udm[i] for i in 1:N),
         )
         @test centre(mpo(Hm).bondsectors, b) == today
 
@@ -126,8 +128,9 @@ end
     H = opsum(FiniteChain(site.B, N), (tij[i, j] * site.e[i, j] for (i, j) in pairs_))
     @test islossless(H)
     @test centre(mpo(H).bondsectors, N ÷ 2) == 22
-    ehop = project(site.ehop)
-    Hm = opsum(FiniteChain(site.V, N), (tij[i, j] * ehop[i, j] for (i, j) in pairs_))
+    BU = unitbasis(site.V)
+    ehop = project(site.ehop, BU)
+    Hm = opsum(FiniteChain(BU, N), (tij[i, j] * ehop[i, j] for (i, j) in pairs_))
     @test centre(mpo(Hm).bondsectors, N ÷ 2) == 42
 end
 

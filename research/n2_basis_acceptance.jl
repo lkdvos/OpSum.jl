@@ -1,5 +1,10 @@
 # Acceptance check for operator-bases.md §1 / handoff §5: the #38 N₂ Hamiltonians, compressed in
-# matrix units and in an explicit basis of the SU(2) Hubbard site, and handed to MPSKit.
+# matrix units and in an explicit basis of the SU(2) Hubbard site.
+#
+# The matrix-unit alphabet is no longer public (step 7), so the matrix-unit side is the bare sweep over
+# the same terms (the sweep needs no lattice). The energy comparison this script used to make compared
+# the two routes of one Hamiltonian, whose two-site strings have the wrong sign (handoff §12); energies
+# are checked against an exact spectrum in `n2_spinfree_acceptance.jl` instead.
 #
 # Run from OpSum's test environment (it has MPSKit), with the #38 material checked out next to it:
 #
@@ -12,7 +17,7 @@
 # and the terms are re-expressed in it letter by letter (`OpSum._rebasis`), which is exact because the
 # basis spans every operator on the site.
 
-using OpSum, TensorKit, MPSKit, LinearAlgebra, Printf
+using OpSum, TensorKit, LinearAlgebra, Printf
 using OpSum: Term, Terms, canonicalize!, _rebasis
 using TensorKit: removeunit, numind
 
@@ -60,11 +65,11 @@ function strings_terms(strings)
     end
     return opsum(Q.build_term(k..., c) for (k, c) in acc if abs(c) > 1.0e-14)
 end
-densen(ts, n) = (t = instantiate(opsum(FiniteChain(Vh, n), ts)); removeunit(t, numind(t)))
+densen(ts, n) = (t = OpSum._instantiate_terms(ts, fill(Vh, n)); removeunit(t, numind(t)))
 
 # The Hubbard site spanned by neutral operators: `n`, `nꜛꜜ` on one site, and pairs whose pieces are
 # `a†`, `a` (hopping), `S⃗` (exchange), `Δ†`, `Δ` (pair hopping) and `n·a†`, `n·a` (correlated hopping).
-function hubbard_basis()
+function qchem_basis()
     one(s) = densen(strings_terms([(1.0, s)]), 1)
     two(s) = densen(strings_terms([(1.0, s)]), 2)
     return Basis(
@@ -90,33 +95,23 @@ function run(which)
     terms, ntuples = Q.qchem_opsum_su2(h, eri)
     @printf "%s: %d orbitals, %d term tuples, built in %.1f s\n" which N ntuples (time() - t0)
 
-    B = hubbard_basis()
+    B = qchem_basis()
     @printf "basis: %s\n" B
     lat = FiniteChain(B, N)
     rb = canonicalize!(_rebasis(canonicalize!(terms).terms, (t, j) -> lat[t.sites[j]]; placed = true)).terms
     # different matrix-unit tuples land on the same basis term and cancel to round-off there
     cmax = maximum(t -> abs(t.coeff), rb)
     Hb = opsum(lat, Terms(filter(t -> abs(t.coeff) > 1.0e-12 * cmax, rb)))
-    Hm = opsum(FiniteChain(Vh, N), terms)
-    @printf "terms: %d in matrix units, %d in the basis\n" length(Hm.terms) length(Hb.terms)
+    tt = OpSum.ITOTermTable(terms, N)
+    @printf "terms: %d in matrix units, %d in the basis\n" OpSum.nterms(tt) length(Hb.terms)
 
-    secs_m = mpo(Hm).bondsectors
+    secs_m = OpSum._irrep_channels(tt, N, OpSum.VertexCover())[2]
     secs_b = mpo(Hb).bondsectors
     bonds = which == "STO3G" ? [N ÷ 2] : [7, 14, 21]
     for b in bonds
         @printf "bond %2d: matrix units %4d / %4d   basis %4d / %4d   (channels / dims)\n" b centre(secs_m, b)... centre(secs_b, b)...
     end
 
-    # the same operator: the two MPSKit Hamiltonians on a random state
-    Wm, Wb = instantiate(mpo(Hm)), instantiate(mpo(Hb))
-    # 14 electrons in a singlet: the charge on the right boundary (a trivial one would be the vacuum)
-    nel = 14
-    ψ = FiniteMPS(
-        randn, ComplexF64, fill(Vh, N), Vect[Q.S2]((n, s, isodd(n)) => 2 for n in 0:nel for s in 0:(1 // 2):2 if isodd(n) == !isinteger(s));
-        right = Vect[Q.S2]((nel, 0, false) => 1)
-    )
-    em, eb = expectation_value(ψ, Wm), expectation_value(ψ, Wb)
-    @printf "⟨H - E₀⟩ on a random MPS: matrix units %.12f, basis %.12f, difference %.2e\n" real(em) real(eb) abs(em - eb)
     return nothing
 end
 

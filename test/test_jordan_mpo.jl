@@ -1,7 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate, spin, couple, matrixunit, SiteOperator, opsum, mpo
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: instantiate, couple, opsum, mpo
 using TensorKit
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, nonzero_keys, eachspace
 using MPSKit
@@ -19,42 +18,39 @@ using .ShowcaseModels: mpo_tensormap, spectrum
 # compilation for no extra coverage. Structural checks run on all of these; the dense oracle runs on
 # the three in `oracle_models`.
 function reference_models()
-    Vs = SU2Space(1 // 2 => 1)
-    S = spin(Vs)
-    Vu = Rep[U₁](0 => 1, 1 => 1)
-    raise = LO(IrrepOperator(U1Irrep(1), 1))
-    lower = LO(IrrepOperator(U1Irrep(-1), 1))
-    Vt = ℂ^2
-    ops = instances(IrrepOperator, Vt)
+    BS = spin_basis(SU2Irrep)
+    SU2 = spin_ops(SU2Irrep)
+    S = spinvector(BS)                                  # the charged spin vector, for the 3-body term
+    BU = spin_basis(U1Irrep)
+    U1 = spin_ops(U1Irrep)
+    BT = spin_basis()
+    Triv = spin_ops()
 
     models = [
         # SU(2) Heisenberg: the case where Jordan padding has to reproduce the textbook bond dim 3
-        "heisenberg N=4" => (opsum(dot(S[i], S[i + 1]) for i in 1:3), FiniteChain(Vs, 4)),
+        "heisenberg N=4" => (opsum(SU2.S_exchange[i, i + 1] for i in 1:3), FiniteChain(BS, 4)),
         # decoupled pairs: two disconnected trivial-charge channels at the middle bond
         "singlet pairs N=4" =>
-            (opsum(dot(S[1], S[2]), dot(S[3], S[4])), FiniteChain(Vs, 4)),
+            (opsum(SU2.S_exchange[1, 2], SU2.S_exchange[3, 4]), FiniteChain(BS, 4)),
         # a genuine 3-body term, so the caterpillar inner line rides the bond
         "K=3 SU(2) N=3" => (
             opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))),
-            FiniteChain(Vs, 3),
+            FiniteChain(BS, 3),
         ),
         "U(1) hopping N=4" => (
             opsum(
-                dot(raise[i], lower[i + 1]) + dot(lower[i], raise[i + 1]) for i in 1:3
+                U1.S_plus_S_min[i, i + 1] + U1.S_min_S_plus[i, i + 1] for i in 1:3
             ),
-            FiniteChain(Vu, 4),
+            FiniteChain(BU, 4),
         ),
         fermionic_model(),
         # on-site terms: the only source of a D block, and of a finish channel at an early bond
         "trivial chain + field N=4" => (
             opsum(
-                (
-                    couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial))
-                        for i in 1:3
-                ),
-                0.5 * LO(ops[2])[2],
+                (Triv.S_plus_S_min[i, i + 1] for i in 1:3),
+                0.5 * Triv.S_z[2],
             ),
-            FiniteChain(Vt, 4),
+            FiniteChain(BT, 4),
         ),
     ]
     # each model's terms go onto its chain: the `OperatorSum` is what the compression takes
@@ -65,17 +61,16 @@ end
 # over a site, so the diagonal pass-through entry there is a braiding rather than a plain identity,
 # and emitting it as a `BraidingTensor` has to carry the anticommutation sign.
 function fermionic_model()
-    V = Vect[FermionNumber](0 => 1, 1 => 1)
-    vac, occ = FermionNumber(0), FermionNumber(1)
-    c, cd, n = matrixunit(V, vac, occ), matrixunit(V, occ, vac), matrixunit(V, occ, occ)
+    F = fermion_ops()
+    cdc = F.f_plus_f_min                                # c†ᵢ cⱼ, in any site order
     H = opsum(
         (
-            couple(cd[i], c[i + 1]) - couple(c[i], cd[i + 1]) + 2 * couple(n[i], n[i + 1])
+            cdc[i, i + 1] + cdc[i + 1, i] + 2 * F.f_num[i] * F.f_num[i + 1]
                 for i in 1:3
         ),
-        (0.3 * (couple(cd[i], c[i + 2]) - couple(c[i], cd[i + 2])) for i in 1:2),
+        (0.3 * (cdc[i, i + 2] + cdc[i + 2, i]) for i in 1:2),
     )
-    return "t-V fermions N=4" => (H, FiniteChain(V, 4))
+    return "t-V fermions N=4" => (H, FiniteChain(fermion_basis(), 4))
 end
 
 # The two the *dense* oracle runs on: the SU(2) coupling and the fermionic braiding. Contracting an
@@ -135,11 +130,11 @@ end
 
     # The textbook nearest-neighbour Hamiltonian is uniformly three-dimensional in Jordan form: the
     # padding is +1 at the first internal bond, +1 at the last, and 0 in the bulk.
-    V = SU2Space(1 // 2 => 1)
-    S = spin(V)
+    B = spin_basis(SU2Irrep)
+    b = spin_ops(SU2Irrep).S_exchange
     N = 6
-    sites = FiniteChain(V, N)
-    H = opsum(sites, dot(S[i], S[i + 1]) for i in 1:(N - 1))
+    sites = FiniteChain(B, N)
+    H = opsum(sites, b[i] for i in 1:(N - 1))
     @test map(length, mpo(H).bondsectors) == [2, 3, 3, 3, 2, 1]
     Ws = jordan_mpo_tensors(H)
     @test [size(W, 4) for W in Ws] == [3, 3, 3, 3, 3, 1]
@@ -147,17 +142,18 @@ end
 end
 
 @testset "rejected inputs" begin
-    V = SU2Space(1 // 2 => 1)
-    S = spin(V)
+    B = spin_basis(SU2Irrep)
+    b = spin_ops(SU2Irrep).S_exchange
+    S = spinvector(B)
     # a non-scalar total charge has no identity at the right boundary
-    @test_throws ArgumentError jordan_mpo_tensors(opsum(FiniteChain(V, 3), S[i] for i in 1:3))
+    @test_throws ArgumentError jordan_mpo_tensors(opsum(FiniteChain(B, 3), S[i] for i in 1:3))
     # an empty operator has no bond structure at all
-    @test_throws ArgumentError jordan_mpo_tensors(OperatorSum(FiniteChain(V, 3)))
+    @test_throws ArgumentError jordan_mpo_tensors(OperatorSum(FiniteChain(B, 3)))
     # an infinite chain's unit cell has a Jordan form, with both identity channels live
-    cell = jordan_mpo_tensors(opsum(InfiniteChain([V]), dot(S[1], S[2])))
+    cell = jordan_mpo_tensors(opsum(InfiniteChain(B), b[1]))
     @test length(cell) == 1 && cell[1][1, 1, 1, 1] isa BraidingTensor
     # a truncation aggressive enough to empty a bond cannot carry the identity corners
-    H = opsum(FiniteChain(V, 4), dot(S[i], S[i + 1]) for i in 1:3)
+    H = opsum(FiniteChain(B, 4), b[i] for i in 1:3)
     alg = SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD)
     @test_throws ArgumentError jordan_mpo_tensors(H, alg)
 end
@@ -195,10 +191,11 @@ end
 end
 
 @testset "MPSKit DMRG ground state matches exact diagonalization" begin
-    V = SU2Space(1 // 2 => 1)
-    S = spin(V)
+    B = spin_basis(SU2Irrep)
+    V = space(B)
+    b = spin_ops(SU2Irrep).S_exchange
     N = 6
-    H = opsum(FiniteChain(V, N), dot(S[i], S[i + 1]) for i in 1:(N - 1))
+    H = opsum(FiniteChain(B, N), b[i] for i in 1:(N - 1))
     Hmpo = instantiate(mpo(H))
 
     exact = spectrum(H)[1]

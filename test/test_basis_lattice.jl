@@ -9,7 +9,7 @@ include("testutils.jl")
 
 # Bases on the lattice (operator-bases.md §7, step 3): a `FiniteChain`/`InfiniteChain` of per-site
 # bases, against which letters are checked and through which `instantiate`, the tensor assembly and
-# `H'` read them. The oracle is the same Hamiltonian in the matrix-unit alphabet on a lattice of spaces.
+# `H'` read them. The oracle is the same Hamiltonian in the matrix-unit basis `unitbasis(V)`.
 
 const Imat = ComplexF64[1 0; 0 1]
 const Xmat = ComplexF64[0 1; 1 0]
@@ -23,11 +23,12 @@ pairop(ts, V) = plain(instantiate(opsum(FiniteChain(V, 2), ts)))
 # a spinless fermion site: `𝟙, n, c†, c` from the two hopping pairs and the number operator
 function fermion_site()
     V = Vect[FermionNumber](0 => 1, 1 => 1)
-    F = fermion_ops(V)
-    hop, hop′ = pairop(couple(F.cd[1], F.c[2]), V), pairop(couple(F.c[1], F.cd[2]), V)
-    n = plain(instantiate(opsum(FiniteChain(V, 1), F.n[1])))
+    BU = unitbasis(V)
+    F = fermionmode(BU, FermionNumber(0), FermionNumber(1))
+    hop, hop′ = pairop(couple(F.cd[1], F.c[2]), BU), pairop(couple(F.c[1], F.cd[2]), BU)
+    n = plain(instantiate(opsum(FiniteChain(BU, 1), F.n[1])))
     B = Basis([hop, hop′, n])
-    return (; V, F, B, h = project(hop, B), h′ = project(hop′, B), n = project(n, B))
+    return (; V, BU, F, B, h = project(hop, B), h′ = project(hop′, B), n = project(n, B))
 end
 
 @testset "a chain of bases" begin
@@ -45,6 +46,7 @@ end
 
     # one kind of site, of one symmetry
     @test_throws ArgumentError FiniteChain([B, ℂ^2])
+    @test_throws ArgumentError FiniteChain(ℂ^2, 3)           # a lattice of spaces
     @test_throws ArgumentError FiniteChain([B, fermion_site().B])
     @test_throws ArgumentError InfiniteChain(Basis[])
 end
@@ -70,7 +72,7 @@ end
     )
     F = f.F
     Hm = opsum(
-        FiniteChain(f.V, N),
+        FiniteChain(f.BU, N),
         (-(couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1)),
         0.4 * couple(F.cd[1], F.c[3]),
         (0.5 * F.n[i] for i in 1:N),
@@ -108,11 +110,12 @@ end
     lat = FiniteChain(vcat(P2, P3, P2))
     H = opsum(lat, zl[1, 2], 0.5 * project(Xmat, P2)[3])
 
-    spaces = FiniteChain([ℂ^2, ℂ^3, ℂ^2])
-    Zm = project(TensorMap(Zmat, ℂ^2 ← ℂ^2), ℂ^2)
-    Xm = project(TensorMap(Xmat, ℂ^2 ← ℂ^2), ℂ^2)
-    Lm = project(TensorMap(Lz, ℂ^3 ← ℂ^3), ℂ^3)
-    Hm = opsum(spaces, couple(Zm[1], Lm[2]), 0.5 * Xm[3])
+    U2, U3 = unitbasis(ℂ^2), unitbasis(ℂ^3)
+    units = FiniteChain(vcat(U2, U3, U2))
+    Zm = project(TensorMap(Zmat, ℂ^2 ← ℂ^2), U2)
+    Xm = project(TensorMap(Xmat, ℂ^2 ← ℂ^2), U2)
+    Lm = project(TensorMap(Lz, ℂ^3 ← ℂ^3), U3)
+    Hm = opsum(units, Zm[1] * Lm[2], 0.5 * Xm[3])
     @test instantiate(H) ≈ instantiate(Hm)
     @test mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(H)
     @test_throws ArgumentError project(ZL, [P2, P2])                 # slot 2 is a qutrit
@@ -134,7 +137,7 @@ end
     # operator in the sites' basis like any other, and the fermion sign still rides on the charge
     f = fermion_site()
     λ, N = 0.6, 5
-    Pm = id(f.V) - 2 * plain(instantiate(opsum(FiniteChain(f.V, 1), f.F.n[1])))
+    Pm = id(f.V) - 2 * plain(instantiate(opsum(FiniteChain(f.BU, 1), f.F.n[1])))
     p = project(Pm, f.B)
     lat = FiniteChain(f.B, N)
     H = opsum(lat, expterm(f.h[1, 2]; decay = λ, string = p), 0.3 * f.n[2])

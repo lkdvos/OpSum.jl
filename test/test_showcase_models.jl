@@ -1,7 +1,6 @@
 using Test
 using OpSum
 using OpSum: mpo, mpo_terms, instantiate
-using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: norm
 
@@ -28,32 +27,24 @@ const EXPECTED = Dict{String, Any}(
     "hubbard_1d" => (dense = _ -> 7, mult = _ -> 7),
     # One physical site per site instead of two spin-orbitals, and the spin doublet carries qdim 2,
     # so the reduced and dense-equivalent figures differ here where the abelian encoding's do not.
-    "hubbard_su2" => (dense = _ -> 10, mult = _ -> 6),
+    # Start, finish and the two doublets `c†σ`, `cσ` (the stock basis' own letters): 2 + 2·2 dense,
+    # 2 + 2 reduced. The matrix-unit alphabet needed four hopping pieces here (10 and 6).
+    "hubbard_su2" => (dense = _ -> 6, mult = _ -> 4),
     # Long-range: every pair couples, so the cover keeps ~one open spin-1 channel per site on the
     # smaller side of each cut.
     "haldane_shastry" => (dense = N -> 3 * (N ÷ 2) + 2, mult = N -> N ÷ 2 + 2),
     "powerlaw_a3" => (dense = N -> 3 * (N ÷ 2) + 2, mult = N -> N ÷ 2 + 2),
 )
 
-@testset "alphabet letter identities" begin
-    # These guard against a silent reordering of TensorKit's canonical block order, which would
-    # change which physical operator a given letter index denotes.
-    V = Rep[U₁](0 => 1, 1 => 1)
+@testset "stock-basis letters" begin
+    # The builders hand out one letter per operator that the model code mentions, so a model term is
+    # as many letters as sites it touches: nothing is expanded behind the user's back.
     letters(op) = Dict(pairs(op))
-    nup = matrixunit(V, U1Irrep(1), U1Irrep(1))
-    @test only(pairs(letters(nup))) ==
-        (IrrepOperator(U1Irrep(0), 3) => ComplexF64(1))
-
-    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
-    vac, occ = FermionNumber(0), FermionNumber(1)
-    @test length(letters(matrixunit(Vf, vac, occ))) == 1     # c
-    @test length(letters(matrixunit(Vf, occ, vac))) == 1     # c†
-    @test length(letters(matrixunit(Vf, occ, occ))) == 1     # n̂
-    @test BraidingStyle(sectortype(Vf)) isa Fermionic
-
-    # A composite on-site operator really is composite -- `couple` distributes over it.
-    Sz = (matrixunit(V, U1Irrep(1), U1Irrep(1)) - matrixunit(V, U1Irrep(0), U1Irrep(0))) / 2
-    @test length(letters(Sz)) == 2
+    F = fermion_ops(U1Irrep)
+    @test length(letters(F.f_num)) == 1                  # n̂
+    @test BraidingStyle(sectortype(space(fermion_basis(U1Irrep)))) isa Fermionic
+    S = spin_ops(SU2Irrep).S_exchange
+    @test length(S[1, 2]) == 1                              # S⃗ᵢ·S⃗ⱼ is one term, one letter per site
 end
 
 @testset "geometry" begin
@@ -97,14 +88,13 @@ end
 
 @testset "fermionic sign is required" begin
     # Flipping the h.c. sign must break hermiticity -- otherwise the check above proves nothing.
-    # `couple` now supplies the sign for `couple(F.cd[i + 1], F.c[i])`, so getting it wrong takes
-    # deliberately writing the site-ordered spelling with a `+`.
-    F = fermion_ops()
-    V = ShowcaseModels.FERMION_MODE
+    # Placement supplies the sign for `c†ᵢ₊₁ cᵢ` (`F.f_plus_f_min[i + 1, i]`), so getting it wrong
+    # takes deliberately writing the hopping with the wrong relative sign.
+    F = fermion_ops(U1Irrep)
     N = 6
     wrong = opsum(
-        FiniteChain(V, N),
-        couple(F.cd[i], F.c[i + 1]) + couple(F.c[i], F.cd[i + 1]) for i in 1:(N - 1)
+        FiniteChain(ShowcaseModels.FERMION_BASIS, N),
+        F.f_plus_f_min[i, i + 1] - F.f_plus_f_min[i + 1, i] for i in 1:(N - 1)
     )
     @test hermiticity_error(wrong) > 0.1
 end
@@ -142,10 +132,10 @@ end
 end
 
 @testset "the two Hubbard encodings agree" begin
-    # `hubbard_su2` is the only model whose bond is written out as fusion-tree matrix elements by
-    # hand, so it is the only one where a wrong Clebsch-Gordan factor would go unnoticed. The check
-    # that catches it: the same physics in the spin-orbital encoding, which shares no code with it —
-    # `hubbard` places single-letter operators with `couple`, `hubbard_su2` `project`s a block.
+    # `hubbard_su2` is the only model that is non-abelian and fermionic at once, so it is the one
+    # where a wrong Clebsch-Gordan factor or braiding would go unnoticed. The check that catches it:
+    # the same physics in the spin-orbital encoding, which shares no code with it — `hubbard` places
+    # fermion operators on spin-orbital sites, `hubbard_su2` uses the stock Hubbard site.
     for Nsites in (2, 3)
         hsu2 = ShowcaseModels.hubbard_su2(Nsites; t = 1.0, U = 4.0)
         horb = ShowcaseModels.hubbard(2Nsites; t = 1.0, U = 4.0)
@@ -166,14 +156,11 @@ end
     L = 4
     Hs = ShowcaseModels.heisenberg_su2(L)
 
-    Vu = Rep[U₁](0 => 1, 1 => 1)
-    dn, up = U1Irrep(0), U1Irrep(1)
-    S = spin_ops(Vu, up, dn)
-    z = unit(U1Irrep)
+    S = spin_ops(U1Irrep)
     Hu = opsum(
-        FiniteChain(Vu, L),
-        0.5 * couple(S.Sp[i], S.Sm[i + 1]; to = z) + 0.5 * couple(S.Sm[i], S.Sp[i + 1]; to = z) +
-            couple(S.Sz[i], S.Sz[i + 1]; to = z) for i in 1:(L - 1)
+        FiniteChain(spin_basis(U1Irrep), L),
+        0.5 * S.S_plus_S_min[i, i + 1] + 0.5 * S.S_min_S_plus[i, i + 1] +
+            S.S_z_S_z[i, i + 1] for i in 1:(L - 1)
     )
     a, b = spectrum(Hs), spectrum(Hu)
     @test length(a) == 2^L        # multiplet degeneracies must be unfolded

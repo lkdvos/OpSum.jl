@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, mpo_terms, spin, scalarop, couple, opsum
+using OpSum: mpo, mpo_terms, scalarop, couple, opsum
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot
@@ -10,8 +10,8 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, islossless, densedim
 @testset "SU(2) Heisenberg — lossless + per-sector bond dims" begin
     V = SU2Space(1 // 2 => 1)
     for N in (3, 4, 5)
-        sites = fill(V, N)
-        H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+        sites = fill(unitbasis(V), N)
+        H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
         @test islossless(opsum(sites, H))
 
         Ws, secs = reduced(mpo(opsum(sites, H)))
@@ -28,7 +28,7 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, islossless, densedim
     V = SU2Space(1 // 2 => 1)
     _, secs = reduced(
         mpo(
-            opsum(FiniteChain(V, N), dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
+            opsum(FiniteChain(unitbasis(V), N), dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1))
         )
     )
     b = 3    # a bulk bond
@@ -42,7 +42,7 @@ end
     raise = LO(IrrepOperator(U1Irrep(1), 1))
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
     N = 4
-    sites = fill(V, N)
+    sites = fill(unitbasis(V), N)
     # number-conserving hopping Σ (b†_i b_{i+1} + h.c.)  (built as raise·lower both directions)
     H = opsum(
         (dot(raise[i], lower[i + 1]) for i in 1:(N - 1)),
@@ -59,9 +59,9 @@ end
 
 @testset "trivial sector (ℂ²) — lossless" begin
     V = ℂ^2
-    ops = instances(IrrepOperator, V)
+    ops = [IrrepOperator(unit(Trivial), n) for n in 1:4]
     N = 3
-    sites = fill(V, N)
+    sites = fill(unitbasis(V), N)
     # a chain of nearest-neighbour couplings of two nontrivial trivial-sector letters
     H = opsum(
         (couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:(N - 1))
@@ -74,9 +74,9 @@ end
 @testset "scalar + coupling (charge-0 mix)" begin
     V = SU2Space(1 // 2 => 1)
     N = 3
-    sites = fill(V, N)
+    sites = fill(unitbasis(V), N)
     # a constant plus a coupling — both total charge 0
-    H = opsum(scalarop(2.5, V)[1], dot(spin(V)[1], spin(V)[2]))
+    H = opsum(scalarop(2.5, unitbasis(V))[1], dot(spinvector(unitbasis(V))[1], spinvector(unitbasis(V))[2]))
     @test islossless(opsum(sites, H))
     _, secs = reduced(mpo(opsum(sites, H)))
     @test secs[N] == [SU2Irrep(0)]
@@ -85,8 +85,8 @@ end
 @testset "sum of single-site fields (uniform charge)" begin
     V = SU2Space(1 // 2 => 1)
     N = 3
-    sites = fill(V, N)
-    H = opsum(spin(V)[1], spin(V)[2], spin(V)[3])   # each term total charge 1
+    sites = fill(unitbasis(V), N)
+    H = opsum(spinvector(unitbasis(V))[1], spinvector(unitbasis(V))[2], spinvector(unitbasis(V))[3])   # each term total charge 1
     @test islossless(opsum(sites, H))
     _, secs = reduced(mpo(opsum(sites, H)))
     @test secs[N] == [SU2Irrep(1)]
@@ -94,8 +94,8 @@ end
 
 @testset "K=3 SU(2) three-body scalar — lossless" begin
     V = SU2Space(1 // 2 => 1)
-    S = spin(V)
-    sites = fill(V, 3)
+    S = spinvector(unitbasis(V))
+    sites = fill(unitbasis(V), 3)
     H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
     @test islossless(opsum(sites, H))
     _, secs = reduced(mpo(opsum(sites, H)))
@@ -111,11 +111,11 @@ end
     # single bond-charge sector (not just across sectors).
     V = SU2Space(1 // 2 => 1)
     N = 6
-    sites = fill(V, N)
+    sites = fill(unitbasis(V), N)
     H = opsum(
-        dot(spin(V)[1], spin(V)[2]),
-        dot(spin(V)[3], spin(V)[4]),
-        dot(spin(V)[5], spin(V)[6]),
+        dot(spinvector(unitbasis(V))[1], spinvector(unitbasis(V))[2]),
+        dot(spinvector(unitbasis(V))[3], spinvector(unitbasis(V))[4]),
+        dot(spinvector(unitbasis(V))[5], spinvector(unitbasis(V))[6]),
     )
     @test islossless(opsum(sites, H))
 
@@ -130,7 +130,7 @@ end
     V = Rep[U₁](0 => 1, 1 => 1)
     raise = LO(IrrepOperator(U1Irrep(1), 1))
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
-    sites = fill(V, 3)
+    sites = fill(unitbasis(V), 3)
     # charges (1, 1, -1) fusing through inner line 2 to a net charge 1
     H = opsum(couple(couple(raise[1], raise[2]; to = U1Irrep(2)), lower[3]; to = U1Irrep(1)))
     @test islossless(opsum(sites, H))

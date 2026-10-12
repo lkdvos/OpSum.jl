@@ -190,7 +190,7 @@ function spin_ops(symmetry::Type{<:Sector} = Trivial; spin = 1 // 2)
     end
 end
 "See [`spin_ops`](@ref)."
-function fermion_ops(symmetry::Type{<:Sector})
+function fermion_ops(symmetry::Type{<:Sector} = Trivial)
     return _cached(_STOCK_CACHE, (:fermion_ops, symmetry)) do
         _stock_ops(fermion_basis(symmetry), FermionOperators, _FERMION_OPS, (symmetry,), (;))
     end

@@ -11,7 +11,7 @@ using LinearAlgebra: LinearAlgebra
 
 An operator on `K` consecutive slots, not yet placed on the lattice: a [`Terms`](@ref) bag on the
 sites `1:K`, every term occupying all of them (a slot it does not act on holds the pass-through
-letter). Obtained from `project(h)`, from unplaced [`couple`](@ref)/`dot`, or from a
+letter). Obtained from `project(h, B)`, from unplaced [`couple`](@ref)/`dot`, or from a
 [`SiteOperator`](@ref). Place it with `B[i]` (sites `i:i+K-1`) or `B[s₁, …, s_K]`.
 """
 struct LocalOperator{I <: Sector}

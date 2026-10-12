@@ -1,15 +1,23 @@
 using Test
 using OpSum
-using OpSum: project, matrixunit, instantiate, spin, scalarop, couple, mpo, opsum,
+using OpSum: project, instantiate, scalarop, couple, mpo, opsum, FiniteChain,
     irrep_mpo_tensors, mpo_terms, Term, Terms, total, ops, tree, bondcharges,
-    caterpillar_trees, _instantiate_basis
+    caterpillar_trees, _instantiate_basis, _project_units, _instantiate_terms
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor, insertrightunit, removeunit
 using VectorInterface: inner
 using LinearAlgebra: dot, norm
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm, physmatrix
+include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm, physmatrix, unitbasis, spinvector, ...
+
+# The basis-free expansion in matrix units is internal (`_project_units`); the tests of its mechanics
+# call it through these two helpers: expand and place on `sites`, and rebuild densely on spaces `Vs`.
+pu(h, sites; kw...) = _project_units(h; kw...)[sites...]
+inst(ts, Vs) = _instantiate_terms(ts, Vs)
+spinvec(V) = spinvector(unitbasis(V))
+# dense operator of `H` (letters in `unitbasis(V)`) on `N` sites of `V`
+dense(H, V, N) = instantiate(opsum(FiniteChain(unitbasis(V), N), H))
 
 # The alphabet index `n` depends on TensorKit's canonical block order, so the whole point of
 # `project` is not to hard-code it. These spaces exercise every way that order can be non-obvious:
@@ -93,15 +101,11 @@ end
         for op in instances(IrrepOperator, V)
             O = instantiate(op, V)
 
-            t = onlyterm(project(O, (1,)))
+            t = onlyterm(pu(O, (1,)))
             @test t.sites == [1]
             @test only(ops(t)) == op
             @test t.coeff ≈ 1
 
-            # the SiteOperator form is the same expansion, unplaced
-            lo = project(O, V)
-            @test instantiate(lo, V) ≈ O
-            @test only(keys(lo)) == op
         end
     end
 end
@@ -123,7 +127,7 @@ end
                 end
             end
 
-            ts = project(O, (1,); rtol = 0)
+            ts = pu(O, (1,); rtol = 0)
             @test length(ts) == count(v -> !iszero(v), values(expected))
             for t in ts
                 op = only(ops(t))
@@ -137,12 +141,12 @@ end
 @testset "K=1 charge-neutral input" begin
     for V in SPACES
         # the identity is not a letter: it comes back as a sum of trivial-charge letters
-        ts = project(id(V), (1,))
+        ts = pu(id(V), (1,))
         @test !isempty(ts)
         @test all(t -> total(t) == unit(sectortype(V)), ts)
-        @test instantiate(opsum([V], ts)) ≈ insertrightunit(id(V))
+        @test inst(ts, [V]) ≈ insertrightunit(id(V))
 
-        @test instantiate(opsum([V], project(2.5 * id(V), (1,)))) ≈ insertrightunit(2.5 * id(V))
+        @test inst(pu(2.5 * id(V), (1,)), [V]) ≈ insertrightunit(2.5 * id(V))
     end
 end
 
@@ -150,9 +154,10 @@ end
 # suite as the *input* to `instantiate`, so recovering it exactly closes the loop.
 @testset "K=2 known reduced coefficients" begin
     V = SU2Space(1 // 2 => 1)
+    S = spinvec(V)
 
     # S·S  (cf. test_irrep_terms.jl)
-    t = onlyterm(project(instantiate(opsum([V, V], dot(spin(V)[1], spin(V)[2]))), [1, 2]))
+    t = onlyterm(pu(inst(dot(S[1], S[2]), [V, V]), [1, 2]))
     @test t.sites == [1, 2]
     @test total(t) == SU2Irrep(0)
     @test bondcharges(tree(t)) == [SU2Irrep(1), SU2Irrep(0)]
@@ -161,8 +166,8 @@ end
     # bare coupling to each total: the coefficient is 3/2 for *all* of them. A stray factor of
     # dim(tot) in the normalization would give 3/2, 9/2, 15/2 instead.
     for t in 0:2
-        H = couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(t))
-        tk = onlyterm(project(instantiate(opsum([V, V], H)), [1, 2]))
+        H = couple(S[1], S[2]; to = SU2Irrep(t))
+        tk = onlyterm(pu(inst(H, [V, V]), [1, 2]))
         @test total(tk) == SU2Irrep(t)
         @test tk.coeff ≈ 3 / 2
     end
@@ -172,13 +177,13 @@ end
     raise = LO(IrrepOperator(U1Irrep(1), 1))
     lower = LO(IrrepOperator(U1Irrep(-1), 1))
     H = couple(raise[1], lower[2]; to = U1Irrep(0))
-    tk = onlyterm(project(instantiate(opsum([Vu, Vu], H)), [1, 2]))
+    tk = onlyterm(pu(inst(H, [Vu, Vu]), [1, 2]))
     @test [o.c for o in ops(tk)] == [U1Irrep(1), U1Irrep(-1)]
     @test tk.coeff ≈ 1
 
     # charged total
     H = couple(raise[1], raise[2]; to = U1Irrep(2))
-    tk = onlyterm(project(instantiate(opsum([Vu, Vu], H)), [1, 2]))
+    tk = onlyterm(pu(inst(H, [Vu, Vu]), [1, 2]))
     @test total(tk) == U1Irrep(2)
     @test tk.coeff ≈ 1
 end
@@ -188,12 +193,12 @@ end
 # that channel. These tests are the reason this file exists.
 @testset "K=3 channels are resolved with the right sign" begin
     V = SU2Space(1 // 2 => 1)
-    S = spin(V)
+    S = spinvec(V)
     expected = sqrt(1.5)^3
 
     for b2 in 0:2
         H = couple(couple(S[1], S[2]; to = SU2Irrep(b2)), S[3]; to = SU2Irrep(1))
-        ts = project(instantiate(opsum(fill(V, 3), H)), [1, 2, 3])
+        ts = pu(inst(H, fill(V, 3)), [1, 2, 3])
         t = onlyterm(ts)
         @test bondcharges(tree(t)) == [SU2Irrep(1), SU2Irrep(b2), SU2Irrep(1)]
         @test t.coeff ≈ expected      # including the sign
@@ -201,7 +206,7 @@ end
 
     # the chirality channel
     H = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
-    t = onlyterm(project(instantiate(opsum(fill(V, 3), H)), [1, 2, 3]))
+    t = onlyterm(pu(inst(H, fill(V, 3)), [1, 2, 3]))
     @test bondcharges(tree(t)) == [SU2Irrep(1), SU2Irrep(1), SU2Irrep(0)]
     @test t.coeff ≈ expected
 
@@ -209,8 +214,8 @@ end
     # with no mixing between channels
     coeffs = (0.7, -1.3, 2.1)
     Hs = [couple(couple(S[1], S[2]; to = SU2Irrep(b2)), S[3]; to = SU2Irrep(1)) for b2 in 0:2]
-    h = sum(c * instantiate(opsum(fill(V, 3), H)) for (c, H) in zip(coeffs, Hs))
-    ts = project(h, [1, 2, 3])
+    h = sum(c * inst(H, fill(V, 3)) for (c, H) in zip(coeffs, Hs))
+    ts = pu(h, [1, 2, 3])
     @test length(ts) == 3
     for (b2, c) in zip(0:2, coeffs)
         t = only(t for t in ts if bondcharges(tree(t))[2] == SU2Irrep(b2))
@@ -222,7 +227,7 @@ end
 # coupling convention were wrong. This one anchors the K=3 sign to physics.
 @testset "K=3 projection reproduces the spin chirality" begin
     V = SU2Space(1 // 2 => 1)
-    S = spin(V)
+    S = spinvec(V)
     Sx = ComplexF64[0 1; 1 0] / 2
     Sy = ComplexF64[0 -im; im 0] / 2
     Sz = ComplexF64[1 0; 0 -1] / 2
@@ -238,8 +243,8 @@ end
     end
 
     H = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
-    h = instantiate(opsum(fill(V, 3), H))
-    back = instantiate(opsum(fill(V, 3), project(h, [1, 2, 3])))
+    h = inst(H, fill(V, 3))
+    back = inst(pu(h, [1, 2, 3]), fill(V, 3))
     Hmat = physmatrix(back, 3, 2)
     α = dot(vec(chi), vec(Hmat)) / dot(vec(chi), vec(chi))
     @test abs(α) > 1.0e-6
@@ -269,8 +274,8 @@ end
                 randn(ComplexF64, Vp ← Vp ⊗ Vect[I](tot => 1))
             hc = tot === nothing ? insertrightunit(h) : h
 
-            ts = project(h, 1:length(Vs))
-            back = instantiate(opsum(Vs, ts))
+            ts = pu(h, 1:length(Vs))
+            back = inst(ts, Vs)
             @test back ≈ hc
 
             # the basis is complete, so a random symmetric operator uses all of it ...
@@ -282,7 +287,7 @@ end
 
     # real eltype input promotes to the pipeline's ComplexF64
     h = randn(Float64, su2 ⊗ su2 ← su2 ⊗ su2)
-    @test instantiate(opsum([su2, su2], project(h, [1, 2]))) ≈ insertrightunit(h)
+    @test inst(pu(h, [1, 2]), [su2, su2]) ≈ insertrightunit(h)
 end
 
 # Hand-checked reference, so this does not depend on `instantiate` at all. For ℂ² there is one
@@ -294,13 +299,13 @@ end
     σZ = ComplexF64[1 0; 0 -1]
     unit_of(M) = TensorMap(copy(M), V ← V)
 
-    @test physmatrix(instantiate(opsum([V], project(unit_of(σZ), (1,)))), 1, 2) ≈ σZ
+    @test physmatrix(inst(pu(unit_of(σZ), (1,)), [V]), 1, 2) ≈ σZ
 
     for (M, expected) in (
             (σZ, Dict((2, 2) => 1.0, (5, 5) => 1.0, (2, 5) => -1.0, (5, 2) => -1.0)),
             (σX, Dict((3, 3) => 1.0, (4, 4) => 1.0, (3, 4) => 1.0, (4, 3) => 1.0)),
         )
-        ts = project(unit_of(M) ⊗ unit_of(M), [1, 2])
+        ts = pu(unit_of(M) ⊗ unit_of(M), [1, 2])
         @test length(ts) == length(expected)
         got = Dict((ops(t)[1].n, ops(t)[2].n) => t.coeff for t in ts)
         for (idx, c) in expected
@@ -309,54 +314,57 @@ end
     end
 end
 
-@testset "matrixunit and composite couple build the XXZ chain" begin
-    V = Rep[U₁](0 => 1, 1 => 1)
-    up, dn = U1Irrep(1), U1Irrep(0)
+@testset "composite couple builds the spin-1 XXZ chain" begin
+    V = Rep[U₁](-1 => 1, 0 => 1, 1 => 1)
+    B = unitbasis(V)
     z = unit(U1Irrep)
+    (; Sp, Sm, Sz) = spinladder(B, [U1Irrep(1), U1Irrep(0), U1Irrep(-1)])
 
-    Sp = matrixunit(V, up, dn)
-    Sm = matrixunit(V, dn, up)
-    Sz = (matrixunit(V, up, up) - matrixunit(V, dn, dn)) / 2
+    # S⁺ and S⁻ are sums of two matrix units each, so `couple` has to distribute over them
+    @test length(Sp) == 2
+    @test length(Sm) == 2
 
-    # a matrix unit is a single letter; Sᶻ is genuinely composite
-    @test length(Sp) == 1
-    @test length(Sz) == 2
-
-    # `couple` distributes over the composite operands -- no manual expansion needed
-    H = couple(Sz[1], Sz[2]; to = z) +
+    # Sᶻ carries an identity component in `unitbasis`, so it enters through the product
+    H = Sz[1] * Sz[2] +
         (1 / 2) * couple(Sp[1], Sm[2]; to = z) +
         (1 / 2) * couple(Sm[1], Sp[2]; to = z)
 
-    # reference in the sector-ordered basis (0 => down, 1 => up)
-    szm = ComplexF64[-0.5 0; 0 0.5]
-    spm = ComplexF64[0 0; 1 0]
-    smm = ComplexF64[0 1; 0 0]
+    # reference in TensorKit's sector order for U(1), which is m = 0, 1, -1
+    szm = ComplexF64[0 0 0; 0 1 0; 0 0 -1]
+    spm = zeros(ComplexF64, 3, 3)
+    spm[2, 1] = spm[1, 3] = sqrt(2)
+    smm = collect(spm')
     ref = kron(szm, szm) + (1 / 2) * (kron(spm, smm) + kron(smm, spm))
-    @test physmatrix(instantiate(opsum([V, V], H)), 2, 2) ≈ ref
+    @test physmatrix(dense(H, V, 2), 2, 3) ≈ ref
 
     # and the same operator recovered by projecting the dense block
-    ts = project(instantiate(opsum([V, V], H)), [1, 2])
-    @test physmatrix(instantiate(opsum([V, V], ts)), 2, 2) ≈ ref
+    ts = pu(dense(H, V, 2), [1, 2])
+    @test physmatrix(inst(ts, [V, V]), 2, 3) ≈ ref
 
     # pairs that cannot fuse to `to` are dropped rather than erroring ...
-    @test length(couple(Sz[1], Sz[2]; to = z)) == 4
-    @test length(couple(Sz[1], Sp[2]; to = U1Irrep(1))) == 2
+    A = Sp + Sm
+    @test length(couple(Sp[1], Sm[2]; to = z)) == 4
+    @test length(couple(A[1], A[2]; to = z)) == 8
+    @test length(couple(Sp[1], Sp[2]; to = U1Irrep(2))) == 4
     # ... but a total charge that nothing reaches is an error
     @test_throws ArgumentError couple(Sp[1], Sp[2]; to = z)
 end
 
 @testset "projected terms feed the MPO pipeline" begin
     V = SU2Space(1 // 2 => 1)
+    S = spinvec(V)
+    B = unitbasis(V)
     d = 2
     N = 3
-    sites = fill(V, N)
+    lat = FiniteChain(B, N)
 
-    hbond = instantiate(opsum([V, V], dot(spin(V)[1], spin(V)[2])))
+    hbond = dense(dot(S[1], S[2]), V, 2)
     for (label, h) in (("S·S", hbond), ("S·S + identity", hbond + 0.3 * insertrightunit(id(V ⊗ V))))
         @testset "$label" begin
-            H = opsum((project(h, [i, i + 1]) for i in 1:(N - 1)))
+            hloc = project(h, B)
+            H = opsum((hloc[i, i + 1] for i in 1:(N - 1)))
 
-            Ws, secs = reduced(mpo(opsum(sites, H)))
+            Ws, secs = reduced(mpo(opsum(lat, H)))
             @test length(secs) == N
 
             # faithful at the reduced level
@@ -364,58 +372,57 @@ end
             @test back ≈ H
 
             # and the assembled tensors contract to the operator
-            T = irrep_mpo_tensors(Ws, secs, sites)
+            T = irrep_mpo_tensors(Ws, secs, lat)
             @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
                 T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
-            @test physmatrix(Op, N, d) ≈ physmatrix(instantiate(opsum(sites, H)), N, d)
+            @test physmatrix(Op, N, d) ≈ physmatrix(instantiate(opsum(lat, H)), N, d)
         end
     end
 
     # the projected Heisenberg chain is the Heisenberg chain
-    H = opsum((project(hbond, [i, i + 1]) for i in 1:(N - 1)))
-    Href = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
-    @test physmatrix(instantiate(opsum(sites, H)), N, d) ≈ physmatrix(instantiate(opsum(sites, Href)), N, d)
+    hloc = project(hbond, B)
+    H = opsum((hloc[i, i + 1] for i in 1:(N - 1)))
+    Href = opsum((dot(S[i], S[i + 1]) for i in 1:(N - 1)))
+    @test physmatrix(instantiate(opsum(lat, H)), N, d) ≈ physmatrix(instantiate(opsum(lat, Href)), N, d)
 end
 
 @testset "tolerance" begin
     V = SU2Space(1 // 2 => 1)
+    S = spinvec(V)
     scalarpart = couple(
         LO(IrrepOperator(SU2Irrep(0), 2))[1], LO(IrrepOperator(SU2Irrep(0), 2))[2];   # a matrix unit
         to = SU2Irrep(0)
     )
-    h = instantiate(opsum([V, V], dot(spin(V)[1], spin(V)[2]))) + 1.0e-6 * instantiate(opsum([V, V], scalarpart))
+    h = inst(dot(S[1], S[2]), [V, V]) + 1.0e-6 * inst(scalarpart, [V, V])
 
-    @test length(project(h, [1, 2])) == 2                  # default keeps the small term
-    @test length(project(h, [1, 2]; rtol = 1.0e-4)) == 1    # truncated away
-    @test length(project(h, [1, 2]; atol = 1.0e-4)) == 1
+    @test length(pu(h, [1, 2])) == 2                  # default keeps the small term
+    @test length(pu(h, [1, 2]; rtol = 1.0e-4)) == 1    # truncated away
+    @test length(pu(h, [1, 2]; atol = 1.0e-4)) == 1
 
     # dropping enough weight that the reconstruction is no longer faithful is an error, not a
     # silently wrong answer
     hrand = randn(ComplexF64, ℂ^2 ⊗ ℂ^2 ← ℂ^2 ⊗ ℂ^2)
-    @test_throws ArgumentError project(hrand, [1, 2]; rtol = 0.5)
+    @test_throws ArgumentError pu(hrand, [1, 2]; rtol = 0.5)
 
     # a zero operator projects to an empty term bag rather than throwing
-    @test isempty(project(zero(h), [1, 2]))
-    @test iszero(project(zero(id(V)), V))
+    @test isempty(pu(zero(h), [1, 2]))
+    @test isempty(pu(zero(id(V)), (1,)))
 end
 
 @testset "input validation" begin
     V = SU2Space(1 // 2 => 1)
-    h = instantiate(opsum([V, V], dot(spin(V)[1], spin(V)[2])))
+    B = unitbasis(V)
+    S = spinvec(V)
+    h = inst(dot(S[1], S[2]), [V, V])
 
-    @test project(h, [2, 1]) ≈ project(h, [1, 2])                 # out of order: re-coupled, S⃗₂·S⃗₁ = S⃗₁·S⃗₂
+    @test pu(h, [2, 1]) ≈ pu(h, [1, 2])                 # out of order: re-coupled, S⃗₂·S⃗₁ = S⃗₁·S⃗₂
     # a repeated site is the on-site product: S⃗·S⃗ on one spin-½ is 3/4, once resolved in a sum
-    @test convert(Array, instantiate(opsum(FiniteChain(V, 1), project(h, [1, 1]))))[:, :, 1] ≈
+    @test convert(Array, instantiate(opsum(FiniteChain(B, 1), project(h, B)[1, 1])))[:, :, 1] ≈
         0.75 * ComplexF64[1 0; 0 1]
-    @test_throws ArgumentError project(h, [1])                     # wrong label count
-    @test_throws ArgumentError project(h, [1, 2, 3])
-    @test_throws ArgumentError project(randn(ComplexF64, V ← V ⊗ V ⊗ V), (1,))   # numin ∉ (K, K+1)
-    @test_throws ArgumentError project(randn(ComplexF64, V ← V ⊗ Vect[SU2Irrep](SU2Irrep(1) => 2)), (1,))
-    @test_throws ArgumentError project(randn(ComplexF64, V ← V ⊗ Vect[SU2Irrep](SU2Irrep(0) => 1, SU2Irrep(1) => 1)), (1,))
-    @test_throws ArgumentError project(randn(ComplexF64, V ← V'), (1,))          # domain ≠ codomain
-    @test_throws ArgumentError project(zeros(Float64, ℝ^2 ← ℝ^2), (1,))          # wrong space type
-
-    # the single-site SiteOperator form
-    @test_throws ArgumentError project(h, V)                                     # two output legs
-    @test_throws ArgumentError project(instantiate(opsum([V], spin(V)[1])), SU2Space(1 => 1))
+    @test_throws ArgumentError project(h, B)[1, 2, 3]            # wrong index count
+    @test_throws ArgumentError _project_units(randn(ComplexF64, V ← V ⊗ V ⊗ V))   # numin ∉ (K, K+1)
+    @test_throws ArgumentError _project_units(randn(ComplexF64, V ← V ⊗ Vect[SU2Irrep](SU2Irrep(1) => 2)))
+    @test_throws ArgumentError _project_units(randn(ComplexF64, V ← V ⊗ Vect[SU2Irrep](SU2Irrep(0) => 1, SU2Irrep(1) => 1)))
+    @test_throws ArgumentError _project_units(randn(ComplexF64, V ← V'))          # domain ≠ codomain
+    @test_throws ArgumentError _project_units(zeros(Float64, ℝ^2 ← ℝ^2))          # wrong space type
 end

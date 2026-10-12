@@ -4,7 +4,7 @@
 #
 # A channel is one fully specified representative term plus the site where its exit block starts:
 #
-#     expterm(dot(S[1], S[2]); decay = 0.5)
+#     expterm(SS[1, 2]; decay = 0.5)                     # SS = spin_ops(SU2Irrep).S_exchange
 #     expterm(couple(couple(A[1], A′[2]; to = c), B[4]); decay = 0.5, exitsite = 4)
 #
 # Given lattice period `P` (`L` for an `InfiniteChain`, `1` for a finite chain), a channel represents
@@ -172,8 +172,9 @@ An exponentially decaying interaction, generated from the representative term(s)
 the gap just before `exitsite` geometrically with ratio `decay` per site:
 
 ```julia
-expterm(dot(S[1], S[2]); decay = 0.5)          # Σ_{i<j} 0.5^{j-i-1} S_i·S_j
-expterm(couple(Sp[1], Sm[3]); decay = 0.5)     # the same, but never closer than third neighbours
+SS = spin_ops(SU2Irrep).S_exchange
+expterm(SS[1, 2]; decay = 0.5)                 # Σ_{i<j} 0.5^{j-i-1} S⃗_i·S⃗_j
+expterm(SS[1, 3]; decay = 0.5)                 # the same, but never closer than next-nearest neighbours
 ```
 
 `t` must be a fully coupled term sum whose terms have at least two active sites — it carries the

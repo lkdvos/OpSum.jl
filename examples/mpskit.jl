@@ -26,16 +26,17 @@ using MPSKit: MPSKit, JordanMPOTensor, FiniteMPOHamiltonian, InfiniteMPOHamilton
     InfiniteMPS, DMRG, VUMPS, find_groundstate, expectation_value
 using BlockTensorKit: SparseBlockTensorMap, nonzero_keys
 
-V = SU2Space(1 // 2 => 1)
-S = spin(V)
-chain(N) = FiniteChain(V, N)
+B = spin_basis(SU2Irrep)
+V = space(B)                      # the physical space of the MPS
+ex = spin_ops(SU2Irrep).S_exchange
+chain(N) = FiniteChain(B, N)
 
 # ## The Hamiltonian
 #
 # Nothing new — an SU(2) Heisenberg chain, the same operator as on the spin-chains page.
 
 N = 6
-H = opsum(chain(N), dot(S[i], S[i + 1]) for i in 1:(N - 1))
+H = opsum(chain(N), ex[i, i + 1] for i in 1:(N - 1))
 Ws = jordan_mpo_tensors(H)
 map(W -> size(W, 4), Ws)
 
@@ -98,8 +99,8 @@ mpo_matches_oracle(H)
 # identity channels, so its Jordan form needs no padding. A spin-½ chain under SU(2) needs a two-site
 # cell, since the bond spaces alternate between half-integer and integer spins.
 
-lat∞ = InfiniteChain([V, V])
-H∞ = opsum(lat∞, dot(S[1], S[2]), dot(S[2], S[3]))
+lat∞ = InfiniteChain([B, B])
+H∞ = opsum(lat∞, ex[1, 2], ex[2, 3])
 H∞mpo = instantiate(mpo(H∞))
 
 # VUMPS then gives the Heisenberg ground-state energy per site, `1/4 - log(2)` (Bethe):

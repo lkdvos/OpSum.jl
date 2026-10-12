@@ -2,9 +2,8 @@
 # algebra or in the sweep needs a physical space, and the sweep needs only the site *count* — so the
 # lattice enters with the `OperatorSum`, and these are the two things that can be supplied.
 #
-# A site is described by its operator `Basis` (basis.jl), whose letters the terms on it index into, or
-# — until the matrix-unit alphabet goes (operator-bases.md §7, step 7) — by its bare physical space,
-# whose matrix units the letters index into. A lattice is one or the other throughout.
+# A site is described by its operator `Basis` (basis.jl), whose letters the terms on it index into.
+# (A bare physical space, meaning its matrix units, was accepted until operator-bases.md §7, step 7.)
 #
 # `FiniteChain` and `InfiniteChain` differ in exactly two observable ways: whether `getindex` wraps,
 # and whether a site index outside `1:length` is an error. Everything downstream branches on the type
@@ -16,8 +15,7 @@ using TensorKit: TensorKit, ElementarySpace, Sector, Trivial, sectortype
     AbstractLattice
 
 Supertype of the lattices an [`OperatorSum`](@ref) can carry: [`FiniteChain`](@ref) and
-[`InfiniteChain`](@ref). A lattice names the operator [`Basis`](@ref) of every site (or, for the
-matrix-unit alphabet, its physical space), which is what tensor assembly, [`instantiate`](@ref) and
+[`InfiniteChain`](@ref). A lattice names the operator [`Basis`](@ref) of every site, which is what tensor assembly, [`instantiate`](@ref) and
 letter validation need; the compression itself needs only `length` (the number of sites, or the
 unit-cell period).
 """
@@ -26,8 +24,6 @@ abstract type AbstractLattice end
 """
     FiniteChain(bases::AbstractVector{<:Basis})
     FiniteChain(B::Basis, N::Integer)
-    FiniteChain(spaces::AbstractVector{<:ElementarySpace})
-    FiniteChain(V::ElementarySpace, N::Integer)
 
 An open chain of `length(bases)` sites, carrying one operator [`Basis`](@ref) per site: the letters
 of a term on site `i` index into `bases[i]`. Sites with different spaces are combined by listing
@@ -35,9 +31,8 @@ their bases, e.g. `vcat(Bf, Bs, Bf)`; all must share one symmetry. `getindex` do
 `i` exists only for `i ∈ 1:length(chain)`, and a term reaching outside that range is an error rather
 than a wrap-around.
 
-With spaces instead of bases the letters are matrix units of those spaces (to be removed with the
-matrix-unit alphabet). `FiniteChain(B, N)` is the uniform chain. A bare vector of bases or spaces is
-accepted anywhere a `FiniteChain` is, and converted.
+`FiniteChain(B, N)` is the uniform chain. A bare vector of bases is accepted anywhere a
+`FiniteChain` is, and converted.
 """
 struct FiniteChain{S} <: AbstractLattice
     sites::Vector{S}
@@ -52,13 +47,13 @@ FiniteChain(lat::FiniteChain) = lat
     InfiniteChain(B::Basis)
 
 An infinite chain with a repeating unit cell of `L = length(bases)` sites, carrying one operator
-[`Basis`](@ref) per site of the cell (or, for the matrix-unit alphabet, one space). Site `i` of the
+[`Basis`](@ref) per site of the cell. Site `i` of the
 infinite lattice has basis `bases[mod1(i, L)]`, for any `i ∈ ℤ` — `getindex` wraps, so this is the
 lattice of the whole chain and not just of the cell.
 
 An operator compressed over one is a *generating set*: the operator represented is
 `Σ_{n ∈ ℤ} translate(H, n·L)`, so each translation class must appear exactly once (see
-[`unitcell_terms`](@ref)). Its terms may reach past the cell — `dot(S[1], S[2])` on a one-site cell
+[`unitcell_terms`](@ref)). Its terms may reach past the cell — `SS[1, 2]` on a one-site cell
 names site 2 — which is exactly what the wrap-around `getindex` is for.
 """
 struct InfiniteChain{S} <: AbstractLattice
@@ -80,11 +75,11 @@ _sitevector(sites) = collect(map(identity, sites))
 # is fine for a function only called at run time.
 function _checksites(sites::Vector)
     isempty(sites) && return sites
-    bases = all(s -> s isa Basis, sites)
-    bases || all(s -> s isa ElementarySpace, sites) || throw(
+    all(s -> s isa Basis, sites) || throw(
         ArgumentError(
-            "a lattice is described by one operator `Basis` per site or (for the matrix-unit " *
-                "alphabet) one `ElementarySpace` per site, not a mix; got $(unique(typeof.(sites)))"
+            "a lattice is described by one operator `Basis` per site (a stock basis such as " *
+                "`spin_basis(SU2Irrep)`, or `Basis(ops)`), got $(unique(typeof.(sites))); a bare " *
+                "space no longer names an operator alphabet"
         )
     )
     I = sectortype(_space(first(sites)))

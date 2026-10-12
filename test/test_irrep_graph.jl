@@ -18,7 +18,7 @@
 
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, mpo_terms, instantiate, spin, couple, scalarop,
+using OpSum: mpo, irrep_mpo_tensors, mpo_terms, instantiate, couple, scalarop,
     opsum
 using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, VertexCover, IndependentSVD, SequentialSVD
 using OpSum: ITOTermTable, _irrep_sweep
@@ -62,30 +62,30 @@ function reference_hamiltonians()
     cases = Tuple{String, Terms, FiniteChain}[]
     let V = SU2Space(1 // 2 => 1)
         for N in (2, 3, 4, 5, 6)
-            H = opsum(dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1))
-            push!(cases, ("SU2 Heisenberg N=$N", H, FiniteChain(V, N)))
+            H = opsum(dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1))
+            push!(cases, ("SU2 Heisenberg N=$N", H, FiniteChain(unitbasis(V), N)))
         end
         push!(
             cases,
-            ("SU2 fields", opsum(spin(V)[1], spin(V)[2], spin(V)[3]), FiniteChain(V, 3))
+            ("SU2 fields", opsum(spinvector(unitbasis(V))[1], spinvector(unitbasis(V))[2], spinvector(unitbasis(V))[3]), FiniteChain(unitbasis(V), 3))
         )
         push!(
             cases, (
                 "SU2 decoupled pairs N=6",
                 opsum(
-                    dot(spin(V)[1], spin(V)[2]),
-                    dot(spin(V)[3], spin(V)[4]),
-                    dot(spin(V)[5], spin(V)[6]),
+                    dot(spinvector(unitbasis(V))[1], spinvector(unitbasis(V))[2]),
+                    dot(spinvector(unitbasis(V))[3], spinvector(unitbasis(V))[4]),
+                    dot(spinvector(unitbasis(V))[5], spinvector(unitbasis(V))[6]),
                 ),
-                FiniteChain(V, 6),
+                FiniteChain(unitbasis(V), 6),
             )
         )
-        S = spin(V)
+        S = spinvector(unitbasis(V))
         push!(
             cases, (
                 "SU2 K=3 three-body",
                 opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))),
-                FiniteChain(V, 3),
+                FiniteChain(unitbasis(V), 3),
             )
         )
         # Coupling S₁⊗S₂ to charge 0 makes the running bond charge trivial, so from bond 2 on the
@@ -98,14 +98,14 @@ function reference_hamiltonians()
                     couple(couple(S[1], S[2]; to = SU2Irrep(0)), S[4]; to = SU2Irrep(1)),
                     2.0 * S[4],
                 ),
-                FiniteChain(V, 4),
+                FiniteChain(unitbasis(V), 4),
             )
         )
         # boundary shapes: nothing active at site 1; a term whose first active site is the last one
-        push!(cases, ("SU2 no term starts at site 1", opsum(dot(S[2], S[3])), FiniteChain(V, 3)))
+        push!(cases, ("SU2 no term starts at site 1", opsum(dot(S[2], S[3])), FiniteChain(unitbasis(V), 3)))
         # a term whose first active site is the last one (uniform total charge: both are single spins,
         # mixing total charges in one operator is out of scope for the sweeps)
-        push!(cases, ("SU2 first active site == N", opsum(S[1], S[4]), FiniteChain(V, 4)))
+        push!(cases, ("SU2 first active site == N", opsum(S[1], S[4]), FiniteChain(unitbasis(V), 4)))
     end
     let V = Rep[U₁](0 => 1, 1 => 1)
         raise = LO(IrrepOperator(U1Irrep(1), 1))
@@ -115,7 +115,7 @@ function reference_hamiltonians()
                 (dot(raise[i], lower[i + 1]) for i in 1:(N - 1)),
                 (dot(lower[i], raise[i + 1]) for i in 1:(N - 1)),
             )
-            push!(cases, ("U1 hopping N=$N", H, FiniteChain(V, N)))
+            push!(cases, ("U1 hopping N=$N", H, FiniteChain(unitbasis(V), N)))
         end
         push!(
             cases, (
@@ -123,7 +123,7 @@ function reference_hamiltonians()
                 opsum(
                     couple(couple(raise[1], raise[2]; to = U1Irrep(2)), lower[3]; to = U1Irrep(1))
                 ),
-                FiniteChain(V, 3),
+                FiniteChain(unitbasis(V), 3),
             )
         )
         # A charge-0 letter leaves the running bond trivial, so a pending on-site term can share a
@@ -134,14 +134,14 @@ function reference_hamiltonians()
             cases, (
                 "U1 charge-0 on-site collides with two-site tail",
                 opsum(couple(z[1], z[3]; to = U1Irrep(0)), 0.5 * z[3]),
-                FiniteChain(V, 3),
+                FiniteChain(unitbasis(V), 3),
             )
         )
     end
     let V = ℂ^2
-        ops = instances(IrrepOperator, V)
+        ops = [IrrepOperator(unit(Trivial), n) for n in 1:4]
         H = opsum(couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2)
-        push!(cases, ("trivial sector N=3", H, FiniteChain(V, 3)))
+        push!(cases, ("trivial sector N=3", H, FiniteChain(unitbasis(V), 3)))
         # In the trivial sector every bond charge is the unit, so the collision above degenerates to
         # "a pending term's whole content equals a started term's tail".
         push!(
@@ -151,7 +151,7 @@ function reference_hamiltonians()
                     couple(LO(ops[2])[1], LO(ops[3])[3]; to = unit(Trivial)),
                     0.5 * LO(ops[3])[3],
                 ),
-                FiniteChain(V, 3),
+                FiniteChain(unitbasis(V), 3),
             )
         )
     end
@@ -203,7 +203,7 @@ const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["I
             #    dim-1 boundary/charge legs, so this needs a densifiable (dim-1 total charge) operator;
             #    `contractN` covers N ∈ {2, 3}.
             if 2 <= N <= 3 && all(c -> dim(c) == 1, secs[end])
-                d = dim(sites[1])
+                d = dim(TensorKit.space(sites[1]))
                 Mmpo = physmatrix(contractN(irrep_mpo_tensors(Ws, secs, sites)), N, d)
                 @test Mmpo ≈ physmatrix(instantiate(opsum(sites, H)), N, d)
             end
@@ -214,8 +214,8 @@ end
 @testset "the default selector is BipartiteAlgorithm / VertexCover" begin
     V = SU2Space(1 // 2 => 1)
     N = 4
-    sites = fill(V, N)
-    H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+    sites = fill(unitbasis(V), N)
+    H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
     Wdef, sdef = reduced(mpo(opsum(sites, H)))
     Wsel, ssel = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     Wstr, sstr = _irrep_sweep(ITOTermTable(H, N), N, VertexCover())
@@ -236,7 +236,7 @@ end
     for (name, H, sites) in reference_hamiltonians()
         N = length(sites)
         2 <= N <= 3 || continue
-        d = dim(sites[1])
+        d = dim(TensorKit.space(sites[1]))
         Wg, sg = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = SequentialSVD)))
         # `physmatrix` drops the boundary/charge legs, so it needs a densifiable (dim-1 total charge)
         # operator; a net-charge Hamiltonian (e.g. the spin-1 field sum) is excluded here.
@@ -270,8 +270,8 @@ end
     # 8-site Heisenberg chain at its minimum (2, then 3 throughout) and stay lossless.
     V = SU2Space(1 // 2 => 1)
     N = 8
-    sites = fill(V, N)
-    H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+    sites = fill(unitbasis(V), N)
+    H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
     Ws, secs = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     @test bondprofile(secs) == HEISENBERG8_BONDS
     @test islossless(opsum(sites, H))
@@ -283,14 +283,14 @@ end
     # represent an operator mixing K=0 with K>0 (the identity branch built no trailing charge leg), so
     # the dense oracle was unavailable here; it now is, and runs alongside the pinned bond profile.
     V = SU2Space(1 // 2 => 1)
-    S = spin(V)
-    sites = fill(V, 3)
+    S = spinvector(unitbasis(V))
+    sites = fill(unitbasis(V), 3)
     for (name, H) in (
-            ("pure identity", opsum(scalarop(2.5, V)[1])),
-            ("identity plus bond", opsum(scalarop(2.5, V)[1], dot(S[1], S[2]))),
+            ("pure identity", opsum(scalarop(2.5, unitbasis(V))[1])),
+            ("identity plus bond", opsum(scalarop(2.5, unitbasis(V))[1], dot(S[1], S[2]))),
             (
                 "identity plus two bonds",
-                opsum(scalarop(-1.5, V)[1], dot(S[1], S[2]), dot(S[2], S[3])),
+                opsum(scalarop(-1.5, unitbasis(V))[1], dot(S[1], S[2]), dot(S[2], S[3])),
             ),
         )
         Ws, secs = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
@@ -303,7 +303,7 @@ end
 
     # the same model without the forced finish channel: the cover's unconstrained minimum is one
     # index smaller at bond 1, and is just as lossless
-    H = opsum(FiniteChain(sites), scalarop(-1.5, V)[1], dot(S[1], S[2]), dot(S[2], S[3]))
+    H = opsum(FiniteChain(sites), scalarop(-1.5, unitbasis(V))[1], dot(S[1], S[2]), dot(S[2], S[3]))
     tt = OpSum.ITOTermTable(H.terms, 3)
     Ws, secs = OpSum._irrep_sweep(tt, 3, OpSum.VertexCover())
     @test bondprofile(secs) == [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]]
@@ -321,12 +321,15 @@ end
     # This case could never go through the deleted transient-frontier oracle: that one keyed its
     # suffix classes on `_op_at_ito` alone (`_suffix_path`), omitting the running charge, so it
     # over-merged here and tripped its own purity assert — see research/persistent-graph-mpo.md §3.
-    V = SU2Space(1 // 2 => 1)
-    zl, sl = instances(IrrepOperator, V)             # charge-0 and charge-1 letters
+    # A site with a spin-0 and a spin-1/2 state, so that there is a genuine (non-identity) charge-0
+    # letter next to the charge-1 one: the matrix unit |½⟩⟨½| (the first trivial-charge unit, |0⟩⟨0|, is
+    # not an element of `unitbasis`, which keeps the identity instead).
+    V = SU2Space(0 => 1, 1 // 2 => 1)
+    zl, sl = IrrepOperator(SU2Irrep(0), 2), IrrepOperator(SU2Irrep(1), 1)   # charge-0 and charge-1 letters
     @test zl.c == SU2Irrep(0) && sl.c == SU2Irrep(1)
     z, s = LO(zl), LO(sl)
     N = 4
-    sites = fill(V, N)
+    sites = fill(unitbasis(V), N)
     H = opsum(
         couple(z[1], s[4]; to = SU2Irrep(1)),
         2.0 * couple(s[1], s[4]; to = SU2Irrep(1)),
@@ -355,10 +358,10 @@ end
     # and reports [2, 2, 1] instead — which is why the pending signatures have to be probed at every
     # site. No showcase model triggers this (all K=2, no on-site terms), so this is the guard.
     V = ℂ^2
-    ops = instances(IrrepOperator, V)
+    ops = [IrrepOperator(unit(Trivial), n) for n in 1:4]
     A, B = LO(ops[2]), LO(ops[3])
     N = 3
-    sites = fill(V, N)
+    sites = fill(unitbasis(V), N)
     H = opsum(couple(A[1], B[3]; to = unit(Trivial)), 0.5 * B[3])
     tt = ITOTermTable(H, N)
 
@@ -385,7 +388,7 @@ end
     V = SU2Space(1 // 2 => 1)
     sizes = (5, 20, 80)
     livecounts = map(sizes) do N
-        H = opsum((dot(spin(V)[i], spin(V)[i + 1]) for i in 1:(N - 1)))
+        H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
         g = ITOGraph(ITOTermTable(H, N), N)
         counts = Int[]
         for i in 1:N

@@ -79,7 +79,7 @@ end
 function run_spinfree(which)
     E0, h, eri = read_fcidump(joinpath(EXP, "examples", "N2.$which.FCIDUMP"))
     N = size(h, 1)
-    B = hubbard_basis()
+    B = qchem_basis()
     E = -project(densen(strings_terms([(1.0, [(1, :cd, 1), (2, :c, 1)])]), 2), B)
 
     for orbs in (1:4, 1:5, [1, 4, 7, 9, 10])
@@ -87,6 +87,11 @@ function run_spinfree(which)
         Hs = spinfree(FiniteChain(B, length(o)), E, h[o, o], eri[o, o, o, o])
         @printf "orbitals %-16s spin-free vs exact spectrum: %.2e\n" string(orbs) maximum(abs, tk_spectrum(Hs) - fock_spectrum(h[o, o], eri[o, o, o, o]))
     end
+    # the same in the stock basis and TensorKitTensors' own `e⁺e⁻`, with no #38 machinery at all
+    Bs, Es = hubbard_basis(U1Irrep, SU2Irrep), hubbard_ops(U1Irrep, SU2Irrep).e_plus_e_min
+    o = collect(1:4)
+    Hs = spinfree(FiniteChain(Bs, 4), Es, h[o, o], eri[o, o, o, o])
+    @printf "orbitals 1:4 in hubbard_basis(U1Irrep, SU2Irrep) vs exact spectrum: %.2e\n" maximum(abs, tk_spectrum(Hs) - fock_spectrum(h[o, o], eri[o, o, o, o]))
 
     lat = FiniteChain(B, N)
     t0 = time()

@@ -68,7 +68,7 @@ end
 Accumulate `terms` into a new [`OperatorSum`](@ref) on `lat`.
 """
 opsum(lat::AbstractLattice, args...) = opsum!(OperatorSum(lat), args...)
-opsum(sites::AbstractVector{<:Union{ElementarySpace, Basis}}, args...) = opsum!(OperatorSum(sites), args...)
+opsum(sites::AbstractVector{<:Basis}, args...) = opsum!(OperatorSum(sites), args...)
 
 _collect_op!(out, ch, t::Term{I}, ::Type{I}) where {I} = push!(out.terms, t)
 _collect_op!(out, ch, ts::Terms{I}, ::Type{I}) where {I} = _collect_terms!(out, ts, I)

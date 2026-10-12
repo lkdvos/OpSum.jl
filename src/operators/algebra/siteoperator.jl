@@ -1,10 +1,5 @@
 # On-site operators: a sparse combination of alphabet letters, the element type of the reduced MPO's
-# bond matrices. Stored as two parallel vectors rather than a `Dict` (one or two letters in practice,
-# so a linear scan beats hashing and ordering is deterministic).
-#
-# The bare identity is the `passthrough` letter, so `scalarop(c, I)` is `c · passthrough` and
-# consumers branch on `ispassthrough`. There is no symbolic on-site product (it would need 6j data);
-# build it as a `TensorMap` and `project` it back.
+# bond matrices. Two parallel vectors, not a `Dict`: one or two letters in practice, deterministic order.
 
 using TensorKit: Sector, sectortype
 using LinearAlgebra: LinearAlgebra
@@ -13,12 +8,8 @@ using VectorInterface: VectorInterface, inner
 """
     SiteOperator{I<:Sector}
 
-An operator on a **single** site, not yet placed: a sparse combination of ITO alphabet letters,
-`Σₖ coeffs[k] · letters[k]`.
-
-Obtained from [`project`](@ref) into a [`Basis`](@ref), a builder such as [`spin_ops`](@ref), or
-[`scalarop`](@ref), and combined with `+ - * /`. Place it on a site with `A[i]`, which produces a
-[`Terms`](@ref) bag. The identity is the `passthrough` letter `(unit(I), 1)`.
+An unplaced single-site operator `Σₖ coeffs[k] · letters[k]`, from [`project`](@ref), [`spin_ops`](@ref)
+and friends or [`scalarop`](@ref); combine with `+ - * /` and place with `A[i]` (a [`Terms`](@ref) bag).
 """
 struct SiteOperator{I <: Sector}
     letters::Vector{IrrepOperator{I}}
@@ -42,7 +33,6 @@ Base.convert(::Type{SiteOperator{I}}, c::Number) where {I} = SiteOperator{I}(c)
 TensorKit.sectortype(::Type{SiteOperator{I}}) where {I} = I
 VectorInterface.scalartype(::Type{<:SiteOperator}) = ComplexF64
 
-# `pairs` is the accessor every consumer uses.
 Base.pairs(op::SiteOperator) = (l => c for (l, c) in zip(op.letters, op.coeffs))
 Base.keys(op::SiteOperator) = op.letters
 Base.values(op::SiteOperator) = op.coeffs
@@ -50,23 +40,15 @@ Base.length(op::SiteOperator) = length(op.letters)
 Base.isempty(op::SiteOperator) = isempty(op.letters)
 Base.iszero(op::SiteOperator) = all(iszero, op.coeffs)
 
-Base.zero(::Type{SiteOperator{I}}) where {I} = SiteOperator{I}()
-Base.zero(::SiteOperator{I}) where {I} = SiteOperator{I}()
-Base.one(::Type{SiteOperator{I}}) where {I} = SiteOperator{I}(1)
-Base.one(::SiteOperator{I}) where {I} = SiteOperator{I}(1)
+Base.zero(::Union{SiteOperator{I}, Type{SiteOperator{I}}}) where {I} = SiteOperator{I}()
+Base.one(::Union{SiteOperator{I}, Type{SiteOperator{I}}}) where {I} = SiteOperator{I}(1)
 
-# the bare identity with unit coefficient
-function Base.isone(op::SiteOperator)
-    length(op) == 1 || return false
-    return ispassthrough(only(op.letters)) && isone(only(op.coeffs))
-end
+Base.isone(op::SiteOperator) = length(op) == 1 && ispassthrough(only(op.letters)) && isone(only(op.coeffs))
 
-function Base.:(==)(x::SiteOperator{I}, y::SiteOperator{I}) where {I}
-    return x.letters == y.letters && x.coeffs == y.coeffs
-end
+Base.:(==)(x::SiteOperator{I}, y::SiteOperator{I}) where {I} = x.letters == y.letters && x.coeffs == y.coeffs
 Base.hash(x::SiteOperator, h::UInt) = hash(x.coeffs, hash(x.letters, hash(:SiteOperator, h)))
 
-# `+` accumulates onto matching letters (what `increaseindex!` does when two bond entries share a slot).
+# accumulates onto matching letters (two bond entries sharing a slot)
 function Base.:+(x::SiteOperator{I}, y::SiteOperator{I}) where {I}
     letters = copy(x.letters)
     coeffs = copy(x.coeffs)
@@ -94,16 +76,12 @@ Base.:*(x::IrrepOperator, a::Number) = SiteOperator(x) * a
 Base.:*(a::Number, x::IrrepOperator) = SiteOperator(x) * a
 
 VectorInterface.scale(x::SiteOperator, a::Number) = x * a
-VectorInterface.add(x::SiteOperator{I}, y::SiteOperator{I}) where {I} = x + y
 
-# `inner` likewise accepts a bare letter on either side.
-VectorInterface.inner(x::IrrepOperator{I}, y::SiteOperator{I}) where {I} = inner(SiteOperator(x), y)
-VectorInterface.inner(x::SiteOperator{I}, y::IrrepOperator{I}) where {I} = inner(x, SiteOperator(y))
-VectorInterface.inner(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} =
-    inner(SiteOperator(x), SiteOperator(y))
-
-function VectorInterface.inner(x::SiteOperator{I}, y::SiteOperator{I}) where {I}
-    # orthonormal alphabet: the plain coefficient overlap
+# orthonormal alphabet: the plain coefficient overlap; a bare letter is accepted on either side
+function VectorInterface.inner(
+        x::Union{IrrepOperator{I}, SiteOperator{I}}, y::Union{IrrepOperator{I}, SiteOperator{I}}
+    ) where {I}
+    x, y = convert(SiteOperator{I}, x), convert(SiteOperator{I}, y)
     result = zero(ComplexF64)
     for (lx, cx) in zip(x.letters, x.coeffs), (ly, cy) in zip(y.letters, y.coeffs)
         lx == ly && (result += conj(cx) * cy)
@@ -116,7 +94,7 @@ function Base.isapprox(x::SiteOperator{I}, y::SiteOperator{I}; kwargs...) where 
     return isapprox(norm(x - y), 0; atol = max(norm(x), norm(y)) * 1.0e-12, kwargs...)
 end
 
-# Drop letters whose coefficient cancelled to zero: a zero-weight edge would spend a bond index on nothing.
+# drop letters whose coefficient cancelled (a zero-weight edge would spend a bond index)
 function prune(op::SiteOperator{I}) where {I}
     keep = findall(!iszero, op.coeffs)
     return SiteOperator{I}(op.letters[keep], op.coeffs[keep])

@@ -1,10 +1,8 @@
-# Acceptance check for operator-bases.md §1: the #38 N₂ Hamiltonians, compressed in
+# Acceptance check for #38: the N₂ Hamiltonians, compressed in
 # matrix units and in an explicit basis of the SU(2) Hubbard site.
 #
-# The matrix-unit alphabet is no longer public (step 7), so the matrix-unit side is the bare sweep over
-# the same terms (the sweep needs no lattice). The energy comparison this script used to make compared
-# the two routes of one Hamiltonian, whose two-site strings have the wrong sign; energies
-# are checked against an exact spectrum in `n2_spinfree_acceptance.jl` instead.
+# The matrix-unit side is the bare sweep over the same terms. Energies are checked against an exact
+# spectrum in `n2_spinfree_acceptance.jl`.
 #
 # Run from OpSum's test environment (it has MPSKit), with the #38 material checked out next to it:
 #

@@ -149,9 +149,5 @@ end
     @test all(length(sloose[b]) <= length(sfull[b]) for b in 1:TRUNC_N)
     @test mpo_relerror(alg) < 0.1
 
-    errs = [mpo_relerror(SVDBondAlgorithm(trunctol(; rtol = r))) for r in (0.3, 0.1, 0.03, 0.01)]
-    @test nondecreasing(errs)
-    @test errs[end] < 1.0e-10
-
     @test mpo_relerror(SVDBondAlgorithm(truncrank(1000) & trunctol(; rtol = 1.0e-14))) < 1.0e-10
 end

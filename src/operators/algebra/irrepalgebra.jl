@@ -1,5 +1,4 @@
-# Term algebra over ITOs: `Term` (one term) → `Terms` (a bag, the operator). Latticeless: the
-# physical spaces enter with the `OperatorSum`. `GenericFusion` multiplicity is deferred.
+# Term algebra over ITOs: `Term` (one term) → `Terms` (a bag, the operator). Latticeless.
 
 using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, fusiontrees, unit, dim, id, Nsymbol,
@@ -15,8 +14,7 @@ sectortype(::Type{IrrepOperator{I}}) where {I} = I
 """
     instantiate(O::SiteOperator, V::ElementarySpace)
 
-Materialize a single-site operator as the coefficient-weighted sum of its letters' tensors,
-`V ← V ⊗ Vect[I](c => 1)`. The pass-through letter is the identity with a trivial charge leg.
+The coefficient-weighted sum of `O`'s letters' tensors, `V ← V ⊗ Vect[I](c => 1)`.
 """
 function instantiate(O::SiteOperator{I}, V::ElementarySpace) where {I}
     isempty(O) && throw(ArgumentError("cannot instantiate an empty SiteOperator without a space"))
@@ -27,18 +25,16 @@ end
     scalarop(c::Number, B::Basis)
     scalarop(c::Number, ::Type{I<:Sector})
 
-A scalar local operator `c·𝟙`: `c` times the identity letter `(unit(I), 1)`, element 1 of every basis.
+The scalar operator `c·𝟙`: `c` times the identity letter `(unit(I), 1)`, element 1 of every basis.
 """
 scalarop(c::Number, ::Type{I}) where {I} = SiteOperator{I}(ComplexF64(c))
 scalarop(c::Number, V::ElementarySpace) = scalarop(c, sectortype(V))
 
-# The 4-arg `FusionTree` form: the 3-arg one throws for `MultipleFusion`.
-_idtree(::Type{I}) where {I <: Sector} = FusionTree{I}((), unit(I), (), ())
-
-# Inverse of `bondcharges` (multiplicity-free: all vertex labels 1).
+# Inverse of `bondcharges` (multiplicity-free: all vertex labels 1). The 4-arg `FusionTree` form
+# for K = 0: the 3-arg one throws for `MultipleFusion`.
 function _tree_from_bonds(charges::AbstractVector{I}, bonds::AbstractVector{I}) where {I <: Sector}
     K = length(charges)
-    K == 0 && return _idtree(I)
+    K == 0 && return FusionTree{I}((), unit(I), (), ())
     unc = ntuple(i -> charges[i], K)
     isd = ntuple(_ -> false, K)
     inner = ntuple(i -> bonds[i + 1], max(0, K - 2))   # innerlines = bonds[2 : K-1]
@@ -49,12 +45,9 @@ end
 """
     Term{I<:Sector}
 
-A single term: `sites` (ascending, unique), one [`ITOKey`](@ref) each (letter, running bond charge and
-vertex label), and a reduced `coeff`. The caterpillar coupling tree is derived from the running bond
-charges ([`tree`](@ref)). Multiplicity-free fusion only.
-
-Never mutated, so terms may share vectors. `==`/`hash` ignore the coefficient, which is what makes
-summing coincident terms well defined.
+One term: `sites` (ascending, unique), one `ITOKey` each (letter, running bond charge, vertex label)
+and a reduced `coeff`. Multiplicity-free fusion only. Never mutated, so terms share vectors;
+`==`/`hash` ignore the coefficient, which is what makes summing coincident terms well defined.
 """
 struct Term{I <: Sector}
     sites::Vector{Int}
@@ -72,37 +65,15 @@ Term(sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::Number) where {I} =
 
 sectortype(::Type{Term{I}}) where {I} = I
 
-"""
-    arity(t::Term) -> Int
-
-The number of active (charged) sites of `t`.
-"""
 arity(t::Term) = length(t.sites)
 
-"""
-    ops(t::Term) -> Vector{IrrepOperator}
-
-The alphabet letters of `t`, one per active site, in site order.
-"""
 ops(t::Term{I}) where {I} = IrrepOperator{I}[k.op for k in t.keys]
 
-"""
-    total(t::Term) -> Sector
-
-The total charge of `t`: the running bond charge after its last site (`unit` for the identity term).
-"""
+# running bond charge after the last site
 total(t::Term{I}) where {I} = isempty(t.keys) ? unit(I) : last(t.keys).bond
 
-"""
-    tree(t::Term) -> FusionTree
-
-The left-nested (caterpillar) coupling tree of `t`, rebuilt from its running bond charges and vertex
-labels (the same information, irrepkey.jl).
-"""
-function tree(t::Term{I}) where {I}
-    arity(t) == 0 && return _idtree(I)
-    return _tree_from_bonds(I[k.op.c for k in t.keys], I[k.bond for k in t.keys])
-end
+# the caterpillar coupling tree, rebuilt from the running bond charges
+tree(t::Term{I}) where {I} = _tree_from_bonds(I[k.op.c for k in t.keys], I[k.bond for k in t.keys])
 
 Base.:(==)(x::Term{I}, y::Term{I}) where {I} = x.sites == y.sites && x.keys == y.keys
 Base.hash(t::Term, h::UInt) = hash(t.keys, hash(t.sites, hash(:ITOTerm, h)))
@@ -120,14 +91,9 @@ function Base.show(io::IO, t::Term)
     return print(io, "Term(sites=", t.sites, ", ops=", ops(t), ", total=", total(t), ", coeff=", t.coeff, ")")
 end
 
-"""
-    PendingTerm{I<:Sector}
-
-A product acting more than once on one site (`a[i] * b[i]`, `hop[i, i]`), kept unevaluated until it
-enters an [`OperatorSum`](@ref), where it is resolved in the sites' bases (products.jl). The letters
-are in written order with the running bond charges of the written-order caterpillar; the operator is
-`coeff` times that caterpillar's product.
-"""
+# A product acting more than once on one site (`a[i] * b[i]`), unevaluated until it enters an
+# `OperatorSum`. Letters in written order with the running bond charges of the written-order
+# caterpillar; the operator is `coeff` times that caterpillar's product.
 struct PendingTerm{I <: Sector}
     sites::Vector{Int}
     keys::Vector{ITOKey{I}}
@@ -137,14 +103,9 @@ end
 """
     Terms{I<:Sector}
 
-The compressible ITO operator: a bag of [`Term`](@ref)s with **no lattice**. What `A[i]` and `B[i]`
-(placing a [`SiteOperator`](@ref) or a [`LocalOperator`](@ref)), [`couple`](@ref) and `dot` return,
-what `+`, `-`, `*` and `/` combine, and what [`opsum`](@ref) accumulates in one pass. The lattice
-enters when the terms are added to an [`OperatorSum`](@ref).
-
-Terms are appended as given; [`canonicalize!`](@ref) normalises in place. `length`, iteration,
-indexing and `≈` go through it, so they report the *canonical* operator (`nterms_raw(ts)` is the
-append count, for tests).
+The compressible ITO operator: a lattice-free bag of [`Term`](@ref)s, returned by placement (`A[i]`),
+[`couple`](@ref) and `dot`, and combined by `+ - * /`. Terms are appended as given;
+[`canonicalize!`](@ref) normalises in place, and `length`, iteration, indexing and `≈` go through it.
 """
 struct Terms{I <: Sector}
     terms::Vector{Term{I}}
@@ -157,16 +118,11 @@ Terms(t::Term{I}) where {I} = Terms{I}(Term{I}[t])
 
 sectortype(::Type{Terms{I}}) where {I} = I
 
-"""
-    nterms_raw(ts::Terms) -> Int
-
-The number of *appended* terms, before coincident ones are summed. For tests.
-"""
+# the appended count, before coincident terms are summed (tests)
 nterms_raw(ts::Terms) = length(ts.terms)
 
 # Everything that observes the term set normalises first.
 Base.length(ts::Terms) = length(canonicalize!(ts).terms)
-Base.isempty(ts::Terms) = isempty(canonicalize!(ts).terms)
 Base.iterate(ts::Terms, args...) = iterate(canonicalize!(ts).terms, args...)
 Base.eltype(::Type{Terms{I}}) where {I} = Term{I}
 Base.getindex(ts::Terms, i::Integer) = canonicalize!(ts).terms[i]
@@ -183,43 +139,15 @@ VectorInterface.scale(ts::Terms{I}, α::Number) where {I} = Terms{I}(
     PendingTerm{I}[PendingTerm{I}(p.sites, p.keys, p.coeff * ComplexF64(α)) for p in ts.pending]
 )
 
-"""
-    one(::Terms{I})
-    one(::Type{Terms{I}})
-
-The identity operator: the single term with no active sites. `zero` is the empty bag.
-"""
-Base.one(::Type{Terms{I}}) where {I} =
+# `one` is the term with no active sites; `zero` is the empty bag
+Base.one(::Union{Terms{I}, Type{Terms{I}}}) where {I} =
     Terms{I}(Term{I}[Term{I}(Int[], ITOKey{I}[], ComplexF64(1))])
-Base.one(::Terms{I}) where {I} = one(Terms{I})
-
-"""
-    zero(::Terms{I})
-    zero(::Type{Terms{I}})
-    empty(::Terms{I})
-
-A fresh operator with no terms, ready to [`append!`](@ref) into.
-"""
-Base.zero(::Type{Terms{I}}) where {I} = Terms{I}()
-Base.zero(::Terms{I}) where {I} = Terms{I}()
+Base.zero(::Union{Terms{I}, Type{Terms{I}}}) where {I} = Terms{I}()
 Base.empty(::Terms{I}) where {I} = Terms{I}()
 
-"""
-    copy(ts::Terms) -> Terms
-
-A shallow copy with its own term vectors; the (immutable) [`Term`](@ref)s are shared.
-"""
 Base.copy(ts::Terms{I}) where {I} = Terms{I}(copy(ts.terms), copy(ts.pending))
 
-"""
-    isapprox(a::Terms, b::Terms; kwargs...)
-    a ≈ b
-
-Whether two operators are close as sparse vectors over their canonical terms (a missing term counts
-as zero): `‖a - b‖ ≤ max(atol, rtol · max(‖a‖, ‖b‖))`; `==` compares exactly. No lattice is involved,
-so an operator reconstructed by [`mpo_terms`](@ref) compares equal to the original: the faithfulness
-check.
-"""
+# `≈`: close as sparse vectors over the canonical terms (a missing term counts as zero); `==` is exact.
 Base.isapprox(a::Terms{I}, b::Terms{I}; kwargs...) where {I} =
     _termsapprox(canonicalize!(a).terms, canonicalize!(b).terms; kwargs...)
 Base.:(==)(a::Terms{I}, b::Terms{I}) where {I} =
@@ -232,10 +160,9 @@ function Base.show(io::IO, ts::Terms{I}) where {I}
     )
     canonicalize!(ts)
     print(io, "Terms(")
-    join(io, ("$(t.coeff) * $(_termbody(t))" for t in ts.terms), " + ")
+    join(io, ("$(t.coeff) * [sites=$(t.sites), ops=$(ops(t)), total=$(total(t))]" for t in ts.terms), " + ")
     return print(io, ")")
 end
-_termbody(t::Term) = string("[sites=", t.sites, ", ops=", ops(t), ", total=", total(t), "]")
 
 _tolattice(lat::AbstractLattice) = lat
 function _tolattice(sites)
@@ -244,8 +171,8 @@ function _tolattice(sites)
     return FiniteChain(vec(collect(sites)))
 end
 
-# Confronts operators with the lattice's bases when terms enter an `OperatorSum`, so the error points
-# at the line that added the term. `Θ(Σ arity)`; on an `InfiniteChain` there is no site range to check.
+# Checks letters against the lattice's bases when terms enter an `OperatorSum`; no site range on an
+# `InfiniteChain`.
 function _checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) where {I}
     isempty(terms) && return nothing
     J = _lattice_sectortype(lat)
@@ -279,17 +206,8 @@ _checklattice(ts::Terms, lat::AbstractLattice) = _checklattice(ts.terms, lat)
 """
     opsum(terms...) -> Terms
 
-Accumulate terms into one operator in **one pass** over each argument (`Θ(M)` for `M` terms):
-
-```julia
-SS = spin_ops(SU2Irrep).S_exchange
-h = opsum(J * SS[i, i + 1] for i in 1:(N - 1))
-```
-
-Each argument may be a [`Term`](@ref), a [`Terms`](@ref) bag, or any iterable of those, nested
-arbitrarily. The result is latticeless; `opsum(lat, terms...)` accumulates into an
-[`OperatorSum`](@ref), which checks every letter against its site's basis. `+` copies, so folding it
-is quadratic; [`append!`](@ref) adds to an existing bag in one pass.
+Accumulate terms into one [`Terms`](@ref) in one pass. Each argument is a [`Term`](@ref), a `Terms` bag
+or an arbitrarily nested iterable of those; `opsum(lat, terms...)` builds an [`OperatorSum`](@ref).
 """
 function opsum(args...)
     isempty(args) && throw(
@@ -311,21 +229,14 @@ function opsum(args...)
     return out
 end
 
-# The accumulator is `nothing` until the first term fixes `I`; only that step is dynamically
-# dispatched, the rest runs through the typed collector.
+# The accumulator is `nothing` until the first term fixes `I`; after that the typed collector runs.
 _collect_any(::Nothing, t::Term{I}) where {I} = Terms{I}(Term{I}[t])
-_collect_any(::Nothing, ts::Terms{I}) where {I} = copy(ts)
-function _collect_any(::Nothing, itr)
-    out = nothing
-    for a in itr
-        out = _collect_any(out, a)
-    end
-    return out
-end
-_collect_any(out::Terms{I}, a) where {I} = (_collect_terms!(out, a, I); out)
+_collect_any(::Nothing, ts::Terms) = copy(ts)
+_collect_any(::Nothing, itr) = foldl(_collect_any, itr; init = nothing)
+_collect_any(out::Terms{I}, a) where {I} = _collect_terms!(out, a, I)
 # a bare space is iterable, so a vector of them would otherwise be read as a nest of terms
 _collect_any(::Nothing, ::ElementarySpace) = _spaceaslattice()
-_collect_terms!(out::Terms{I}, ::ElementarySpace, ::Type{I}) where {I} = _spaceaslattice()
+_collect_terms!(::Terms{I}, ::ElementarySpace, ::Type{I}) where {I} = _spaceaslattice()
 _spaceaslattice() = throw(
     ArgumentError(
         "opsum: got an ElementarySpace where an operator was expected; a lattice is one operator " *
@@ -355,7 +266,7 @@ _wrongsector(I, J) = throw(
 """
     append!(ts::Terms, terms...) -> ts
 
-Append terms to `ts` **in place**, in one pass. Same argument forms as [`opsum`](@ref).
+Append terms to `ts` in place; the arguments are as for [`opsum`](@ref).
 """
 function Base.append!(ts::Terms{I}, args...) where {I}
     for a in args
@@ -369,20 +280,13 @@ function Base.getindex(O::SiteOperator{I}, ind::Integer, inds::Integer...) where
         throw(ArgumentError("multi-site placement of an on-site operator is not supported; use `couple`"))
     site = Int(ind)
     site >= 1 || throw(ArgumentError("site index must be ≥ 1, got $site"))
-    out = Term{I}[]
-    sizehint!(out, length(O))
-    for (letter, coeff) in pairs(O)
-        # pass-through is the bare identity: a K = 0 term
-        if ispassthrough(letter)
-            push!(out, Term{I}(Int[], ITOKey{I}[], ComplexF64(coeff)))
-        else
-            push!(
-                out,
-                Term{I}([site], ITOKey{I}[ITOKey{I}(letter, letter.c, 1)], ComplexF64(coeff))
-            )
-        end
-    end
-    return Terms{I}(out)
+    # the pass-through is the bare identity: a K = 0 term
+    return Terms{I}(
+        Term{I}[
+            ispassthrough(l) ? Term{I}(Int[], ITOKey{I}[], c) : Term{I}([site], [ITOKey{I}(l, l.c, 1)], c)
+                for (l, c) in pairs(O)
+        ]
+    )
 end
 
 # Operand of `dot`: a single-site charged term; returns `(site, op)`.
@@ -393,9 +297,9 @@ function _single_site_term(b::Terms, ctx)
     return only(t.sites), only(t.keys).op
 end
 
-# Whether `b`'s leg may be *inserted* left of some of `a`'s. `UniqueFusion` forces every invalidated
-# running bond charge and makes each leg transposition one scalar `Rsymbol(x, y, x ⊗ y)`;
-# `SymmetricBraiding` (`R = R⁻¹`) makes the answer independent of braiding over or under.
+# Whether a leg may be *inserted* left of others: `UniqueFusion` forces every invalidated running
+# charge and makes a transposition one scalar `Rsymbol(x, y, x ⊗ y)`; `SymmetricBraiding` makes
+# over/under irrelevant.
 _canreorder(::Type{I}) where {I <: Sector} =
     FusionStyle(I) isa UniqueFusion && BraidingStyle(I) isa SymmetricBraiding
 
@@ -403,13 +307,11 @@ _canreorder(::Type{I}) where {I <: Sector} =
 _isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(c)) < 0
 
 # Extend every term of `a` by every single-site term of `b`, fusing to `target(running total, b's
-# letter)`; unreachable pairs are dropped, so the result may be empty.
-#
-# Storage is site-ordered. If `b` is right of all of `a` this is a plain append (one `Nsymbol` check).
-# Otherwise its leg is *inserted* at position `p` (see `_canreorder`): the running bond charges from
-# `p` on are recomputed and the coefficient picks up one R-symbol per leg `b` braids past (for
-# fermions, the anticommutation sign). Under a non-abelian symmetry the leg is appended in written
-# order and re-coupled into site order (`_recouple`), which may give several terms.
+# letter)` (`nothing` drops the pair). A leg right of all of `a` is appended; otherwise it is inserted
+# at its site position (`_canreorder`), the running charges after it recomputed and one R-symbol
+# picked up per leg it braids past (for fermions, the anticommutation sign). Under a non-abelian
+# symmetry it is appended in written order and re-coupled into site order (`_recouple`), which may
+# give several terms.
 function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
     out = Term{I}[]
     sizehint!(out, length(a) * length(b))
@@ -429,7 +331,7 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             sb = only(tb.sites)
             opb = only(tb.keys).op
 
-            # where `b`'s site falls among `a`'s: the first of them strictly to its right
+            # position of the first of `a`'s sites strictly right of `b`'s
             p = na + 1
             for j in 1:na
                 s = ta.sites[j]
@@ -438,7 +340,7 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             end
 
             tgt = target(run, opb)
-            tgt === nothing && continue    # no channel of this pair reaches the requested total
+            tgt === nothing && continue
             tot = tgt::I
             nsym = Nsymbol(run, opb.c, tot)
             iszero(nsym) && continue
@@ -483,45 +385,17 @@ end
 
 """
     couple(a::Terms, b::Terms; to = unit(I))
-    couple(a::Terms, b::Terms, cs::Terms...; to = unit(I))   # channels must be forced
+    couple(a::Terms, b::Terms, cs::Terms...; to = unit(I))
 
-Left-nested (caterpillar) irrep coupling: extend the composite `a` (K ≥ 1 sites, with its running
-coupling charges) by one single-site operator `b`, fusing the running total of `a` with `b`'s charge
-to `to` at a new vertex. `to` defaults to the unit sector (a Hamiltonian term); pass it explicitly to
-build a charged object. It is the primitive under `*` and placement. Its operands are *charged*
-single-site operators: a basis' charged elements (`project(t, B)` of a charged `t : V ← V ⊗ Vect[I](c => 1)`).
-Below, `cd` and `c` are a fermion's creation and annihilation operators and `S` the SU(2) spin vector.
+Left-nested (caterpillar) coupling of the composite `a` with the charged single-site operator `b`,
+fusing their charges to `to` (default: the unit sector, a Hamiltonian term). The operands may be
+written in any site order: an out-of-order leg picks up its braiding phase, so
+`couple(cd[i + 1], c[i]) == -couple(c[i], cd[i + 1])`. Both operands may be composite; pairs that
+cannot fuse to `to` are dropped, and it is an error if none do.
 
-The operands may be written in any site order: an out-of-order leg is inserted rather than appended,
-with the braiding phase that costs (for fermions the anticommutation sign), so
-`couple(cd[i + 1], c[i]) == -couple(c[i], cd[i + 1])`. Under a non-abelian symmetry the coupling is
-formed in written order and re-coupled into site order, so one pair of terms can give several, with
-F- and R-symbol coefficients.
-
-Both operands may be composite (several terms, e.g. from [`project`](@ref)): the coupling distributes
-over every pair, and pairs whose charges cannot fuse to `to` are dropped. It is an error if *no* pair
-fuses. Each term of `a` must carry at least one charged operator, each of `b` be one charged site.
-
-The variadic form takes the intermediate channels the charges force, and errors only where a channel
-is a genuine choice. Under an abelian symmetry (`UniqueFusion`) every one is forced; under a
-non-abelian one some still are:
-
-```julia
-couple(cd[1], c[2], cd[3], c[4])        # a charge-neutral four-fermion term
-couple(S[1], S[2], S[3])                # j₁₂ = 1 is the only singlet channel
-```
-
-Where the channels are free the error lists them ([`couple_channels`](@ref) returns them as a value)
-and you nest, naming each one:
-
-```julia
-couple_channels(S[1], S[2], S[3], S[4])                                  # [(0,1), (1,1), (2,1)]
-couple(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(1)), S[4])
-```
-
-For fermions `couple(cd[i], c[j])` is the physical `c†ᵢcⱼ` (Jordan–Wigner, sites `1..N`). This is the
-bare fusion coupler: reduced coeff `= va·vb`, no normalization (the Cartesian convention lives in
-[`dot`](@ref)). `GenericFusion` and tree-structured (`via`) coupling are deferred.
+The variadic form takes every intermediate channel the charges force and errors where one is a
+genuine choice (see [`couple_channels`](@ref)); nest `couple` to name it. For SU(2),
+`couple(S[1], S[2], S[3])` is forced, `couple(S[1], S[2], S[3], S[4])` is not.
 """
 function couple(a::Terms{I}, b::Terms{I}; to = unit(I), via = nothing) where {I}
     via === nothing ||
@@ -537,7 +411,7 @@ function couple(a::Terms{I}, b::Terms{I}; to = unit(I), via = nothing) where {I}
 end
 
 # The distinct running totals of the accumulator's terms, and the distinct letter charges of each
-# later operand: all the channel arithmetic needs.
+# later operand.
 function _startcharges(a::Terms{I}) where {I}
     isempty(a) && throw(ArgumentError("couple: first operand has no terms"))
     cs = I[]
@@ -592,18 +466,9 @@ end
 """
     couple_channels(a::Terms, ops::Terms...; to = unit(I)) -> Vector{NTuple{N, I}}
 
-The intermediate coupling channels a caterpillar [`couple`](@ref) of these operands may legally use,
-one tuple of `N = length(ops) - 1` charges per channel (the `to` of each nested `couple` but the
-outermost). `N == 0` gives `[()]` when the two operands fuse at all and `[]` when they do not.
-
-The variadic `couple` needs no channel argument exactly when this returns a single tuple:
-
-```julia
-couple_channels(S[1], S[2], S[3]; to = SU2Irrep(0))      # [(1,)] — forced
-couple_channels(S[1], S[2], S[3], S[4])                  # [(0,1), (1,1), (2,1)] — three singlets
-```
-
-Composite operands contribute every charge they carry.
+The intermediate coupling channels a caterpillar [`couple`](@ref) of these operands may use, one
+tuple of `N = length(ops) - 1` charges each. The variadic `couple` needs no channel argument exactly
+when this returns a single tuple.
 """
 function couple_channels(a::Terms{I}, rest::Terms{I}...; to = unit(I)) where {I}
     isempty(rest) &&
@@ -691,16 +556,10 @@ end
     dot(a::Terms, b::Terms)
     a · b
 
-The Cartesian two-body scalar product of two single-site ITO operators: singlet coupling
-`couple(a, b; to = unit(I))` times the Cartesian factor `-√dim(c)` (`Sᵢ·Sⱼ = -√3 [S⊗S]⁽⁰⁾`).
-
-Either site order is accepted, for **any** symmetry: two legs coupling to the unit sector need no
-F-move to reorder. `dot(a, b) == R · dot(b, a)` with `R = Rsymbol(cₐ, c_b, unit)`, which is `+1` for
-bosonic integer charges (so spin chains are order-independent) and `-1` for a pair of odd fermionic
-or half-integer SU(2) charges.
-
-Unlike [`couple`](@ref) this does not distribute over composite operands: the factor `-√dim(c)` is
-per-letter.
+The Cartesian scalar product of two single-site operators: the singlet `couple(a, b)` times
+`-√dim(c)` (`Sᵢ·Sⱼ = -√3 [S⊗S]⁽⁰⁾`). Either site order is accepted; swapping costs the R-symbol
+`Rsymbol(cₐ, c_b, unit)` (`-1` for odd fermionic or half-integer SU(2) charges). Unlike `couple`,
+it does not distribute over composite operands.
 """
 function LinearAlgebra.dot(a::Terms{I}, b::Terms{I}) where {I}
     sa, opa = _single_site_term(a, "·: first operand")
@@ -714,9 +573,7 @@ function LinearAlgebra.dot(a::Terms{I}, b::Terms{I}) where {I}
     )
     sa < sb && return scale(couple(a, b; to = unit(I)), -sqrt(dim(opa.c)))
 
-    # `b` is to the left: swap the legs into storage order with one scalar R-symbol (no F-move,
-    # which is why this works under SU(2)). Symmetric braiding keeps `R = R⁻¹`, so the over/under
-    # convention cannot matter.
+    # `b` is left of `a`: swap into storage order with one scalar R-symbol (no F-move needed)
     BraidingStyle(I) isa SymmetricBraiding || throw(
         ArgumentError(
             "·: the operands are in decreasing site order and $I has $(BraidingStyle(I)) braiding, " *

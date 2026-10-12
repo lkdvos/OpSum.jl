@@ -1,31 +1,26 @@
-# MPO bond-basis strategies (how one bond's compressed basis is chosen; the plug point of the sweep in
-# irrepgraph.jl) and the user-facing algorithm selectors of `mpo` that name them.
+# Bond-basis strategies of the sweep and the `mpo` algorithm selectors that name them.
 
 """
     BondStrategy
 
-Supertype of the reduced-MPO bond-basis strategies [`VertexCover`](@ref), [`IndependentSVD`](@ref) and
-[`SequentialSVD`](@ref): each decides which compressed basis the sweep keeps at a bond.
+Supertype of [`VertexCover`](@ref), [`IndependentSVD`](@ref) and [`SequentialSVD`](@ref): how the
+sweep chooses each bond's compressed basis.
 """
 abstract type BondStrategy end
 
 """
     VertexCover()
 
-Bond-basis strategy: a minimum vertex cover of the bond's bipartite (prefix, suffix) graph, per
-connected component. Lossless and minimal among MPOs with the same sparsity pattern; what
-[`BipartiteAlgorithm`](@ref) selects.
+Minimum vertex cover of each bond's bipartite (prefix, suffix) graph, per connected component.
+Lossless; what [`BipartiteAlgorithm`](@ref) selects.
 """
 struct VertexCover <: BondStrategy end
 
 """
     IndependentSVD(trunc = nothing)
 
-Bond-basis strategy: every bond is compressed **independently**, by an SVD of its coefficient matrix over
-the *raw* prefix/suffix classes of the term table.
-
-`trunc` is a `MatrixAlgebraKit.TruncationStrategy` (e.g. `truncrank`, `trunctol`) or `nothing` (lossless).
-`truncrank(k)` means **`k` retained indices per bond**. Contrast [`SequentialSVD`](@ref).
+Every bond is compressed independently by an SVD over the raw prefix/suffix classes. `trunc` is a
+`MatrixAlgebraKit.TruncationStrategy` or `nothing` (lossless); `truncrank(k)` keeps `k` indices per bond.
 """
 struct IndependentSVD{T} <: BondStrategy
     trunc::T
@@ -35,13 +30,8 @@ IndependentSVD() = IndependentSVD(nothing)
 """
     SequentialSVD(trunc = nothing)
 
-Bond-basis strategy: a **sequential** left-to-right sweep, where each bond is compressed in the basis left
-over from the bond before it.
-
-`trunc` is a `MatrixAlgebraKit.TruncationStrategy` or `nothing` (lossless). Losslessly this agrees with
-[`IndependentSVD`](@ref); under truncation the two differ by design: here `truncrank(k)` means "`k`
-indices after whatever upstream truncation already threw away", so an aggressive early truncation can
-starve downstream bonds. In exchange the sweep is incremental and reuses the persistent graph.
+Left-to-right sweep compressing each bond in the basis left by the previous one, so `truncrank(k)` keeps
+`k` indices after upstream truncation. Agrees with [`IndependentSVD`](@ref) when lossless.
 """
 struct SequentialSVD{T} <: BondStrategy
     trunc::T
@@ -51,27 +41,17 @@ SequentialSVD() = SequentialSVD(nothing)
 """
     BipartiteAlgorithm()
 
-Algorithm selector: bipartite graph / minimum vertex cover (the default). Selects [`VertexCover`](@ref).
+Algorithm selector for [`VertexCover`](@ref) (the default).
 """
 struct BipartiteAlgorithm end
 
 """
     SVDBondAlgorithm(trunc = nothing; sweep = IndependentSVD)
 
-Algorithm selector: SVD-based bond subspace selection.
-
-`trunc` is a `MatrixAlgebraKit.TruncationStrategy` (e.g. `truncrank`, `trunctol`) or `nothing` (lossless).
-Each bond's coefficient matrix is a charge-graded `TensorMap`, so `svd_trunc` truncates globally across
-sectors, respecting the quantum dimensions.
-
-`sweep` picks the truncation semantics (it only matters when `trunc !== nothing`):
-
-| `sweep` | meaning of `truncrank(k)` |
-|---|---|
-| [`IndependentSVD`](@ref) (default) | `k` retained indices **per bond**; every bond is compressed on the raw prefix/suffix classes, independently of its neighbours |
-| [`SequentialSVD`](@ref) | `k` retained indices **after upstream truncation**; each bond is compressed in the basis left over from the previous one, so an aggressive early truncation can starve downstream bonds |
-
-Both are exact when `trunc === nothing`. `SVDBondAlgorithm(alg::BondStrategy)` names the strategy directly.
+Algorithm selector for SVD bond truncation (`trunc` as in [`IndependentSVD`](@ref); `svd_trunc`
+truncates globally across charge sectors). `sweep` is [`IndependentSVD`](@ref) or
+[`SequentialSVD`](@ref), which differ in the meaning of `truncrank(k)`; `SVDBondAlgorithm(strategy)`
+names a strategy directly.
 """
 struct SVDBondAlgorithm{S <: BondStrategy}
     strategy::S

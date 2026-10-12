@@ -1,15 +1,12 @@
-# Reduced MPO for the ITO automaton: `mpo` (symbolicmpo.jl) compresses an `OperatorSum` into reduced bond
-# matrices plus per-bond charge sectors by a per-bond-sector sweep (irrepgraph.jl, strategy chosen by
-# `algorithms.jl`) over the flat `ITOTermTable`. `mpo_terms` inverts it at the reduced level and
-# `irrep_mpo_tensors` assembles the symmetric `TensorMap`s.
+# Finite compression behind `mpo`, `mpo_terms` (its inverse on the reduced level) and the dense assembly
+# `irrep_mpo_tensors`.
 
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Vect, fusiontrees, permute, unit, @tensor, ncon, removeunit
 using .IrrepTensorOperators: IrrepOperator
 
-# The finite compression behind `mpo`: bond matrices, bond sectors and the two identity-channel indices
-# per bond (empty when unknown, i.e. with decaying channels). Without channels it goes through
-# `_irrep_channels`, which forces the finish channel into the cover so that the result has a Jordan form.
+# Bond matrices, bond sectors and per-bond identity-channel indices (empty with decaying channels, where
+# they are unknown). Without channels `_irrep_channels` forces the finish channel into the cover.
 function _compress(
         H::OperatorSum{I, <:FiniteChain}, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm}
     ) where {I}
@@ -26,8 +23,7 @@ function _compress(
     alg isa SVDBondAlgorithm && throw(
         ArgumentError(
             "SVDBondAlgorithm cannot compress an exponentially decaying interaction: it needs the " *
-                "whole bond coefficient matrix up front, and a geometric channel is a bond index " *
-                "with a diagonal rather than a column of it. Use BipartiteAlgorithm() (the default)."
+                "whole bond coefficient matrix up front. Use BipartiteAlgorithm() (the default)."
         )
     )
     Ws, secs = _irrep_sweep(
@@ -39,14 +35,10 @@ end
 """
     mpo_terms(Ws, bondsectors; leftidx = 1, rightidx = nothing) -> Terms
 
-Reconstruct the operator a reduced MPO generates (inverse of [`mpo`](@ref) at the reduced level): enumerate
-every path through the bond matrices, multiply the coefficients along it, and read the active ITO letters
-with their outgoing bond charges (the caterpillar running bonds). The result is a latticeless
-[`Terms`](@ref); for lossless compression `mpo_terms(mpo(H)) ≈ H.terms`, which [`islossless`](@ref)
-packages up.
-
-`leftidx` and `rightidx` are the boundary indices: by default `1` and "any final index" (a finite chain's
-last bond is one-dimensional); for an infinite MPO tiled over a window they are the two identity channels.
+Reconstruct the operator a reduced MPO generates, as a latticeless [`Terms`](@ref): enumerate every
+path through the bond matrices and read off the letters with their outgoing bond charges.
+`mpo_terms(mpo(H)) ≈ H.terms` is [`islossless`](@ref). `leftidx`/`rightidx` are the boundary indices
+(default `1` and "any"); for an infinite MPO tiled over a window they are the two identity channels.
 """
 function mpo_terms(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
@@ -66,15 +58,10 @@ function mpo_terms(
             l, r = Tuple(idx)
             l == l0 || continue
             for (letter, c) in pairs(localop)
-                if ispassthrough(letter)
-                    walk(i + 1, r, coeff * c, sites, keys)
-                else
-                    push!(sites, i)
-                    push!(keys, ITOKey{I}(letter, bondsectors[i][r], 1))
-                    walk(i + 1, r, coeff * c, sites, keys)
-                    pop!(sites)
-                    pop!(keys)
-                end
+                pass = ispassthrough(letter)
+                pass || (push!(sites, i); push!(keys, ITOKey{I}(letter, bondsectors[i][r], 1)))
+                walk(i + 1, r, coeff * c, sites, keys)
+                pass || (pop!(sites); pop!(keys))
             end
         end
         return
@@ -85,7 +72,7 @@ end
 
 # Site tensors `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit leg convention).
 
-# GradedSpace on a bond with the given per-index charges (multiplicity = count per sector).
+# bond space with the given per-index charges
 function _bond_space(sec::Vector{I}) where {I}
     counts = Dict{I, Int}()
     for c in sec
@@ -100,8 +87,7 @@ function _deg_indices(sec::Vector{I}) where {I}
     return [counts[c] = get(counts, c, 0) + 1 for c in sec]
 end
 
-# Function barriers: keep `@tensor` and the per-entry loop specialised on concrete types although the
-# memo tables below are `Any`-typed.
+# Function barriers: the memo tables are `Any`-typed.
 function _add_bond_entry!(W, O, κ)
     @tensor W[bl o; ii br] += O[o; ii cc] * κ[bl cc; br]
     return W
@@ -111,9 +97,7 @@ function _add_coupler_coeff!(κ, f1, f2, dL::Int, dR::Int, coeff)
     return κ
 end
 
-# One letter's site-tensor block for a single `(bL, bR)` bond-charge pair with coefficient `1`: the
-# on-site tensor coupled `(bL, c) → bR` (running bond first, matching the caterpillar), for
-# `jordan_mpo_tensors`, which has no bond degeneracy to batch over.
+# One letter's block for a single `(bL, bR)` bond-charge pair (no bond degeneracy), for `jordan_mpo_tensors`.
 function _letter_block(letter::IrrepOperator{I}, site, bL::I, bR::I) where {I}
     c = letter.c
     V = _space(site)
@@ -127,23 +111,22 @@ function _letter_block(letter::IrrepOperator{I}, site, bL::I, bR::I) where {I}
 end
 
 """
-    irrep_mpo_tensors(Ws, bondsectors, lat) -> Vector{<:AbstractTensorMap}
+    irrep_mpo_tensors(W::SymbolicMPO) -> Vector{<:AbstractTensorMap}
+    irrep_mpo_tensors(Ws, bondsectors, lat)
 
-Assemble the symmetric MPO from the reduced bond matrices and bond sectors (from [`mpo`](@ref)): site
-tensors `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit convention) with one-dimensional boundary bonds. Each
-reduced entry `(l, r, letter, coeff)` places the letter's tensor into the `(l → r)` transition weighted by
-`coeff`, coupling the operator charge into the bond via the fusion `b_L ⊗ c → b_R`.
+Dense symmetric site tensors `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit convention) of an [`mpo`](@ref), each
+entry read in its site's basis; the boundary bonds of a finite chain are one-dimensional. On an
+[`InfiniteChain`](@ref) they are the `L` tensors of the unit cell, which tile. The second form takes the
+reduced data `(W.Ws, W.bondsectors)` and the lattice.
 """
 function irrep_mpo_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
         bondsectors::Vector{Vector{I}}, sites
     ) where {I}
-    # `bsecs[i]` is the bond to the *left* of site i; `bsecs[1]` is the trivial left boundary.
     return _mpo_tensors(Ws, vcat([I[unit(I)]], bondsectors), _tolattice(sites))
 end
 
-# Shared assembly: `bsecs[i]` is the bond to the *left* of site i (length N+1), so the finite and
-# infinite paths differ only in what `bsecs[1]` is.
+# `bsecs[i]` is the bond to the *left* of site i (length N+1); finite and infinite differ in `bsecs[1]`.
 function _mpo_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
         bsecs::Vector{Vector{I}}, sites
@@ -161,8 +144,7 @@ function _mpo_tensors(
 
         W = zeros(ComplexF64, Bleft ⊗ V ← V ⊗ Bright)
 
-        # Per *letter*, not per entry: κ collects every coefficient carrying that letter, so this is
-        # `O(d²)` contractions rather than `O(D_L · D_R)`.
+        # per *letter*: κ collects every coefficient carrying it, so `O(d²)` contractions, not `O(D_L D_R)`
         ops = Dictionary{IrrepOperator{I}, Any}()
         couplers = Dictionary{IrrepOperator{I}, Any}()
         f1s = Dictionary{Tuple{I, I, I}, Any}()
@@ -175,8 +157,7 @@ function _mpo_tensors(
             for (letter, coeff) in pairs(localop)
                 c = letter.c
                 get!(() -> instantiate(letter, site), ops, letter)
-                # Fusion `(bL, c) → bR`: running bond FIRST, matching the caterpillar. Charge-first
-                # flips the sign at antisymmetric inner vertices (1⊗1→1, so K ≥ 3).
+                # running bond FIRST, matching the caterpillar (charge-first flips the sign at 1⊗1→1)
                 κ = get!(couplers, letter) do
                     return zeros(ComplexF64, Bleft ⊗ Vect[I](c => 1) ← Bright)
                 end
@@ -196,10 +177,8 @@ end
 """
     islossless(H::OperatorSum[, alg]) -> Bool
 
-Whether the compressed MPO reproduces `H` exactly: [`mpo_terms`](@ref) of the MPO compared with
-[`chain_terms`](@ref)`(H)` by `≈` (term *set* exactly, coefficients approximately). Purely symbolic, so
-cheap and valid for fermionic sectors. Finite chains only. After a truncating [`SVDBondAlgorithm`](@ref)
-`false` is expected.
+Whether the compressed MPO reproduces `H` exactly: `mpo_terms(mpo(H)) ≈ chain_terms(H)`. Purely symbolic,
+finite chains only; after a truncating [`SVDBondAlgorithm`](@ref) `false` is expected.
 """
 function islossless(H::OperatorSum{I, <:FiniteChain}, args...) where {I}
     return mpo_terms(mpo(H, args...)) ≈ chain_terms(H)
@@ -212,12 +191,9 @@ islossless(::OperatorSum{I, <:InfiniteChain}, args...) where {I} = throw(
 """
     mpo_tensormap(Ts::AbstractVector) -> AbstractTensorMap
 
-Contract a chain of MPO site tensors ([`irrep_mpo_tensors`](@ref), or [`jordan_mpo_tensors`](@ref) after
-`map(TensorMap, ·)`) into the `N`-site operator in [`instantiate`](@ref)'s leg convention: codomain
-`o₁…o_N`, domain `i₁…i_N` and the trailing total-charge leg; the trivial left boundary is dropped.
-
-The tensor-level oracle `mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(H)`. Exponential in `N`,
-but stays inside TensorKit, so it is valid for fermionic sectors.
+Contract MPO site tensors ([`irrep_mpo_tensors`](@ref), or [`jordan_mpo_tensors`](@ref) after
+`map(TensorMap, ·)`) into the `N`-site operator in [`instantiate`](@ref)'s leg convention, so that
+`mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(H)`. Exponential in `N`.
 """
 function mpo_tensormap(Ts::AbstractVector)
     N = length(Ts)

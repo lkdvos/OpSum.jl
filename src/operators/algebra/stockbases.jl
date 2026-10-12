@@ -1,11 +1,8 @@
-# Stock bases and their operator builders (research/operator-bases.md §3.7): one memoised basis per
-# TensorKitTensors site and symmetry, and a builder projecting every neutral operator of that site
-# into it.
-#
-# A stock basis is defined from an ordered list of TensorKitTensors operators: a single-site one is an
-# element, a two-site one contributes its factorised pieces (`_factorise_pair`). Operators the symmetry
-# does not admit, and elements already spanned, are skipped, so one list serves every symmetry; the
-# basis is then completed with matrix units. The order makes the common operators atomic.
+# Stock bases and operator builders: one memoised basis per TensorKitTensors site and symmetry, and a
+# builder projecting every neutral operator of that site into it. A basis is defined from an ordered
+# list of TensorKitTensors operators (a two-site one contributes its factorised pieces), skipping what
+# the symmetry does not admit or what is already spanned, then completed with matrix units; the order
+# makes the common operators atomic.
 
 import TensorKitTensors
 using TensorKitTensors: SpinOperators, FermionOperators, HubbardOperators, TJOperators, BosonOperators
@@ -56,13 +53,12 @@ function _tkt_operator(M::Module, name::Symbol, args, kwargs)
     return t
 end
 
-# The basis defined by `names` (in order) on `spacefn(args...; kwargs...)`, completed with matrix
-# units. `args`/`kwargs` are the arguments of the public function and of every TensorKitTensors call.
+# The basis defined by `names` on `spacefn(args...; kwargs...)`; `args`/`kwargs` are also those of every
+# TensorKitTensors call.
 function _stock_basis(kind::Symbol, M::Module, spacefn, names, args, kwargs)
     return _cached(_STOCK_CACHE, (kind, args..., values(kwargs)...)) do
         V = spacefn(args...; kwargs...)
-        I = sectortype(V)
-        elems = AbstractTensorMap[isomorphism(ComplexF64, V ← V ⊗ Vect[I](unit(I) => 1))]
+        elems = AbstractTensorMap[_identityelement(V)]
         for name in names
             t = _tkt_operator(M, name, args, kwargs)
             t === nothing && continue
@@ -73,14 +69,7 @@ function _stock_basis(kind::Symbol, M::Module, spacefn, names, args, kwargs)
     end
 end
 
-# `elems` followed by every matrix unit on `V`.
-function _completed_elements(V::ElementarySpace, elems::AbstractVector)
-    units = [instantiate(mu, V) for mu in instances(IrrepOperator, V)]
-    return AbstractTensorMap[elems; units]
-end
-
-# Every operator of `names` that the symmetry admits, projected into `basisfn(args...; kwargs...)`: a
-# `SiteOperator` for a single-site one, a `LocalOperator` for a pair.
+# Every operator of `names` the symmetry admits, projected into `basisfn(args...; kwargs...)`.
 function _stock_ops(kind::Symbol, M::Module, basisfn, names, args, kwargs)
     return _cached(_STOCK_CACHE, (kind, args..., values(kwargs)...)) do
         B = basisfn(args...; kwargs...)
@@ -134,7 +123,7 @@ end
 The operator basis of TensorKitTensors' `hubbard_space(particle_symmetry, spin_symmetry)`: the
 identity, `n`, `nꜛꜜ`, the creation and annihilation operators `c†σ, cσ` (one spinor element each under
 SU(2)), the spin operators, then completed to span every operator on the site (e.g. `n·c†` and the
-on-site pair `Δ†, Δ`). This is the site of #38: `E[p, q]` is one letter on each site. Memoised.
+on-site pair `Δ†, Δ`). Memoised.
 """
 function hubbard_basis(particle_symmetry::Type{<:Sector} = Trivial, spin_symmetry::Type{<:Sector} = Trivial)
     return _stock_basis(

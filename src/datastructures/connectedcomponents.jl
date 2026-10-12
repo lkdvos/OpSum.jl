@@ -1,6 +1,5 @@
-# Connected components of a bipartite graph (union-find). A minimum vertex cover of a disjoint union
-# is the union of the components' minimum covers (König per component), so splitting is a pure
-# decomposition that gives `min_vertex_cover_bipartite` smaller problems.
+# Connected components of a bipartite graph (union-find); a minimum cover is the union of the
+# components' covers.
 
 function _find_root!(parent::Vector{Int}, x::Int)
     while parent[x] != x
@@ -10,15 +9,8 @@ function _find_root!(parent::Vector{Int}, x::Int)
     return x
 end
 
-"""
-    bipartite_connected_components(adjU::Vector{Vector{Int}}, nV::Int)
-        -> (us_of_component::Vector{Vector{Int}}, vs_of_component::Vector{Vector{Int}})
-
-Connected components of the bipartite graph with left vertices `1:length(adjU)`, right vertices
-`1:nV`, and edges `u => v` for `v in adjU[u]`. Each component's `us`/`vs` are the global left/right
-vertex ids belonging to it, both in ascending order. A right vertex with no incident edge is
-dropped (it belongs to no component); every left vertex is assumed to have at least one edge.
-"""
+# `(us, vs)` per component: global left/right ids in ascending order. A right vertex with no edge
+# belongs to no component; every left vertex is assumed to have an edge.
 function bipartite_connected_components(adjU::Vector{Vector{Int}}, nV::Int)
     nU = length(adjU)
     parent = collect(1:(nU + nV))

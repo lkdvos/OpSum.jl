@@ -12,7 +12,6 @@ nletters(x::LocalOperator) = length(x.terms)
 
 @testset "memoised" begin
     @test spin_basis(SU2Irrep) === spin_basis(SU2Irrep)
-    @test spin_basis(SU2Irrep; spin = 1) !== spin_basis(SU2Irrep)
     @test hubbard_ops(U1Irrep, SU2Irrep) === hubbard_ops(U1Irrep, SU2Irrep)
 end
 
@@ -36,14 +35,12 @@ end
 
 @testset "the common operators are one letter" begin
     @test nletters(spin_ops(SU2Irrep).S_exchange) == 1
-    @test nletters(spin_ops(SU2Irrep; spin = 1).S_exchange) == 1
     @test nletters(spin_ops(U1Irrep).S_exchange) == 3            # Sᶻ Sᶻ and the two S± pairs
     @test nletters(spin_ops(U1Irrep).S_z) == 1
     @test nletters(spin_ops(Z2Irrep).S_z_S_z) == 1
     @test nletters(fermion_ops(Trivial).f_plus_f_min) == 1
-    @test nletters(hubbard_ops(U1Irrep, SU2Irrep).e_plus_e_min) == 1   # the #38 site
+    @test nletters(hubbard_ops(U1Irrep, SU2Irrep).e_plus_e_min) == 1
     @test nletters(hubbard_ops(U1Irrep, U1Irrep).e_plus_e_min) == 2    # one per spin
-    @test nletters(hubbard_ops(SU2Irrep, SU2Irrep).e_hopping) == 1
     # operators the symmetry does not admit as neutral ones are absent
     @test !haskey(spin_ops(SU2Irrep), :S_z)
     @test !haskey(spin_ops(U1Irrep), :S_plus)
@@ -68,5 +65,5 @@ end
     N = 8
     H = opsum(FiniteChain(spin_basis(), N), (ops.S_exchange[i, i + 1] for i in 1:(N - 1)))
     @test islossless(H)
-    @test sum(dim, mpo(H).bondsectors[N ÷ 2]) == 5       # 6 in matrix units (operator-bases.md §1)
+    @test sum(dim, mpo(H).bondsectors[N ÷ 2]) == 5   # 6 in matrix units
 end

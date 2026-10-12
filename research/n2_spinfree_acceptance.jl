@@ -1,4 +1,4 @@
-# Acceptance check for step 5 (operator-bases.md §3.6 and §1): the #38 N₂ Hamiltonians written
+# Acceptance check for #38: the N₂ Hamiltonians written
 # spin-free, from the spin-summed excitation operator `E[p, q] = Σσ a†_pσ a_qσ` alone,
 #
 #     H = Σ h[p, q] E[p, q] + ½ Σ (pq|rs) (E[p, q] * E[r, s] - δ(q, r) E[p, s]),
@@ -12,10 +12,8 @@
 #   built here from `h` and `eri` (no TensorKit, no OpSum);
 # * against the matrix-unit Hamiltonian of `opsum_qchem_su2.jl` re-expressed in the same basis
 #   (`n2_basis_acceptance.jl`), at full size: the same term set and the same bond dimensions.
-#   Not the coefficients: that script's two-site strings carry the opposite sign of the physical
-#   `a†_p a_q` under the current OpSum conventions (its per-letter sign fix predates the graded sign of
-#   #36), so its Hamiltonian misses the exact spectrum on a generic sub-block (orbitals 1:5 of STO-3G
-#   by 1.5e-2). `E` is therefore minus its two-site string, which is what makes `E[p, p] = n_p`.
+#   Not the coefficients: that script's two-site strings have the opposite sign of `a†_p a_q`, so `E`
+#   is minus its two-site string (which makes `E[p, p] = n_p`).
 #
 #     jld --test run research/n2_spinfree_acceptance.jl             # STO-3G
 #     N2_BASIS=CCPVDZ jld --test run research/n2_spinfree_acceptance.jl

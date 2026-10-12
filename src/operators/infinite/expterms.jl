@@ -1,14 +1,8 @@
 # Exponentially decaying interactions `Σ_{i<j} λ^{j-i-1} A_i S_{i+1}…S_{j-1} B_j`, `|λ| < 1`, as
-# `channels` the sweep lowers to a single bond index carrying `λ` on its diagonal (design:
-# `research/infinite-mpo.md` §7). A channel is one fully specified representative term plus the site
-# where its exit block starts:
-#
-#     expterm(SS[1, 2]; decay = 0.5)
-#     expterm(couple(couple(A[1], A′[2]; to = c), B[4]); decay = 0.5, exitsite = 4)
-#
-# With lattice period `P` (`L` for an `InfiniteChain`, `1` for a finite chain) it represents every
-# translate by multiples of `P` that fits, exit block pushed right; a translate weighs
-# `coeff · λ^{string sites}`. The string, if given, sits only on the stretched gap.
+# `channels` the sweep lowers to a single bond index carrying `λ` on its diagonal. A channel is one
+# fully specified representative term plus the site where its exit block starts. With lattice period
+# `P` it stands for every translate by multiples of `P` that fits, exit block pushed right; a
+# translate weighs `coeff · λ^{string sites}`, the string sitting only on the stretched gap.
 
 using TensorKit: Sector, unit
 using .IrrepTensorOperators: IrrepOperator
@@ -17,14 +11,9 @@ export expterm
 
 # --- the descriptor -------------------------------------------------------------------------------
 
-"""
-    ExpKey{I<:Sector}
-
-One decaying interaction as a hashable descriptor: the representative `term` (a fully coupled
-[`Term`](@ref)), the `exitsite` where its exit block starts (factors at sites `< exitsite` are the
-entry block, the rest the exit block; both non-empty), the `decay` `λ`, and the on-site `string`
-carried by the stretched gap, as a canonical `(letter, coefficient)` list (`nothing` = identity).
-"""
+# One decaying interaction: the representative `term`, the `exitsite` where its exit block starts
+# (sites `< exitsite` are the entry block; both non-empty), `decay` λ, and the `string` carried by the
+# stretched gap as a canonical `(letter, coefficient)` list (`nothing` = identity).
 struct ExpKey{I <: Sector}
     term::Term{I}
     exitsite::Int
@@ -47,14 +36,8 @@ function Base.show(io::IO, k::ExpKey)
     return print(io, ")")
 end
 
-"""
-    channelspan(k::ExpKey) -> Int
-
-Span of the channel's *shortest* translate (its range is otherwise unbounded).
-"""
 channelspan(k::ExpKey) = Int(maximum(k.term.sites) - minimum(k.term.sites))
 
-# Shift a channel by `Δ` sites: the representative and the exit site move together.
 function translate(k::ExpKey{I}, Δ) where {I}
     iszero(Δ) && return k
     term = Term{I}(k.term.sites .+ Int(Δ), k.term.keys, k.term.coeff)
@@ -66,10 +49,8 @@ end
 """
     ExpSum{I<:Sector}
 
-A sum of exponentially decaying interactions ([`ExpKey`](@ref) descriptors with coefficients), the
-geometric counterpart of [`Terms`](@ref). Built by [`expterm`](@ref) and added to an
-[`OperatorSum`](@ref): `opsum(lat, h, expterm(h; decay = λ))`. A sum of exponentials is a sum of
-channels; each distinct `λ` costs its own bond index.
+A sum of exponentially decaying interactions, built by [`expterm`](@ref) and added to an
+[`OperatorSum`](@ref). Each distinct decay `λ` costs its own bond index.
 """
 struct ExpSum{I <: Sector}
     channels::Dictionary{ExpKey{I}, ComplexF64}
@@ -85,7 +66,6 @@ function Base.show(io::IO, es::ExpSum)
     return print(io, ")")
 end
 
-# Arithmetic among channels. Meeting a `Terms` bag happens in an `OperatorSum`.
 function Base.:+(a::ExpSum{I}, b::ExpSum{I}) where {I}
     d = Dictionary{ExpKey{I}, ComplexF64}()
     for x in (a, b), (k, v) in pairs(x.channels)
@@ -110,8 +90,7 @@ Base.:-(a::ExpSum, b::ExpSum) = a + (-b)
 
 # --- the constructor ------------------------------------------------------------------------------
 
-# Flatten the string operator into a canonical `(letter, coefficient)` list. Letters must be neutral:
-# a charged one would make the running bond charge drift, so the loop would not be a *self*-loop.
+# Canonical `(letter, coefficient)` list; letters must be neutral, else the loop is not a self-loop.
 function _string_terms(::Type{I}, op) where {I <: Sector}
     A = IrrepOperator{I}
     terms = if op === nothing
@@ -138,20 +117,11 @@ end
 """
     expterm(t::Terms; decay, exitsite = maximum(sites), string = nothing) -> ExpSum
 
-An exponentially decaying interaction generated from the representative term(s) `t` by stretching the
-gap just before `exitsite` geometrically, with ratio `decay` per site:
-
-```julia
-SS = spin_ops(SU2Irrep).S_exchange
-expterm(SS[1, 2]; decay = 0.5)                 # Σ_{i<j} 0.5^{j-i-1} S⃗_i·S⃗_j
-expterm(SS[1, 3]; decay = 0.5)                 # the same, but never closer than next-nearest neighbours
-```
-
-`t` must be fully coupled with at least two active sites (it carries the fusion tree); a composite
-operand yields one channel per term. `exitsite` must be an active site of the representative and not
-its first. `string` is a charge-neutral `SiteOperator` carried by every site of the stretched gap
-(default: the identity). `decay` must satisfy `0 < |λ| < 1`. The lattice supplies the translation
-period: `L` on an [`InfiniteChain`](@ref), one site on a finite chain.
+An exponentially decaying interaction generated from the representative term(s) `t`, stretching the
+gap just before `exitsite` geometrically with ratio `decay` (`0 < |decay| < 1`).
+`t` must be fully coupled on at least two sites; `exitsite` is one of its active sites, not the first.
+`string` is a charge-neutral `SiteOperator` on every site of the stretched gap (default identity).
+The translation period is `L` on an [`InfiniteChain`](@ref), one site on a finite chain.
 """
 function expterm(
         t::Terms{I}; decay, exitsite = nothing, string = nothing
@@ -203,9 +173,7 @@ end
 
 # --- explicit expansion (the oracle) --------------------------------------------------------------
 
-# Write every translate of channel `k` that fits inside `1:N` (period `P`) into `d` as ordinary terms:
-# the oracle for the sweep, which never sees it. Entry anchors run over the sites of `1:N` congruent to
-# the representative's, and for each the exit block is pushed right in steps of `P` until it leaves.
+# Every translate of channel `k` inside `1:N` (period `P`) as ordinary terms: exit block pushed right in steps of `P`.
 function _expand_channel!(
         d::Dictionary{Term{I}, ComplexF64}, k::ExpKey{I}, coeff, P::Int, N::Int
     ) where {I}
@@ -236,8 +204,7 @@ function _expand_channel!(
     return d
 end
 
-# One stretched translate. A composite string distributes over its letters at *every* gap site, so
-# the general case is a product over the gap (`nothing` letters stay idle).
+# One stretched translate: a composite string distributes over its letters at every gap site.
 function _emit_stretched!(
         d::Dictionary{Term{I}, ComplexF64}, entry, exit_, ops, bonds, ne, entrybond,
         strsites, string, w
@@ -283,12 +250,7 @@ function _insert_stretched!(
     return d
 end
 
-"""
-    expand_channels(es::ExpSum, P::Int, N::Int) -> Terms
-
-Every translate of every channel that fits inside `1:N`, as an ordinary bag. Exponential in the
-string's letters times the gap: a test/oracle tool.
-"""
+# Every translate of every channel inside `1:N` as an ordinary bag; exponential in the gap (oracle).
 function expand_channels(es::ExpSum{I}, P::Int, N::Int) where {I}
     d = Dictionary{Term{I}, ComplexF64}()
     for (k, v) in pairs(es.channels)
@@ -300,26 +262,14 @@ end
 
 # --- lowering to a weighted automaton -------------------------------------------------------------
 #
-# What the sweep consumes. A channel becomes a small automaton whose states are exactly the suffix
-# classes it can occupy, so a right vertex of the graph is a `(channel, state)` pair:
-#
-#   E_b   entry block partly placed (one state per bond of the entry block)   → next factor / idle
-#   W_δ   mandatory wait before the first legal exit (δ > period)             → string, weight λ·c
-#   D_δ   the CYCLIC part, δ = period … 1 (δ = distance to the next exit)     → string, and at δ = 1
-#                                                                              also the exit factor
-#   X_b   exit block partly placed                                           → next factor / idle
-#
-# `δ` is the distance to the next legal exit, so the phase alignment a period `> 1` needs lives inside
-# the state. Every state carries an interned name with `name equality ⟺ class equality`, which the
-# per-bond suffix merge and the canonical order are keyed on. Hash-consing does it once the cycle is
-# cut: `0` names the exhausted class, one id names each *loop descriptor* `(λ, string transitions, exit
-# key, exit-class name, period, δ)` (which fixes the whole cyclic future), and the acyclic `E`/`X`
-# chains cons `(key at the next site, successor name)` on top, as `_rel_suffix_ids` does for shapes.
+# A channel becomes an automaton whose states are its suffix classes (a right vertex is a
+# `(channel, state)` pair): E_b entry block partly placed; W_δ mandatory wait before the first legal
+# exit; D_δ the cyclic part (δ = distance to the next exit); X_b exit block partly placed. Names are
+# interned so that name equality ⟺ class equality: `0` is the exhausted class, one id per loop
+# descriptor, and acyclic chains cons `(key, successor name)`.
 
-# One state of a lowered channel's automaton: interned class `name`, running bond charge `bond`,
-# `minremain` (fewest further sites needed to complete, what the window boundary prunes on), whether
-# it is in the `cyclic` core (forced into the bond basis, see `_vc_component`), and its transitions
-# `(key applied at the next site, target state, weight)`; target `0` is the exhausted class.
+# `minremain`: fewest further sites to complete (the window boundary prunes on it); `cyclic`: in the
+# loop core; `trans`: `(key at the next site, target state, weight)`, target `0` = exhausted.
 struct ChannelState{I <: Sector}
     name::Int
     bond::I
@@ -328,9 +278,7 @@ struct ChannelState{I <: Sector}
     trans::Vector{Tuple{ITOKey{I}, Int, ComplexF64}}
 end
 
-# A lowered [`ExpKey`](@ref): the automaton plus what the sweep needs to enter it — the anchor `phase`
-# (mod `period`), the `entrykey` placed there, the `coeff` (carried by the entry edge, so channels
-# differing only in their entry are the same class from then on) and the representative's `span`.
+# A lowered `ExpKey`; `coeff` rides on the entry edge so channels differing only there share a class.
 struct ExpChannel{I <: Sector}
     phase::Int
     period::Int
@@ -341,8 +289,7 @@ struct ExpChannel{I <: Sector}
     states::Vector{ChannelState{I}}
 end
 
-# Largest site of `1:N` at which this channel may still enter (0 if none): the anchor must match the
-# phase and the shortest translate must still fit.
+# Largest site of `1:N` at which the channel may still enter (0 if none).
 function lastentry(c::ExpChannel, N::Int)
     hi = N - c.span
     hi < 1 && return 0
@@ -352,7 +299,7 @@ end
 
 isentry(c::ExpChannel, s::Int, N::Int) = mod(s - c.phase, c.period) == 0 && s + c.span <= N
 
-# name interning, shared across all channels of one model so that classes which must merge are equal
+# shared across all channels of a model so that classes which must merge are equal
 mutable struct _ChannelNames{I <: Sector}
     cons::Dictionary{Tuple{ITOKey{I}, Int}, Int}
     loop::Dictionary{Tuple{ComplexF64, Vector{Tuple{ITOKey{I}, ComplexF64}}, ITOKey{I}, Int, Int, Int}, Int}
@@ -384,8 +331,6 @@ function _channelorder(k::ExpKey)
     )
 end
 
-# Lower every channel of `es` to its automaton, with names interned across the list. `P` is the
-# lattice period (the cell length, or 1 on a finite chain).
 function _lower_channels(es::ExpSum{I}, P::Int) where {I}
     P >= 1 || throw(ArgumentError("channel period must be positive, got $P"))
     names = _ChannelNames{I}()
@@ -393,8 +338,7 @@ function _lower_channels(es::ExpSum{I}, P::Int) where {I}
     return ExpChannel{I}[_lower_channel(k, ComplexF64(v), P, names) for (k, v) in entries]
 end
 
-# Build a reverse acyclic chain of states over `range` (descending bond positions), each stepping to
-# the previously built one; at the top (`b+1 == top`) it steps to `boundary_target` instead.
+# Reverse acyclic chain over `range` (descending bonds); at `b+1 == top` it steps to `boundary_target`.
 function _build_acyclic_chain!(
         states::Vector{ChannelState{I}}, names::_ChannelNames{I}, bondat, stepkey, slast::Int,
         range, top::Int, boundary_target::Int
@@ -440,14 +384,12 @@ function _lower_channel(
     # exit block: acyclic chain down to the exhausted class
     xidx = _build_acyclic_chain!(states, names, bondat, stepkey, slast, (slast - 1):-1:sexit, slast, 0)
 
-    # the loop: transitions are filled in a second pass (they are cyclic; the names are not)
+    # the loop: transitions are filled in a second pass (they are cyclic)
     exittarget = ne + 1 == K ? 0 : xidx[sexit]
     exitname = iszero(exittarget) ? 0 : states[exittarget].name
     exitkey = keys_[ne + 1]
-    # Load-bearing: λ rides as an edge *weight* on a letter-carrying key, because tensor assembly
-    # iterates `pairs(op)` and a letter-less `SiteOperator` would be silently dropped. The loop states
-    # are `cyclic` and so are forced into the vertex cover, else λ would accumulate instead of landing
-    # on the diagonal.
+    # λ rides as an edge weight so the entry carries a letter (a letter-less `SiteOperator` is dropped
+    # at tensor assembly); the `cyclic` loop states are forced into the cover, else λ accumulates.
     strtrans = Tuple{ITOKey{I}, ComplexF64}[
         (ITOKey{I}(l === nothing ? passthrough(I) : l, cmid, 1), k.decay * c) for (l, c) in k.string
     ]

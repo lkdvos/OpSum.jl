@@ -23,13 +23,16 @@ function physmatrix(t, N, d)
     return reshape(permutedims(A, perm), d^N, d^N)
 end
 
+# A `V ← V` operator from the `V ← V ⊗ unit` form `instantiate` gives.
+plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
+
 # Dense-equivalent bond dimension at bond `b`: the qdim-weighted sum of the per-sector multiplicities.
 densedim(secs, b) = sum(dim(c) for c in secs[b])
 
 # Bases and letters for tests of the term algebra and the sweep (charged letters on a given space).
 
 using TensorKit: TensorKit, ElementarySpace, Sector, Vect, sectortype, block, dual, unit, sectors,
-    isomorphism, ⊗, ←
+    isomorphism, numind, numout, removeunit, ⊗, ←
 
 # The complete basis of matrix units on `V`: the identity, then every matrix unit except the first of
 # trivial charge (dependent on the identity), so a fermion's `n` is one letter. Memoised per space.

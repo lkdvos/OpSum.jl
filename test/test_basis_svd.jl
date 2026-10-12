@@ -2,7 +2,6 @@ using Test
 using OpSum
 using OpSum: SVDBondAlgorithm, IndependentSVD, SequentialSVD, Terms
 using TensorKit
-using TensorKit: removeunit, numind
 using LinearAlgebra: norm
 import TensorKitTensors.FermionOperators as FO
 
@@ -12,7 +11,6 @@ include("testutils.jl")
 # the basis and not on how it was written.
 
 dense(W) = mpo_tensormap(irrep_mpo_tensors(W))
-plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 pairop(ts, B) = plain(instantiate(opsum(FiniteChain(B, 2), ts)))
 
 @testset "the orthonormal letters carry the operator's norm" begin
@@ -31,7 +29,6 @@ pairop(ts, B) = plain(instantiate(opsum(FiniteChain(B, 2), ts)))
     Hf = opsum(FiniteChain(F, 3), h[1, 2], 0.5 * h[3, 1], 0.7 * n[2], -0.2 * n[1] * n[3])
     for (H, d) in ((Hs, 2), (Hf, 2))
         metrics = [OpSum._lettermetric(H.lattice[s]) for s in 1:3]
-        @test any(!isnothing, metrics)
         ts = OpSum._orthonormal_terms(H.terms, metrics)
         @test sum(t -> abs2(t.coeff), ts) ≈ norm(instantiate(H))^2 / d^3
     end

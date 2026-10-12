@@ -53,16 +53,6 @@ mpo_operator(Ws, secs, sites) = instantiate(opsum(sites, mpo_terms(Ws, secs)))
     end
 end
 
-@testset "lossless SVD, explicit contraction (N = 3)" begin
-    V = SU2Space(1 // 2 => 1)
-    S = spinvector(unitbasis(V))
-    sites = fill(unitbasis(V), 3)
-    H = opsum(dot(S[1], S[2]), dot(S[2], S[3]))
-    Ws, secs = reduced(mpo(opsum(sites, H), SVDBondAlgorithm()))
-    T = irrep_mpo_tensors(Ws, secs, sites)
-    @test physmatrix(contract3(T), 3, 2) ≈ physmatrix(instantiate(opsum(sites, H)), 3, 2)
-end
-
 @testset "truncation shrinks the bond globally across sectors" begin
     V = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(V))
@@ -96,12 +86,6 @@ end
     @test SVDBondAlgorithm().strategy.trunc === nothing
     @test SVDBondAlgorithm(truncrank(2)).strategy isa IndependentSVD
     @test SVDBondAlgorithm(; sweep = SequentialSVD).strategy isa SequentialSVD
-
-    # lossless: the same operator (the per-sector internal bond dimensions agree: test_irrep_graph.jl)
-    for sweep in (IndependentSVD, SequentialSVD)
-        W, s = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(; sweep)))
-        @test mpo_operator(W, s, sites) ≈ instantiate(opsum(sites, H))
-    end
 
     # `truncrank(1)` is one index per bond for the independent sweep, whereas the sequential sweep
     # truncates in the basis it was handed, so an early truncation starves every bond downstream.

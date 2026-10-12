@@ -1,20 +1,17 @@
 module OpSum
 
-# Public API
-# ----------
-
-# on-site operators: build them once, outside any loop
+# on-site operators
 export Basis
 export spin_basis, fermion_basis, boson_basis, hubbard_basis, tj_basis
 export boson_ops, hubbard_ops, tj_ops
 export IrrepOperator, scalarop, project, spin_ops, fermion_ops
-# unplaced K-site operators: project a block once, place it per bond
+# unplaced K-site operators
 export LocalOperator
-# term algebra: place and couple. Latticeless — the lattice enters with the `OperatorSum`
+# term algebra (latticeless)
 export Term, Terms, couple, couple_channels, opsum, canonicalize!
-# the lattice-carrying container every MPO is formed from
+# the lattice-carrying container
 export OperatorSum, opsum!
-# lattices: the two things an operator can be compressed over
+# lattices
 export AbstractLattice, FiniteChain, InfiniteChain
 # MPO construction
 export mpo, SymbolicMPO
@@ -33,26 +30,16 @@ using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
 using LinearAlgebra: LinearAlgebra
 
-# Algorithm selectors (shared by the dense and irrep pipelines)
-# -------------------------------------------------------------
 include("operators/compression/algorithms.jl")
 
-# Utility
-# -------
 include("utility/linalg.jl")
 include("utility/memo.jl")
 
-# Data structures
-# ---------------
 include("datastructures/bipartite.jl")
 include("datastructures/connectedcomponents.jl")
 
-# Lattices
-# --------
 include("operators/lattices.jl")
 
-# Operators — symbolic algebra
-# -----------------------------
 """
     instantiate(op, V)
 
@@ -73,8 +60,6 @@ include("operators/algebra/builders.jl")
 include("operators/algebra/products.jl")
 include("operators/algebra/stockbases.jl")
 
-# Operators — compression to a reduced MPO
-# ------------------------------------------
 include("operators/compression/irreptermtable.jl")
 include("operators/infinite/expterms.jl")
 include("operators/operatorsum.jl")

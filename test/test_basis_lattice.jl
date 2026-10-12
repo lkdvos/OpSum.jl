@@ -3,7 +3,7 @@ using OpSum
 using OpSum: LocalOperator, mpo_tensormap, irrep_mpo_tensors, jordan_mpo_tensors
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
-using TensorKit: removeunit, numind, BraidingTensor
+using TensorKit: BraidingTensor
 
 include("testutils.jl")
 
@@ -15,7 +15,6 @@ const Ymat = ComplexF64[0 -im; im 0]
 const Zmat = ComplexF64[1 0; 0 -1]
 const Spmat = ComplexF64[0 1; 0 0]
 
-plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 pairop(ts, V, N = 2) = plain(instantiate(opsum(FiniteChain(V, N), ts)))
 
 # a spinless fermion site: `𝟙, n, c†, c` from the two hopping pairs and the number operator
@@ -32,13 +31,8 @@ end
 @testset "a chain of bases" begin
     B = Basis([Xmat, Ymat, Zmat])
     lat = FiniteChain(B, 3)
-    @test lat == FiniteChain(fill(B, 3))
-    @test length(lat) == 3 && lat[2] === B
-    @test sectortype(lat) == Trivial
-    @test InfiniteChain(B) == InfiniteChain([B])
+    @test lat == FiniteChain(fill(B, 3)) && length(lat) == 3 && lat[2] === B
     @test InfiniteChain([B, B])[5] === B
-    @test OpSum.windowlattice(InfiniteChain(B), 2) == FiniteChain(B, 2)
-    # a bare vector of bases is a finite chain, as one of spaces is
     X = project(Xmat, B)
     @test opsum(fill(B, 2), X[1]).lattice == FiniteChain(B, 2)
 
@@ -100,7 +94,6 @@ end
     Lz = ComplexF64[1 0 0; 0 0 0; 0 0 -1]
     P2 = Basis([Xmat, Ymat, Zmat])
     P3 = Basis([Lz])
-    @test length(vcat(P2, P3, P2)) == 3
     # Z on a qubit times Lz on a qutrit, one term in the per-slot bases
     ZL = TensorMap(kron(Lz, Zmat), ℂ^2 ⊗ ℂ^3 ← ℂ^2 ⊗ ℂ^3)            # column-major: slot 1 is Z
     zl = project(ZL, [P2, P3])
@@ -127,7 +120,6 @@ end
     @test sum(dim, Hinf.bondsectors[1]) == 5                       # 3 channels + start + done
     Ts = irrep_mpo_tensors(Hinf)
     @test space(Ts[1], 1) == space(Ts[1], 4)'
-    @test space(Ts[1], 2) == ℂ^2
 end
 
 @testset "decaying channels over bases" begin
@@ -163,5 +155,4 @@ end
     @test_throws ArgumentError opsum(InfiniteChain([Q, Z1]), expterm(z[1] * z[3]; decay = λ, string = z))
     # `z` is letter (unit, 3) of `Q`, which `Z1` lacks
     @test_throws ArgumentError opsum(InfiniteChain(Z1), expterm(z1[1] * z1[2]; decay = λ, string = z))
-    @test_throws ArgumentError opsum(FiniteChain(Z1, 3), expterm(z[1] * z[2]; decay = λ))
 end

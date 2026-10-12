@@ -1,16 +1,9 @@
-# The metric a truncating SVD works in. The SVD backends treat a site's letters as orthonormal, which a
-# `Basis` need not satisfy (`n` and `𝟙`, or `X` and `X + Y`, overlap). Lossless results do not care, but a
-# truncation would keep the wrong states, so it first rewrites every term over an orthonormalised alphabet,
-# compresses, and maps each site entry back.
-#
-# The inner product is the operator's Hilbert–Schmidt one. For a caterpillar term it factorises:
-# `‖t‖² = |coeff|² · Πᵢ dot(aᵢ, aᵢ) / dim(cᵢ)`, times `dot(𝟙, 𝟙)` per idle site; terms with different
-# letters or trees are orthogonal once each site's letters are. Dividing each site by `dot(𝟙, 𝟙)` leaves
-# the per-charge Gram matrix `G_c[n, m] = dot(eₙ, eₘ) / (dim(c) · dot(𝟙, 𝟙))`, with the identity of norm one.
-#
-# With `G_c = A'A` (Cholesky, `A` upper triangular), a letter `(c, n)` is `Σ_{m ≤ n} A[m, n] (c, m)` in the
-# orthonormal letters and an orthonormal letter `(c, m)` is `Σ_{n ≤ m} A⁻¹[n, m] (c, n)`. The identity is
-# element 1 with `A[1, 1] = 1`, so pass-throughs and identity channels are untouched.
+# Metric of a truncating SVD. The SVD backends treat a site's letters as orthonormal, which a `Basis`
+# need not satisfy, so terms are rewritten over per-charge orthonormalised letters, compressed, and
+# each site entry mapped back. The Hilbert–Schmidt norm of a caterpillar term factorises per site, so the
+# per-charge Gram matrix is `G_c[n, m] = dot(eₙ, eₘ) / (dim(c) · dot(𝟙, 𝟙))`. With `G_c = A'A` (Cholesky),
+# letter `(c, n)` is `Σ_{m ≤ n} A[m, n] (c, m)` and the orthonormal `(c, m)` is `Σ_{n ≤ m} A⁻¹[n, m] (c, n)`;
+# the identity is element 1 with `A[1, 1] = 1`, so pass-throughs are untouched.
 
 using LinearAlgebra: cholesky, Hermitian, UpperTriangular
 
@@ -33,8 +26,7 @@ function _lettermetric(B::Basis{I}) where {I}
     return trivial ? nothing : out
 end
 
-# The terms of `ts` over the orthonormal letters of each site (`metrics[s]` for site `s`). A letter
-# can pick up an identity component, which is a pass-through and is dropped like placement drops it.
+# `ts` over the orthonormal letters (`metrics[s]` for site `s`); identity components are dropped.
 function _orthonormal_terms(ts::Terms{I}, metrics) where {I}
     out = Term{I}[]
     for t in ts
@@ -79,8 +71,8 @@ function _from_orthonormal(op::SiteOperator{I}, metric) where {I}
     return SiteOperator{I}(letters, coeffs)
 end
 
-# `_irrep_channels` for a truncating SVD on a lattice of bases: compress in the orthonormal letters,
-# then rewrite every site's entries in that site's basis.
+# `_irrep_channels` in the orthonormal letters, entries mapped back to each site's basis; `nothing`
+# when every site is already orthonormal.
 function _compress_in_metric(tt_terms::Terms{I}, lat::FiniteChain, strategy) where {I}
     N = length(lat)
     bymetric = IdDict{Any, Any}()

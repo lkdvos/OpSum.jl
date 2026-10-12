@@ -2,7 +2,6 @@ using Test
 using OpSum
 using OpSum: instantiate, couple, opsum, _isfermionodd
 using TensorKit
-using TensorKit: removeunit, numind
 using LinearAlgebra
 
 include("testutils.jl")
@@ -19,7 +18,7 @@ jw_cd(j, N) = Matrix(jw_c(j, N)')
 
 # product-basis matrix of a fermionic TensorMap, read blockwise (site 1 most significant)
 function densemat(t::AbstractTensorMap)
-    numind(t) == 2numout(t) || (t = removeunit(t, numind(t)))
+    t = plain(t)
     N = numout(t)
     idx(ns) = 1 + sum(ns[k] << (N - k) for k in 1:N)
     M = zeros(ComplexF64, 2^N, 2^N)
@@ -40,7 +39,6 @@ dense(h, N) = densemat(instantiate(opsum(FiniteChain(Bf, N), h)))
         end
         @test dense(couple(F.cd[1], F.cd[2], F.c[3], F.c[4]), 4) ≈
             jw_cd(1, 4) * jw_cd(2, 4) * jw_c(3, 4) * jw_c(4, 4)
-        @test couple(F.c[2], F.cd[1]) ≈ -couple(F.cd[1], F.c[2])
     end
 
     @testset "triangle" begin

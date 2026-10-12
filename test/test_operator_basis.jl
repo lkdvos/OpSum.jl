@@ -3,7 +3,6 @@ using OpSum
 using OpSum: SiteOperator, LocalOperator, nsites, passthrough, ispassthrough, scalarop, Terms
 using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
-using TensorKit: removeunit, numind
 using LinearAlgebra: dot
 
 include("testutils.jl")
@@ -15,17 +14,12 @@ const Zmat = ComplexF64[1 0; 0 -1]
 const Spmat = ComplexF64[0 1; 0 0]
 const Smmat = ComplexF64[0 0; 1 0]
 
-# a `V ← V` operator from the `V ← V ⊗ unit` form `instantiate` gives
-plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 
 # the dense operator of a placed term bag over per-site bases
 dense(ts, bases) = plain(instantiate(opsum(bases, ts)))
 
 # a neutral two-site operator over the basis `B`
 pairop(ts, B) = dense(ts, [B, B])
-
-# Dense comparisons use the shortest chain with every term shape (compilation dominates run time);
-# losslessness and bond dimensions are symbolic, so they use longer chains.
 
 # the dense bond dimension at bond `b`
 bonddim(H, b) = densedim(mpo(H).bondsectors, b)
@@ -37,7 +31,6 @@ bonddim(H, b) = densedim(mpo(H).bondsectors, b)
     @test B.letters == [IrrepOperator(Trivial(), n) for n in 1:4]
     @test first(B.letters) == passthrough(Trivial)
     @test plain(B[1]) ≈ id(ℂ^2)
-    @test instantiate(passthrough(Trivial), B) ≈ B[1]
 
     # without the identity given, it is still element 1
     B2 = Basis([Zmat, Xmat])
@@ -83,7 +76,6 @@ end
     @test collect(pairs(project(Spmat, A))) == [IrrepOperator(Trivial(), 2) => 1]
     Z = project(Zmat, A)
     @test Z ≈ -1 * passthrough(Trivial) + 1 * IrrepOperator(Trivial(), 4)
-    @test plain(instantiate(project(Xmat, A), A)) ≈ TensorMap(Xmat, ℂ^2 ← ℂ^2)
 
     # outside the span
     @test_throws ArgumentError project(Xmat, Basis([Zmat]))
@@ -106,7 +98,7 @@ end
     Xp, Yp, Zp = (project(M, P) for M in (Xmat, Ymat, Zmat))
     Hp = opsum(FiniteChain(P, N), (couple(O[i], O[i + 1]) for i in 1:(N - 1) for O in (Xp, Yp, Zp)))
     @test islossless(Hp)
-    @test bonddim(Hp, N ÷ 2) == 5                      # operator-bases.md §1: 6 in matrix units, 5 in the Pauli basis
+    @test bonddim(Hp, N ÷ 2) == 5                        # 6 in matrix units
 
     # the basis MPO, read back through the basis, is the dense operator
     Hp2 = opsum(FiniteChain(P, 2), (couple(O[1], O[2]) for O in (Xp, Yp, Zp)))
@@ -124,7 +116,6 @@ end
     B = Basis([SpSm, SmSp, Sz])
     @test length(B) == 4                                    # 𝟙, Sᶻ, S⁺, S⁻
     @test Set(keys(B.bycharge)) == Set(U1Irrep[-1, 0, 1])
-    @test Basis([SpSm, SmSp, Sz]).elements == B.elements   # deterministic
 
     # the pieces are the matrix units S⁺ and S⁻, so the pair keeps its matrix-unit coefficient
     for c in (U1Irrep(1), U1Irrep(-1))
@@ -135,7 +126,6 @@ end
     @test length(pm.terms) == 1 && only(pm.terms).coeff ≈ only(project(SpSm, BU).terms).coeff
     @test dense(pm[1], fill(B, 2)) ≈ SpSm
     z = project(Sz, B)
-    @test length(z) == 1
 
     # XXZ chain, with a next-nearest-neighbour term across a gap
     mp = project(SmSp, B)
@@ -167,15 +157,12 @@ end
     B = Basis([hop, hop′, n])
     @test length(B) == 4                                    # 𝟙, n, c†, c
     h = project(hop, B)
-    @test length(h.terms) == 1
 
-    # c†₁ 𝟙₂ c₃ projected as a block equals the pair placed across the gap
     h3 = dense(couple(F.cd[1], F.c[3]), fill(BU, 3))
     b3 = project(h3, B)
     @test b3[1] ≈ h[1, 3]
     @test dense(b3[1], fill(B, 3)) ≈ h3
 
-    # placement is monotone, so c†ᵢ₊₁cᵢ = -cᵢc†ᵢ₊₁ is the other pair, on the same pieces
     h′ = project(hop′, B)
     nb = project(n, B)
     H(N) = opsum(

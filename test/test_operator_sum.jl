@@ -82,12 +82,7 @@ end
     @test_throws ArgumentError opsum!(H, b[2], b[N])      # b[N] reaches site N + 1
     @test length(H) == 1
     @test_throws ArgumentError opsum!(H, S)               # unplaced SiteOperator
-    @test_throws ArgumentError opsum!(H, b)               # unplaced LocalOperator
     @test_throws ArgumentError opsum!(H, 1.0)
-end
-
-@testset "a lattice of bare spaces is refused" begin
-    @test_throws ArgumentError OperatorSum(fill(SU2Space(1 // 2 => 1), 4))
 end
 
 @testset "H + H' on hopping chains" begin

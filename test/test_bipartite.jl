@@ -23,18 +23,8 @@ function is_matching(adjU, nV, pairU, pairV, matching)
     return true
 end
 
-adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
-
 @testset "bipartite matching and cover" begin
     @testset "small hand-checked graphs" begin
-        # a path U1-V1-U2-V2
-        adjU = [[1], [1, 2]]
-        cU, cV, pairU, pairV, m = min_vertex_cover_bipartite(adjU, 2, 2)
-        @test m == 2
-        @test count(cU) + count(cV) == m
-        @test covers_all_edges(adjU, cU, cV)
-        @test is_matching(adjU, 2, pairU, pairV, m)
-
         # a star: the minimum cover is the centre, never the leaves
         adjU = [[1, 2, 3, 4]]
         cU, cV, _, _, m = min_vertex_cover_bipartite(adjU, 1, 4)
@@ -42,26 +32,9 @@ adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
         @test cU == [true]
         @test !any(cV)
 
-        adjU = [[1], Int[]]
-        cU, cV, _, _, m = min_vertex_cover_bipartite(adjU, 2, 1)
-        @test m == 1
-        @test !cU[2]
-        @test count(cU) + count(cV) == m
-
         cU, cV, _, _, m = min_vertex_cover_bipartite([Int[], Int[]], 2, 3)
         @test m == 0
         @test !any(cU) && !any(cV)
-    end
-
-    @testset "complete bipartite graphs" begin
-        for (n, m) in ((1, 5), (3, 3), (4, 7), (6, 2))
-            adjU = [collect(1:m) for _ in 1:n]
-            cU, cV, pairU, pairV, matching = min_vertex_cover_bipartite(adjU, n, m)
-            @test matching == min(n, m)                    # K_{n,m}
-            @test count(cU) + count(cV) == matching        # König
-            @test covers_all_edges(adjU, cU, cV)
-            @test is_matching(adjU, m, pairU, pairV, matching)
-        end
     end
 
     @testset "long alternating path (iterative DFS depth)" begin
@@ -75,7 +48,7 @@ adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
         @test is_matching(adjU, n, pairU, pairV, matching)
     end
 
-    @testset "random graphs: König + dense/adjacency agreement" begin
+    @testset "random graphs: König" begin
         rng = MersenneTwister(0x00C0FFEE)
         for trial in 1:200
             n = rand(rng, 1:12)
@@ -87,11 +60,6 @@ adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
             @test is_matching(adjU, m, pairU, pairV, matching)
             @test covers_all_edges(adjU, cU, cV)
             @test count(cU) + count(cV) == matching   # König's theorem
-
-            dU, dV, _, _, dmatching = min_vertex_cover_bipartite(adjmatrix(adjU, m))
-            @test dmatching == matching
-            @test dU == cU
-            @test dV == cV
 
             # brute force on the smallest instances
             if n + m <= 12

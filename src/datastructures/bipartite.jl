@@ -1,10 +1,8 @@
-# Maximum matching (Hopcroft–Karp) + minimum vertex cover (König) on bipartite graphs, used by the
-# sweeps to choose each bond's basis. Everything is driven by adjacency lists (`adjU[u]` lists the
-# right vertices of left vertex `u`), so it is `O(E√V)` and never forms an `nU × nV` object.
+# Hopcroft–Karp matching + König minimum vertex cover, driven by adjacency lists (`adjU[u]` = right
+# vertices of left vertex `u`): `O(E√V)`.
 
-# BFS: layer the alternating-path graph from all free U's. Returns the length of the *shortest*
-# augmenting path (`typemax` if none). Layering stops there: deeper layers would let the DFS follow
-# non-shortest paths, which breaks the O(√V) phase bound.
+# BFS layering from the free U's; returns the shortest augmenting path length (`typemax` if none).
+# Layering stops there, else the DFS could follow non-shortest paths and break the O(√V) phase bound.
 function hopcroft_karp_bfs!(dist, adjU, pairU, pairV, queue)
     INF = typemax(eltype(dist))
     fill!(dist, INF)
@@ -39,9 +37,8 @@ function hopcroft_karp_bfs!(dist, adjU, pairU, pairV, queue)
     return found
 end
 
-# DFS: augment along a path of exactly length `found` from `u0` within the layered graph; returns
-# whether one was found. Iterative (explicit stack + cursor into `adjU`): the recursive form would
-# nest to the path length, `O(nU)` on the large components of long-range models.
+# Augment along a path of exactly length `found` from `u0` in the layered graph. Iterative: the
+# recursive form nests to the path length, `O(nU)` on long-range models.
 function hopcroft_karp_dfs!(adjU, pairU, pairV, dist, cursor, stack, u0, found)
     INF = typemax(eltype(dist))
     empty!(stack)
@@ -83,13 +80,7 @@ function hopcroft_karp_dfs!(adjU, pairU, pairV, dist, cursor, stack, u0, found)
     return false
 end
 
-"""
-    hopcroft_karp(adjU, nU, nV)
-
-Maximum matching of the bipartite graph with left vertices `1:nU`, right vertices `1:nV` and
-neighbour lists `adjU`, by Hopcroft–Karp in `O(E√V)`. Returns `(pairU, pairV, matching_size)`, where
-`pairU[u]` / `pairV[v]` is the partner or `0` if free.
-"""
+# Maximum matching: `(pairU, pairV, matching_size)`, `0` marking a free vertex.
 function hopcroft_karp(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
     pairU = zeros(Int, nU)
     pairV = zeros(Int, nV)
@@ -112,22 +103,11 @@ function hopcroft_karp(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
     return pairU, pairV, matching
 end
 
-"""
-    min_vertex_cover_bipartite(adjU::Vector{Vector{Int}}, nU, nV)
-    min_vertex_cover_bipartite(A::AbstractMatrix{<:Real})
-
-Minimum vertex cover of a bipartite graph, via a Hopcroft–Karp maximum matching plus König's
-construction. Returns `(coverU, coverV, pairU, pairV, matching_size)` where `coverU`/`coverV` are
-boolean masks over the left/right vertices.
-
-The matrix method builds the adjacency lists (any nonzero is an edge) and forwards. Left vertices
-with no incident edge are never covered.
-"""
+# `(coverU, coverV, pairU, pairV, matching_size)`, the covers being boolean masks.
 function min_vertex_cover_bipartite(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
     pairU, pairV, matching = hopcroft_karp(adjU, nU, nV)
 
-    # Vertices reachable by alternating paths from unmatched U's (non-matching edges U → V, matching
-    # edges V → U).
+    # reachable by alternating paths from unmatched U's
     visitedU = falses(nU)
     visitedV = falses(nV)
 
@@ -154,14 +134,4 @@ function min_vertex_cover_bipartite(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
 
     # König: cover = (U \ Z_L) ∪ Z_R
     return .!visitedU, visitedV, pairU, pairV, matching
-end
-
-function min_vertex_cover_bipartite(A::AbstractMatrix{<:Real})
-    n, m = size(A)
-    adjU = [Int[] for _ in 1:n]
-    # column-major traversal leaves every `adjU[u]` ascending
-    @inbounds for v in 1:m, u in 1:n
-        iszero(A[u, v]) || push!(adjU[u], v)
-    end
-    return min_vertex_cover_bipartite(adjU, n, m)
 end

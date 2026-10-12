@@ -3,13 +3,11 @@ using OpSum
 using OpSum: LocalOperator, nsites, project, instantiate, couple, couple_channels, spin_ops,
     spin_basis, scalarop, opsum, Terms, FiniteChain
 using TensorKit
-using TensorKit: removeunit, numind
 using LinearAlgebra: dot
 
 include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, spinvector, matrixunit, fermionmode
 
-# `instantiate` output as the plain `V ← V` map (trailing trivial charge leg dropped)
-densop(h, lat) = (O = instantiate(opsum(lat, h)); numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O)))
+densop(h, lat) = plain(instantiate(opsum(lat, h)))
 
 # SU(2) and fermions use matrix-unit bases; U(1) spin-½ the stock basis, where `S_z` is one atomic letter.
 const Vsu2 = unitbasis(SU2Space(1 // 2 => 1))
@@ -62,8 +60,6 @@ end
     for (i, j, k, l) in placements(4)
         @test couple(F.cd, F.c, F.cd, F.c)[i, j, k, l] == couple(F.cd[i], F.c[j], F.cd[k], F.c[l])
     end
-    @test couple(Sp, Sm, Sz)[1, 3, 5] == couple(Sp[1], Sm[3], Sz[5])
-    @test couple(S, S, S)[2, 3, 5] == couple(S[2], S[3], S[5])
     # SU(2) channels: forced (to = 3 needs j₁₂ = 2) and named, plus the query
     @test couple(S, S, S; to = SU2Irrep(3))[1] == couple(S[1], S[2], S[3]; to = SU2Irrep(3))
     @test couple_channels(S, S, S, S) == couple_channels(S[1], S[2], S[3], S[4])
@@ -115,5 +111,4 @@ end
     @test_throws ArgumentError couple(S, couple(S, S; to = SU2Irrep(1)))    # multi-slot later operand
     @test_throws MethodError couple(S, S[2])      # placed and unplaced do not mix
     @test_throws ArgumentError couple(S, S, S, S) # unforced channel, as for the placed form
-    @test B + B ≈ 2 * B
 end

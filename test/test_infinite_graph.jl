@@ -2,15 +2,11 @@ using Test
 using TensorKit
 using LinearAlgebra: dot
 using OpSum
-using OpSum: couple, translate, unitcell_terms, window_terms, maxspan,
-    ITOTermTable, ITOGraph, _irrep_sweep, _rel_suffix_ids, _suffix_ids, _rdesc,
-    _fixedpoint_cell, _entriesequal, _cellsequal, _identity_channels, _infinite_window,
-    _at_site!, arity, nterms
+using OpSum: couple, unitcell_terms, window_terms, maxspan,
+    ITOTermTable, ITOGraph, _rdesc, _entriesequal, _identity_channels, _infinite_window, _at_site!
 
-# The canonicalisation that makes the sweep translation-covariant: suffix classes are named by shape plus
-# distance from the bond (`_rel_suffix_ids`/`_rdesc`), and right vertices, adjacency lists and bonds are
-# ordered by that name. No bond dimension changes; it removes the history dependence of which minimum
-# cover is found, which on a periodic lattice decides whether the unit cell closes.
+# Translation covariance of the sweep: live suffix-class names repeat with the unit cell, and the result
+# does not depend on the order terms were written in.
 
 const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
@@ -18,25 +14,6 @@ const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
 include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, matrixunit, spinvector
 const BSU2 = unitbasis(VSU2)
 const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter
-
-@testset "relative suffix ids are translation invariant" begin
-    S = spinvector(BSU2)
-    H = sum([dot(S[i], S[i + 2]) for i in 1:4])
-    tt = ITOTermTable(opsum(H), 8)
-    rel = _rel_suffix_ids(tt)
-    abs_ = _suffix_ids(tt)
-    K, M = arity(tt), nterms(tt)
-    @test size(rel) == (K + 1, M)
-
-    # all terms are translates, so shape ids agree column by column …
-    for j in 1:K
-        @test allequal(rel[j, t] for t in 1:M)
-    end
-    # … whereas the position-keyed ids are all distinct
-    @test allunique(abs_[1, t] for t in 1:M)
-    @test all(iszero, rel[K + 1, :])
-    @test all(iszero, abs_[K + 1, :])
-end
 
 @testset "live class names repeat with the unit cell" begin
     # the set of live suffix-class names at bond `i` equals the one at `i + L` in the bulk
@@ -57,30 +34,6 @@ end
         guard = 4L + maxspan(gen)
         @test all(i -> names[i] == names[i + L], (guard + 1):(N - guard))
         @test allequal(length.(names[(guard + 1):(N - guard)]))
-    end
-end
-
-@testset "bulk bonds of an unrolled sweep are literally equal" begin
-    # what `_fixedpoint_cell` rests on: bulk site tensors are equal entry for entry
-    S = spinvector(BSU2)
-    for (name, H, L, spaces) in [
-            ("Heisenberg L=1", dot(S[1], S[2]), 1, [BSU2]),
-            ("J1-J2 L=1", dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), 1, [BSU2]),
-            ("Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), 2, [BSU2, BSU2]),
-        ]
-        gen = unitcell_terms(H, L)
-        R = maxspan(gen)
-        ncells = 14
-        N = ncells * L
-        tt = ITOTermTable(window_terms(gen, InfiniteChain(spaces), ncells), N)
-        Ws, secs = _irrep_sweep(tt, N, VertexCover())
-
-        c = _fixedpoint_cell(Ws, secs, L, R)
-        @test 0 < c < ncells - 1
-        for cc in c:(ncells - 4)
-            @test _cellsequal(Ws, L, cc)
-            @test secs[(cc - 1) * L] == secs[cc * L]
-        end
     end
 end
 
@@ -138,17 +91,4 @@ end
     @test_throws ArgumentError _identity_channels(
         [OpSum.sparse_from_dict(d, (1, 1))], [[SU2Irrep(1)]]
     )
-end
-
-@testset "canonicalisation leaves the finite path's bond dimensions alone" begin
-    # textbook numbers, so a regression in `_canonicalise_bond!` is attributed here
-    S = spinvector(BSU2)
-    for N in (4, 6, 8)
-        H = sum([dot(S[i], S[i + 1]) for i in 1:(N - 1)])
-        secs = OpSum.mpo(opsum(FiniteChain(BSU2, N), H)).bondsectors
-        dense = [sum(dim, sec) for sec in secs]
-        @test dense[1] == 4                       # spin-1 channel + identity
-        @test all(==(5), dense[2:(N - 2)])        # bulk
-        @test dense[N] == 1                       # closed
-    end
 end

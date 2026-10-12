@@ -11,8 +11,8 @@ function _instantiate_terms(h::Terms, spaces)
     return sum(t -> t.coeff * _instantiate_term(t, spaces), canonicalize!(h).terms)
 end
 
-# Forward map shared by `_instantiate_term` and `_instantiate_basis` (raw letters/positions/tree).
-function _instantiate_generic(ops, positions, tree, sites)
+# The term with letters `ops` at `positions` and fusion `tree`, on `sites` (spaces or bases).
+function _instantiate_term(ops, positions, tree, sites)
     K = length(ops)
     # a K = 0 term needs the trailing charge leg too, or it cannot be summed with the others
     K == 0 && return insertrightunit(foldl(⊗, (id(_space(V)) for V in sites)))
@@ -20,10 +20,7 @@ function _instantiate_generic(ops, positions, tree, sites)
     return _embed_caterpillar(ops, positions, tree, sites)
 end
 
-_instantiate_term(t::Term, sites) = _instantiate_generic(ops(t), t.sites, tree(t), sites)
-
-# The candidate basis element for a `(letters, tree)` combination on the local lattice `1:K`.
-_instantiate_basis(ops, tree, sites) = _instantiate_generic(ops, 1:length(ops), tree, sites)
+_instantiate_term(t::Term, sites) = _instantiate_term(ops(t), t.sites, tree(t), sites)
 
 # charged field on site `p`, identities elsewhere, charge leg last in the domain
 function _embed_field(op::IrrepOperator, p, sites)
@@ -55,14 +52,10 @@ function _embed_caterpillar(ops, positions, tree, sites)
     PX = permute(P, (codP, domP)) * X                              # (o.., i..) ← (tot)
     # split back into codomain (o_1..o_K) and domain (i_1..i_K, tot)
     Wblock = permute(PX, (ntuple(k -> k, K), (ntuple(k -> K + k, K)..., 2K + 1)))
-    return _embed_block(Wblock, positions, sites)
-end
 
-# Embed a K-site block (codomain: o over positions, domain: i over positions, total charge) into the
-# full lattice in site order, total-charge leg last.
-function _embed_block(Wblock, positions, sites)
+    # embed the block (o over positions, i over positions, total charge) in the full lattice in site
+    # order, total-charge leg last
     N = length(sites)
-    K = length(positions)
     idle = [k for k in 1:N if !(k in positions)]
     full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(_space(sites[k])) for k in idle))
 

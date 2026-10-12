@@ -1,5 +1,4 @@
-# Memoisation of the stock bases and builders (each runs a whole `project`). Keyed by symmetry, so
-# the caches stay small and need no invalidation (pure functions). The lock guards threads.
+# Memoisation of pure functions (stock bases, adjoints); the lock guards threads.
 
 const _OPCACHE_LOCK = ReentrantLock()
 

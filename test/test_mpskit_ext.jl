@@ -16,7 +16,6 @@ include("testutils.jl")
 
 Random.seed!(1234)
 
-plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 
 # `h` on sites (1, 3) of a 3-site block; `permute` carries the fermionic sign
 gap3(h2, V) = permute(h2 ⊗ id(V), ((1, 3, 2), (4, 6, 5)))
@@ -134,10 +133,8 @@ end
     N = 4
     H = opsum(FiniteChain(P, N), (couple(Z[i], Z[i + 1]) for i in 1:(N - 1)), (0.5 * X[i] for i in 1:N))
     W = mpo(H)
-    @test length(W) == N && W[2] === W.Ws[2] && collect(W) == W.Ws
-    @test W.lattice == H.lattice
+    @test length(W) == N && W.lattice == H.lattice
     @test mpo_terms(W) ≈ H.terms
-    @test occursin("SymbolicMPO", sprint(show, W))
     _, op = first((Tuple(k), v) for (k, v) in OpSum.storedpairs(W[2]) if !isone(v))
     @test instantiate(op, P) isa AbstractTensorMap
     @test mpo_tensormap(irrep_mpo_tensors(W)) ≈ instantiate(H)

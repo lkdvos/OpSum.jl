@@ -2,18 +2,16 @@
 
 using TensorKit: ElementarySpace, Sector, sectortype, dual, removeunit
 
-# There is no cheap symbolic adjoint: a letter's adjoint carries the dual charge, and re-expressing
-# the caterpillar coupler over dual charges is B-symbol data. So materialise the term's `K`-site
-# block, take the adjoint there and `project` it back (faithful by construction), memoised per
-# distinct `(keys, spaces)`.
+# No symbolic adjoint (a letter's adjoint carries the dual charge; the caterpillar coupler over dual
+# charges is B-symbol data): materialise the term's `K`-site block, adjoint it, `project` it back.
+# Memoised per distinct `(keys, spaces)`.
 
 const _ADJOINT_CACHE = Dict{Any, Any}()
 
-# A `K`-site block in the letters of its sites, each slot in its site's basis (throws if outside the span).
+# a `K`-site block projected slot-wise into the sites' bases (throws outside their span)
 _project_local(h, Bs::AbstractVector{<:Basis{I}}) where {I} = LocalOperator{I}(_project_terms(h, Bs), length(Bs))
 
-# Behind `adjoint(::OperatorSum)`. Terms must have total charge `unit(I)`: a charged term's adjoint
-# carries the dual charge, which a `Terms{I}` cannot hold.
+# Behind `adjoint(::OperatorSum)`; total charge must be `unit(I)`, since a charged adjoint carries the dual.
 function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
     out = Term{I}[]
     for t in h
@@ -29,7 +27,7 @@ function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
                     "term of the same operator. Conjugate charge-neutral terms only."
             )
         )
-        Vs = [lat[s] for s in t.sites]           # the sites' bases (or spaces)
+        Vs = [lat[s] for s in t.sites]
         local_adj = _cached(_ADJOINT_CACHE, (t.keys, Vs)) do
             blk = _instantiate_term(Term{I}(collect(1:K), t.keys, ComplexF64(1)), Vs)
             return _project_local(removeunit(blk, 2K + 1)', Vs)

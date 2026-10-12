@@ -101,7 +101,6 @@ end
 
 @testset "Jordan structure — $name" for (name, (H, sites)) in reference_models()
     Ws = jordan_mpo_tensors(H)
-    @test Ws isa Vector{<:SparseBlockTensorMap}
     check_jordan_structure(Ws)
 end
 

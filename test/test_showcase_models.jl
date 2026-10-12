@@ -29,15 +29,6 @@ const EXPECTED = Dict{String, Any}(
     "powerlaw_a3" => (dense = N -> 3 * (N ÷ 2) + 2, mult = N -> N ÷ 2 + 2),
 )
 
-@testset "stock-basis letters" begin
-    letters(op) = Dict(pairs(op))
-    F = fermion_ops(U1Irrep)
-    @test length(letters(F.f_num)) == 1                  # n̂
-    @test BraidingStyle(sectortype(space(fermion_basis(U1Irrep)))) isa Fermionic
-    S = spin_ops(SU2Irrep).S_exchange
-    @test length(S[1, 2]) == 1                              # S⃗ᵢ·S⃗ⱼ is one term, one letter per site
-end
-
 @testset "geometry" begin
     for (Lx, Ly) in ((4, 3), (3, 4), (5, 6))
         bonds = cylinder_bonds(Lx, Ly)

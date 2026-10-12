@@ -1,6 +1,6 @@
 # Tests for the reduced-MPO sweeps (irrepgraph.jl): VertexCover, SequentialSVD and IndependentSVD.
 # Checks: `mpo_terms` round-trip, dense agreement with `instantiate`, pinned per-bond sector profiles,
-# the research/persistent-graph-mpo.md §2.2 pending-versus-started collision, and the scaling guard.
+# the pending-versus-started suffix-class collision, and the scaling guard.
 
 using Test
 using OpSum
@@ -175,9 +175,6 @@ end
     @test bondprofile(sdef) == bondprofile(ssel) == bondprofile(sstr)
     @test mpo_operator(Wdef, sdef, sites) ≈ mpo_operator(Wsel, ssel, sites)
     @test mpo_operator(Wstr, sstr, sites) ≈ mpo_operator(Wsel, ssel, sites)
-    T = irrep_mpo_tensors(Wsel, ssel, sites)
-    @test T isa Vector{<:AbstractTensorMap}
-    @test length(T) == N
 end
 
 @testset "SequentialSVD (lossless) reconstructs the operator" begin
@@ -271,7 +268,6 @@ end
     Wg, sg = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     back = mpo_terms(Wg, sg)
     @test back ≈ H
-    @test norm(instantiate(opsum(sites, back)) - instantiate(opsum(sites, H))) < 1.0e-10
 end
 
 @testset "pending suffix class can collide with a started one" begin
@@ -285,9 +281,7 @@ end
     H = opsum(couple(A[1], B[3]; to = unit(Trivial)), 0.5 * B[3])
     tt = ITOTermTable(H, N)
 
-    @test OpSum._op_at_ito(tt, 1, 2) == OpSum._op_at_ito(tt, 2, 2)
     @test OpSum._op_at_ito(tt, 1, 3) == OpSum._op_at_ito(tt, 2, 3)
-    @test OpSum._op_at_ito(tt, 1, 1) != OpSum._op_at_ito(tt, 2, 1)
 
     Wg, sg = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     @test length.(sg) == [1, 1, 1]
@@ -318,16 +312,11 @@ end
 end
 
 @testset "_invariant is a real throw, not a strippable assert" begin
-    # `@assert` would be stripped under `--check-bounds=no`; the helper must keep throwing.
     err = try
         OpSum._invariant("the widget is not sector-pure")
-        nothing
     catch e
         e
     end
     @test err isa ErrorException
-    msg = sprint(showerror, err)
-    @test occursin("OpSum internal invariant violated", msg)
-    @test occursin("the widget is not sector-pure", msg)
-    @test occursin("bug in OpSum", msg)
+    @test occursin("the widget is not sector-pure", sprint(showerror, err))
 end

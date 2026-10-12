@@ -169,35 +169,15 @@ end
 
 # --- faithfulness ---------------------------------------------------------------------------------
 
-"""
-    tile(H::SymbolicMPO, ncells::Int) -> (Ws, bondsectors)
-
-Unroll `ncells` copies of an infinite chain's unit cell into the finite `(Ws, bondsectors)` contract.
-Finite only once boundary vectors are chosen: `H.start[L]` on the left, `H.finish[L]` on the right.
-"""
-function tile(H::SymbolicMPO{I, <:InfiniteChain}, ncells::Int) where {I}
-    L = length(H)
-    N = ncells * L
-    return ([H.Ws[mod1(j, L)] for j in 1:N], [H.bondsectors[mod1(j, L)] for j in 1:N])
-end
-
-"""
-    mpo_terms_window(H::SymbolicMPO, ncells::Int) -> Terms
-
-The terms an infinite MPO generates inside a window of `ncells` cells: tile the cell and enumerate the
-paths from the start to the finish channel. This pins coefficients *and* fusion trees, and is a
-**sandwich** against [`window_terms`](@ref), not an equality:
-
-* every term produced is a translate inside the window at its exact coefficient;
-* every translate ending at least `R + 1` sites before the right edge is produced.
-
-The gap is a property of the compression: when a term's suffix class is shared with a longer term, its
-coefficient is folded onto the shared channel's trailing pass-through (the pending/started collision,
-`research/persistent-graph-mpo.md` §2.2), so a path can run up to `R` sites past the term's support.
-"""
+# Terms an infinite MPO generates in a window of `ncells` cells (cell tiled, paths start → finish). A
+# sandwich against `window_terms`, not an equality: everything produced is a translate in the window at
+# its exact coefficient, but a path may run up to `R` sites past its term's support (the pending/started
+# collision), so only translates ending `R + 1` sites before the right edge are all produced.
 function mpo_terms_window(H::SymbolicMPO{I, <:InfiniteChain}, ncells::Int) where {I}
     L = length(H)
-    Ws, secs = tile(H, ncells)
+    N = ncells * L
+    Ws = [H.Ws[mod1(j, L)] for j in 1:N]
+    secs = [H.bondsectors[mod1(j, L)] for j in 1:N]
     return mpo_terms(Ws, secs; leftidx = H.start[L], rightidx = H.finish[L])
 end
 
@@ -220,13 +200,8 @@ function _channel_cap(bondsec::Vector{I}, idx::Int, side::Symbol) where {I}
     return cap
 end
 
-"""
-    contract_open(Ts, bondsec, leftidx, rightidx) -> AbstractTensorMap
-
-Contract site tensors down to the operator between two bond-basis vectors of the shared boundary bond
-(for an infinite MPO, the start and done channels), by capping both ends with one-hot maps. The result
-is in `instantiate`'s convention. Exponential in `N`; for tests only.
-"""
+# Operator between two bond-basis vectors of the shared boundary bond (capped by one-hot maps), in
+# `instantiate`'s convention. Exponential in `N`; for tests.
 function contract_open(Ts, bondsec::Vector{I}, leftidx::Int, rightidx::Int) where {I}
     N = length(Ts)
     capped = copy(collect(Ts))

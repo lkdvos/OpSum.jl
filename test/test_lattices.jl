@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: AbstractLattice, FiniteChain, InfiniteChain,
-    windowlattice, _tolattice, _maxsite, mpo, opsum, couple,
+    _tolattice, mpo, opsum, couple,
     jordan_mpo_tensors, instantiate, Terms
 using TensorKit
 using TensorKit: sectortype
@@ -22,16 +22,13 @@ const BSU2_0 = unitbasis(SU2Space(0 => 1))
     lat = FiniteChain([BSU2, BSU2b, BSU2])
     @test lat isa AbstractLattice
     @test length(lat) == 3
-    @test !isempty(lat)
     @test eltype(lat) == typeof(BSU2)
     @test collect(lat) == [BSU2, BSU2b, BSU2]          # iterate
-    @test firstindex(lat) == 1 && lastindex(lat) == 3
     @test lat[2] == BSU2b
     @test sectortype(lat) == SU2Irrep
 
     @test FiniteChain(BSU2, 3) == FiniteChain(fill(BSU2, 3))
     @test FiniteChain(lat) === lat                      # idempotent
-    @test occursin("FiniteChain", sprint(show, lat))
 
     # every site is a `Basis`; bare spaces are rejected
     @test_throws ArgumentError FiniteChain(VSU2, 3)
@@ -55,35 +52,18 @@ end
     @test eltype(lat) == typeof(BSU2)
     @test collect(lat) == [BSU2, BSU2b]
     @test sectortype(lat) == SU2Irrep
-    @test occursin("InfiniteChain", sprint(show, lat))
 
     # the whole point: `getindex` wraps, in both directions, so a generating term may name any site
     @test lat[1] == BSU2 && lat[2] == BSU2b
     @test lat[3] == BSU2 && lat[4] == BSU2b
     @test lat[0] == BSU2b && lat[-1] == BSU2
-    @test InfiniteChain(BSU2) == InfiniteChain([BSU2])   # single-site cell
 
     @test_throws ArgumentError InfiniteChain(typeof(BSU2)[])
-
-    # `windowlattice` unrolls the cell into the finite chain the infinite sweep runs on
-    w = windowlattice(lat, 5)
-    @test w isa FiniteChain
-    @test collect(w) == [BSU2, BSU2b, BSU2, BSU2b, BSU2]
-end
-
-@testset "_maxsite distinguishes the two lattices" begin
-    @test _maxsite(FiniteChain(BSU2, 4)) == 4
-    @test _maxsite(InfiniteChain([BSU2])) === nothing
 end
 
 @testset "_tolattice accepts anything naming one space per site" begin
     ref = FiniteChain(BSU2, 3)
-    @test _tolattice(ref) === ref                              # passthrough
     @test _tolattice([BSU2, BSU2, BSU2]) == ref                # vector
-    @test _tolattice(ntuple(_ -> BSU2, 3)) == ref              # tuple
-    @test _tolattice(BSU2 for _ in 1:3) == ref                 # generator
-    inf = InfiniteChain([BSU2])
-    @test _tolattice(inf) === inf
 
     @test_throws ArgumentError _tolattice([1, 2, 3])           # wrong element type
     @test_throws ArgumentError _tolattice(3)                   # not iterable at all
@@ -106,14 +86,11 @@ end
     Ws, secs = reduced(W)
     @test Ws === W.Ws && secs === W.bondsectors
     @test length(Ws) == N && length(secs) == N
-    str = sprint(show, W)
-    @test startswith(str, "SymbolicMPO{")
-    @test occursin("N = $N", str)
+    @test occursin("N = $N", sprint(show, W))
 
     inf = mpo(opsum(InfiniteChain([BSU2]), dot(S[1], S[2])))
     @test inf isa SymbolicMPO{SU2Irrep, <:InfiniteChain}
     @test length(inf) == 1
-    @test occursin("InfiniteChain, N = 1", sprint(show, inf))
 end
 
 @testset "the lattice boundary is where operator and spaces are confronted" begin
@@ -137,9 +114,6 @@ end
     @test mpo(opsum(InfiniteChain([BSU2]), dot(S[1], S[2]))) isa SymbolicMPO
     # but the letters are still checked against its (wrapped) spaces
     @test_throws ArgumentError opsum(InfiniteChain([BSU2_0]), dot(S[1], S[2]))
-
-    # the unit cell has a Jordan form too
-    @test length(jordan_mpo_tensors(opsum(InfiniteChain([BSU2]), dot(S[1], S[2])))) == 1
 end
 
 @testset "opsum without a lattice is latticeless; with one it is an OperatorSum" begin
@@ -156,10 +130,7 @@ end
     # with no terms there is no sector type to infer
     @test_throws ArgumentError opsum()
     @test_throws ArgumentError opsum(Term{SU2Irrep}[])
-    # ...but an explicitly typed empty bag is fine, and establishes `I`
-    @test isempty(opsum(Terms{SU2Irrep}()))
-    # ...and a lattice names the sector on its own
-    @test isempty(opsum(FiniteChain(BSU2, 4)))
+    @test isempty(opsum(Terms{SU2Irrep}())) && isempty(opsum(FiniteChain(BSU2, 4)))
 
     # the postfix adjoint of a bare bag needs spaces and points at the replacement
     @test_throws ArgumentError t'

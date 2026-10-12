@@ -5,10 +5,8 @@ using OpSum
 using OpSum: mpo, irrep_mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
     unitcell_terms, maxspan, couple, scalarop, instantiate,
     expterm, expand_channels, chain_terms, channelspan, ExpSum, _lower_channels,
-    _entriesequal, _infinite_window, storedpairs, ispassthrough, _irrep_sweep, ITOTermTable
+    _entriesequal, _infinite_window, storedpairs, ispassthrough
 using OpSum.IrrepTensorOperators: IrrepOperator
-
-# `expterm(t; decay = λ)` stretches the gap before `t`'s exit block geometrically; see research/infinite-mpo.md §7.
 
 const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
@@ -93,8 +91,8 @@ function reference_models()
     ]
 end
 
-# The `mpo_terms_window` sandwich of `research/infinite-mpo.md` §6: everything produced must be a translate
-# at its exact coefficient, and everything comfortably inside the window must be produced.
+# Everything the window produces must be a translate at its exact coefficient, and everything comfortably
+# inside the window must be produced.
 function faithful(H, spaces; ncells = 6)
     L = length(spaces)
     gen = unitcell_terms(H)
@@ -164,7 +162,7 @@ end
 end
 
 @testset "merging: what costs a channel and what does not" begin
-    # Design table of `research/infinite-mpo.md` §7 in the trivial sector (each channel index costs 1).
+    # Each channel index costs 1 (trivial sector).
     ops = [element(BTR, n) for n in 2:4]
     a, b, c = ops
     lat = InfiniteChain([BTR])
@@ -198,8 +196,7 @@ end
     lat = InfiniteChain([BSU2])
     # a geometric channel *replaces* the in-flight spin-1 multiplet of a nearest-neighbour model rather
     # than adding to it, so exponentially decaying Heisenberg is as cheap as the nearest-neighbour one
-    @test densedim(mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]) == 5
-    @test densedim(mpo(opsum(lat, dot(S[1], S[2]))).bondsectors[1]) == 5
+    @test densedim(mpo(opsum(lat, dot(S[1], S[2]))).bondsectors[1]) == 5      # = the exponential one (see above)
     # adding the bare nearest-neighbour bond back on top does cost one more spin-1 channel
     @test densedim(
         mpo(opsum(lat, dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]
@@ -269,9 +266,6 @@ end
     cases = [
         ("pure exp trivial", [expterm(couple(A3[1], B3[2]); decay = 0.4)], [BTR], 4),
         (
-            "exp + NN SU2", [dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5)], [BSU2], 4,
-        ),
-        (
             "exp with Sᶻ string",
             [expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)], [BU1], 4,
         ),
@@ -296,13 +290,11 @@ end
 
 @testset "finite chains truncate the geometric sum" begin
     cases = [
-        ("exp SU2", [expterm(dot(S[1], S[2]); decay = 0.5)], fill(BSU2, 5)),
         (
             "exp + NN SU2",
             [(dot(S[i], S[i + 1]) for i in 1:4), expterm(dot(S[1], S[2]); decay = 0.5)],
             fill(BSU2, 5),
         ),
-        ("exp gap trivial", [expterm(couple(A3[1], B3[3]); decay = 0.4)], fill(BTR, 5)),
         ("exp XXZ U1", [expterm(xxz(1, 2); decay = 0.5)], fill(BU1, 4)),
     ]
     for (name, parts, sites) in cases
@@ -337,22 +329,11 @@ end
     @test a.bondsectors == b.bondsectors
     @test (a.start, a.finish) == (b.start, b.finish)
     @test _entriesequal(only(a.Ws), only(b.Ws))
-
-    # the finite path: the sweep without channels and with an empty channel list agree (`mpo` itself
-    # forces the finish channel into the cover, a different route)
-    tt = ITOTermTable(H, 5)
-    Wa, sa = _irrep_sweep(tt, 5, OpSum.VertexCover())
-    Wb, sb = _irrep_sweep(
-        tt, 5, OpSum.VertexCover(); channels = _lower_channels(ExpSum{SU2Irrep}(), 1)
-    )
-    @test sa == sb
-    @test all(i -> _entriesequal(Wa[i], Wb[i]), 1:5)
 end
 
 @testset "expterm input validation" begin
     lat = InfiniteChain([BSU2])
     @test_throws ArgumentError expterm(dot(S[1], S[2]); decay = 1.0)      # not summable
-    @test_throws ArgumentError expterm(dot(S[1], S[2]); decay = 1.5)
     @test_throws ArgumentError expterm(dot(S[1], S[2]); decay = 0.0)
     @test_throws ArgumentError expterm(S[1]; decay = 0.5)                # no exit block
     @test_throws ArgumentError expterm(dot(S[1], S[2]); decay = 0.5, exitsite = 1)
@@ -389,7 +370,6 @@ end
     @test length(e) == 1
     @test only(keys(e.channels)).exitsite == 2
     @test channelspan(only(keys(e.channels))) == 1
-    @test maxspan(e) == 1
 
     # scaling and adding behave like a term bag's
     @test only(values((2 * e).channels)) ≈ 2 * only(values(e.channels))

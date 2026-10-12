@@ -1,17 +1,14 @@
-# Projection: dense symmetric `TensorMap` → symbolic ITO terms, the inverse of `instantiate`.
-#
-# No linear solve: the candidate basis `α = (ops, tree)` is orthogonal and complete, with
-# `inner(E_α, E_β) = δ_αβ g(ops, tot)`, `g = dim(tot) / Π_k dim(ops[k].c)`, so `c_α = inner(E_α, h) / g`
-# and the only residual is truncation.
+# Dense symmetric `TensorMap` → matrix-unit ITO terms, the inverse of `instantiate`. No linear solve:
+# the candidates `(ops, tree)` are orthogonal and complete with `inner(E_α, E_β) = δ_αβ g`,
+# `g = dim(tot) / Π_k dim(ops[k].c)`, so `c_α = inner(E_α, h) / g`.
 
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, oneunit
 using LinearAlgebra: norm
 
-# Coefficients below `100 * eps` (relative to `‖h‖`) are round-off from `inner`; kept tight so that
-# only noise is discarded.
+# Relative coefficients below this are round-off from `inner`.
 _default_rtol(h::AbstractTensorMap) = 100 * eps(real(float(scalartype(h))))
 
-# Give `h` the trailing total-charge leg the forward map produces (free and norm-preserving).
+# `h` with the trailing total-charge leg the forward map produces, and that charge.
 function _with_charge_leg(h::AbstractTensorMap, K::Int, ::Type{I}) where {I <: Sector}
     nin = numin(h)
     if nin == K
@@ -54,9 +51,9 @@ function _ito_coefficients(
         for opstup in Iterators.product(letters...), tree in trees
             ncand += 1
             ops = collect(IrrepOperator{I}, opstup)
-            E = _instantiate_basis(ops, tree, Vs)
+            E = _instantiate_term(ops, 1:K, tree, Vs)
             c = ComplexF64(inner(E, hc) / g)
-            # threshold the norm contribution: `‖dropped‖² = Σ|c_α|² g_α`, so bare `abs(c)` is not controlled
+            # the norm contribution is `|c| √g`, so bare `abs(c)` would not control the dropped norm
             abs(c) * sqrt(g) > θ || continue
             push!(out, (ops, tree, c))
         end
@@ -64,11 +61,10 @@ function _ito_coefficients(
     return out, ncand
 end
 
-# The expansion of a symmetric `K`-site operator `V₁ ⊗ … ⊗ V_K ← V₁ ⊗ … ⊗ V_K` (optionally with a
-# trailing total-charge leg) in matrix-unit letters, as a `LocalOperator` on `K` slots: the coordinates
-# every `Basis` is defined and projected through. Coefficients at or below `max(atol, rtol‖h‖)` are
-# dropped and the result is re-materialised and checked against `h`. Every term is active on all `K`
-# slots (an identity factor is a trivial-charge matrix unit).
+# The expansion of a symmetric `K`-site operator (optionally with a trailing total-charge leg) in
+# matrix-unit letters, a `LocalOperator` on `K` slots: the coordinates every `Basis` is projected
+# through. Coefficients at or below `max(atol, rtol‖h‖)` are dropped; the result is checked against `h`.
+# Every term is active on all slots (an identity factor is a trivial-charge matrix unit).
 function _project_units(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rtol(h))
     K = numout(h)
     K >= 1 ||
@@ -97,18 +93,15 @@ function _project_units(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _defa
     coeffs, ncand = _ito_coefficients(hc, Vs, tot, θ)
 
     # a caterpillar tree is its running bond charges, i.e. the `ITOKey`s
-    slots = collect(1:K)
-    terms = Term{I}[]
-    sizehint!(terms, length(coeffs))
-    for (ops, tree, c) in coeffs
-        bonds = bondcharges(tree)
-        keys = ITOKey{I}[ITOKey{I}(ops[j], bonds[j], 1) for j in 1:K]
-        push!(terms, Term{I}(slots, keys, c))
-    end
-    out = Terms{I}(terms)
+    out = Terms{I}(
+        Term{I}[
+            Term{I}(collect(1:K), ITOKey{I}[ITOKey{I}(ops[j], bondcharges(tree)[j], 1) for j in 1:K], c)
+                for (ops, tree, c) in coeffs
+        ]
+    )
 
     # faithfulness: recompute the operator from the emitted terms (also catches a wrong `g` or tree)
-    resid = isempty(terms) ? hnorm : norm(hc - _instantiate_terms(out, Vs))
+    resid = isempty(coeffs) ? hnorm : norm(hc - _instantiate_terms(out, Vs))
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, ncand)) * hnorm
     resid <= θ + slack || throw(
         ArgumentError(

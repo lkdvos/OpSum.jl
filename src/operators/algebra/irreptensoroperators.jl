@@ -2,13 +2,12 @@ module IrrepTensorOperators
 
 export IrrepOperator
 
-using OpSum: OperatorBasis
 import OpSum: instantiate
 using TensorKit
 using VectorInterface
 
 """
-    IrrepOperator{I<:Sector} <: OperatorBasis
+    IrrepOperator{I<:Sector}
 
 Local irreducible tensor operator (ITO) alphabet element, labelled by an operator charge `c::I` (the
 coupled leg) and a canonical integer `n` selecting which operator of that charge is meant. It is
@@ -20,7 +19,7 @@ Index `1` of the trivial charge is the identity (see `passthrough`): element 1 o
 [`Basis`](@ref OpSum.Basis); in the matrix-unit alphabet the trivial-charge matrix units start at
 `n = 2`. It instantiates to `isomorphism(V ← V ⊗ Vect[I](unit(I) => 1))`.
 """
-struct IrrepOperator{I <: Sector} <: OperatorBasis
+struct IrrepOperator{I <: Sector}
     c::I     # operator charge (the coupled leg)
     n::Int   # canonical index picking which operator of that charge
 end

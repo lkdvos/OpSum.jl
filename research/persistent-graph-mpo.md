@@ -150,7 +150,7 @@ It seeds with `ITOGraph(tt, N; lazy = false)`: it densifies the bond anyway, so 
   consumed by `mpo_terms` and `irrep_mpo_tensors` as-is.
   `ITOKey.vertex` is threaded through `LeftVertex.key`, but is `1` throughout the multiplicity-free K ≤ 2 scope, so `bondsectors` (charges only) needs no extension.
 - Reused verbatim: `bipartite_connected_components`, `_op_at_ito`,
-  `bondcharges`/`vertexlabels`/`caterpillar_trees`/`_tree_from_bonds`, `_bond_space`/`_deg_indices`,
+  `bondcharges`/`caterpillar_trees`/`_tree_from_bonds`, `_bond_space`/`_deg_indices`,
   `sparse_from_dict`, `increaseindex!`.
   `min_vertex_cover_bipartite` gained an adjacency-list method (now the primary one; the dense-matrix form is a wrapper for `_irrep_bipartite`).
 - **Follow-ups** (out of scope): fermionic/JW strings (the omitted `LeftVertex`

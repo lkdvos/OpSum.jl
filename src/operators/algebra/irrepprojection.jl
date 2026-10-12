@@ -96,13 +96,13 @@ function _project_units(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _defa
     θ = max(float(atol), float(rtol) * hnorm)
     coeffs, ncand = _ito_coefficients(hc, Vs, tot, θ)
 
-    # a caterpillar tree is its running bond charges plus vertex labels, i.e. the `ITOKey`s
+    # a caterpillar tree is its running bond charges, i.e. the `ITOKey`s
     slots = collect(1:K)
     terms = Term{I}[]
     sizehint!(terms, length(coeffs))
     for (ops, tree, c) in coeffs
-        bonds, verts = bondcharges(tree), vertexlabels(tree)
-        keys = ITOKey{I}[ITOKey{I}(ops[j], bonds[j], verts[j]) for j in 1:K]
+        bonds = bondcharges(tree)
+        keys = ITOKey{I}[ITOKey{I}(ops[j], bonds[j], 1) for j in 1:K]
         push!(terms, Term{I}(slots, keys, c))
     end
     out = Terms{I}(terms)

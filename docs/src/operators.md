@@ -586,7 +586,8 @@ compression.
 | `letter … does not exist on site …` | the basis at that site carries no operator of that charge and index — the operator was written for another basis |
 | `all sites of a lattice must share one symmetry` | a mixed lattice of bases with different sector types |
 | `cannot add an operator over J to an OperatorSum on a lattice of sector type I` | operator and lattice carry different symmetries |
-| `a lattice must be a FiniteChain, an InfiniteChain, or an iterable of operator Basises …` | the lattice slot got something else: a bare space (`FiniteChain(V, N)`; use `FiniteChain(spin_basis(…), N)`) or an algorithm selector passed one argument too early |
+| `a lattice is described by one operator Basis per site …` | a site is a bare space (`FiniteChain(V, N)`); use a basis, e.g. `FiniteChain(spin_basis(…), N)` |
+| `a lattice must be a FiniteChain, an InfiniteChain, or an iterable of operator Basises …` | the lattice slot got something that is not a lattice, e.g. an algorithm selector passed one argument too early |
 | `cannot add an unplaced … to an OperatorSum` | a `SiteOperator`/`LocalOperator` was passed to `opsum`; place it first (`A[i]`, `B[i]`) |
 | `adjoint: … no postfix h'` | a bare `Terms` bag has no `'`; put it on a lattice, `opsum(lat, h)'` |
 | `project: unsupported operator space` | domain ≠ codomain, or a charge leg that is dual or has degeneracy > 1 |

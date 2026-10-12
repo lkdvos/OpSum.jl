@@ -62,7 +62,7 @@ function _checkrecouple(::Type{I}) where {I}
 end
 
 function _treetensor(charges::Vector{I}, bonds::Vector{I}) where {I}
-    f = _tree_from_bonds(charges, bonds, ones(Int, length(charges)))
+    f = _tree_from_bonds(charges, bonds)
     tot = f.coupled
     X = zeros(ComplexF64, foldl(⊗, (Vect[I](c => 1) for c in charges)) ← Vect[I](tot => 1))
     X[f, FusionTree{I}((tot,), tot, (false,), ())] .= 1

@@ -20,10 +20,9 @@ Only the first three are things a user normally names; the last two are internal
 
 | type | what it is | fields | made by |
 |---|---|---|---|
-| `IrrepOperator{I} <: OperatorBasis` | one alphabet letter: an ITO of charge `c`, the `n`-th reduced matrix element of that charge on the site space (TensorKit block order). `n = 0` with `c = unit(I)` is the pass-through identity sentinel. | `c::I`, `n::Int` | `instances(IrrepOperator, V)`; model code should never write `IrrepOperator(c, n)` by hand |
+| `IrrepOperator{I}` | one alphabet letter: an ITO of charge `c`, the `n`-th reduced matrix element of that charge on the site space (TensorKit block order). `n = 0` with `c = unit(I)` is the pass-through identity sentinel. | `c::I`, `n::Int` | `instances(IrrepOperator, V)`; model code should never write `IrrepOperator(c, n)` by hand |
 | `SiteOperator{I}` | an unplaced operator on one site: a sparse combination of letters, stored as two parallel vectors (linear scan beats hashing for 1–3 letters) | `letters::Vector{IrrepOperator{I}}`, `coeffs::Vector{ComplexF64}` | `spin`, `spin_ops`, `fermion_ops`, `matrixunit`, `scalarop`, `project(O, V)`, arithmetic |
 | `LocalOperator{I}` | an unplaced operator on `K` consecutive slots: a `Terms` bag on sites `1:K`, every term spanning all slots (an idle slot holds the pass-through letter) | `terms::Terms{I}`, `nsites::Int` | `project(h)`, unplaced `couple`/`dot`, `LocalOperator(::SiteOperator)` |
-| `OperatorBasis` (abstract) | supertype of alphabets; `IrrepOperator` is the only subtype | — | — |
 
 * A letter has no space attached: it is interpreted relative to whatever space the context supplies (`instantiate(op, V)`).
   That is what lets the term algebra stay latticeless, and also what makes the basis implicit.

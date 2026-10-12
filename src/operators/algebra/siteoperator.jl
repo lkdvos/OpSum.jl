@@ -89,13 +89,9 @@ Base.:*(x::SiteOperator{I}, a::Number) where {I} = SiteOperator{I}(copy(x.letter
 Base.:*(a::Number, x::SiteOperator) = x * a
 Base.:/(x::SiteOperator, a::Number) = x * inv(a)
 
-# A bare letter promotes under all of the above (the sweep uses `key.op * coeff`).
+# A bare letter times a scalar promotes (the sweep uses `key.op * coeff`).
 Base.:*(x::IrrepOperator, a::Number) = SiteOperator(x) * a
 Base.:*(a::Number, x::IrrepOperator) = SiteOperator(x) * a
-Base.:/(x::IrrepOperator, a::Number) = SiteOperator(x) / a
-Base.:+(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} = SiteOperator(x) + SiteOperator(y)
-Base.:-(x::IrrepOperator) = -SiteOperator(x)
-Base.:-(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} = SiteOperator(x) - SiteOperator(y)
 
 VectorInterface.scale(x::SiteOperator, a::Number) = x * a
 VectorInterface.add(x::SiteOperator{I}, y::SiteOperator{I}) where {I} = x + y

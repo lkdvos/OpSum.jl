@@ -35,14 +35,14 @@ scalarop(c::Number, V::ElementarySpace) = scalarop(c, sectortype(V))
 # The 4-arg `FusionTree` form: the 3-arg one throws for `MultipleFusion`.
 _idtree(::Type{I}) where {I <: Sector} = FusionTree{I}((), unit(I), (), ())
 
-# Inverse of `bondcharges`/`vertexlabels`.
-function _tree_from_bonds(charges::AbstractVector{I}, bonds::AbstractVector{I}, verts::AbstractVector{Int}) where {I <: Sector}
+# Inverse of `bondcharges` (multiplicity-free: all vertex labels 1).
+function _tree_from_bonds(charges::AbstractVector{I}, bonds::AbstractVector{I}) where {I <: Sector}
     K = length(charges)
     K == 0 && return _idtree(I)
     unc = ntuple(i -> charges[i], K)
     isd = ntuple(_ -> false, K)
     inner = ntuple(i -> bonds[i + 1], max(0, K - 2))   # innerlines = bonds[2 : K-1]
-    vtx = ntuple(i -> verts[i + 1], max(0, K - 1))     # vertices   = verts[2 : K]
+    vtx = ntuple(_ -> 1, max(0, K - 1))
     return FusionTree{I}(unc, bonds[K], isd, inner, vtx)
 end
 
@@ -101,7 +101,7 @@ labels (the same information, irrepkey.jl).
 """
 function tree(t::Term{I}) where {I}
     arity(t) == 0 && return _idtree(I)
-    return _tree_from_bonds(I[k.op.c for k in t.keys], I[k.bond for k in t.keys], Int[k.vertex for k in t.keys])
+    return _tree_from_bonds(I[k.op.c for k in t.keys], I[k.bond for k in t.keys])
 end
 
 Base.:(==)(x::Term{I}, y::Term{I}) where {I} = x.sites == y.sites && x.keys == y.keys
@@ -115,10 +115,6 @@ end
 
 VectorInterface.scale(t::Term{I}, α::Number) where {I} =
     Term{I}(t.sites, t.keys, t.coeff * ComplexF64(α))
-Base.:*(α::Number, t::Term) = scale(t, α)
-Base.:*(t::Term, α::Number) = scale(t, α)
-Base.:/(t::Term, α::Number) = scale(t, inv(α))
-Base.:-(t::Term) = scale(t, -1)
 
 function Base.show(io::IO, t::Term)
     return print(io, "Term(sites=", t.sites, ", ops=", ops(t), ", total=", total(t), ", coeff=", t.coeff, ")")
@@ -186,12 +182,6 @@ VectorInterface.scale(ts::Terms{I}, α::Number) where {I} = Terms{I}(
     Term{I}[scale(t, α) for t in ts.terms],
     PendingTerm{I}[PendingTerm{I}(p.sites, p.keys, p.coeff * ComplexF64(α)) for p in ts.pending]
 )
-Base.:*(α::Number, ts::Terms) = scale(ts, α)
-Base.:*(ts::Terms, α::Number) = scale(ts, α)
-Base.:/(ts::Terms, α::Number) = scale(ts, inv(α))
-Base.:-(ts::Terms) = scale(ts, -1)
-Base.:-(a::Terms{I}, b::Terms{I}) where {I} = a + (-b)
-Base.:-(a::Terms{I}, t::Term{I}) where {I} = a + (-t)
 
 """
     one(::Terms{I})
@@ -247,24 +237,12 @@ function Base.show(io::IO, ts::Terms{I}) where {I}
 end
 _termbody(t::Term) = string("[sites=", t.sites, ", ops=", ops(t), ", total=", total(t), "]")
 
-# What may describe one site of a lattice: its operator basis (basis.jl).
-_issite(::Any) = false
-
 _tolattice(lat::AbstractLattice) = lat
 function _tolattice(sites)
-    # iterability first, so a misplaced argument fails here and not deep inside `collect`
-    applicable(iterate, sites) || _notalattice(sites)
-    lat = collect(sites)
-    all(_issite, lat) || _notalattice(sites)
-    return FiniteChain(lat)
+    applicable(iterate, sites) ||
+        throw(ArgumentError("a lattice must be a `FiniteChain`, an `InfiniteChain`, or an iterable of operator `Basis`es, got $(typeof(sites))"))
+    return FiniteChain(vec(collect(sites)))
 end
-
-_notalattice(sites) = throw(
-    ArgumentError(
-        "a lattice must be a `FiniteChain`, an `InfiniteChain`, or an iterable of operator " *
-            "`Basis`es (one per site), got $(typeof(sites))"
-    )
-)
 
 # Confronts operators with the lattice's bases when terms enter an `OperatorSum`, so the error points
 # at the line that added the term. `Θ(Σ arity)`; on an `InfiniteChain` there is no site range to check.

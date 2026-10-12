@@ -42,11 +42,10 @@ end
 
 function Base.show(io::IO, k::ExpKey)
     print(io, "ExpKey(", k.term, ", exitsite=", k.exitsite, ", decay=", k.decay)
-    _ispassthroughstring(k) || print(io, ", string=", k.string)
+    (length(k.string) == 1 && only(k.string)[1] === nothing && isone(only(k.string)[2])) ||
+        print(io, ", string=", k.string)
     return print(io, ")")
 end
-
-entrysites(k::ExpKey) = filter(<(k.exitsite), k.term.sites)
 
 """
     channelspan(k::ExpKey) -> Int
@@ -54,12 +53,6 @@ entrysites(k::ExpKey) = filter(<(k.exitsite), k.term.sites)
 Span of the channel's *shortest* translate (its range is otherwise unbounded).
 """
 channelspan(k::ExpKey) = Int(maximum(k.term.sites) - minimum(k.term.sites))
-
-# Number of string sites in the shortest translate (`≥ 0`).
-stringgap(k::ExpKey) = Int(k.exitsite - maximum(entrysites(k))) - 1
-
-_ispassthroughstring(k::ExpKey) = length(k.string) == 1 && only(k.string)[1] === nothing &&
-    isone(only(k.string)[2])
 
 # Shift a channel by `Δ` sites: the representative and the exit site move together.
 function translate(k::ExpKey{I}, Δ) where {I}
@@ -222,7 +215,7 @@ function _expand_channel!(
     ne = count(<(k.exitsite), sites)                     # size of the entry block
     entry, exit_ = sites[1:ne], sites[(ne + 1):end]
     entrybond = bonds[ne]                                # running charge along the string
-    g0 = stringgap(k)
+    g0 = Int(k.exitsite - maximum(filter(<(k.exitsite), k.term.sites))) - 1  # string sites in the shortest translate
     a, zlast = Int(minimum(sites)), Int(maximum(sites))
 
     for m in cld(1 - a, P):fld(N - zlast, P)             # entry anchor translate

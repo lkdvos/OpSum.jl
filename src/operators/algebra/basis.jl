@@ -58,7 +58,6 @@ end
 
 _space(B::Basis) = B.space
 scalarop(c::Number, B::Basis) = scalarop(c, sectortype(B))
-_issite(::Basis) = true
 
 # `charge => number of letters of that charge`, what `_checklattice` validates letters against
 _alphabet(B::Basis{I}, ::Type{I}) where {I} = Dict{I, Int}(c => length(ks) for (c, ks) in pairs(B.bycharge))

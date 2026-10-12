@@ -132,7 +132,7 @@ inside a window of `ncells` unit cells: the explicit expansion the faithfulness 
 function window_terms(H::OperatorSum{I, <:InfiniteChain}, ncells::Int) where {I}
     L = length(H.lattice)
     N = ncells * L
-    return opsum(_window_bag(H.terms, L, N), expand_channels(H.channels, L, N))
+    return opsum(window_terms(H.terms, H.lattice, ncells), expand_channels(H.channels, L, N))
 end
 
 """
@@ -141,10 +141,9 @@ end
 Every `L`-translate of the canonical generating set `gen` whose support lies inside `1:(ncells*L)`.
 Translates sticking out of either end are dropped, so only the bulk agrees with the periodic problem.
 """
-window_terms(gen::Terms, lat::InfiniteChain, ncells::Int) =
-    _window_bag(gen, length(lat), ncells * length(lat))
-
-function _window_bag(gen::Terms{I}, L::Int, N::Int) where {I}
+function window_terms(gen::Terms{I}, lat::InfiniteChain, ncells::Int) where {I}
+    L = length(lat)
+    N = ncells * L
     out = Term{I}[]
     for t in gen.terms
         lo, hi = minimum(t.sites), maximum(t.sites)

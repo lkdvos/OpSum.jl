@@ -50,7 +50,6 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
    - `SiteOperator{I}` (`siteoperator.jl`): an operator on one site, as a small ordered map from alphabet letter to `ComplexF64` coefficient (two parallel vectors).
      Consume it with `pairs(op)`.
      The bare identity is not a separate case: it is the `passthrough` letter `(unit, 1)` — element 1 of every alphabet — so `scalarop(c, I)` is `c · passthrough` and consumers branch on `ispassthrough`.
-   - `OperatorBasis`: supertype for concrete operator alphabets.
    - `Basis` (`basis.jl`, design note `research/operator-bases.md`): an explicit on-site basis, built from neutral operators (two-site ones are factorised into charged pieces, `_factorise_pair`), identity always element 1.
      `project(O, B)` expresses an operator in it (one site → `SiteOperator`, `K` sites → `LocalOperator`), and a letter `(c, n)` is then the `n`-th element of charge `c` in `B`.
      Nothing records which alphabet a letter came from; only `instantiate(letter, B)` interprets it, and the `_instantiate_terms` oracle accepts a `Basis` per site in place of a space.

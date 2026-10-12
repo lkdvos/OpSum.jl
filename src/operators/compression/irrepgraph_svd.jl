@@ -1,27 +1,17 @@
 # The SVD bond-basis backends: SequentialSVD (rides the persistent graph, dense per-bond SVD)
 # and IndependentSVD (compresses each bond independently, sharing only the interning helpers).
 
-# The dense `coeff[u, v]` matrix from the sparse adjacency (only the SVD backend needs it).
-function _dense_bond_matrix(g::ITOGraph, nU::Int, nV::Int)
-    coeff = zeros(ComplexF64, nU, nV)
-    for iu in 1:nU
-        for (rid, w) in zip(g.radj[iu], g.wadj[iu])
-            coeff[iu, rid] += w
-        end
-    end
-    return coeff
-end
-
 # SVD a charge-graded block `C : Ppre ← Psuf` (with `trunc`) and flatten the retained left singular
 # vectors into a dense `(nrow × r)` matrix `Umat[p, col] = block(U, secs[col])[rowdeg[p], localcol]`
 # (for `rowQ[p] == secs[col]`), recording each column's charge `secs`. With `colQ`/`coldeg` (and
 # `colactive`, where not every column is populated) it also flattens `R = S · Vᴴ` into `Rmat`, the
-# compressed suffix side `SequentialSVD` forwards; `_irrep_independent_svd` omits them.
+# compressed suffix side `SequentialSVD` forwards; `IndependentSVD` omits them.
 function _svd_flatten_block(
         C, trunc, rowQ::Vector{I}, rowdeg::Vector{Int};
         colQ::Union{Nothing, Vector{I}} = nothing, coldeg::Union{Nothing, Vector{Int}} = nothing,
         colactive::Union{Nothing, BitVector} = nothing
     ) where {I}
+    trunc = something(trunc, trunctol(rtol = eps(Float64)))   # `nothing` is the lossless default
     U, S, Vt = svd_trunc(C; trunc)
     Wb = space(S, 1)   # retained bond space (⊕ charge sectors, truncated multiplicities)
     T = eltype(U)
@@ -65,7 +55,12 @@ end
 function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, strategy::SequentialSVD) where {I}
     LOp = SiteOperator{I}
     N = g.N
-    coeff = _dense_bond_matrix(g, nU, nV)
+    coeff = zeros(ComplexF64, nU, nV)   # dense `coeff[u, v]` from the sparse adjacency
+    for iu in 1:nU
+        for (rid, w) in zip(g.radj[iu], g.wadj[iu])
+            coeff[iu, rid] += w
+        end
+    end
 
     # bond charge of each prefix and suffix state; a right vertex orphaned by a truncation is unreachable
     uCharge = I[g.lefts[u].key.bond for u in 1:nU]
@@ -129,15 +124,13 @@ function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, strategy::Sequen
     return r, site_dict, secW, nextedges_global
 end
 
-_resolve_trunc(s::SequentialSVD) = SequentialSVD(something(s.trunc, trunctol(rtol = eps(Float64))))
-
 # Independent-SVD sweep (not a graph sweep): `IndependentSVD` compresses every bond on the *raw*
 # prefix/suffix classes, independently of what its neighbours kept, so it cannot ride the persistent
 # graph (where bond `b` is expressed in the basis bond `b-1` left behind). Prefix classes are
 # `_prefix_ids`, suffix classes the `(_suffix_ids, running bond charge)` signature.
 
 """
-    _irrep_independent_svd(tt::ITOTermTable{I}, N, trunc) -> (Ws, bondsectors)
+    _irrep_channels(tt::ITOTermTable{I}, N, strategy::IndependentSVD) -> (Ws, bondsectors, starts, finishes)
 
 Per-bond-*independent* SVD reduced-MPO sweep: one coefficient matrix per bond over the raw
 prefix/suffix classes, keep the left singular vectors as that bond's compressed basis, then project
@@ -153,17 +146,17 @@ Classes are named, not materialised: only the current bond's `Θ(M)` class assig
 one `interned id → dense column` dictionary per bond (`Θ(N)` for a finite-range model) so that phase 2
 addresses the columns phase 1 built.
 """
-function _irrep_independent_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
+function _irrep_channels(tt::ITOTermTable{I}, N::Int, strategy::IndependentSVD) where {I}
+    trunc = strategy.trunc
     T = ComplexF64
     Op = ITOKey{I}
     LOp = SiteOperator{I}
     M = nterms(tt)
-    M == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[])
+    M == 0 && return (SparseMatrixCSC{LOp, Int}[], Vector{I}[], Int[], Int[])
 
     K = arity(tt)
     preid = _prefix_ids(tt)
     sufid = _suffix_ids(tt)
-    truncstrat = something(trunc, trunctol(rtol = eps(Float64)))
     nb = max(N - 1, 0)
 
     # --- 1. Per internal bond: classify both sides, SVD the charge-graded matrix, keep U ---
@@ -230,7 +223,7 @@ function _irrep_independent_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
             block(C, preQ[p])[pre_deg[p], suf_deg[s]] += tt.coeffs[t]
         end
 
-        flat = _svd_flatten_block(C, truncstrat, preQ, pre_deg)
+        flat = _svd_flatten_block(C, trunc, preQ, pre_deg)
         bond_Us[b] = flat.U
         bond_secs[b] = flat.secs
     end
@@ -275,27 +268,6 @@ function _irrep_independent_svd(tt::ITOTermTable{I}, N::Int, trunc) where {I}
 
     # bond to the right of site i: internal bonds from the SVD, the right boundary is trivial
     bondsectors = Vector{I}[i < N ? bond_secs[i] : I[unit(I)] for i in 1:N]
-    return (map(sparse_from_dict, dicts, sizes), bondsectors)
-end
-
-function _irrep_sweep(tt::ITOTermTable, N::Int, strategy::IndependentSVD)
-    return _irrep_independent_svd(tt, N, strategy.trunc)
-end
-
-# An SVD bond basis mixes prefix states; a geometric channel is a diagonal bond index, so there is
-# nothing to mix it into.
-function _irrep_sweep(
-        ::ITOTermTable{I}, ::Int, ::IndependentSVD; channels::Vector{ExpChannel{I}}
-    ) where {I}
-    return isempty(channels) || throw(
-        ArgumentError(
-            "IndependentSVD cannot compress an exponentially decaying interaction: it needs the " *
-                "whole bond coefficient matrix up front. Use BipartiteAlgorithm() (the default)."
-        )
-    )
-end
-
-function _irrep_channels(tt::ITOTermTable, N::Int, strategy::IndependentSVD)
-    Ws, bondsectors = _irrep_independent_svd(tt, N, strategy.trunc)
-    return (Ws, bondsectors, zeros(Int, length(Ws)), zeros(Int, length(Ws)))
+    Ws = map(sparse_from_dict, dicts, sizes)
+    return (Ws, bondsectors, zeros(Int, N), zeros(Int, N))
 end

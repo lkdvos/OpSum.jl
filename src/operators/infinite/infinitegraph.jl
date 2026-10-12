@@ -232,8 +232,5 @@ function contract_open(Ts, bondsec::Vector{I}, leftidx::Int, rightidx::Int) wher
     capped = copy(collect(Ts))
     capped[1] = _cap_left(_channel_cap(bondsec, leftidx, :left), capped[1])
     capped[N] = _cap_right(_channel_cap(bondsec, rightidx, :right), capped[N])
-    net = [[i == 1 ? -(2N + 1) : i - 1, -i, -(N + i), i == N ? -(2N + 2) : i] for i in 1:N]
-    O = ncon(capped, net)                # legs: o₁…o_N, i₁…i_N, bL, bR
-    O = removeunit(O, 2N + 1)            # the capped left boundary
-    return permute(O, (ntuple(identity, N), (ntuple(i -> N + i, N)..., 2N + 1)))
+    return mpo_tensormap(capped)
 end

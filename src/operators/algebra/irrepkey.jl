@@ -2,8 +2,8 @@
 # Prefixes agreeing on the full `ITOKey` share automaton state, so the automaton is block-diagonal in
 # the bond charge.
 #
-# `Term` stores keys, not a fusion tree: for a caterpillar the keys *are* the tree (`bondcharges`/
-# `vertexlabels` project one onto them; `_tree_from_bonds` inverts it). `total` alone would not do,
+# `Term` stores keys, not a fusion tree: for a caterpillar the keys *are* the tree (`bondcharges`
+# projects one onto them; `_tree_from_bonds` inverts it). `total` alone would not do,
 # since for `K ≥ 3` non-abelian several channels reach the same total.
 
 using TensorKit
@@ -72,17 +72,4 @@ function bondcharges(f::FusionTree{I, K}) where {I, K}
     K == 0 && return I[]
     K == 1 && return I[f.coupled]
     return I[f.uncoupled[1], f.innerlines..., f.coupled]
-end
-
-_vlabel(v) = v isa Integer ? Int(v) : 1
-
-"""
-    vertexlabels(f::FusionTree{I,K})
-
-Fusion-vertex multiplicity labels, one per active position (`1` at position 1, `f.vertices[k-1]`
-after).
-"""
-function vertexlabels(f::FusionTree{I, K}) where {I, K}
-    K == 0 && return Int[]
-    return Int[k == 1 ? 1 : _vlabel(f.vertices[k - 1]) for k in 1:K]
 end

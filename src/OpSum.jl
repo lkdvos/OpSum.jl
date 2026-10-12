@@ -53,7 +53,12 @@ include("operators/lattices.jl")
 
 # Operators — symbolic algebra
 # -----------------------------
-include("operators/algebra/operatorbasis.jl")
+"""
+    instantiate(op, V)
+
+Materialize a symbolic operator as a `TensorMap` on the physical space `V`.
+"""
+function instantiate end
 
 include("operators/algebra/irreptensoroperators.jl")
 using .IrrepTensorOperators: IrrepOperator

@@ -165,11 +165,14 @@ end
 
 VectorInterface.scale(H::OperatorSum{I, L}, α::Number) where {I, L} =
     OperatorSum{I, L}(H.lattice, scale(H.terms, α), scale(H.channels, α))
-Base.:*(α::Number, H::OperatorSum) = scale(H, α)
-Base.:*(H::OperatorSum, α::Number) = scale(H, α)
-Base.:/(H::OperatorSum, α::Number) = scale(H, inv(α))
-Base.:-(H::OperatorSum) = scale(H, -1)
-Base.:-(a::OperatorSum, b::OperatorSum) = a + (-b)
+
+# Scalar arithmetic shared by every scalable operator type (each defines `scale` and `+`).
+const _Scalable = Union{Term, Terms, LocalOperator, OperatorSum}
+Base.:*(α::Number, x::_Scalable) = scale(x, α)
+Base.:*(x::_Scalable, α::Number) = scale(x, α)
+Base.:/(x::_Scalable, α::Number) = scale(x, inv(α))
+Base.:-(x::_Scalable) = scale(x, -1)
+Base.:-(a::_Scalable, b::_Scalable) = a + (-b)
 
 function _samelattice(a::OperatorSum, b::OperatorSum, op)
     a.lattice == b.lattice || throw(

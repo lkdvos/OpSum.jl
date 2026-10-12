@@ -56,17 +56,21 @@ function _tkt_operator(M::Module, name::Symbol, args, kwargs)
     return t
 end
 
-# The basis defined by `names` (in order) on `V`, completed with matrix units.
-function _stock_basis(V::ElementarySpace, M::Module, names, args, kwargs)
-    I = sectortype(V)
-    elems = AbstractTensorMap[isomorphism(ComplexF64, V ← V ⊗ Vect[I](unit(I) => 1))]
-    for name in names
-        t = _tkt_operator(M, name, args, kwargs)
-        t === nothing && continue
-        codomain(t)[1] == V || _invariant("TensorKitTensors operator $name does not act on $V")
-        numout(t) == 1 ? push!(elems, insertrightunit(t)) : append!(elems, _factorise_pair(t))
+# The basis defined by `names` (in order) on `spacefn(args...; kwargs...)`, completed with matrix
+# units. `args`/`kwargs` are the arguments of the public function and of every TensorKitTensors call.
+function _stock_basis(kind::Symbol, M::Module, spacefn, names, args, kwargs)
+    return _cached(_STOCK_CACHE, (kind, args..., values(kwargs)...)) do
+        V = spacefn(args...; kwargs...)
+        I = sectortype(V)
+        elems = AbstractTensorMap[isomorphism(ComplexF64, V ← V ⊗ Vect[I](unit(I) => 1))]
+        for name in names
+            t = _tkt_operator(M, name, args, kwargs)
+            t === nothing && continue
+            codomain(t)[1] == V || _invariant("TensorKitTensors operator $name does not act on $V")
+            numout(t) == 1 ? push!(elems, insertrightunit(t)) : append!(elems, _factorise_pair(t))
+        end
+        _basis_from_elements(V, _completed_elements(V, elems); skipdependent = true)
     end
-    return _basis_from_elements(V, _completed_elements(V, elems); skipdependent = true)
 end
 
 # `elems` followed by every matrix unit on `V`.
@@ -75,18 +79,15 @@ function _completed_elements(V::ElementarySpace, elems::AbstractVector)
     return AbstractTensorMap[elems; units]
 end
 
-# Every operator of `names` that the symmetry admits, projected into `B`: a `SiteOperator` for a
-# single-site one, a `LocalOperator` for a pair.
-function _stock_ops(B::Basis, M::Module, names, args, kwargs)
-    ks = Symbol[]
-    vs = Any[]
-    for name in names
-        t = _tkt_operator(M, name, args, kwargs)
-        t === nothing && continue
-        push!(ks, name)
-        push!(vs, project(t, B))
+# Every operator of `names` that the symmetry admits, projected into `basisfn(args...; kwargs...)`: a
+# `SiteOperator` for a single-site one, a `LocalOperator` for a pair.
+function _stock_ops(kind::Symbol, M::Module, basisfn, names, args, kwargs)
+    return _cached(_STOCK_CACHE, (kind, args..., values(kwargs)...)) do
+        B = basisfn(args...; kwargs...)
+        ts = [name => _tkt_operator(M, name, args, kwargs) for name in names]
+        filter!(p -> p.second !== nothing, ts)
+        NamedTuple{Tuple(first.(ts))}(Tuple(project(last(p), B) for p in ts))
     end
-    return NamedTuple{Tuple(ks)}(Tuple(vs))
 end
 
 """
@@ -99,10 +100,9 @@ operator on the space (the higher multipoles for `spin > 1/2`). Memoised.
 See [`spin_ops`](@ref) for the operators expressed in it.
 """
 function spin_basis(symmetry::Type{<:Sector} = Trivial; spin = 1 // 2)
-    return _cached(_STOCK_CACHE, (:spin_basis, symmetry, spin)) do
-        V = SpinOperators.spin_space(symmetry; spin)
-        _stock_basis(V, SpinOperators, _SPIN_DEFINING, (symmetry,), (; spin))
-    end
+    return _stock_basis(
+        :spin_basis, SpinOperators, SpinOperators.spin_space, _SPIN_DEFINING, (symmetry,), (; spin)
+    )
 end
 
 """
@@ -111,10 +111,9 @@ end
 The operator basis of TensorKitTensors' `fermion_space(symmetry)`: `𝟙, n, c†, c`. Memoised.
 """
 function fermion_basis(symmetry::Type{<:Sector} = Trivial)
-    return _cached(_STOCK_CACHE, (:fermion_basis, symmetry)) do
-        V = FermionOperators.fermion_space(symmetry)
-        _stock_basis(V, FermionOperators, _FERMION_DEFINING, (symmetry,), (;))
-    end
+    return _stock_basis(
+        :fermion_basis, FermionOperators, FermionOperators.fermion_space, _FERMION_DEFINING, (symmetry,), (;)
+    )
 end
 
 """
@@ -124,10 +123,9 @@ The operator basis of TensorKitTensors' `boson_space(symmetry; cutoff)`: the ide
 completed to span every operator on the truncated space. Memoised.
 """
 function boson_basis(symmetry::Type{<:Sector} = Trivial; cutoff::Integer)
-    return _cached(_STOCK_CACHE, (:boson_basis, symmetry, cutoff)) do
-        V = BosonOperators.boson_space(symmetry; cutoff)
-        _stock_basis(V, BosonOperators, _BOSON_DEFINING, (symmetry,), (; cutoff))
-    end
+    return _stock_basis(
+        :boson_basis, BosonOperators, BosonOperators.boson_space, _BOSON_DEFINING, (symmetry,), (; cutoff)
+    )
 end
 
 """
@@ -139,10 +137,10 @@ SU(2)), the spin operators, then completed to span every operator on the site (e
 on-site pair `Δ†, Δ`). This is the site of #38: `E[p, q]` is one letter on each site. Memoised.
 """
 function hubbard_basis(particle_symmetry::Type{<:Sector} = Trivial, spin_symmetry::Type{<:Sector} = Trivial)
-    return _cached(_STOCK_CACHE, (:hubbard_basis, particle_symmetry, spin_symmetry)) do
-        V = HubbardOperators.hubbard_space(particle_symmetry, spin_symmetry)
-        _stock_basis(V, HubbardOperators, _HUBBARD_DEFINING, (particle_symmetry, spin_symmetry), (;))
-    end
+    return _stock_basis(
+        :hubbard_basis, HubbardOperators, HubbardOperators.hubbard_space, _HUBBARD_DEFINING,
+        (particle_symmetry, spin_symmetry), (;)
+    )
 end
 
 """
@@ -155,12 +153,10 @@ function tj_basis(
         particle_symmetry::Type{<:Sector} = Trivial, spin_symmetry::Type{<:Sector} = Trivial;
         slave_fermion::Bool = false
     )
-    return _cached(_STOCK_CACHE, (:tj_basis, particle_symmetry, spin_symmetry, slave_fermion)) do
-        V = TJOperators.tj_space(particle_symmetry, spin_symmetry; slave_fermion)
-        _stock_basis(
-            V, TJOperators, _HUBBARD_DEFINING, (particle_symmetry, spin_symmetry), (; slave_fermion)
-        )
-    end
+    return _stock_basis(
+        :tj_basis, TJOperators, TJOperators.tj_space, _HUBBARD_DEFINING,
+        (particle_symmetry, spin_symmetry), (; slave_fermion)
+    )
 end
 
 """
@@ -182,40 +178,28 @@ H = opsum(FiniteChain(spin_basis(SU2Irrep), N), (ops.S_exchange[i, i + 1] for i 
 ```
 """
 function spin_ops(symmetry::Type{<:Sector} = Trivial; spin = 1 // 2)
-    return _cached(_STOCK_CACHE, (:spin_ops, symmetry, spin)) do
-        _stock_ops(spin_basis(symmetry; spin), SpinOperators, _SPIN_OPS, (symmetry,), (; spin))
-    end
+    return _stock_ops(:spin_ops, SpinOperators, spin_basis, _SPIN_OPS, (symmetry,), (; spin))
 end
 "See [`spin_ops`](@ref)."
 function fermion_ops(symmetry::Type{<:Sector} = Trivial)
-    return _cached(_STOCK_CACHE, (:fermion_ops, symmetry)) do
-        _stock_ops(fermion_basis(symmetry), FermionOperators, _FERMION_OPS, (symmetry,), (;))
-    end
+    return _stock_ops(:fermion_ops, FermionOperators, fermion_basis, _FERMION_OPS, (symmetry,), (;))
 end
 "See [`spin_ops`](@ref)."
 function boson_ops(symmetry::Type{<:Sector} = Trivial; cutoff::Integer)
-    return _cached(_STOCK_CACHE, (:boson_ops, symmetry, cutoff)) do
-        _stock_ops(boson_basis(symmetry; cutoff), BosonOperators, _BOSON_OPS, (symmetry,), (; cutoff))
-    end
+    return _stock_ops(:boson_ops, BosonOperators, boson_basis, _BOSON_OPS, (symmetry,), (; cutoff))
 end
 "See [`spin_ops`](@ref)."
 function hubbard_ops(particle_symmetry::Type{<:Sector} = Trivial, spin_symmetry::Type{<:Sector} = Trivial)
-    return _cached(_STOCK_CACHE, (:hubbard_ops, particle_symmetry, spin_symmetry)) do
-        _stock_ops(
-            hubbard_basis(particle_symmetry, spin_symmetry), HubbardOperators, _HUBBARD_OPS,
-            (particle_symmetry, spin_symmetry), (;)
-        )
-    end
+    return _stock_ops(
+        :hubbard_ops, HubbardOperators, hubbard_basis, _HUBBARD_OPS, (particle_symmetry, spin_symmetry), (;)
+    )
 end
 "See [`spin_ops`](@ref)."
 function tj_ops(
         particle_symmetry::Type{<:Sector} = Trivial, spin_symmetry::Type{<:Sector} = Trivial;
         slave_fermion::Bool = false
     )
-    return _cached(_STOCK_CACHE, (:tj_ops, particle_symmetry, spin_symmetry, slave_fermion)) do
-        _stock_ops(
-            tj_basis(particle_symmetry, spin_symmetry; slave_fermion), TJOperators, _HUBBARD_OPS,
-            (particle_symmetry, spin_symmetry), (; slave_fermion)
-        )
-    end
+    return _stock_ops(
+        :tj_ops, TJOperators, tj_basis, _HUBBARD_OPS, (particle_symmetry, spin_symmetry), (; slave_fermion)
+    )
 end

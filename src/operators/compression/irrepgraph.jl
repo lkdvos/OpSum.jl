@@ -17,7 +17,7 @@ using SparseArrays: SparseMatrixCSC
     return error("OpSum internal invariant violated: ", msg, ". This is a bug in OpSum; the reduced MPO would be wrong.")
 end
 
-# The strategies with a `_bond_basis!` method; `IndependentSVD` is not one (see `_irrep_independent_svd`).
+# The strategies with a `_bond_basis!` method; `IndependentSVD` is not one (see `_irrep_channels`).
 const GraphStrategy = Union{VertexCover, SequentialSVD}
 
 """
@@ -47,7 +47,7 @@ Fields:
   site at which any may still enter;
 * persistent right-vertex state: `rrepr` (representative term id), the monotone cursor `rcur`/`rbond`
   behind the `O(1)` signature, and `rchan`/`rstate` for *geometric* classes (`rchan[r] == 0` an
-  ordinary term class, `> 0` an automaton state of that [`ExpChannel`](@ref), `-1` the synthetic
+  ordinary term class, `> 0` an automaton state of that `ExpChannel`, `-1` the synthetic
   exhausted class a channel exits onto);
 * the current graph: `lefts`, `radj`, `wadj`, `nlinks` (incoming bond dimension);
 * lazy insertion (see [`_promote_pending!`](@ref)): `lazy`, `firstsite`, `pend_at`, `pendbysig`,
@@ -104,7 +104,7 @@ The canonical, translation-invariant name of right vertex `r` at bond `i`. An or
 exhausted), the shape of the remaining factor list ([`_rel_suffix_ids`](@ref)) and the running bond
 charge: two classes share a name exactly when they are translates of each other relative to their
 bonds. A geometric class (`kind = 1`) is named by its automaton state's interned name
-([`ChannelState`](@ref)); the synthetic exhausted class shares `kind = 0`'s exhausted name so it
+(`ChannelState`); the synthetic exhausted class shares `kind = 0`'s exhausted name so it
 sorts and merges with exhausted term classes. The sentinel gets the reserved name
 `(-1, -1, -1, unit(I))`, which sorts first.
 """
@@ -169,18 +169,6 @@ function _push_right!(g::ITOGraph{I}, repr::Int, cur::Int, bond::I, chan::Int, s
     return length(g.rrepr)
 end
 
-# The `ITOKey` term `r`'s class applies at site `i+1`, from the cursor left by `_signature!(…, i)`:
-# `_op_at_ito(tt, rrepr[r], i+1)` in `O(1)`.
-function _next_key(g::ITOGraph{I}, r::Int, i::Int) where {I}
-    t = g.rrepr[r]
-    j = g.rcur[r]
-    (j <= g.K && g.tt.sites[j, t] == i + 1) && return g.tt.keys[j, t]
-    return ITOKey{I}(passthrough(I), g.rbond[r], 1)
-end
-
-# First active site of each term (1 for a `K=0` identity term, which is all pass-through).
-_first_sites(tt::ITOTermTable) = Int[max(1, tt.sites[1, t]) for t in 1:nterms(tt)]
-
 """
     ITOGraph(tt::ITOTermTable{I}, N; lazy = true, channels = ExpChannel{I}[]) -> ITOGraph{I}
 
@@ -194,7 +182,7 @@ represented by a sentinel right vertex on the identity/start channel and inserte
 anyway). `jordan = true` forces the finish class into every cover (`_force_finish!`), as `mpo` asks
 on a finite chain without decaying channels.
 
-`channels` are lowered exponentially decaying interactions ([`_lower_channels`](@ref)): not terms,
+`channels` are lowered exponentially decaying interactions (`_lower_channels`): not terms,
 they enter on the start channel at every site matching their phase and are thereafter ordinary
 (cyclic) right vertices. They require `lazy = true`.
 """
@@ -207,7 +195,8 @@ function ITOGraph(
         throw(ArgumentError("exponentially decaying channels need the lazy sweep"))
     sufid = _suffix_ids(tt)
     relsufid = _rel_suffix_ids(tt)
-    firstsite = _first_sites(tt)
+    # first active site of each term (1 for a `K=0` identity term, which is all pass-through)
+    firstsite = Int[max(1, tt.sites[1, t]) for t in 1:nterms(tt)]
     lastent = maximum(c -> lastentry(c, N), channels; init = 0)
 
     rrepr = Int[]
@@ -369,14 +358,6 @@ function _grow_scratch!(g::ITOGraph, nV::Int)
     return g
 end
 
-function _apply_remap!(g::ITOGraph, remap::Vector{Int}, nVnew::Int)
-    _grow_scratch!(g, nVnew)
-    for lv in eachindex(g.lefts)
-        _merge_edges!(g, lv, remap)
-    end
-    return g
-end
-
 """
     _promote_pending!(g, i)
 
@@ -463,7 +444,10 @@ function _prepare_bond!(g::ITOGraph{I}, i::Int) where {I}
     g.rsent = 0
     remap = _suffix_merge!(g, i)
     nV = length(g.rrepr)
-    _apply_remap!(g, remap, nV)
+    _grow_scratch!(g, nV)
+    for lv in eachindex(g.lefts)
+        _merge_edges!(g, lv, remap)
+    end
     _promote_pending!(g, i)
     _canonicalise_rights!(g, i)
 
@@ -519,7 +503,14 @@ function _build_next_graph!(
     ) where {I}
     # right for term classes and the synthetic exhausted class (bare pass-through at the running
     # charge); live channel states are handled below
-    nextkeys = [_next_key(g, r, i) for r in eachindex(g.rrepr)]
+    # the `ITOKey` term `r`'s class applies at site `i+1`, from the cursor left by `_signature!(…, i)`
+    # (`_op_at_ito(tt, rrepr[r], i+1)` in `O(1)`)
+    nextkeys = map(eachindex(g.rrepr)) do r
+        t = g.rrepr[r]
+        j = g.rcur[r]
+        (j <= g.K && g.tt.sites[j, t] == i + 1) && return g.tt.keys[j, t]
+        return ITOKey{I}(passthrough(I), g.rbond[r], 1)
+    end
     buckets = Dictionary{Tuple{Int, ITOKey{I}}, Int}()
     next_lefts = LeftVertex{I}[]
     next_radj = Vector{Int}[]
@@ -634,9 +625,6 @@ end
 _graph_lazy(::VertexCover) = true
 _graph_lazy(::SequentialSVD) = false
 
-# Resolve `trunc === nothing` (the lossless default) once per sweep rather than once per bond.
-_resolve_trunc(s::BondStrategy) = s
-
 """
     _irrep_graph_channels(tt::ITOTermTable{I}, N, strategy, jordan; channels) -> (Ws, bondsectors, starts, finishes)
 
@@ -646,7 +634,7 @@ The persistent-graph sweep with a bond-basis `strategy` ([`VertexCover`](@ref) o
 `finishes[i]` are the bond indices of the start ("nothing placed yet") and finish ("everything
 placed") channels at the bond right of site `i`, or `0` where the cover spent no index on them (always
 for `SequentialSVD`, whose bond basis mixes prefix states). `channels` are lowered exponentially
-decaying interactions ([`_lower_channels`](@ref)), which live beside the term table; a model may
+decaying interactions (`_lower_channels`), which live beside the term table; a model may
 consist of nothing else.
 
 `jordan = true` also forces the finish class into every cover ([`_force_finish!`](@ref)), which can
@@ -661,7 +649,6 @@ function _irrep_graph_channels(
     (nterms(tt) == 0 && isempty(channels)) &&
         return (SparseMatrixCSC{LOp, Int}[], Vector{I}[], Int[], Int[])
 
-    strategy = _resolve_trunc(strategy)
     g = ITOGraph(tt, N; lazy = _graph_lazy(strategy), jordan, channels)
     Ws = Vector{SparseMatrixCSC{LOp, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)

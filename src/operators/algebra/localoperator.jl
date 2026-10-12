@@ -103,13 +103,8 @@ function Base.:+(a::LocalOperator{I}, b::LocalOperator{I}) where {I}
     )
     return LocalOperator{I}(a.terms + b.terms, a.nsites)
 end
-Base.:-(a::LocalOperator{I}, b::LocalOperator{I}) where {I} = a + (-b)
 VectorInterface.scale(B::LocalOperator{I}, α::Number) where {I} =
     LocalOperator{I}(scale(B.terms, α), B.nsites)
-Base.:*(α::Number, B::LocalOperator) = scale(B, α)
-Base.:*(B::LocalOperator, α::Number) = scale(B, α)
-Base.:/(B::LocalOperator, α::Number) = scale(B, inv(α))
-Base.:-(B::LocalOperator) = scale(B, -1)
 
 # `α` times the identity on all `K` slots (places as the `K = 0` scalar).
 function _passthroughterm(::Type{I}, K::Int, α::Number) where {I <: Sector}

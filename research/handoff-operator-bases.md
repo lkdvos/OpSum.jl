@@ -93,8 +93,8 @@ Once step 5 lands, the same numbers should come out of the spin-free Hamiltonian
 * **TensorKitTensors** is checked out at `/mnt/home/ldevos/Projects/TensorKitTensors.jl` (`e3be3c0`).
   With a symmetry it only provides neutral single-site operators and two-site products, which is why the charged elements come from factorisation.
 * **The dense oracle is slow on the SU(2) Hubbard site**: `instantiate` compiled for ~90 s at `N = 4`; keep dense checks small there.
-* **An untriaged oddity**: lossless `SVDBondAlgorithm` gave 37 at the central bond of spinful all-to-all hopping where counting gives 22 (the vertex cover gives 42 today, 22 with the right basis).
-  It looks like an SVD-backend issue unrelated to this work.
+* **An oddity, triaged in step 6 (§13)**: lossless `SVDBondAlgorithm` gave 37 at the central bond of spinful all-to-all hopping where counting gives 22 (the vertex cover gives 42 today, 22 with the right basis).
+  It is round-off: the lossless default `trunctol(rtol = eps)` keeps singular values made of the matrix-unit coefficients' round-off.
 * **Conventions**: research notes are written one sentence per line; invariant checks are `throw`s through `_invariant`, never `@assert` (CLAUDE.md); format with Runic.
 
 ## 7. Step 1 as implemented (branch `feat/operator-basis`, for review)
@@ -210,3 +210,20 @@ Confirmed by the author before starting (2026-10-11): `hop[i, i]` is an on-site 
   * Against `opsum_qchem_su2.jl` re-expressed in the basis, full size: STO-3G the same 860 terms and the same 102 / 192 at the centre bond; cc-pVDZ the same bond dimensions at bonds 7, 14, 21 (212 / 408, 786 / 1542, 226 / 436). Built in 3.6 s for cc-pVDZ once warm.
   * **Finding:** `opsum_qchem_su2.jl` is *not* a reference for energies. Under the current OpSum conventions its two-site strings carry the opposite sign of the physical `a†_p a_q`; its own comment describes a per-letter sign fix written against OpSum before the graded sign of #36. It misses the exact spectrum on a generic one-body `h` (by 0.65 on a 3-orbital example), and on orbitals 1:5 of STO-3G by 1.5e-2; it happens to be exact on some sub-blocks, which is how it survived. TensorKitTensors' Hubbard operators and the spin-free route agree with the exact spectrum. So the energies of §5 / step 2 compared two copies of that Hamiltonian with each other; the bond dimensions are unaffected (a sign does not change the term set).
 * The spin-free cc-pVDZ sum has 216 more terms than the qchem one (37 616 vs 37 400), none missing: all are cancellations left at round-off (at most 1.5e-17 of the largest coefficient), which the qchem path filters with a relative cut and `canonicalize!` does not. They cost no bond dimension.
+
+## 13. Step 6 as implemented
+
+* **Truncation in the basis' metric** (`src/operators/compression/metric.jl`). The SVD backends treat a site's letters as orthonormal, which a `Basis` need not be (`n` overlaps `𝟙`).
+  The Hilbert–Schmidt norm of a caterpillar term factorises, `‖t‖² = |coeff|² Πᵢ dot(aᵢ, aᵢ)/dim(cᵢ)` times `dot(𝟙, 𝟙)` per idle site (checked numerically on the SU(2) Hubbard site, and pinned in `test/test_basis_svd.jl`), so the metric is a Gram matrix per charge, `G_c[n, m] = dot(eₙ, eₘ) / (dim(c) dot(𝟙, 𝟙))`, in which the identity has norm 1.
+  A truncating `SVDBondAlgorithm` on a lattice of bases rewrites the terms over orthonormal letters (`G = A'A`, Cholesky, so a letter picks up components of the earlier letters of its charge, including the identity, which is then dropped like a pass-through), compresses, and maps every site entry back with `A⁻¹`.
+  `A` is upper triangular with `A[1, 1] = 1`, so the identity, the pass-throughs and the identity channels are untouched.
+  Lossless SVD (`trunc === nothing`) skips it: the rank does not depend on the basis, and the rewrite would only add round-off.
+  Sites given by spaces (matrix units) keep the plain metric, since that alphabet is not a basis.
+  Effect: the same Ising-type Hamiltonian in `{X, Y, Z}` and in `{X, X + Y, Z + 0.7𝟙}`, truncated to rank 2–4, now gives the same operator (to 1e-15); before, the overlapping basis truncated to relative errors 0.97 / 0.25 / 0.12 against 0.69 / 0.14 / 0.055.
+* **The 37-vs-22 oddity of §6 is round-off.**
+  In matrix units the lossless default `rtol = eps` gives 37, `rtol = 1e-15` gives 27 and `1e-14` gives 22; in the basis, where the coefficients are exact, both SVD sweeps give 22 by default.
+  Not changed: raising the lossless default tolerance is a decision for the author.
+* **Decaying channels over bases.** The string is an operator in the sites' basis like any other (`string = project(P, B)`); `test/test_basis_lattice.jl` checks a decaying fermion hop with a parity string against the explicit sum of products, densely on a finite chain and term by term on an infinite one.
+  New check on insertion (`_checkchannels`): a channel's letters land on sites it does not name (its translates move by one site on a finite chain; a string fills every site of the gap), so those sites must carry one basis, and the letters must exist in it.
+  Before, a finite chain did not check channel letters at all, and string letters were never checked.
+* SVD on an infinite chain or with decaying channels still throws, as before (both need the whole bond matrix up front).

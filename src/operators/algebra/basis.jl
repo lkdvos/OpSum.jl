@@ -36,6 +36,10 @@ form of its matrix-unit coefficients, see `_factorise_pair`), so a pair of singl
 those matrix units; each piece's first coefficient is 1, and the pair's scale shows up as its
 coefficient when it is projected into the basis.
 
+With `complete = true` the basis is extended, after the given elements, by the matrix units it does
+not yet span, so that it spans every operator on `V` (what the stock bases, [`spin_basis`](@ref) and
+the others, do): on-site products and `H'` then never leave it.
+
 ```julia
 Imat = [1 0; 0 1]; Xmat = [0 1; 1 0]; Ymat = [0 -im; im 0]; Zmat = [1 0; 0 -1]
 B = Basis([Imat, Xmat, Ymat, Zmat])          # four elements, the identity first
@@ -96,7 +100,7 @@ end
 # Building a basis
 # ----------------
 
-function Basis(ops::AbstractVector; atol::Real = 0, rtol::Real = 1.0e-12)
+function Basis(ops::AbstractVector; atol::Real = 0, rtol::Real = 1.0e-12, complete::Bool = false)
     isempty(ops) && throw(ArgumentError("Basis: needs at least one operator to fix the space"))
     tensors = map(_basis_tensor, ops)
     V = codomain(first(tensors))[1]
@@ -125,7 +129,9 @@ function Basis(ops::AbstractVector; atol::Real = 0, rtol::Real = 1.0e-12)
         append!(pieces, _factorise_pair(h; atol, rtol))
     end
     I = sectortype(V)
-    return _basis_from_elements(V, [isomorphism(ComplexF64, V ← V ⊗ Vect[I](unit(I) => 1)); singles; pieces]; rtol)
+    B = _basis_from_elements(V, [isomorphism(ComplexF64, V ← V ⊗ Vect[I](unit(I) => 1)); singles; pieces]; rtol)
+    complete || return B
+    return _basis_from_elements(V, _completed_elements(V, B.elements); rtol, skipdependent = true)
 end
 
 _basis_tensor(t::AbstractTensorMap) = t
@@ -138,7 +144,13 @@ end
 # Charged elements → `Basis`: group by charge, drop elements parallel to an earlier one of the same
 # charge, check independence, and precompute the projector from matrix-unit coefficients. The first
 # element must be the identity. Internal: the public constructor only takes neutral operators.
-function _basis_from_elements(V::ElementarySpace, elems::AbstractVector; rtol::Real = 1.0e-12)
+#
+# With `skipdependent = true` an element in the span of the earlier ones of its charge is dropped
+# instead of throwing: that is how a stock basis takes its defining operators in order and is then
+# completed with the matrix units it still lacks (`_completed_elements`).
+function _basis_from_elements(
+        V::ElementarySpace, elems::AbstractVector; rtol::Real = 1.0e-12, skipdependent::Bool = false
+    )
     I = sectortype(V)
     els = map(elems) do e
         x = zeros(ComplexF64, space(e))
@@ -150,14 +162,23 @@ function _basis_from_elements(V::ElementarySpace, elems::AbstractVector; rtol::R
     kept = similar(els, 0)
     letters = IrrepOperator{I}[]
     bycharge = Dictionary{I, Vector{Int}}()
+    spans = Dict{I, Matrix{ComplexF64}}()    # per charge: orthonormal span of the kept elements
     for e in els
         c = _elementcharge(e, V)
         ks = get!(bycharge, c, Int[])
         any(k -> _isparallel(kept[k], e, rtol), ks) && continue
+        if skipdependent
+            a = ComplexF64[inner(instantiate(mu, V), e) for mu in _chargeunits(V, c)]
+            Q = get(spans, c, zeros(ComplexF64, length(a), 0))
+            r = a - Q * (Q' * a)
+            norm(r) > sqrt(rtol) * norm(a) || continue
+            spans[c] = [Q r / norm(r)]
+        end
         push!(kept, e)
         push!(ks, length(kept))
         push!(letters, IrrepOperator{I}(c, length(ks)))
     end
+    filter!(!isempty, bycharge)    # a charge whose only candidates were dropped
     pinv = Dictionary{I, Matrix{ComplexF64}}()
     for (c, ks) in pairs(bycharge)
         mus = _chargeunits(V, c)

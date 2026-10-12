@@ -1,15 +1,11 @@
-# Sparse dict-of-keys → CSC helpers
-# ---------------------------------
-# The bond-matrix sweeps accumulate into `Dictionary{CartesianIndex{2}, T}` and only materialise a
-# sparse matrix at the very end, so all we need from `SparseArrays` is a triplet constructor and an
-# iterator over stored entries.
+# Dict-of-keys → CSC helpers: the sweeps accumulate into `Dictionary{CartesianIndex{2}, T}` and
+# materialise a sparse matrix at the end.
 
 """
     sparse_from_dict(dict::AbstractDictionary{CartesianIndex{2}}, sz) -> SparseMatrixCSC
 
 Materialise a dict-of-keys accumulator (`CartesianIndex(row, col) => value`) as a sparse matrix of
-size `sz`. Keys are unique, so no duplicate combination happens; stored entries are kept verbatim
-(including explicit zeros).
+size `sz`; entries are kept verbatim (including explicit zeros).
 """
 function sparse_from_dict(
         dict::AbstractDictionary{CartesianIndex{2}, T}, sz::Tuple{Int, Int}
@@ -27,9 +23,8 @@ end
 """
     storedpairs(A::SparseMatrixCSC)
 
-Iterate the stored entries of `A` as `CartesianIndex(row, col) => value` pairs, in column-major
-order. Unlike `pairs(A)` this skips structurally absent entries, which matters here because the
-element type is a symbolic operator rather than a number.
+Iterate the stored entries of `A` as `CartesianIndex(row, col) => value` pairs, column-major,
+skipping structurally absent entries (unlike `pairs(A)`).
 """
 function storedpairs(A::SparseMatrixCSC)
     rows, vals = rowvals(A), nonzeros(A)

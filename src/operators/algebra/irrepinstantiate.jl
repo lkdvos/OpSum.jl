@@ -1,6 +1,4 @@
-# The dense-tensor correctness oracle: the embed helpers behind `instantiate(::OperatorSum)`, the
-# inverse of `project`. The term algebra itself never needs a physical space; the container supplies
-# them.
+# The dense-tensor correctness oracle behind `instantiate(::OperatorSum)`, the inverse of `project`.
 
 using TensorKit
 using TensorKit: ElementarySpace, FusionTree, unit, dim, id, Vect, domain, permute, insertrightunit
@@ -9,18 +7,14 @@ using .IrrepTensorOperators: IrrepOperator
 # The space a site's operators act on: a site is described by its space, or by a `Basis` (basis.jl).
 _space(V::ElementarySpace) = V
 
-# Sum the terms of `h` over `spaces` (one per site). The public entry point is
-# `instantiate(::OperatorSum)`, which has already checked the letters against the spaces.
 function _instantiate_terms(h::Terms, spaces)
     return sum(t -> t.coeff * _instantiate_term(t, spaces), canonicalize!(h).terms)
 end
 
-# Shared forward map for both `_instantiate_term` (from a `Term`) and `_instantiate_basis` (from raw
-# letters/positions/tree, which `project` takes inner products against).
+# Forward map shared by `_instantiate_term` and `_instantiate_basis` (raw letters/positions/tree).
 function _instantiate_generic(ops, positions, tree, sites)
     K = length(ops)
-    # The trailing total-charge leg is `Vect[I](unit(I) => 1)` for every K ≥ 1 term, so a K = 0
-    # identity term needs one too — otherwise an operator mixing the two cannot be summed at all.
+    # a K = 0 term needs the trailing charge leg too, or it cannot be summed with the others
     K == 0 && return insertrightunit(foldl(⊗, (id(_space(V)) for V in sites)))
     K == 1 && return _embed_field(only(ops), only(positions), sites)
     return _embed_caterpillar(ops, positions, tree, sites)
@@ -31,7 +25,7 @@ _instantiate_term(t::Term, sites) = _instantiate_generic(ops(t), t.sites, tree(t
 # The candidate basis element for a `(letters, tree)` combination on the local lattice `1:K`.
 _instantiate_basis(ops, tree, sites) = _instantiate_generic(ops, 1:length(ops), tree, sites)
 
-# single charged field embedded on site `p`, identities elsewhere, charge leg to last domain slot
+# charged field on site `p`, identities elsewhere, charge leg last in the domain
 function _embed_field(op::IrrepOperator, p, sites)
     N = length(sites)
     loc = instantiate(op, sites[p])                # V_p ← V_p ⊗ V_c
@@ -43,8 +37,7 @@ function _embed_field(op::IrrepOperator, p, sites)
     return permute(full, (cod, dom))
 end
 
-# Caterpillar K-site block; the coupler `X` selects the specific channel `tree`. `permute` +
-# composition rather than `@tensor`, so it generalises to any K.
+# Caterpillar K-site block; the coupler `X` selects the channel `tree`.
 function _embed_caterpillar(ops, positions, tree, sites)
     K = length(ops)
     I = typeof(tree.coupled)
@@ -65,9 +58,8 @@ function _embed_caterpillar(ops, positions, tree, sites)
     return _embed_block(Wblock, positions, sites)
 end
 
-# embed a K-site block on `positions` into the full lattice, reordering to site order with the
-# total-charge leg last in the domain. `Wblock` codomain = (o over positions), domain = (i over
-# positions, total-charge).
+# Embed a K-site block (codomain: o over positions, domain: i over positions, total charge) into the
+# full lattice in site order, total-charge leg last.
 function _embed_block(Wblock, positions, sites)
     N = length(sites)
     K = length(positions)

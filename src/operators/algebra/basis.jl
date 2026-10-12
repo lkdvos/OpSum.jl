@@ -1,10 +1,6 @@
-# Explicit on-site operator bases: the letters `(c, n)` of a symbolic operator name elements of a
-# user-chosen `Basis` instead of matrix units. Design note: `research/operator-bases.md` §3.
-#
-# A letter is `(charge, index)` with the index counted *within* the charge, as in the matrix-unit
-# alphabet, and the identity is always element 1, i.e. the letter `(unit, 1)` — the same letter the
-# sweep uses for pass-throughs (`passthrough`). Nothing downstream of `project` knows which alphabet
-# a letter came from: the sweep only compares letters, and only `instantiate` interprets them.
+# Explicit on-site operator bases: a letter `(c, n)` names the `n`-th element of charge `c` of a
+# `Basis`. The identity is always element 1, the letter the sweep uses for pass-throughs. Only
+# `instantiate` interprets letters. Design note: `research/operator-bases.md` §3.
 
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, space,
     isomorphism, ComplexSpace, Trivial, dual, sectors
@@ -13,32 +9,25 @@ using LinearAlgebra: LinearAlgebra, Hermitian, eigvals, norm
 """
     Basis(ops::AbstractVector; atol = 0, rtol = 1e-12)
 
-An ordered basis of on-site operators on one space `V`, the alphabet that [`project`](@ref)
+An ordered basis of on-site operators on one space `V`: the alphabet that [`project`](@ref)
 expresses operators in and that a symbolic operator's letters index into.
 
-A basis is *defined* from charge-neutral operators: each entry of `ops` is
+Each entry of `ops` is charge-neutral: a single-site operator `V ← V` (or a plain matrix, without
+symmetry), used as an element as it is, or a two-site operator `V ⊗ V ← V ⊗ V`, factorised into its
+charged single-site pieces (for `S⁺ ⊗ S⁻` the pieces `S⁺` and `S⁻`), which become elements.
 
-* a single-site operator `V ← V` (or a plain matrix, when there is no symmetry), used as an element
-  as it is, or
-* a two-site operator `V ⊗ V ← V ⊗ V`, factorised into its charged single-site pieces (for
-  `S⁺ ⊗ S⁻` the pieces `S⁺` and `S⁻`), which become elements.
+Element 1 is the identity, prepended; an entry parallel to it (or to another element of the same
+charge) is dropped. Single-site entries come first, in the order given, then the factorised pieces.
+The elements of one charge must be linearly independent (checked) but need not be orthogonal, and the
+basis need not span all operators on `V`: `project` throws for an operator outside its span.
 
-Element 1 is always the identity: it is prepended, and an entry parallel to it (or to any other
-element of the same charge) is dropped. Single-site entries come first, in the order given, then the
-factorised pieces. The elements of one charge must be linearly independent, which is checked; they
-need not be orthogonal, and the basis need not span all operators on `V` — `project` throws for an
-operator outside its span.
+Internally each element is a `TensorMap` `V ← V ⊗ Vect[I](c => 1)` of one charge `c`; its letter is
+`(c, n)`, the `n`-th element of charge `c`. Pairs are factorised canonically (`_factorise_pair`), so
+a pair of single matrix units gives those matrix units, each piece's first coefficient is 1, and the
+pair's scale becomes its coefficient when projected.
 
-Internally each element is a `TensorMap` `V ← V ⊗ Vect[I](c => 1)` of one definite charge `c`, and
-the elements are grouped by charge: an element's letter is `(c, n)`, the `n`-th element of charge `c`
-in basis order. A two-site operator is factorised canonically (column-pivoted reduced row echelon
-form of its matrix-unit coefficients, see `_factorise_pair`), so a pair of single matrix units gives
-those matrix units; each piece's first coefficient is 1, and the pair's scale shows up as its
-coefficient when it is projected into the basis.
-
-With `complete = true` the basis is extended, after the given elements, by the matrix units it does
-not yet span, so that it spans every operator on `V` (what the stock bases, [`spin_basis`](@ref) and
-the others, do): on-site products and `H'` then never leave it.
+With `complete = true` the basis is extended by the matrix units it does not yet span, so that it
+spans every operator on `V` (as the stock bases do): on-site products and `H'` never leave it.
 
 ```julia
 Imat = [1 0; 0 1]; Xmat = [0 1; 1 0]; Ymat = [0 -im; im 0]; Zmat = [1 0; 0 -1]
@@ -71,7 +60,7 @@ _space(B::Basis) = B.space
 scalarop(c::Number, B::Basis) = scalarop(c, sectortype(B))
 _issite(::Basis) = true
 
-# `charge => number of letters of that charge in B`, what `_checklattice` validates letters against
+# `charge => number of letters of that charge`, what `_checklattice` validates letters against
 _alphabet(B::Basis{I}, ::Type{I}) where {I} = Dict{I, Int}(c => length(ks) for (c, ks) in pairs(B.bycharge))
 
 """
@@ -142,13 +131,10 @@ function _basis_tensor(M::AbstractMatrix)
     return TensorMap(ComplexF64.(M), V ← V)
 end
 
-# Charged elements → `Basis`: group by charge, drop elements parallel to an earlier one of the same
-# charge, check independence, and precompute the projector from matrix-unit coefficients. The first
-# element must be the identity. Internal: the public constructor only takes neutral operators.
-#
-# With `skipdependent = true` an element in the span of the earlier ones of its charge is dropped
-# instead of throwing: that is how a stock basis takes its defining operators in order and is then
-# completed with the matrix units it still lacks (`_completed_elements`).
+# Charged elements (the first being the identity) → `Basis`: group by charge, drop elements parallel to
+# an earlier one, check independence, precompute the projector from matrix-unit coefficients. With
+# `skipdependent = true` an element in the span of the earlier ones of its charge is dropped instead
+# of throwing (stock bases, completed with matrix units).
 function _basis_from_elements(
         V::ElementarySpace, elems::AbstractVector; rtol::Real = 1.0e-12, skipdependent::Bool = false
     )
@@ -210,19 +196,15 @@ end
 
 _isparallel(a, b, rtol) = abs2(inner(a, b)) >= (1 - rtol) * real(inner(a, a)) * real(inner(b, b))
 
-# The matrix-unit letters of charge `c` on `V`, in index order.
+# The matrix-unit letters of charge `c` on `V`.
 _chargeunits(V, c) = filter(mu -> mu.c == c, instances(IrrepOperator, V))
 
 # The rank factorisation of a neutral two-site operator into charged single-site pieces. Per charge
 # `c` of the left factor, `M[a, b]` is the pair's coefficient on the matrix units `eₐ ⊗ e_b`, and
-# `M = C R` with `C` the pivot columns of `M` (the first columns, in letter order, that are independent
-# of the ones before) and `R` the reduced row echelon form of `M`. The pieces are the columns of `C` on
-# the left and the rows of `R` on the right, each scaled so that its first entry above `rtol` is 1.
-#
-# This is canonical — no singular vectors, so no rotation within a degenerate singular value — and
-# readable: a pair built from single matrix units gives exactly those (`S⁺ ⊗ S⁻ + S⁻ ⊗ S⁺` gives `S⁺`
-# and `S⁻`, not a mixture of them). Only the directions matter: `project` puts the scale back as the
-# pair's coefficient.
+# `M = C R` with `C` the pivot columns of `M` and `R` its reduced row echelon form. The pieces are the
+# columns of `C` (left) and rows of `R` (right), each scaled so its first entry above `rtol` is 1.
+# Canonical (no singular vectors) and readable: `S⁺ ⊗ S⁻ + S⁻ ⊗ S⁺` gives `S⁺` and `S⁻`, not a mixture.
+# Only the directions matter: `project` puts the scale back as the pair's coefficient.
 function _factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = 1.0e-12)
     V = codomain(h)[1]
     I = sectortype(V)
@@ -253,8 +235,8 @@ function _factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = 1.0e
     return pieces
 end
 
-# `M = C E` with `C = M[:, pivots]` and `E` the reduced row echelon form of `M` (unit vectors in the
-# pivot columns). A column is a pivot when its residual against the earlier pivots exceeds `θ`.
+# `M = C E` with `C = M[:, pivots]` and `E` its reduced row echelon form; a column is a pivot when its
+# residual against the earlier pivots exceeds `θ`.
 function _echelon_factors(M::AbstractMatrix, θ::Real)
     Q = zeros(eltype(M), size(M, 1), 0)
     pivots = Int[]
@@ -268,8 +250,7 @@ function _echelon_factors(M::AbstractMatrix, θ::Real)
     return C, C \ M
 end
 
-# `v` scaled so that its first entry above `rtol` of its largest is exactly 1, with entries below
-# `rtol` of the largest set to zero (round-off from the solve, which would otherwise show up as letters).
+# `v` scaled so its first entry above `rtol` of the largest is 1; entries below that are zeroed (round-off).
 function _leadingone(v::AbstractVector, rtol::Real)
     vmax = maximum(abs, v)
     w = map(x -> abs(x) > rtol * vmax ? x : zero(x), v)
@@ -285,14 +266,12 @@ end
     project(h, Bs::AbstractVector{<:Basis}; …)                        # slot j in Bs[j]
 
 Express an operator in the basis `B`: a single-site operator gives a [`SiteOperator`](@ref), a
-coefficient per element; a `K`-site one gives an unplaced [`LocalOperator`](@ref) whose every slot is
-expressed in `B` (or slot `j` in `Bs[j]`, for sites with different bases), placed with `h[i]` or
-`h[s₁, …, s_K]`. A slot that a term does not act on holds the identity (element 1), which placement
-drops, so a projected `X ⊗ 𝟙` places as a one-site term.
+coefficient per element; a `K`-site one gives an unplaced [`LocalOperator`](@ref) with every slot
+expressed in `B` (or slot `j` in `Bs[j]`), placed with `h[i]` or `h[s₁, …, s_K]`. A slot a term does
+not act on holds the identity (element 1), which placement drops, so `X ⊗ 𝟙` places as a one-site term.
 
-The elements need not be orthogonal: the coefficients solve against the basis per charge. An
-operator outside the span of `B` throws, with the residual; the same tolerance drops coefficients
-that are round-off. A trailing total-charge leg is accepted as in [`project`](@ref)`(h)`.
+An operator outside the span of `B` throws, with the residual; the same tolerance drops round-off
+coefficients. A trailing total-charge leg is accepted as in [`project`](@ref)`(h)`.
 """
 function project(O::AbstractMatrix, B::Basis; kwargs...)
     V = B.space
@@ -315,19 +294,17 @@ function project(h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; kwargs...
     return SiteOperator{I}(IrrepOperator{I}[only(t.keys).op for t in ts], ComplexF64[t.coeff for t in ts])
 end
 
-# Matrix-unit terms re-expressed letter by letter in bases: factor `j` of term `t` in the basis
-# `basisof(t, j)`. Each matrix unit `(c, m)` becomes `Σₙ P[n, m] (c, n)` with `P` the basis'
-# pseudo-inverse for charge `c`, exact when the basis spans that matrix unit. A term with a letter whose
-# charge the basis has no element of is dropped, so callers check the result (`_project_terms` through
-# its residual). With `placed = true` identity factors are dropped as placement drops them; otherwise
-# they stay as pass-through slots. Coincident terms are not summed.
-function _rebasis(mu::AbstractVector{Term{I}}, basisof; placed::Bool = false) where {I}
+# Matrix-unit terms re-expressed letter by letter in `Bs[j]`: each matrix unit `(c, m)` becomes
+# `Σₙ P[n, m] (c, n)` with `P` the basis' pseudo-inverse for charge `c`. A term with a charge the basis
+# has no element of is dropped (`_project_terms` catches that through its residual). Coincident terms
+# are not summed.
+function _rebasis(mu::AbstractVector{Term{I}}, Bs) where {I}
     out = Term{I}[]
     for t in mu
         maps = map(eachindex(t.keys)) do j
-            key, B = t.keys[j], basisof(t, j)
-            P = get(B.pinv, key.op.c, nothing)
-            P === nothing && return nothing                   # a charge the basis has no element of
+            key = t.keys[j]
+            P = get(Bs[j].pinv, key.op.c, nothing)
+            P === nothing && return nothing
             col = P[:, key.op.n - IrrepTensorOperators._muoffset(key.op.c)]
             return [
                 (ITOKey{I}(IrrepOperator{I}(key.op.c, n), key.bond, key.vertex), col[n])
@@ -337,21 +314,14 @@ function _rebasis(mu::AbstractVector{Term{I}}, basisof; placed::Bool = false) wh
         any(isnothing, maps) && continue
         for combo in Iterators.product(maps...)
             keys = ITOKey{I}[first(x) for x in combo]
-            c = t.coeff * prod(last, combo)
-            if placed
-                keep = findall(k -> !ispassthrough(k.op), keys)
-                push!(out, Term{I}(t.sites[keep], keys[keep], c))
-            else
-                push!(out, Term{I}(t.sites, keys, c))
-            end
+            push!(out, Term{I}(t.sites, keys, t.coeff * prod(last, combo)))
         end
     end
     return Terms{I}(out)
 end
 
-# The terms of `h` on the slots `1:K`, slot `j` expressed in `Bs[j]`. The matrix-unit expansion is
-# exact, so this only changes coordinates, slot by slot, with each basis' per-charge pseudo-inverse;
-# the residual check then decides whether `h` was in the span.
+# The terms of `h` on the slots `1:K`, slot `j` in `Bs[j]`: a change of coordinates of the exact
+# matrix-unit expansion; the residual check decides whether `h` was in the span.
 function _project_terms(
         h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; atol::Real = 0, rtol::Real = _default_rtol(h)
     ) where {I}
@@ -369,7 +339,7 @@ function _project_terms(
     hnorm = norm(hc)
     θ = max(float(atol), float(rtol) * hnorm)
     mu = _project_units(h; atol = 0, rtol = 0).terms.terms
-    summed = canonicalize!(_rebasis(mu, (_, j) -> Bs[j])).terms
+    summed = canonicalize!(_rebasis(mu, Bs)).terms
     # drop round-off: a coefficient whose term, at the scale of its elements, is below the tolerance
     weight(t) = prod(j -> norm(instantiate(t.keys[j].op, Bs[j])), 1:K)
     out = Terms{I}(filter(t -> abs(t.coeff) * weight(t) > θ, summed))

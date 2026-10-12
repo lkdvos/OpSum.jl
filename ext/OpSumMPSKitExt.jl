@@ -9,10 +9,8 @@ using BlockTensorKit: nonzero_pairs
 using TensorKit: spacetype, storagetype, space
 
 # `JordanMPOTensor(::SparseBlockTensorMap)` asserts that both diagonal corners are identities, which a
-# boundary tensor of a finite chain cannot satisfy (site 1 has one row, so its `(end, end)` corner is
-# an on-site term or nothing). So every site goes through the `undef` + `setindex!` route that
-# constructor itself uses, which also recognises the `BraidingTensor`s; uniformly, since a mixture of
-# the two spellings gives an abstractly typed vector and MPSKit then runs untyped.
+# finite chain's boundary tensors cannot satisfy. So every site goes through the `undef` + `setindex!` route
+# (which also recognises `BraidingTensor`s), uniformly, as a mixture would give an abstractly typed vector.
 function _jordan(W)
     O = MPSKit.jordanmpotensortype(spacetype(W), storagetype(W))(undef, space(W))
     for (I, v) in nonzero_pairs(W)

@@ -123,14 +123,14 @@ end
 
 function truncation_error(H, alg; oracle = instantiate(H))
     m = mpo(H, alg)
-    Ws, secs = m.Ws, m.bondsectors
-    nempty = count(b -> bonddim(secs, b) == 0, eachindex(secs))
+    secs = m.bondsectors
+    D, bonds = maxdensedim(secs), map(length, secs)
     ## An emptied bond is not a large error but a degenerate MPO: the assembled tensor then carries
     ## an *empty* trailing charge leg, and subtracting the oracle throws a `SpaceMismatch` rather
     ## than returning a number. So report it instead of measuring it.
-    nempty > 0 && return (; D = maxdensedim(secs), empty_bonds = nempty, error = NaN)
-    O = mpo_tensormap(irrep_mpo_tensors(Ws, secs, H.lattice))
-    return (; D = maxdensedim(secs), empty_bonds = 0, error = norm(O - oracle) / norm(oracle))
+    any(iszero, bonds) && return (; D, bonds, error = NaN)
+    O = mpo_tensormap(irrep_mpo_tensors(m.Ws, secs, H.lattice))
+    return (; D, bonds, error = norm(O - oracle) / norm(oracle))
 end
 
 showerr(e) = isnan(e) ? "annihilated" : string(round(e; sigdigits = 3))
@@ -183,11 +183,9 @@ end
 let H = powerlaw(8; α = 2.0), oracle = instantiate(H)
     for sweep in (IndependentSVD, SequentialSVD)
         for k in (6, 4, 2)
-            m = mpo(H, SVDBondAlgorithm(truncrank(k); sweep))
-            Ws, secs = m.Ws, m.bondsectors
             r = truncation_error(H, SVDBondAlgorithm(truncrank(k); sweep); oracle)
             println(
-                "  ", rpad(string(sweep), 15), " truncrank($k)  per-bond = ", map(length, secs),
+                "  ", rpad(string(sweep), 15), " truncrank($k)  per-bond = ", r.bonds,
                 "  rel. error ", showerr(r.error)
             )
         end
@@ -221,10 +219,6 @@ end
 # 4. do not consult `islossless` again once you have truncated.
 
 # ## Scaling
-#
-# ```
-# julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full
-# ```
 #
 # The linear bond dimension has a price in construction time. Every in-flight coupling is one edge of
 # the bipartite graph at every bond it straddles, so the exact sweep costs ``\sum_\mathrm{terms}

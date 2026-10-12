@@ -1,19 +1,16 @@
-# Stock bases and their operator builders (research/operator-bases.md §3.7): one basis per
-# TensorKitTensors site, as a memoised function of the symmetry, and a builder that projects every
-# neutral TensorKitTensors operator of that site into it.
+# Stock bases and their operator builders (research/operator-bases.md §3.7): one memoised basis per
+# TensorKitTensors site and symmetry, and a builder projecting every neutral operator of that site
+# into it.
 #
-# A stock basis is defined from an ordered list of TensorKitTensors operators: each single-site one is
-# an element as it is, each two-site one contributes its factorised charged pieces (`_factorise_pair`).
-# Operators the symmetry does not admit (TensorKitTensors throws) are skipped, and so are elements in
-# the span of the earlier ones, so one list serves every symmetry. The basis is then completed with the
-# matrix units it still lacks, so that it spans every operator on its space: on-site products and `H'`
-# never leave it. The order of the list is what makes the common operators atomic (one letter each).
+# A stock basis is defined from an ordered list of TensorKitTensors operators: a single-site one is an
+# element, a two-site one contributes its factorised pieces (`_factorise_pair`). Operators the symmetry
+# does not admit, and elements already spanned, are skipped, so one list serves every symmetry; the
+# basis is then completed with matrix units. The order makes the common operators atomic.
 
 import TensorKitTensors
 using TensorKitTensors: SpinOperators, FermionOperators, HubbardOperators, TJOperators, BosonOperators
 
-# The defining operators, in order. A two-site entry gives its charged pieces; see the table in
-# research/operator-bases.md §3.7.
+# The defining operators, in order.
 const _SPIN_DEFINING = (:S_plus_S_min, :S_min_S_plus, :S_z, :S_z_S_z, :S_y_S_y, :S_exchange, :S_x)
 const _FERMION_DEFINING = (:f_plus_f_min, :f_min_f_plus, :f_num)
 const _BOSON_DEFINING = (:b_plus_b_min, :b_min_b_plus, :b_num)
@@ -22,7 +19,7 @@ const _HUBBARD_DEFINING = (
     :e_hopping,   # its pieces are new only under an SU(2) particle symmetry, which has no `e⁺e⁻`
 )
 
-# Everything a builder hands out: the neutral one- and two-site operators of each module.
+# What the builders hand out: the neutral one- and two-site operators of each module.
 const _SPIN_OPS = (
     :S_x, :S_y, :S_z, :S_plus, :S_min,
     :S_x_S_x, :S_y_S_y, :S_z_S_z, :S_plus_S_min, :S_min_S_plus, :S_exchange,
@@ -44,8 +41,8 @@ const _HUBBARD_OPS = (
 
 const _STOCK_CACHE = Dict{Any, Any}()
 
-# `f(ComplexF64, args...; kwargs...)` from module `M`, or `nothing` when the symmetry does not admit it
-# (TensorKitTensors throws), when it is charged (the space is not `V ← V` / `V ⊗ V ← V ⊗ V`), or zero.
+# `M.name(ComplexF64, args...; kwargs...)`, or `nothing` when the symmetry does not admit it
+# (TensorKitTensors throws), it is charged, or it is zero.
 function _tkt_operator(M::Module, name::Symbol, args, kwargs)
     isdefined(M, name) || return nothing
     t = try
@@ -72,7 +69,7 @@ function _stock_basis(V::ElementarySpace, M::Module, names, args, kwargs)
     return _basis_from_elements(V, _completed_elements(V, elems); skipdependent = true)
 end
 
-# `elems` followed by every matrix unit on `V`; with `skipdependent` the units already in the span drop.
+# `elems` followed by every matrix unit on `V`.
 function _completed_elements(V::ElementarySpace, elems::AbstractVector)
     units = [instantiate(mu, V) for mu in instances(IrrepOperator, V)]
     return AbstractTensorMap[elems; units]

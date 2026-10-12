@@ -15,8 +15,8 @@ include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 #
 # [`fermion_basis`](@ref OpSum.fermion_basis)`(U1Irrep)` is a single spinless mode, empty or occupied,
 # graded by particle number together with the fermion parity that
-# makes the braiding fermionic (`FermionParity ⊠ U1Irrep`). Its builder gives the neutral operators the symmetry admits, named
-# after TensorKitTensors.jl: `f_num` (``\hat n``), `f_plus_f_min` (``c^\dagger_i c_j``), `f_min_f_plus`
+# makes the braiding fermionic (`FermionParity ⊠ U1Irrep`). Its builder gives the neutral operators
+# the symmetry admits, named after TensorKitTensors.jl: `f_num` (``\hat n``), `f_plus_f_min` (``c^\dagger_i c_j``), `f_min_f_plus`
 # (``c_i c^\dagger_j``) and `f_hopping` (the hermitian combination). The charged ``c^\dagger`` and ``c``
 # are in the basis, but never appear in model code.
 
@@ -91,17 +91,10 @@ H ≈ byhand(N)
 # will warn that it does not preserve the categorical structure), so the dense-matrix oracle used
 # elsewhere is simply unavailable here.
 
-function free_fermion_spectrum(N; t = 1.0)
-    ε = [-2t * cos(k * π / (N + 1)) for k in 1:N]
-    return sort(
-        [
-            sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0)
-                for m in 0:(2^N - 1)
-        ]
-    )
-end
+levels(N; t = 1.0) = [-2t * cos(k * π / (N + 1)) for k in 1:N]
+subsetsums(ε) = sort([sum(ε[k] for k in eachindex(ε) if isodd(m >> (k - 1)); init = 0.0) for m in 0:(2^length(ε) - 1)])
 
-spectrum(H) ≈ free_fermion_spectrum(N)
+spectrum(H) ≈ subsetsums(levels(N))
 
 # The MPO is lossless, and its bond dimension is independent of ``N`` just as for the spin chains:
 
@@ -215,20 +208,7 @@ islossless(H_hub)
 # At ``U = 0`` the model is two independent species of free fermions, so the spectrum is every
 # subset sum over the two copies of the single-particle levels:
 
-let Ns = 3
-    H0 = hubbard(Ns; U = 0.0)
-    ε = vcat(
-        [-2 * cos(k * π / (Ns + 1)) for k in 1:Ns],
-        [-2 * cos(k * π / (Ns + 1)) for k in 1:Ns],
-    )
-    exact = sort(
-        [
-            sum(ε[k] for k in 1:(2Ns) if (m >> (k - 1)) & 1 == 1; init = 0.0)
-                for m in 0:(2^(2Ns) - 1)
-        ]
-    )
-    spectrum(H0) ≈ exact
-end
+spectrum(hubbard(3; U = 0.0)) ≈ subsetsums(repeat(levels(3), 2))
 
 # At ``t = 0`` nothing moves, so the energy just counts doubly-occupied sites in units of ``U``:
 
@@ -338,14 +318,3 @@ end
 # where the U(1)×U(1) one needs 6 and the spin-orbital encoding 7. Both single-site encodings are
 # smaller than the spin-orbital one because the on-site interaction and the spin-summed hop are single
 # letters of the Hubbard basis.
-
-# The spin-orbital and the SU(2) models are in `benchmark/ShowcaseModels.jl`, so those bond
-# dimensions are pinned by the test suite rather than only appearing here.
-
-# ## Scaling
-#
-# ```
-# julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full
-# ```
-#
-# ![Bond dimension and construction time versus system size](../assets/scaling.png)

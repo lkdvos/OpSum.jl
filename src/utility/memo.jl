@@ -1,7 +1,5 @@
-# Memoisation of the stock bases and operator builders (stockbases.jl), which run a whole `project`
-# per operator but are naturally called inside a term loop. Caching by symmetry keeps the caches small
-# (a program uses a handful) and needs no invalidation, since the functions are pure and
-# `SiteOperator` has no in-place API. The lock guards concurrent building across threads.
+# Memoisation of the stock bases and builders (each runs a whole `project`). Keyed by symmetry, so
+# the caches stay small and need no invalidation (pure functions). The lock guards threads.
 
 const _OPCACHE_LOCK = ReentrantLock()
 

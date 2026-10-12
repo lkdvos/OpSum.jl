@@ -27,7 +27,6 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
     end
 
     @testset "_op_at_ito reconstructs the running-bond pass-through path" begin
-        # a single two-body term on sites (1,3) of a 4-site chain, coupled to a singlet
         tt = ITOTermTable(opsum(dot(spinvector(unitbasis(su2))[1], spinvector(unitbasis(su2))[3])), 4)
         @test nterms(tt) == 1
         path = [_op_at_ito(tt, 1, s) for s in 1:4]
@@ -55,10 +54,8 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
     @testset "U(1) charge threads through idle sites" begin
         raise = LO(IrrepOperator(U1Irrep(1), 1))
         lower = LO(IrrepOperator(U1Irrep(-1), 1))
-        # sites 1,4 on a 5-site chain
         tt = ITOTermTable(opsum(dot(raise[1], lower[4])), 5)
         path = [_op_at_ito(tt, 1, s) for s in 1:5]
-        # after the +1 at site 1, the running bond charge is +1 until the -1 at site 4 closes it
         @test all(s -> path[s].bond == U1Irrep(1), 2:3)
         @test path[4].bond == U1Irrep(0)
         @test path[5].bond == U1Irrep(0)
@@ -69,7 +66,6 @@ end
 # A bag until `canonicalize!` merges it; the pre-merge append count must not be observable.
 @testset "append-then-canonicalise" begin
     S = spinvector(unitbasis(su2))
-    sites2 = fill(unitbasis(su2), 2)
     t = dot(S[1], S[2])
 
     H = opsum(t, t)
@@ -84,17 +80,15 @@ end
 
     @test isempty(opsum(t, -t))               # exact cancellation drops the term
     @test length(opsum(t, 2 * t, -3 * t)) == 0
-    @test_throws ArgumentError instantiate(opsum(sites2, opsum(t, -t)))
+    @test_throws ArgumentError instantiate(opsum(fill(unitbasis(su2), 2), opsum(t, -t)))
 
     # every accumulation route agrees, whatever its cost
-    sites6 = fill(unitbasis(su2), 6)
     terms = [dot(S[i], S[i + 1]) for i in 1:5]
     ref = opsum(terms)
     @test length(ref) == 5
     @test ref ≈ opsum(dot(S[i], S[i + 1]) for i in 1:5)
     @test ref ≈ foldl(+, terms; init = Terms{SU2Irrep}())
     @test ref ≈ append!(Terms{SU2Irrep}(), terms)
-    # a bare `Term` is accepted too, including as the argument that fixes the sector type
     @test ref ≈ opsum(only(terms[1]), terms[2:5])
     @test onlyterm(opsum(only(terms[1]))) == only(terms[1])
     # nested iterables flatten
@@ -110,8 +104,7 @@ end
     @test c ≈ opsum(terms[[1, 2, 4]])
     @test a ≈ opsum(terms[1:2])
 
-    # the non-mutating container protocol: `copy` owns its vector, so the mutating routes
-    # (`append!`, `canonicalize!`) cannot reach back into the original
+    # `copy` owns its vector, so mutating routes cannot reach back into the original
     d = append!(copy(a), terms[3])
     @test length(a) == 2 && length(d) == 3
     @test a ≈ opsum(terms[1:2])
@@ -142,18 +135,15 @@ end
     sites = fill(unitbasis(su2), 4)
 
     H = opsum(terms)
-    # a bag is latticeless, so nothing about it knows `sites`; the sweep needs only the site count
     @test nvertices(ITOTermTable(H, length(sites))) == length(sites)
     @test mpo(opsum(sites, H)).bondsectors == mpo(opsum(FiniteChain(unitbasis(su2), 4), H)).bondsectors
 
-    # the checks the lattice boundary exists for — the only place letters and spaces are confronted
     @test_throws ArgumentError mpo(opsum(fill(unitbasis(su2), 3), H))                 # term past the lattice
     @test_throws ArgumentError mpo(opsum(fill(unitbasis(u1), 4), H))                  # wrong sector type
     @test_throws ArgumentError mpo(opsum(fill(unitbasis(SU2Space(0 => 1)), 4), H))    # no spin-1 letter there
     @test_throws ArgumentError instantiate(opsum(fill(unitbasis(su2), 3), H))               # and again at instantiate
     @test_throws ArgumentError islossless(opsum(fill(unitbasis(su2), 3), H))
 
-    # appending to a bag is latticeless, so a term past the eventual lattice is caught when it meets one
     H2 = append!(opsum(terms), dot(S[1], S[5]))
     @test nterms_raw(H2) == 4
     @test_throws ArgumentError mpo(opsum(sites, H2))
@@ -163,27 +153,11 @@ end
     @test mpo(opsum!(OperatorSum(ntuple(_ -> unitbasis(su2), 4)), H)).bondsectors == mpo(opsum(sites, H)).bondsectors
     @test_throws ArgumentError mpo(opsum!(OperatorSum([1, 2, 3, 4]), H))
 
-    # FiniteChain has an edge where InfiniteChain wraps
-    @test length(FiniteChain(unitbasis(su2), 4)) == 4
-    @test FiniteChain(sites) == FiniteChain(unitbasis(su2), 4)
-    @test_throws BoundsError FiniteChain(unitbasis(su2), 4)[5]
-    @test InfiniteChain([unitbasis(su2)])[5] == unitbasis(su2)
-
-    # a lattice of bare spaces (the removed matrix-unit alphabet) is an error
-    @test_throws ArgumentError FiniteChain(su2, 4)
-    @test_throws ArgumentError FiniteChain(fill(su2, 4))
-    @test_throws ArgumentError InfiniteChain([su2])
-    @test_throws ArgumentError OperatorSum(fill(su2, 4))
-
-    # the empty operator
     @test isempty(Terms{SU2Irrep}())
-    @test_throws ArgumentError opsum()
 end
 
-# The container surface a consumer touches; all of it goes through the normal form.
 @testset "container and display surface" begin
     S = spinvector(unitbasis(su2))
-    sites = fill(unitbasis(su2), 3)
     t = dot(S[1], S[2])
     u = dot(S[2], S[3])
     H = opsum(t, 2 * u)

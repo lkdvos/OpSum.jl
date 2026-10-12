@@ -1,6 +1,5 @@
-# Unplaced K-site operators: a `Terms` bag on the relative sites `1:K`, placed by a monotone
-# relabelling of each term's sites. A slot an operator does not act on is held by the `passthrough`
-# letter and dropped on placement. Design note: `research/local-operators.md`.
+# Unplaced K-site operators: a `Terms` bag on the relative sites `1:K`, placed by relabelling each
+# term's sites. Design note: `research/local-operators.md`.
 
 using TensorKit: Sector, unit
 using VectorInterface: VectorInterface, scale
@@ -57,10 +56,9 @@ multiply in slot order. On strictly increasing sites placement relabels the site
 so it is exact for any symmetry; sites inside a gap are pass-throughs, and pass-through slots are
 dropped.
 
-Other placements are products in slot order (operator-bases.md §3.5): on distinct sites out of order
-the legs are reordered with their braiding phase under an abelian symmetry and re-coupled into site
-order under a non-abelian one, and on a repeated site, `hop[i, i]`, the slots form an on-site product, kept unevaluated
-until the operator enters an [`OperatorSum`](@ref) and resolved there in the site's basis.
+Other placements are products in slot order (see `*`): out-of-order sites are reordered (braiding
+phase or re-coupling), and a repeated site, `hop[i, i]`, is an on-site product kept unevaluated until
+the operator enters an [`OperatorSum`](@ref).
 """
 function Base.getindex(B::LocalOperator{I}, ind::Integer, inds::Integer...) where {I}
     K = B.nsites
@@ -113,7 +111,7 @@ Base.:*(B::LocalOperator, α::Number) = scale(B, α)
 Base.:/(B::LocalOperator, α::Number) = scale(B, inv(α))
 Base.:-(B::LocalOperator) = scale(B, -1)
 
-# `α` times the identity on all `K` slots (pass-through in each; it places as the `K = 0` scalar).
+# `α` times the identity on all `K` slots (places as the `K = 0` scalar).
 function _passthroughterm(::Type{I}, K::Int, α::Number) where {I <: Sector}
     key = ITOKey{I}(passthrough(I), unit(I), 1)
     return Term{I}(collect(1:K), fill(key, K), ComplexF64(α))
@@ -133,10 +131,8 @@ Base.:-(α::Number, B::LocalOperator) = (-B) + α
 Base.isapprox(a::LocalOperator{I}, b::LocalOperator{I}; kwargs...) where {I} =
     a.nsites == b.nsites && isapprox(a.terms, b.terms; kwargs...)
 
-# Unplaced coupling
-# -----------------
-# Operands are lowered onto consecutive slots (argument order, so no leg is ever reordered and no
-# R-symbol enters) and handed to the placed implementation.
+# Unplaced coupling: operands are lowered onto consecutive slots (no reordering, no R-symbol) and
+# handed to the placed implementation.
 
 const UnplacedOperator{I} = Union{SiteOperator{I}, LocalOperator{I}}
 

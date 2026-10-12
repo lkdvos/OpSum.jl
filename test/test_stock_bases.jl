@@ -7,10 +7,6 @@ import TensorKitTensors.SpinOperators as SO
 import TensorKitTensors.FermionOperators as FO
 import TensorKitTensors.HubbardOperators as HO
 
-# The stock bases and builders (operator-bases.md §3.7): one memoised basis per TensorKitTensors site,
-# complete, with the common operators atomic, and builders that are TensorKitTensors' operators
-# projected into them.
-
 nletters(x::SiteOperator) = length(collect(pairs(x)))
 nletters(x::LocalOperator) = length(x.terms)
 
@@ -61,13 +57,8 @@ end
         )
         for (name, t) in pairs(ref)
             op = getfield(ops, name)
-            if op isa SiteOperator
-                @test instantiate(op, B) ≈ insertrightunit(t)
-            else
-                lat = FiniteChain(B, 2)
-                D = instantiate(opsum(lat, op[1, 2]))
-                @test D ≈ insertrightunit(t)
-            end
+            D = op isa SiteOperator ? instantiate(op, B) : instantiate(opsum(FiniteChain(B, 2), op[1, 2]))
+            @test D ≈ insertrightunit(t)
         end
     end
 end
@@ -77,5 +68,5 @@ end
     N = 8
     H = opsum(FiniteChain(spin_basis(), N), (ops.S_exchange[i, i + 1] for i in 1:(N - 1)))
     @test islossless(H)
-    @test sum(dim, mpo(H).bondsectors[N ÷ 2]) == 5       # 6 in matrix units (handoff §5)
+    @test sum(dim, mpo(H).bondsectors[N ÷ 2]) == 5       # 6 in matrix units (operator-bases.md §1)
 end

@@ -7,28 +7,20 @@ using OpSum: couple, translate, unitcell_terms, window_terms, maxspan,
     _fixedpoint_cell, _entriesequal, _cellsequal, _identity_channels, _infinite_window,
     _at_site!, arity, nterms
 
-# The two halves of the canonicalisation that makes the sweep translation-covariant:
-#
-#   * `_rel_suffix_ids` / `_rdesc` — a suffix class is named by *shape plus distance from the bond*
-#     rather than by absolute position, so a class and its translate one unit cell later are the same
-#     object;
-#   * the canonical ordering itself — right vertices renumbered by that name, adjacency lists sorted,
-#     and the assembled bond ordered by `(link, key)` then by class name.
-#
-# Neither changes any bond dimension: what they remove is the *history dependence* of which minimum
-# vertex cover Hopcroft–Karp happens to find. On a finite chain that is invisible (all minimum covers
-# are equally good); on a periodic lattice it decides whether the unit cell closes at all.
+# The canonicalisation that makes the sweep translation-covariant: suffix classes are named by shape plus
+# distance from the bond (`_rel_suffix_ids`/`_rdesc`), and right vertices, adjacency lists and bonds are
+# ordered by that name. No bond dimension changes; it removes the history dependence of which minimum
+# cover is found, which on a periodic lattice decides whether the unit cell closes.
 
 const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
 
 include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, matrixunit, spinvector
 const BSU2 = unitbasis(VSU2)
-const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter, so `couple(Sz, Sz)` is legal
+const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter
 
 @testset "relative suffix ids are translation invariant" begin
     S = spinvector(BSU2)
-    # the same two-site term at four different positions
     H = sum([dot(S[i], S[i + 2]) for i in 1:4])
     tt = ITOTermTable(opsum(H), 8)
     rel = _rel_suffix_ids(tt)
@@ -36,23 +28,18 @@ const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter, so `
     K, M = arity(tt), nterms(tt)
     @test size(rel) == (K + 1, M)
 
-    # every term is a translate of every other, so all shape ids agree column by column …
+    # all terms are translates, so shape ids agree column by column …
     for j in 1:K
         @test allequal(rel[j, t] for t in 1:M)
     end
-    # … whereas the position-keyed ids are all distinct (which is exactly why a second naming was
-    # needed: `_suffix_ids` can never see two bonds one cell apart as posing the same problem)
+    # … whereas the position-keyed ids are all distinct
     @test allunique(abs_[1, t] for t in 1:M)
-    # exhausted stays 0 in both
     @test all(iszero, rel[K + 1, :])
     @test all(iszero, abs_[K + 1, :])
 end
 
 @testset "live class names repeat with the unit cell" begin
-    # The runtime half of the same statement: the *set of names* of the live suffix classes at bond `i`
-    # equals the one at bond `i + L` once the sweep is in the bulk. Recorded straight after each site
-    # step (which leaves the cursors at site `i`, plus the classes injected for `i + 1` — themselves
-    # periodic, so the comparison still holds).
+    # the set of live suffix-class names at bond `i` equals the one at `i + L` in the bulk
     S = spinvector(BSU2)
     for (L, H, spaces) in [
             (1, dot(S[1], S[2]) + 0.5 * dot(S[1], S[3]), [BSU2]),
@@ -69,14 +56,12 @@ end
         end
         guard = 4L + maxspan(gen)
         @test all(i -> names[i] == names[i + L], (guard + 1):(N - guard))
-        # and the live set stays bounded independently of the window length
         @test allequal(length.(names[(guard + 1):(N - guard)]))
     end
 end
 
 @testset "bulk bonds of an unrolled sweep are literally equal" begin
-    # The property `_fixedpoint_cell` rests on, and the one that fails without canonicalisation: bulk
-    # site tensors are equal entry for entry, not merely of equal size.
+    # what `_fixedpoint_cell` rests on: bulk site tensors are equal entry for entry
     S = spinvector(BSU2)
     for (name, H, L, spaces) in [
             ("Heisenberg L=1", dot(S[1], S[2]), 1, [BSU2]),
@@ -92,7 +77,6 @@ end
 
         c = _fixedpoint_cell(Ws, secs, L, R)
         @test 0 < c < ncells - 1
-        # every cell from `c` up to the right-boundary region repeats
         for cc in c:(ncells - 4)
             @test _cellsequal(Ws, L, cc)
             @test secs[(cc - 1) * L] == secs[cc * L]
@@ -101,11 +85,7 @@ end
 end
 
 @testset "the sweep does not depend on the order terms were written in" begin
-    # The sharp statement of what canonicalisation buys. Building the same Hamiltonian from a shuffled
-    # term list gives a different append order, and `canonicalize!` sorts the terms but the sweep still
-    # derives its right-vertex ids and adjacency order from where each class was first encountered.
-    # Before canonicalisation that could change which minimum cover was found; now the reduced MPO is
-    # identical entry for entry.
+    # a shuffled term list must give an identical reduced MPO, entry for entry
     S = spinvector(BSU2)
     Sp = matrixunit(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
     Sm = matrixunit(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
@@ -144,7 +124,6 @@ end
     H = _infinite_window(unitcell_terms(opsum(InfiniteChain([BSU2]), dot(S[1], S[2]))))
     @test _identity_channels(H.Ws, H.bondsectors) == (H.start, H.finish)
 
-    # the start channel's column and the done channel's row each hold exactly one stored entry
     W = H.Ws[1]
     s, d = H.start[1], H.finish[1]
     @test count(idx -> Tuple(idx)[2] == s, first.(collect(OpSum.storedpairs(W)))) == 1
@@ -162,8 +141,7 @@ end
 end
 
 @testset "canonicalisation leaves the finite path's bond dimensions alone" begin
-    # A guard on the shared code: the finite sweep is exercised in full by `test_irrep_graph.jl`, but
-    # pin the textbook numbers here too so a regression in `_canonicalise_bond!` is attributed here.
+    # textbook numbers, so a regression in `_canonicalise_bond!` is attributed here
     S = spinvector(BSU2)
     for N in (4, 6, 8)
         H = sum([dot(S[i], S[i + 1]) for i in 1:(N - 1)])

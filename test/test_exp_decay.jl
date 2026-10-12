@@ -8,21 +8,7 @@ using OpSum: mpo, irrep_mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
     _entriesequal, _infinite_window, storedpairs, ispassthrough, _irrep_sweep, ITOTermTable
 using OpSum.IrrepTensorOperators: IrrepOperator
 
-# Exponentially decaying interactions
-# ===================================
-# `expterm(t; decay = λ)` stretches the gap before `t`'s exit block geometrically, so the model it adds
-# is an infinite family of terms — `Σ_{i<j} λ^{j-i-1} A_i … B_j` and its multi-site generalisations. The
-# sweep turns each into a single bond index carrying `λ` on its diagonal, which is what makes the cost
-# independent of the interaction range.
-#
-# What the tests below pin, in order of how sharp they are:
-#
-#  * the *terms* the MPO generates, coefficient for coefficient, against the explicit expansion
-#    (`window_terms` / `chain_terms`), and against an explicitly truncated finite-range model;
-#  * the assembled symmetric tensors, contracted down densely against `instantiate`;
-#  * the emitted diagonal being `λ · pass-through` as a *letter* — a bare scalar would be silently
-#    dropped by `irrep_mpo_tensors`;
-#  * bond dimensions, which is where the merge behaviour of the design table is visible.
+# `expterm(t; decay = λ)` stretches the gap before `t`'s exit block geometrically; see research/infinite-mpo.md §7.
 
 const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
@@ -44,12 +30,9 @@ xxz(i, j; Δ = 1.0) =
     0.5 * couple(Sp[i], Sm[j]) + 0.5 * couple(Sm[i], Sp[j]) + Δ * couple(Sz[i], Sz[j])
 A3, B3 = element(BTR, 2), element(BTR, 3)
 
-# Every model here is a *generating set* on a cell of `length(spaces)` sites, as an `OperatorSum` on
-# the infinite chain of that cell.
-infchain(spaces) = InfiniteChain(spaces)
-
+# Every model is a generating set on a cell of `length(spaces)` sites, on the infinite chain of that cell.
 function reference_models()
-    m(spaces, parts...) = opsum(infchain(spaces), parts...)
+    m(spaces, parts...) = opsum(InfiniteChain(spaces), parts...)
     return [
         ("pure exp SU2 L=1", m([BSU2], expterm(dot(S[1], S[2]); decay = 0.5)), [BSU2]),
         (
@@ -110,12 +93,9 @@ function reference_models()
     ]
 end
 
-# The `mpo_terms_window` sandwich of `research/infinite-mpo.md` §6, with `R` now the range of the
-# *shortest* translates: everything produced must be a translate at its exact coefficient, and
-# everything comfortably inside the window must be produced. A geometric channel puts its coefficient on
-# its entry rather than its exit, so it needs no extra margin of its own.
+# The `mpo_terms_window` sandwich of `research/infinite-mpo.md` §6: everything produced must be a translate
+# at its exact coefficient, and everything comfortably inside the window must be produced.
 function faithful(H, spaces; ncells = 6)
-    chain = InfiniteChain(spaces)
     L = length(spaces)
     gen = unitcell_terms(H)
     R = maxspan(gen)
@@ -143,9 +123,7 @@ end
 end
 
 @testset "explicit truncation is the oracle" begin
-    # The honest comparison: the same interaction written out as a finite-range sum up to `Rmax`. Every
-    # term the truncated model has must appear in the geometric one at the same coefficient, while the
-    # geometric bond dimension stays `Rmax`-independent and the truncated one grows linearly.
+    # A finite-range sum up to `Rmax`: its terms appear in the geometric one, whose bond dimension is `Rmax`-independent.
     λ = 0.5
     ncells = 12
     chain = InfiniteChain([BSU2])
@@ -167,9 +145,7 @@ end
 end
 
 @testset "the diagonal is λ times the pass-through letter" begin
-    # The trap from `research/infinite-mpo.md` §7: `irrep_mpo_tensors` skips entries whose letter is
-    # `nothing`, so a channel whose diagonal were a bare scalar would assemble into a silently wrong
-    # tensor. λ rides as an edge weight, so the entry is a scaled *letter*.
+    # `irrep_mpo_tensors` skips letter-less entries, so a bare-scalar diagonal would be silently dropped.
     λ = 0.4
     H = mpo(opsum(InfiniteChain([BSU2]), expterm(dot(S[1], S[2]); decay = λ)))
     W = only(H.Ws)
@@ -188,8 +164,7 @@ end
 end
 
 @testset "merging: what costs a channel and what does not" begin
-    # The design table of `research/infinite-mpo.md` §7, as bond dimensions in the trivial sector (every
-    # letter is charge-neutral there, so each channel index costs exactly 1).
+    # Design table of `research/infinite-mpo.md` §7 in the trivial sector (each channel index costs 1).
     ops = [element(BTR, n) for n in 2:4]
     a, b, c = ops
     lat = InfiniteChain([BTR])
@@ -230,10 +205,8 @@ end
         mpo(opsum(lat, dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = 0.5))).bondsectors[1]
     ) == 8
 
-    # A channel's *period* is part of its declaration, so writing the same physical model on a larger
-    # cell is not free: on an `L`-site cell the same all-pairs interaction needs `L²` channels, whose
-    # classes collapse to the `L` "distance to the next legal exit" states — one spin-1 channel each.
-    # The terms are identical (checked in the round-trip testset above); the bond dimension is not.
+    # A channel's period is part of its declaration: on an `L`-site cell the all-pairs interaction needs
+    # `L²` channels, collapsing to `L` spin-1 channels.
     for L in 1:3
         H = sum([expterm(dot(S[a], S[a + d]); decay = 0.5) for a in 1:L for d in 1:L])
         Hinf = mpo(opsum(InfiniteChain(fill(BSU2, L)), H))
@@ -245,7 +218,6 @@ end
 @testset "the answer depends on neither the window size nor the term order" begin
     for (name, H, spaces) in reference_models()
         L = length(spaces)
-        chain = InfiniteChain(spaces)
         gen = unitcell_terms(H)
         base = _infinite_window(gen)
         for nc in (13, 21)
@@ -285,7 +257,6 @@ end
         @test all(j -> Hinf.bondsectors[j][Hinf.start[j]] == unit(I), 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.finish[j]] == unit(I), 1:L)
 
-        lat = InfiniteChain(spaces)
         Ts = irrep_mpo_tensors(Hinf)
         @test length(Ts) == L
         @test space(Ts[1], 1) == space(Ts[L], 4)'
@@ -294,9 +265,7 @@ end
 end
 
 @testset "tiled MPO reproduces the enclosed operator densely" begin
-    # The strongest available check: contract the tiled tensors between the two identity-channel
-    # boundary vectors against `instantiate` of the terms the MPO claims to generate. This is what
-    # exercises the pass-through-on-a-*charged*-bond coupler that a channel's diagonal needs.
+    # Contract the tiled tensors between the identity-channel boundary vectors against `instantiate`.
     cases = [
         ("pure exp trivial", [expterm(couple(A3[1], B3[2]); decay = 0.4)], [BTR], 4),
         (
@@ -314,8 +283,7 @@ end
     ]
     for (name, H, spaces, ncells) in cases
         L = length(spaces)
-        lat = InfiniteChain(spaces)
-        Hinf = mpo(opsum(lat, H...))
+        Hinf = mpo(opsum(InfiniteChain(spaces), H...))
         N = ncells * L
         sites = [spaces[mod1(j, L)] for j in 1:N]
         Ts = irrep_mpo_tensors(Hinf)
@@ -327,9 +295,6 @@ end
 end
 
 @testset "finite chains truncate the geometric sum" begin
-    # On a finite chain every site is a possible entry (period 1) and the operator represented is the
-    # geometric sum restricted to the chain — `chain_terms` spells it out. States that could no longer
-    # complete are pruned, which is what keeps the right boundary one-dimensional.
     cases = [
         ("exp SU2", [expterm(dot(S[1], S[2]); decay = 0.5)], fill(BSU2, 5)),
         (

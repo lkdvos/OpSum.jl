@@ -1,8 +1,5 @@
-# The symbolic MPO: what `mpo(H)` returns (operator-bases.md §3.8). Per site a sparse matrix of
-# `SiteOperator`s — coefficient vectors over the site's basis — and per bond its charges and its two
-# identity channels; the lattice rides along, so `instantiate(W)` needs no further arguments. Turning
-# it into MPSKit's `FiniteMPOHamiltonian`/`InfiniteMPOHamiltonian` lives in the MPSKit extension
-# (ext/OpSumMPSKitExt.jl), on top of the Jordan emission of jordanmpo.jl.
+# The symbolic MPO that `mpo(H)` returns. The MPSKit Hamiltonians are built in ext/OpSumMPSKitExt.jl, on top
+# of the Jordan emission of jordanmpo.jl.
 
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Sector, dim
@@ -68,16 +65,13 @@ whole geometric sum truncated to the chain — [`chain_terms`](@ref)`(H)` spells
 becomes a single bond index with `λ` on its diagonal, so its cost is independent of the interaction
 range.
 
-The two identity channels of every bond are identified, which is what the Jordan form
-([`jordan_mpo_tensors`](@ref), `instantiate(W)`) needs; on a finite chain the finish channel is forced
-into the cover for that. With decaying channels on a finite chain they are not identified yet, so
-that `SymbolicMPO` has no Jordan form.
+The two identity channels of every bond are identified, as the Jordan form ([`jordan_mpo_tensors`](@ref),
+`instantiate(W)`) needs; on a finite chain the finish channel is forced into the cover for that. With
+decaying channels on a finite chain they are not, so that `SymbolicMPO` has no Jordan form.
 
-`alg` is the algorithm selector: `BipartiteAlgorithm()` (the default, lossless minimum vertex cover)
-or `SVDBondAlgorithm(trunc; sweep)`, whose `sweep` picks between the two truncation semantics
-(`IndependentSVD`, the default, versus `SequentialSVD`). Each selector names a
-[`BondStrategy`](@ref); the sweeps live in irrepgraph.jl. `SVDBondAlgorithm` is available on a
-`FiniteChain` without channels only.
+`alg` is `BipartiteAlgorithm()` (the default, lossless minimum vertex cover) or
+`SVDBondAlgorithm(trunc; sweep)` (see [`BondStrategy`](@ref)), available on a `FiniteChain` without
+channels only.
 """
 function mpo(
         H::OperatorSum{I, <:FiniteChain},
@@ -97,7 +91,6 @@ mpo(::OperatorSum{I, <:InfiniteChain}, ::SVDBondAlgorithm) where {I} = throw(
     )
 )
 
-# The lattice is bound where the terms are added, not here.
 mpo(::Union{Term, Terms, ExpSum}, args...) = throw(
     ArgumentError("mpo takes an OperatorSum: put the terms on a lattice first, `mpo(opsum(lat, h))`")
 )
@@ -120,8 +113,7 @@ The dense per-site tensors of `W`, each entry interpreted in its site's basis.
 """
 irrep_mpo_tensors(W::SymbolicMPO{I, <:FiniteChain}) where {I} =
     irrep_mpo_tensors(W.Ws, W.bondsectors, W.lattice)
-# the unit cell: identical to the finite assembly except that the bond to the left of site 1 is bond
-# `L` rather than the vacuum, so the tensors tile (`space(Ts[1], 1) == space(Ts[L], 4)'`)
+# the unit cell: as the finite assembly, but the bond left of site 1 is bond `L`, so the tensors tile
 function irrep_mpo_tensors(W::SymbolicMPO{I, <:InfiniteChain}) where {I}
     L = length(W)
     bsecs = Vector{I}[W.bondsectors[mod1(j - 1, L)] for j in 1:(L + 1)]
@@ -148,8 +140,7 @@ function jordan_mpo_tensors(W::SymbolicMPO{I, <:FiniteChain}) where {I}
     return jordan_mpo_tensors(W.Ws, W.bondsectors, W.start, W.finish, W.lattice)
 end
 
-# The unit cell: every bond carries both identity channels, so each is reordered as it stands, and
-# the bond to the left of site 1 is bond `L`.
+# The unit cell: every bond carries both identity channels; the bond left of site 1 is bond `L`.
 function jordan_mpo_tensors(W::SymbolicMPO{I, <:InfiniteChain}) where {I}
     L = length(W)
     bonds = [_jordan_bond(W.bondsectors[j], W.start[j], W.finish[j]) for j in 1:L]
@@ -167,7 +158,6 @@ by the MPSKit extension: load MPSKit first.
 """
 instantiate(W::SymbolicMPO) = _mpskit_hamiltonian(W)
 
-# Methods for `SymbolicMPO`s on either lattice come with the MPSKit extension.
 _mpskit_hamiltonian(::Any) = throw(
     ArgumentError("instantiate(::SymbolicMPO) builds an MPSKit Hamiltonian: load MPSKit first (`using MPSKit`)")
 )

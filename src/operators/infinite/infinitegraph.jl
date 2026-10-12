@@ -1,15 +1,9 @@
-# Reduced MPO for an infinite chain with a repeating unit cell: a generating `Terms` bag over `L` sites stands for
-# `Σ_{n∈ℤ} translate(H, n·L)`. Per bond this is the finite sweep's problem with one difference: the
-# bond basis has to close on itself (`V_0 ≅ V_L`), so both identity channels are live at every bond.
-# See `research/infinite-mpo.md` for the design.
+# Reduced MPO for an infinite chain: a generating bag over `L` sites stands for `Σ_n translate(H, n·L)`.
+# This is the finite sweep with one difference: the bond basis closes on itself (`V_0 ≅ V_L`), so both
+# identity channels are live at every bond. Design: `research/infinite-mpo.md`.
 #
-# `_infinite_window` unrolls `2P+1` cells (`P·L ≥ R`), runs the unchanged finite sweep, and reads the
-# middle cell off — exact in the bulk since every crossing (or collision-prone pending) translate lies
-# entirely inside the window. Closure is checked, not assumed: bond `offset` and bond `offset+L` must
-# agree as ordered bases and the extracted cell must equal the next one entry for entry.
-#
-# The two identity channels are found on the assembled cell by direction: nothing enters the start
-# channel but itself, nothing leaves the done channel but itself.
+# `_infinite_window` unrolls a window of cells, runs the unchanged finite sweep, and reads off a cell
+# that has reached the translation-invariant fixed point. Closure is checked, not assumed.
 
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Sector, unit, block, oneunit, ncon, removeunit, permute, @tensor
@@ -17,10 +11,8 @@ using .IrrepTensorOperators: IrrepOperator
 
 # --- identity-channel detection ---------------------------------------------------------------
 
-# Rows/columns of `W` that hold exactly one stored entry, and that entry is the bare pass-through
-# (`isone`, i.e. the pass-through letter with unit coefficient — the identity backbone):
-# `rowsucc[r] = c` if row `r`'s only entry is a bare pass-through into column `c` (else 0), and
-# `colpred[c] = r` dually. Bond dimensions are small, so a dense scan over stored entries is fine.
+# `rowsucc[r] = c` if row `r`'s only entry is a bare pass-through (`isone`) into column `c` (else 0),
+# and `colpred[c] = r` dually: the identity backbone.
 function _identity_links(W::SparseMatrixCSC, nrows::Int, ncols::Int)
     rowsucc, rowdeg = zeros(Int, nrows), zeros(Int, nrows)
     colpred, coldeg = zeros(Int, ncols), zeros(Int, ncols)
@@ -42,56 +34,38 @@ function _identity_links(W::SparseMatrixCSC, nrows::Int, ncols::Int)
     return rowsucc, colpred
 end
 
-# Follow a per-bond successor map once around the cell and keep the indices that come back to
-# themselves — the closed identity backbones.
+# Follow a per-bond successor map once around the cell; keep the indices that return to themselves.
 function _closed_chains(step::Vector{Vector{Int}}, order::AbstractVector{Int}, nstart::Int)
     chains = Vector{Vector{Int}}()
     for d0 in 1:nstart
         chain = Vector{Int}(undef, length(order))
         d = d0
-        ok = true
         for (k, j) in enumerate(order)
             d = step[j][d]
-            if iszero(d)
-                ok = false
-                break
-            end
+            iszero(d) && break
             chain[k] = d
         end
-        (ok && d == d0) && push!(chains, chain)
+        d == d0 && push!(chains, chain)
     end
     return chains
 end
 
-"""
-    _identity_channels(Ws, bondsectors) -> (start, done)
-
-Locate the two identity channels of a closed unit cell. `start[j]` / `done[j]` are bond indices on
-bond `j` (`j == L` is also bond `0`).
-
-Both channels are chains of bare pass-through entries running all the way around the cell, told apart
-by direction: the start channel's *column* has no other entry (nothing enters it), the done channel's
-*row* has no other entry (nothing leaves it). Throws if either is missing or ambiguous — for the
-lossless bipartite compression an infinite MPO without a unique identity backbone on each side has no
-well-defined pair of boundary vectors.
-"""
+# Locate the two identity channels of a closed cell: `start[j]` / `done[j]` are bond indices on bond `j`
+# (`j == L` is also bond `0`). Both are closed chains of bare pass-throughs, told apart by direction:
+# nothing enters the start channel but itself, nothing leaves the done channel but itself. Throws if
+# either is missing or ambiguous.
 function _identity_channels(
         Ws::Vector{<:SparseMatrixCSC}, bondsectors::Vector{Vector{I}}
     ) where {I}
     L = length(Ws)
     D = [length(sec) for sec in bondsectors]
-    succ = Vector{Vector{Int}}(undef, L)   # bond j-1 index -> bond j index (row-unique backbone)
-    pred = Vector{Vector{Int}}(undef, L)   # bond j index   -> bond j-1 index (col-unique backbone)
-    for j in 1:L
-        succ[j], pred[j] = _identity_links(Ws[j], D[mod1(j - 1, L)], D[j])
-    end
+    links = [_identity_links(Ws[j], D[mod1(j - 1, L)], D[j]) for j in 1:L]
+    succ = first.(links)   # bond j-1 index -> bond j index
+    pred = last.(links)    # bond j index   -> bond j-1 index
 
-    # done: forwards from bond L around to bond L again, keeping row-unique bare pass-throughs
     dones = _closed_chains(succ, 1:L, D[L])
-    # start: backwards from bond L, keeping column-unique bare pass-throughs; the chain is collected
-    # in reverse bond order, so rotate it back to `start[j]`
+    # backwards from bond L; `rev[k]` is the index on bond `L-k` and `rev[end]` the one on bond L
     starts = map(_closed_chains(pred, reverse(1:L), D[L])) do rev
-        # `rev[k]` is the index on bond `L-k`; index on bond L is the seed, i.e. `rev[end]`
         return [k == L ? rev[end] : rev[L - k] for k in 1:L]
     end
 
@@ -120,10 +94,8 @@ end
 
 # --- the window construction ------------------------------------------------------------------
 
-# Canonical form of a reduced entry: its `letter => coefficient` list sorted by letter. `SiteOperator`
-# does have a structural `==`, but it compares the two parallel vectors *in order* and `+` accumulates
-# in insertion order, so two separately-built copies of the same entry can disagree on letter order.
-# The fixed-point test compares entries built at different points in the sweep, so the sort is needed.
+# Reduced entry as a `letter => coefficient` list sorted by letter: `SiteOperator`'s `==` is
+# order-sensitive, and entries built at different points of the sweep may differ in letter order.
 _canonform(op::SiteOperator) = sort!(collect(pairs(op)); by = first)
 
 # Entry-for-entry equality of two reduced bond matrices.
@@ -141,19 +113,9 @@ function _cellsequal(Ws::Vector{<:SparseMatrixCSC}, L::Int, c::Int)
     return all(j -> _entriesequal(Ws[a + j], Ws[b + j]), 1:L)
 end
 
-"""
-    _fixedpoint_cell(Ws, bondsectors, L, R) -> Int
-
-Index of the first unit cell of an unrolled sweep that has reached the translation-invariant fixed
-point, or `0` if none has.
-
-A cell qualifies when it and the *two* cells after it are identical site tensors and its two bond
-charge lists agree — i.e. the sweep has repeated itself twice over, which pins both the bond bases and
-the residual coefficients riding on them. Two consecutive repetitions rather than one because a single
-coincidence is cheap to rule out and the window has cells to spare; cells closer than `R` to the left
-end are skipped outright, since the window drops the translates that stick out there and a match in
-that region would not be the periodic problem.
-"""
+# Index of the first unit cell that has reached the translation-invariant fixed point (0 if none): it
+# and the two cells after it are identical site tensors and its two bond charge lists agree. Cells
+# closer than `R` to the left end are skipped, since the window drops translates sticking out there.
 function _fixedpoint_cell(
         Ws::Vector{<:SparseMatrixCSC}, bondsectors::Vector{Vector{I}}, L::Int, R::Int
     ) where {I}
@@ -166,21 +128,10 @@ function _fixedpoint_cell(
     return 0
 end
 
-"""
-    _infinite_window(gen::OperatorSum{I, <:InfiniteChain}; ncells = nothing) -> SymbolicMPO
-
-Reduced MPO for the infinite chain generated by the canonical unit-cell term sum `gen` (see
-`unitcell_terms`), via the unrolled-window construction described at the top of this file.
-
-The window is unrolled and then *searched* for the fixed point rather than sized by a formula: the
-number of cells it takes for the sweep to become translation-invariant is bounded by the interaction
-range `R` for the bond bases, but the residual coefficients riding on a bond take a further reset to
-settle (the identity backbone on the right does not exist until something has finished), so the honest
-thing is to look. If no fixed point is found the window doubles, twice, before giving up.
-
-`ncells` overrides the initial window size; it is exposed so a test can check the answer does not
-depend on it.
-"""
+# Reduced MPO of the infinite chain generated by the unit-cell sum `gen` (see `unitcell_terms`).
+# The window is unrolled and *searched* for the fixed point rather than sized by a formula (the
+# residual coefficients on a bond take a further reset to settle); if none is found it doubles, twice.
+# `ncells` overrides the initial size, so a test can check the answer does not depend on it.
 function _infinite_window(
         gen::OperatorSum{I, <:InfiniteChain};
         ncells::Union{Nothing, Int} = nothing
@@ -221,9 +172,8 @@ end
 """
     tile(H::SymbolicMPO, ncells::Int) -> (Ws, bondsectors)
 
-Unroll `ncells` copies of an infinite chain's unit cell into the finite `(Ws, bondsectors)` contract,
-over `ncells * L` sites. The result is a finite MPO only once boundary vectors are chosen:
-`H.start[L]` on the left and `H.finish[L]` on the right.
+Unroll `ncells` copies of an infinite chain's unit cell into the finite `(Ws, bondsectors)` contract.
+Finite only once boundary vectors are chosen: `H.start[L]` on the left, `H.finish[L]` on the right.
 """
 function tile(H::SymbolicMPO{I, <:InfiniteChain}, ncells::Int) where {I}
     L = length(H)
@@ -234,24 +184,16 @@ end
 """
     mpo_terms_window(H::SymbolicMPO, ncells::Int) -> Terms
 
-Reconstruct the terms an infinite MPO generates inside a window of `ncells` unit cells: tile the cell,
-then enumerate the paths that enter on the start channel and leave on the finish channel.
+The terms an infinite MPO generates inside a window of `ncells` cells: tile the cell and enumerate the
+paths from the start to the finish channel. This pins coefficients *and* fusion trees, and is a
+**sandwich** against [`window_terms`](@ref), not an equality:
 
-This is the faithfulness check for the infinite construction, and unlike the bond dimensions it pins
-the coefficients *and* the caterpillar fusion trees. It is a **sandwich**, not an equality, against
-[`window_terms`](@ref):
+* every term produced is a translate inside the window at its exact coefficient;
+* every translate ending at least `R + 1` sites before the right edge is produced.
 
-* every term produced is a translate with support inside the window, at its exact coefficient — no
-  spurious terms and no wrong weights;
-* every translate whose support ends at least `R + 1` sites before the right edge is produced.
-
-The gap is real and is a property of the compression, not a defect. A term's reduced coefficient does
-not have to sit on its own last site: when its suffix class is *shared* with a longer term the
-coefficient is folded onto the shared channel's trailing pass-through instead. The minimal example is
-the pending↔started collision (`research/persistent-graph-mpo.md` §2.2) — an on-site field alongside a
-two-site interaction, where the field's letter goes down at site `s` and its coefficient is picked up
-on the identity at site `s + 1`. So a *path* can run up to `R` sites past the support of the term it
-represents, and paths that would run off the right edge of a finite window are simply absent from it.
+The gap is a property of the compression: when a term's suffix class is shared with a longer term, its
+coefficient is folded onto the shared channel's trailing pass-through (the pending/started collision,
+`research/persistent-graph-mpo.md` §2.2), so a path can run up to `R` sites past the term's support.
 """
 function mpo_terms_window(H::SymbolicMPO{I, <:InfiniteChain}, ncells::Int) where {I}
     L = length(H)
@@ -281,15 +223,9 @@ end
 """
     contract_open(Ts, bondsec, leftidx, rightidx) -> AbstractTensorMap
 
-Contract a chain of MPO site tensors down to the operator it represents between two chosen bond-basis
-vectors of the shared boundary bond (charges `bondsec`) — for an infinite MPO, the start and done
-channels.
-
-This is the infinite counterpart of the `mpo_tensormap` helper in `examples/common.jl`: that one drops
-a one-dimensional vacuum boundary with `removeunit`, whereas here both boundary bonds are the full,
-many-dimensional periodic bond, so they are first capped with one-hot maps. The result is in
-`instantiate`'s convention (`o₁…o_N ← i₁…i_N ⊗ trivial`), so it can be compared against a dense oracle
-directly. Exponential in `N`; for tests only.
+Contract site tensors down to the operator between two bond-basis vectors of the shared boundary bond
+(for an infinite MPO, the start and done channels), by capping both ends with one-hot maps. The result
+is in `instantiate`'s convention. Exponential in `N`; for tests only.
 """
 function contract_open(Ts, bondsec::Vector{I}, leftidx::Int, rightidx::Int) where {I}
     N = length(Ts)

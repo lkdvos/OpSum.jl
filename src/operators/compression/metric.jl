@@ -1,29 +1,20 @@
-# The metric a truncating SVD backend works in (operator-bases.md §4: a basis need not be orthogonal).
+# The metric a truncating SVD works in. The SVD backends treat a site's letters as orthonormal, which a
+# `Basis` need not satisfy (`n` and `𝟙`, or `X` and `X + Y`, overlap). Lossless results do not care, but a
+# truncation would keep the wrong states, so it first rewrites every term over an orthonormalised alphabet,
+# compresses, and maps each site entry back.
 #
-# The SVD backends treat the letters of a site as orthonormal: a bond's singular values are those of
-# the coefficient matrix over prefix and suffix classes. That holds for the matrix-unit alphabet, but
-# not for a `Basis`, whose elements may overlap (`n` and `𝟙`, or `X` and `X + Y`). Lossless results do
-# not care (the rank of an operator does not depend on the basis it is written in), but a truncation
-# would keep the wrong states. So a truncating SVD first rewrites every term over an orthonormalised
-# alphabet, compresses, and maps each site entry back.
+# The inner product is the operator's Hilbert–Schmidt one. For a caterpillar term it factorises:
+# `‖t‖² = |coeff|² · Πᵢ dot(aᵢ, aᵢ) / dim(cᵢ)`, times `dot(𝟙, 𝟙)` per idle site; terms with different
+# letters or trees are orthogonal once each site's letters are. Dividing each site by `dot(𝟙, 𝟙)` leaves
+# the per-charge Gram matrix `G_c[n, m] = dot(eₙ, eₘ) / (dim(c) · dot(𝟙, 𝟙))`, with the identity of norm one.
 #
-# The inner product is the Hilbert–Schmidt one of the whole operator. For one caterpillar term it
-# factorises: `‖t‖² = |coeff|² · Πᵢ dot(aᵢ, aᵢ) / dim(cᵢ)`, times `dot(𝟙, 𝟙)` per idle site, and terms with
-# different letters or different trees are orthogonal once each site's letters are. Dividing every
-# site by `dot(𝟙, 𝟙)` (a constant per site, so it cancels in every bond) leaves the per-charge Gram
-# matrix `G_c[n, m] = dot(eₙ, eₘ) / (dim(c) · dot(𝟙, 𝟙))`, in which the identity has norm one.
-#
-# With `G_c = A'A` (Cholesky, `A` upper triangular), a letter `(c, n)` is `Σ_{m ≤ n} A[m, n] (c, m)` in
-# the orthonormal letters, and an orthonormal letter `(c, m)` is `Σ_{n ≤ m} A⁻¹[n, m] (c, n)`. Because
-# the identity is element 1 and `A[1, 1] = 1`, it maps to itself both ways, so the pass-throughs and
-# identity channels of the sweep are untouched.
+# With `G_c = A'A` (Cholesky, `A` upper triangular), a letter `(c, n)` is `Σ_{m ≤ n} A[m, n] (c, m)` in the
+# orthonormal letters and an orthonormal letter `(c, m)` is `Σ_{n ≤ m} A⁻¹[n, m] (c, n)`. The identity is
+# element 1 with `A[1, 1] = 1`, so pass-throughs and identity channels are untouched.
 
 using LinearAlgebra: cholesky, Hermitian, UpperTriangular
 
-# Per charge of one site: `(A, A⁻¹)`, or `nothing` when the letters are already orthonormal. A site
-# given by its space uses the matrix-unit alphabet, which is not a basis (its trivial-charge units
-# span the identity), so it keeps the backends' plain metric.
-_lettermetric(::ElementarySpace) = nothing
+# Per charge of one site: `(A, A⁻¹)`, or `nothing` when the letters are already orthonormal.
 function _lettermetric(B::Basis{I}) where {I}
     T1 = instantiate(passthrough(I), B)
     z = real(dot(T1, T1))

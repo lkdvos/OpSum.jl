@@ -1,10 +1,6 @@
-# Connected components of a bipartite graph (union-find), sector-agnostic
-# =========================================================================
-# Splits a bipartite adjacency structure into its connected components so each can be handed to
-# `min_vertex_cover_bipartite` independently, instead of solving one matching problem over the
-# whole graph. A minimum vertex cover of a disjoint union of graphs is exactly the union of the
-# minimum vertex covers of its components (König's theorem applies per-component), so this is a
-# pure decomposition: solving each component separately reproduces the same global cover.
+# Connected components of a bipartite graph (union-find). A minimum vertex cover of a disjoint union
+# is the union of the components' minimum covers (König per component), so splitting is a pure
+# decomposition that gives `min_vertex_cover_bipartite` smaller problems.
 
 function _find_root!(parent::Vector{Int}, x::Int)
     while parent[x] != x
@@ -12,13 +8,6 @@ function _find_root!(parent::Vector{Int}, x::Int)
         x = parent[x]
     end
     return x
-end
-
-function _union!(parent::Vector{Int}, x::Int, y::Int)
-    rx, ry = _find_root!(parent, x), _find_root!(parent, y)
-    rx == ry && return nothing
-    parent[rx] = ry
-    return nothing
 end
 
 """
@@ -34,29 +23,23 @@ function bipartite_connected_components(adjU::Vector{Vector{Int}}, nV::Int)
     nU = length(adjU)
     parent = collect(1:(nU + nV))
     for u in 1:nU, v in adjU[u]
-        _union!(parent, u, nU + v)
+        parent[_find_root!(parent, u)] = _find_root!(parent, nU + v)
     end
 
     comp_of_root = Dict{Int, Int}()
     us_of_component = Vector{Int}[]
     vs_of_component = Vector{Int}[]
-
     for u in 1:nU
-        r = _find_root!(parent, u)
-        cid = get!(comp_of_root, r) do
+        cid = get!(comp_of_root, _find_root!(parent, u)) do
             push!(us_of_component, Int[])
             push!(vs_of_component, Int[])
             return length(us_of_component)
         end
         push!(us_of_component[cid], u)
     end
-
     for v in 1:nV
-        r = _find_root!(parent, nU + v)
-        cid = get(comp_of_root, r, 0)
-        iszero(cid) && continue # v has no incident edge: belongs to no component
-        push!(vs_of_component[cid], v)
+        cid = get(comp_of_root, _find_root!(parent, nU + v), 0)
+        iszero(cid) || push!(vs_of_component[cid], v)
     end
-
     return us_of_component, vs_of_component
 end

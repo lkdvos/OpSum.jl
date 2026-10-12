@@ -5,7 +5,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, norm, eigvals, I as Id
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO
+include(joinpath(@__DIR__, "testutils.jl"))
 
 # dense oracle of a latticeless bag over a list of sites; a bare space stands for its `unitbasis`
 sitebasis(V::ElementarySpace) = unitbasis(V)
@@ -31,10 +31,8 @@ const σZ = ComplexF64[1 0; 0 -1]
     @test space(Osc) == (V ← V ⊗ Vu)
     @test reshape(convert(Array, Osc), 2, 2) ≈ 2 * Matrix{ComplexF64}(Id, 2, 2)
 
-    # scalarop can also be built from the sector type
     @test space(instantiate(scalarop(1, SU2Irrep), V)) == (V ← V ⊗ Vu)
 
-    # bare ITO
     B = unitbasis(V)
     S = spinvector(B)
     Osp = instantiate(S, B)
@@ -144,22 +142,18 @@ end
     V = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(V))
     a, b, c = S[1], S[2], S[3]
-    # tree coupling deferred to Phase 3
     @test_throws ArgumentError couple(a, b; to = SU2Irrep(0), via = :tree)
     @test_throws ArgumentError couple(a, b, c; to = SU2Irrep(0), via = :tree)
-    # variadic coupling names no channel, so it needs every channel to be forced: four rank-1
-    # operators leave (j₁₂, j₁₂₃) free, and the error says so rather than picking one
+    # four rank-1 operators leave (j₁₂, j₁₂₃) free, and the error says so rather than picking one
     d = S[4]
-    @test_throws ArgumentError couple(a, b, c, d)
     err = try
         couple(a, b, c, d)
     catch e
+        e isa ArgumentError || rethrow()
         sprint(showerror, e)
     end
-    @test occursin("genuine choice", err) && occursin("couple_channels", err)
-    # coupling a scalar (no charge leg) is invalid
+    @test err isa String && occursin("genuine choice", err) && occursin("couple_channels", err)
     @test_throws ArgumentError inst(couple(scalarop(1, V)[1], b; to = SU2Irrep(0)), [V, V, V])
-    # same-site coupling invalid
     @test_throws ArgumentError inst(couple(S[1], S[1]; to = SU2Irrep(0)), [V, V])
 end
 
@@ -179,12 +173,9 @@ end
     @test total(only(couple(S2[1], S2[2]))) == unit(SU2Irrep)
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     (; c, cd) = fermionmode(unitbasis(Vf), FermionNumber(0), FermionNumber(1))
-    cc = c
-    @test total(only(couple(cd[1], cc[2]))) == unit(FermionNumber)
+    @test total(only(couple(cd[1], c[2]))) == unit(FermionNumber)
 end
 
-# The channels are taken when the charges force them, whatever the fusion style — so a non-abelian
-# variadic couple is legal exactly where naming the channel would add nothing.
 @testset "forced channels, non-abelian" begin
     V = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(V))
@@ -216,8 +207,7 @@ end
     # the query agrees with the abelian case, where every channel is forced by construction
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     (; c, cd) = fermionmode(unitbasis(Vf), FermionNumber(0), FermionNumber(1))
-    cc = c
-    @test couple_channels(cd[1], cc[2], cd[3], cc[4]) ==
+    @test couple_channels(cd[1], c[2], cd[3], c[4]) ==
         [(unit(FermionNumber), FermionNumber(1))]
 end
 
@@ -232,10 +222,9 @@ end
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     u = unit(FermionNumber)
     (; c, cd) = fermionmode(unitbasis(Vf), FermionNumber(0), FermionNumber(1))
-    cc = c
-    H4 = couple(cd[1], cc[2], cd[3], cc[4])
+    H4 = couple(cd[1], c[2], cd[3], c[4])
     nested = couple(
-        couple(couple(cd[1], cc[2]; to = u), cd[3]; to = FermionNumber(1)), cc[4]; to = u
+        couple(couple(cd[1], c[2]; to = u), cd[3]; to = FermionNumber(1)), c[4]; to = u
     )
     @test collect(H4) == collect(nested)
     @test only(H4).sites == [1, 2, 3, 4]
@@ -243,8 +232,7 @@ end
         [FermionNumber(1), u, FermionNumber(1), u]
 
     # composite operands still distribute over every chain: two neutral letters per site, 2³ chains
-    # (`Sz` is a single letter in the stock basis, which used to be two matrix units, so this uses a
-    # spin-1 basis where P₀ + P₊ is a genuine two-letter operand)
+    # (a spin-1 basis, where P₀ + P₊ is a genuine two-letter operand)
     B3 = unitbasis(Rep[U₁](-1 => 1, 0 => 1, 1 => 1))
     Z = sum(
         element(B3, n) for n in eachindex(B3.letters)
@@ -254,7 +242,7 @@ end
     @test length(couple(Z[1], Z[2], Z[3])) == 8
 
     # a total the charges cannot reach is an error
-    @test_throws ArgumentError couple(cd[1], cd[2], cd[3], cc[4])
+    @test_throws ArgumentError couple(cd[1], cd[2], cd[3], c[4])
     @test length(couple(Sp[1], Sp[2], Sm[3]; to = U1Irrep(1))) == 1
 
     # independent dense check: S⁺₁ S⁻₂ Sᶻ₃, with the basis order of `spin_space(U1Irrep)` (up, dn)
@@ -269,15 +257,10 @@ end
     @test A ≈ ref
 end
 
-# ── Out-of-order coupling ─────────────────────────────────────────────────────
-# The stored form is site-ordered, so an operand acting to the left of an earlier one has its leg
-# *inserted* and the coefficient picks up the braiding phase. That is exactly the fermionic
-# anticommutation sign the caller used to have to supply, so these tests pin it against the site-
-# ordered spelling *and*, where possible, against an independent oracle (hermiticity, and the analytic
-# free-fermion spectrum).
+# Out-of-order coupling: an operand left of an earlier one has its leg inserted and the coefficient
+# picks up the braiding phase; pinned against the site-ordered spelling and independent oracles.
 
-# Spectrum computed block by block, so it is valid for any sector (`convert(Array, t)` is not, for
-# fermionic ones). Also cross-checks the U(1) spin ladders against the SU(2) spin vector.
+# Spectrum computed block by block, so it is valid for any sector (`convert(Array, t)` is not, for fermionic ones).
 function blockspectrum(H, sites)
     O = inst(H, sites)
     Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
@@ -359,15 +342,12 @@ end
         [sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0) for m in 0:(2^N - 1)]
     )
     @test blockspectrum(H, sites) ≈ exact
-    # the hand-signed spelling it replaces
     @test H ≈ opsum(
         (-t * (couple(F.cd[i], F.c[i + 1]) - couple(F.c[i], F.cd[i + 1])) for i in 1:(N - 1))
     )
 end
 
 @testset "dot accepts either site order, with the swap phase" begin
-    # `dot` couples two legs to the unit sector, which needs no F-move whatever the fusion style, so
-    # it works out of order where the general `couple` reordering does not.
     Vs = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(Vs))
     @test dot(S[3], S[1]) ≈ dot(S[1], S[3])          # integer operator charge: R = +1
@@ -375,8 +355,7 @@ end
     Su = u1ladder()
     @test dot(Su.Sm[3], Su.Sp[1]) ≈ dot(Su.Sp[1], Su.Sm[3])
 
-    # odd fermionic charges anticommute, so `dot` is *not* order-independent there — the previous
-    # implementation sorted the sites and dropped this sign
+    # odd fermionic charges anticommute, so `dot` is not order-independent there
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     F = fermionmode(unitbasis(Vf), FermionNumber(0), FermionNumber(1))
     @test dot(F.cd[3], F.c[1]) ≈ -dot(F.c[1], F.cd[3])
@@ -437,9 +416,7 @@ end
 end
 
 @testset "operator builders" begin
-    # U(1) spin ladders, against the SU(2) build of the same Heisenberg chain. Two different symmetry
-    # groups and two different spaces: agreeing spectra is the sharpest available cross-check, and it
-    # pins the ladder normalisation for s > 1/2 as well.
+    # U(1) spin ladders against the SU(2) build of the same Heisenberg chain (pins the ladder normalisation)
     for s in (1 // 2, 1, 3 // 2)
         L = 4
         su2 = SU2Space(s => 1)

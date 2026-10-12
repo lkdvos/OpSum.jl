@@ -21,12 +21,11 @@ plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 # the dense operator of a placed term bag over per-site bases
 dense(ts, bases) = plain(instantiate(opsum(bases, ts)))
 
-# a neutral two-site operator, built through the matrix-unit basis `unitbasis(V)`
-pairop(ts, B) = plain(instantiate(opsum(FiniteChain(B, 2), ts)))
+# a neutral two-site operator over the basis `B`
+pairop(ts, B) = dense(ts, [B, B])
 
-# Dense comparisons run on the shortest chain that has every term shape: 3 sites when there is a
-# term across a gap, else 2. Compiling the oracle per chain length and symmetry dominates this file's
-# run time; losslessness and bond dimensions are symbolic, so they use longer chains.
+# Dense comparisons use the shortest chain with every term shape (compilation dominates run time);
+# losslessness and bond dimensions are symbolic, so they use longer chains.
 
 # the dense bond dimension at bond `b`
 bonddim(H, b) = densedim(mpo(H).bondsectors, b)
@@ -53,8 +52,8 @@ bonddim(H, b) = densedim(mpo(H).bondsectors, b)
 end
 
 @testset "factorising a pair is canonical, also for equal singular values" begin
-    # XX + YY = 2(S⁺ ⊗ S⁻ + S⁻ ⊗ S⁺) has two equal singular values, so an SVD may return any rotation
-    # of (S⁺, S⁻); the echelon factorisation returns S⁺ and S⁻ themselves
+    # XX + YY = 2(S⁺ ⊗ S⁻ + S⁻ ⊗ S⁺) has equal singular values, so an SVD may return any rotation of
+    # (S⁺, S⁻); the echelon factorisation returns S⁺ and S⁻ themselves
     V = ℂ^2
     XXYY = TensorMap(kron(Xmat, Xmat) + kron(Ymat, Ymat), V ⊗ V ← V ⊗ V)
     B = Basis([XXYY])
@@ -107,13 +106,12 @@ end
     Xp, Yp, Zp = (project(M, P) for M in (Xmat, Ymat, Zmat))
     Hp = opsum(FiniteChain(P, N), (couple(O[i], O[i + 1]) for i in 1:(N - 1) for O in (Xp, Yp, Zp)))
     @test islossless(Hp)
-    @test bonddim(Hp, N ÷ 2) == 5                      # handoff §5: 6 in matrix units, 5 in the Pauli basis
+    @test bonddim(Hp, N ÷ 2) == 5                      # operator-bases.md §1: 6 in matrix units, 5 in the Pauli basis
 
     # the basis MPO, read back through the basis, is the dense operator
-    n = 2
-    Hpn = opsum(FiniteChain(P, n), (couple(O[i], O[i + 1]) for i in 1:(n - 1) for O in (Xp, Yp, Zp)))
+    Hp2 = opsum(FiniteChain(P, 2), (couple(O[1], O[2]) for O in (Xp, Yp, Zp)))
     ref = sum(kron(M, M) for M in (Xmat, Ymat, Zmat))
-    @test dense(mpo_terms(mpo(Hpn)), fill(P, n)) ≈ TensorMap(ref, V ⊗ V ← V ⊗ V)
+    @test dense(mpo_terms(mpo(Hp2)), fill(P, 2)) ≈ TensorMap(ref, V ⊗ V ← V ⊗ V)
 end
 
 @testset "U(1) spins: charged elements by factorising neutral pairs" begin
@@ -122,9 +120,9 @@ end
     L = spinladder(BU, [U1Irrep(1), U1Irrep(0)])
     SpSm = pairop(couple(L.Sp[1], L.Sm[2]), BU)
     SmSp = pairop(couple(L.Sm[1], L.Sp[2]), BU)
-    Sz = plain(instantiate(opsum(FiniteChain(BU, 1), L.Sz[1])))
+    Sz = dense(L.Sz[1], [BU])
     B = Basis([SpSm, SmSp, Sz])
-    @test length(B) == 4                                    # 𝟙, Sᶻ, S⁺, S⁻: the pieces are shared
+    @test length(B) == 4                                    # 𝟙, Sᶻ, S⁺, S⁻
     @test Set(keys(B.bycharge)) == Set(U1Irrep[-1, 0, 1])
     @test Basis([SpSm, SmSp, Sz]).elements == B.elements   # deterministic
 
@@ -165,19 +163,19 @@ end
     F = fermionmode(BU, FermionNumber(0), FermionNumber(1))
     hop = pairop(couple(F.cd[1], F.c[2]), BU)
     hop′ = pairop(couple(F.c[1], F.cd[2]), BU)
-    n = plain(instantiate(opsum(FiniteChain(BU, 1), F.n[1])))
+    n = dense(F.n[1], [BU])
     B = Basis([hop, hop′, n])
     @test length(B) == 4                                    # 𝟙, n, c†, c
     h = project(hop, B)
     @test length(h.terms) == 1
 
     # c†₁ 𝟙₂ c₃ projected as a block equals the pair placed across the gap
-    h3 = plain(instantiate(opsum(FiniteChain(BU, 3), couple(F.cd[1], F.c[3]))))
+    h3 = dense(couple(F.cd[1], F.c[3]), fill(BU, 3))
     b3 = project(h3, B)
     @test b3[1] ≈ h[1, 3]
     @test dense(b3[1], fill(B, 3)) ≈ h3
 
-    # placement is monotone for now, so c†ᵢ₊₁cᵢ = -cᵢc†ᵢ₊₁ is the other pair, on the same pieces
+    # placement is monotone, so c†ᵢ₊₁cᵢ = -cᵢc†ᵢ₊₁ is the other pair, on the same pieces
     h′ = project(hop′, B)
     nb = project(n, B)
     H(N) = opsum(

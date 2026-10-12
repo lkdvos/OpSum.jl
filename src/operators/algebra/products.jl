@@ -1,24 +1,17 @@
-# Products of operators: `a[i] * b[j]`, and the on-site products `a[i] * b[i]` / `hop[i, i]` that are
-# resolved in the sites' bases when they enter an `OperatorSum`. Design note:
-# `research/operator-bases.md` §3.1 (item 7), §3.5 and §3.6.
+# Products of operators: `a[i] * b[j]`, and the on-site products `a[i] * b[i]` / `hop[i, i]` resolved
+# in the sites' bases when they enter an `OperatorSum`. Design note: `research/operator-bases.md`
+# §3.5, §3.6.
 #
-# Every product is first written down in *written order*: the factors' letters one after the other,
-# coupled as one caterpillar in that order, times a coefficient. Its operator is `coeff · raw`, with
-# `raw` the written-order caterpillar — for letters on increasing, distinct sites exactly what
-# `_instantiate_term` materialises, and in general `_written_block`. From there (`_written!`):
+# A product is first written in *written order*: the factors' letters coupled as one caterpillar in
+# that order, times a coefficient `cₓ c_y (-1)^{p(X) p(Y)}` (`p` the fermion parity of each factor's
+# total charge; the graded sign `couple` uses, so `c†ᵢ * cᵢ` is `nᵢ`). Then (`_written!`):
 #
-# * distinct sites, already in site order: that *is* a `Term`;
-# * distinct sites out of order, abelian symmetry: the letters are sorted with one R-symbol per pair
-#   that swaps, the same move `couple` makes when it inserts a leg (for fermions, the anticommutation
-#   sign);
-# * distinct sites out of order, non-abelian: the written-order tree is permuted into site order and
-#   re-expanded in site-order caterpillars (`_recouple`), a linear combination with F- and R-symbol
-#   coefficients that TensorKit computes;
-# * a site that repeats: a `PendingTerm`, kept unevaluated until the sites' bases are known.
-#
-# The coefficient of `X * Y` is `cₓ c_y (-1)^{p(X) p(Y)}`, `p` the fermion parity of each factor's
-# total charge: the graded product, the same sign `couple` applies, which is what makes the written
-# order the physical operator order (`c†ᵢ * cᵢ` is `nᵢ`).
+# * distinct sites in site order: that is a `Term`;
+# * distinct sites out of order, abelian: sort with one R-symbol per swapped pair (as `couple` does
+#   when it inserts a leg; for fermions the anticommutation sign);
+# * distinct sites out of order, non-abelian: permute the tree into site order and re-expand in
+#   site-order caterpillars (`_recouple`), possibly several terms;
+# * a repeated site: a `PendingTerm`, unevaluated until the sites' bases are known.
 
 using TensorKit: Sector, unit, Rsymbol, Nsymbol, FusionTree, Vect, id, permute, numin, numout, domain,
     fusiontrees, BraidingStyle, SymmetricBraiding, FusionStyle, GenericFusion
@@ -26,8 +19,7 @@ using TensorKit: Sector, unit, Rsymbol, Nsymbol, FusionTree, Vect, id, permute, 
 # The total of a written-order caterpillar.
 _writtentotal(keys::Vector{ITOKey{I}}) where {I} = isempty(keys) ? unit(I) : last(keys).bond
 
-# Push a term written in an arbitrary order: as a `Term` (sorted, re-coupled under a non-abelian
-# symmetry, so possibly several) or a `PendingTerm` (a site repeats).
+# Push a term written in any order, as `Term`s or a `PendingTerm`.
 function _written!(out::Terms{I}, sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::ComplexF64) where {I}
     allunique(sites) || return push!(out.pending, PendingTerm{I}(sites, keys, coeff))
     issorted(sites) && return push!(out.terms, Term{I}(sites, keys, coeff))
@@ -50,18 +42,13 @@ function _written!(out::Terms{I}, sites::Vector{Int}, keys::Vector{ITOKey{I}}, c
     return push!(out.terms, Term{I}(sites[perm], outkeys, coeff))
 end
 
-# Re-coupling under a non-abelian symmetry
-# ----------------------------------------
-#
-# A caterpillar is the charge-only tensor `C₁ ⊗ … ⊗ C_K ← C_tot` with a single nonzero entry at its
-# tree (`_treetensor`; the same tensor `_instantiate_term` fuses the letters' charge legs with). A
-# term's operator is its letters' tensors contracted with that tensor, so any rewriting of the
-# tensor — permuting its legs into site order, or fusing two caterpillars into one — rewrites the
-# term, and reading the result back in the caterpillar basis (`_expand`) gives the new terms. The
-# coefficients depend on the charges and positions only, so they are memoised per shape.
+# Re-coupling under a non-abelian symmetry: a caterpillar is the charge-only tensor
+# `C₁ ⊗ … ⊗ C_K ← C_tot` with one nonzero entry at its tree (`_treetensor`). Permuting its legs into
+# site order, or fusing two caterpillars, rewrites the term; reading the result back in the caterpillar
+# basis (`_expand`) gives the new terms. Coefficients depend on charges and positions only: memoised.
 
-# Multiplicity-free fusion keeps one tree per sequence of running charges (what a `Term` stores);
-# symmetric braiding makes a leg permutation independent of over/under crossings.
+# Multiplicity-free fusion keeps one tree per running-charge sequence (what a `Term` stores); symmetric
+# braiding makes a leg permutation independent of crossings.
 _canrecouple(::Type{I}) where {I <: Sector} =
     !(FusionStyle(I) isa GenericFusion) && BraidingStyle(I) isa SymmetricBraiding
 
@@ -82,8 +69,7 @@ function _treetensor(charges::Vector{I}, bonds::Vector{I}) where {I}
     return X
 end
 
-# A charge-only tensor `C₁ ⊗ … ⊗ C_K ← C_tot` in the caterpillar basis: the running charges of each
-# tree with a nonzero coefficient, and that coefficient.
+# A charge-only tensor in the caterpillar basis: the running charges of each tree and its coefficient.
 function _expand(X)
     out = Tuple{Vector{sectortype(X)}, ComplexF64}[]
     for (f₁, f₂) in fusiontrees(X)
@@ -112,9 +98,9 @@ function _recouple(sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::ComplexF6
     ]
 end
 
-# Two written-order caterpillars, one after the other, fused to `tot`: the caterpillars over the
-# concatenated letters, with their coefficients. When the first is neutral (or the symmetry abelian)
-# the second's running charges simply continue from the first's total.
+# Two written-order caterpillars fused to `tot`: caterpillars over the concatenated letters with their
+# coefficients. When the first is neutral (or the symmetry abelian) the second's running charges just
+# continue from the first's total.
 function _concat(ka::Vector{ITOKey{I}}, kb::Vector{ITOKey{I}}, tot::I) where {I}
     ta = _writtentotal(ka)
     if ta == unit(I) || _canreorder(I)
@@ -142,17 +128,15 @@ end
 The operator product of two placed operators, in the order written; it distributes over their terms.
 On different sites it is [`couple`](@ref) with the channel forced by the factors' charges, in any
 site order: under an abelian symmetry the braiding phase is inserted (for fermions, the
-anticommutation sign), and under a non-abelian one the legs are re-coupled into site order, which
-can turn one term into several.
+anticommutation sign), under a non-abelian one the legs are re-coupled into site order, which can
+turn one term into several.
 
-When the factors share a site, `a[i] * b[i]`, the product is kept unevaluated: it is resolved in the
-site's [`Basis`](@ref) when the operator enters an [`OperatorSum`](@ref), by multiplying the factors'
-tensors and projecting back (memoised per term shape). Until then the bag has no normal form, so
-`length`, iteration and `≈` throw; `opsum(lat, a * b)` is the way to look at it.
+When the factors share a site, `a[i] * b[i]`, the product is kept unevaluated and resolved in the
+site's [`Basis`](@ref) when the operator enters an [`OperatorSum`](@ref). Until then the bag has no
+normal form, so `length`, iteration and `≈` throw; `opsum(lat, a * b)` is the way to look at it.
 
-`*` throws when the channel is not forced: under a non-abelian symmetry, a product of two charged
-operators whose totals fuse to several sectors. Model code built from neutral operators never meets
-that.
+`*` throws when the channel is not forced: a product of two charged operators whose totals fuse to
+several sectors (non-abelian).
 """
 function Base.:*(a::Terms{I}, b::Terms{I}) where {I}
     out = Terms{I}()
@@ -199,9 +183,8 @@ end
 
 const _PRODUCT_CACHE = Dict{Any, Any}()
 
-# The terms a pending product stands for on the lattice `lat`: its written-order block on the sites
-# it touches, projected into their bases (or matrix units, on a lattice of spaces) and placed back.
-# Memoised per shape — positions within the block, letters with their bonds, and the bases.
+# The terms a pending product stands for on `lat`: its written-order block on the sites it touches,
+# projected into their bases and placed back. Memoised per (positions, keys, bases).
 function _resolve(p::PendingTerm{I}, lat::AbstractLattice) where {I}
     U = sort!(unique(p.sites))
     pos = Int[searchsortedfirst(U, s) for s in p.sites]
@@ -216,9 +199,8 @@ _resolve(ps::Vector{PendingTerm{I}}, lat::AbstractLattice) where {I} =
     reduce(vcat, (_resolve(p, lat) for p in ps); init = Term{I}[])
 
 # The written-order caterpillar of single-site letters at positions `pos` of the block over `Bs`
-# (repeats allowed): the product of the letters' embedded tensors in written order, their charge legs
-# kept in written order, then fused by the caterpillar whose running charges `keys` carry. For
-# distinct increasing positions this is `_instantiate_term`'s tensor.
+# (repeats allowed): the letters' embedded tensors multiplied in written order, charge legs kept in
+# written order, then fused by the caterpillar `keys` carry.
 function _written_block(keys::Vector{ITOKey{I}}, pos::Vector{Int}, Bs) where {I}
     m = length(Bs)
     T = nothing
@@ -234,12 +216,7 @@ function _written_block(keys::Vector{ITOKey{I}}, pos::Vector{Int}, Bs) where {I}
             T = permute(R, (ntuple(identity, m), dom))                  # W ← W ⊗ Cs ⊗ C
         end
     end
-    n = length(keys)
-    charges = [k.op.c for k in keys]
-    tree = _tree_from_bonds(charges, [k.bond for k in keys], ones(Int, n))
-    tot = tree.coupled
-    X = zeros(ComplexF64, foldl(⊗, (Vect[I](c => 1) for c in charges)) ← Vect[I](tot => 1))
-    X[tree, FusionTree{I}((tot,), tot, (false,), ())] .= 1
+    X = _treetensor(I[k.op.c for k in keys], I[k.bond for k in keys])
     W = foldl(⊗, (_space(B) for B in Bs))
     return T * (id(W) ⊗ X)                                              # W ← W ⊗ C_tot
 end

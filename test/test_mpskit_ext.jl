@@ -12,21 +12,15 @@ using Random: Random
 include("testutils.jl")
 
 # `instantiate(W::SymbolicMPO)` (ext/OpSumMPSKitExt.jl) against MPSKit's own construction from local
-# operators: the same Hamiltonian, two independent routes, compared on random states. The models are
-# written with operators from TensorKitTensors, projected into bases built from them, as the stock
-# bases of step 7 will be.
+# operators, compared on random states. Models use TensorKitTensors operators projected into bases built from them.
 
 Random.seed!(1234)
 
 plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 
-# `h` on sites (1, 2) of a 3-site block, the identity on site 2 in between; `permute` carries the
-# fermionic sign of moving site 3's legs past site 2's
-function gap3(h2, V)
-    return permute(h2 ⊗ id(V), ((1, 3, 2), (4, 6, 5)))
-end
+# `h` on sites (1, 3) of a 3-site block; `permute` carries the fermionic sign
+gap3(h2, V) = permute(h2 ⊗ id(V), ((1, 3, 2), (4, 6, 5)))
 
-# the dense bond dimension at bond `b`
 centre(secs, b) = sum(dim, secs[b])
 
 @testset "without MPSKit's methods the fallback says what to load" begin
@@ -79,7 +73,7 @@ end
     refi = InfiniteMPOHamiltonian([V], (1, 2) => hh, (1, 2, 3) => (t2 / t) * gap3(hh, V), (1,) => μ * num)
     ψi = InfiniteMPS(V, Vmps)
     @test expectation_value(ψi, Hmpsi) ≈ expectation_value(ψi, refi)
-    @test abs(expectation_value(ψi, refi)) > 1.0e-3            # a generic state, not a vanishing one
+    @test abs(expectation_value(ψi, refi)) > 1.0e-3
 end
 
 # A Hubbard site with the hopping pieces (spinors under SU(2)), `n` and `nꜛꜜ` as elements.
@@ -99,8 +93,7 @@ end
         H = opsum(FiniteChain(site.B, N), (-t * site.e[i] for i in 1:(N - 1)), (U * site.u[i] for i in 1:N))
         @test islossless(H)
         b = N ÷ 2
-        @test centre(mpo(H).bondsectors, b) == now            # handoff §5
-        # the same model in matrix units
+        @test centre(mpo(H).bondsectors, b) == now
         BU = unitbasis(site.V)
         ehopm, udm = project(site.ehop, BU), project(site.ud, BU)
         Hm = opsum(
@@ -145,8 +138,7 @@ end
     @test W.lattice == H.lattice
     @test mpo_terms(W) ≈ H.terms
     @test occursin("SymbolicMPO", sprint(show, W))
-    # one entry's tensor, in the site's basis
-    (r, c), op = first((Tuple(k), v) for (k, v) in OpSum.storedpairs(W[2]) if !isone(v))
+    _, op = first((Tuple(k), v) for (k, v) in OpSum.storedpairs(W[2]) if !isone(v))
     @test instantiate(op, P) isa AbstractTensorMap
     @test mpo_tensormap(irrep_mpo_tensors(W)) ≈ instantiate(H)
 

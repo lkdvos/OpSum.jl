@@ -19,10 +19,8 @@ spinvec(V) = spinvector(unitbasis(V))
 # dense operator of `H` (letters in `unitbasis(V)`) on `N` sites of `V`
 dense(H, V, N) = instantiate(opsum(FiniteChain(unitbasis(V), N), H))
 
-# The alphabet index `n` depends on TensorKit's canonical block order, so the whole point of
-# `project` is not to hard-code it. These spaces exercise every way that order can be non-obvious:
-# a single sector, the trivial sector, an abelian group, two sectors (so the *block* sector of a
-# letter entry differs from its charge), a degeneracy > 1, and fermionic braiding.
+# The alphabet index `n` depends on TensorKit's block order. These spaces exercise every way it can be
+# non-obvious: single sector, trivial sector, abelian, two sectors, degeneracy > 1, fermionic braiding.
 const SPACES = (
     SU2Space(1 // 2 => 1),
     ℂ^2,
@@ -50,12 +48,9 @@ end
 # `inner(E, E)` in closed form -- the normalization `project` divides by
 gram(ops, tot) = dim(tot) / prod(op -> dim(op.c), ops)
 
-# The projection is exactly `c_α = inner(E_α, h) / g`, which is only correct because the candidate
-# basis is orthogonal with that closed-form diagonal, and complete for the target homspace. Both
-# facts are derived in `irrepprojection.jl`; this pins them numerically, including for fermionic
-# sectors, where the per-site factorization behind the derivation could in principle pick up
-# braiding data.
-# worst deviation of the Gram matrix from `δ_αβ · g(ops, tot)`, over the whole candidate set
+# The projection is `c_α = inner(E_α, h) / g`, correct because the candidate basis is orthogonal with
+# that diagonal and complete (derived in `irrepprojection.jl`); pinned numerically here, fermionic
+# sectors included. Returns the worst deviation of the Gram matrix from `δ_αβ · g(ops, tot)`.
 function gram_error(Vs, tot)
     cands = candidates(Vs, tot)
     isempty(cands) && return (nothing, nothing, 0, 0)
@@ -105,14 +100,12 @@ end
             @test t.sites == [1]
             @test only(ops(t)) == op
             @test t.coeff ≈ 1
-
         end
     end
 end
 
-# An oracle derived without any of the K-site machinery: `instantiate` writes `1/sqrt(dim(s))` into
-# the `n`-th scalar over `blocks(O)`, and `inner` weights block `s` by `dim(s)`, so the coefficient
-# of letter `n` is `sqrt(dim(s)) * (n-th flat block entry)`.
+# Oracle without the K-site machinery: the coefficient of letter `n` is `sqrt(dim(s))` times the `n`-th
+# flat entry over `blocks(O)`.
 @testset "K=1 agrees with a direct blocks() read-off" begin
     for V in SPACES
         I = sectortype(V)
@@ -150,8 +143,6 @@ end
     end
 end
 
-# The sharpest normalization tests: every coefficient below is independently pinned elsewhere in the
-# suite as the *input* to `instantiate`, so recovering it exactly closes the loop.
 @testset "K=2 known reduced coefficients" begin
     V = SU2Space(1 // 2 => 1)
     S = spinvec(V)
@@ -163,8 +154,7 @@ end
     @test bondcharges(tree(t)) == [SU2Irrep(1), SU2Irrep(0)]
     @test t.coeff ≈ (3 / 2) * (-sqrt(3))
 
-    # bare coupling to each total: the coefficient is 3/2 for *all* of them. A stray factor of
-    # dim(tot) in the normalization would give 3/2, 9/2, 15/2 instead.
+    # bare coupling to each total: 3/2 for all of them (a stray dim(tot) would give 3/2, 9/2, 15/2)
     for t in 0:2
         H = couple(S[1], S[2]; to = SU2Irrep(t))
         tk = onlyterm(pu(inst(H, [V, V]), [1, 2]))
@@ -188,9 +178,8 @@ end
     @test tk.coeff ≈ 1
 end
 
-# For K ≥ 3 the intermediate ("inner line") charge is not fixed by (charges, total), and the
-# `1⊗1→1` vertex is antisymmetric — a slip in the coupling convention flips the sign of exactly
-# that channel. These tests are the reason this file exists.
+# For K ≥ 3 the inner-line charge is not fixed by (charges, total), and the `1⊗1→1` vertex is
+# antisymmetric: a slip in the coupling convention flips the sign of exactly that channel.
 @testset "K=3 channels are resolved with the right sign" begin
     V = SU2Space(1 // 2 => 1)
     S = spinvec(V)
@@ -223,8 +212,7 @@ end
     end
 end
 
-# Every other round-trip here goes through `instantiate` and would pass even if `instantiate`'s own
-# coupling convention were wrong. This one anchors the K=3 sign to physics.
+# Anchors the K=3 sign to physics (round-trips through `instantiate` alone could not catch a wrong convention).
 @testset "K=3 projection reproduces the spin chirality" begin
     V = SU2Space(1 // 2 => 1)
     S = spinvec(V)
@@ -290,9 +278,8 @@ end
     @test inst(pu(h, [1, 2]), [su2, su2]) ≈ insertrightunit(h)
 end
 
-# Hand-checked reference, so this does not depend on `instantiate` at all. For ℂ² there is one
-# 2×2 block with dim(s) = 1, so the letters are the matrix units in column-major order, after the
-# identity at n = 1: n = 2 → E₁₁, 3 → E₂₁, 4 → E₁₂, 5 → E₂₂.
+# Hand-checked reference independent of `instantiate`: for ℂ² the letters are the matrix units in
+# column-major order after the identity at n = 1: 2 → E₁₁, 3 → E₂₁, 4 → E₁₂, 5 → E₂₂.
 @testset "trivial sector: hand-written matrix-unit reference" begin
     V = ℂ^2
     σX = ComplexF64[0 1; 1 0]
@@ -321,8 +308,7 @@ end
     (; Sp, Sm, Sz) = spinladder(B, [U1Irrep(1), U1Irrep(0), U1Irrep(-1)])
 
     # S⁺ and S⁻ are sums of two matrix units each, so `couple` has to distribute over them
-    @test length(Sp) == 2
-    @test length(Sm) == 2
+    @test length(Sp) == length(Sm) == 2
 
     # Sᶻ carries an identity component in `unitbasis`, so it enters through the product
     H = Sz[1] * Sz[2] +
@@ -367,9 +353,7 @@ end
             Ws, secs = reduced(mpo(opsum(lat, H)))
             @test length(secs) == N
 
-            # faithful at the reduced level
-            back = mpo_terms(Ws, secs)
-            @test back ≈ H
+            @test mpo_terms(Ws, secs) ≈ H
 
             # and the assembled tensors contract to the operator
             T = irrep_mpo_tensors(Ws, secs, lat)
@@ -399,8 +383,7 @@ end
     @test length(pu(h, [1, 2]; rtol = 1.0e-4)) == 1    # truncated away
     @test length(pu(h, [1, 2]; atol = 1.0e-4)) == 1
 
-    # dropping enough weight that the reconstruction is no longer faithful is an error, not a
-    # silently wrong answer
+    # dropping enough weight that the reconstruction is unfaithful is an error
     hrand = randn(ComplexF64, ℂ^2 ⊗ ℂ^2 ← ℂ^2 ⊗ ℂ^2)
     @test_throws ArgumentError pu(hrand, [1, 2]; rtol = 0.5)
 

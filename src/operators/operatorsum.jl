@@ -1,6 +1,5 @@
-# The lattice-carrying container: a lattice, finite-range terms placed on it, and exponentially
-# decaying channels. Letters are checked against the sites' bases (or spaces) as terms enter. Design note:
-# `research/local-operators.md`.
+# The lattice-carrying container: a lattice, finite-range terms placed on it, and exponentially decaying
+# channels. Letters are checked against the sites' bases as terms enter.
 
 using Dictionaries: Dictionary, setwith!
 using TensorKit: Sector
@@ -54,9 +53,7 @@ function opsum!(H::OperatorSum{I}, args...) where {I}
     _checkinsert(H.lattice, terms, chans)
     append!(H.terms.terms, terms)
     if !isempty(chans)
-        for (k, v) in pairs(chans)
-            setwith!(+, H.channels.channels, k, v)
-        end
+        foreach(((k, v),) -> setwith!(+, H.channels.channels, k, v), pairs(chans))
         filter!(!iszero, H.channels.channels)
     end
     return H
@@ -114,11 +111,9 @@ function _checkinsert(lat::AbstractLattice, terms::Vector{Term{I}}, chans) where
     return nothing
 end
 
-# A decaying channel puts its letters on more sites than it names: on a finite chain its translates
-# move by one site, and a string fills every site of the stretched gap, which (stepping by the period)
-# reaches every position of the cell. One letter means one operator on all of those only when they
-# carry the same basis, so that is required. (On an infinite chain the representative itself steps by
-# the cell and is checked by `_checkgenerating`.)
+# A decaying channel puts its letters on more sites than it names (translates move by one site on a finite
+# chain; a string fills every gap site), so those sites must share one basis for a letter to mean one
+# operator. (On an infinite chain the representative itself is checked by `_checkgenerating`.)
 function _checkchannels(lat::AbstractLattice, chans)
     for k in keys(chans)
         I = sectortype(k.term)
@@ -187,14 +182,9 @@ end
 
 # --- comparison, display --------------------------------------------------------------------------
 
-function _channelsapprox(a::ExpSum, b::ExpSum; kwargs...)
-    length(a.channels) == length(b.channels) || return false
-    for (k, v) in pairs(a.channels)
-        haskey(b.channels, k) || return false
-        isapprox(v, b.channels[k]; kwargs...) || return false
-    end
-    return true
-end
+_channelsapprox(a::ExpSum, b::ExpSum; kwargs...) =
+    length(a.channels) == length(b.channels) &&
+    all(((k, v),) -> haskey(b.channels, k) && isapprox(v, b.channels[k]; kwargs...), pairs(a.channels))
 
 Base.isapprox(a::OperatorSum{I}, b::OperatorSum{I}; kwargs...) where {I} =
     a.lattice == b.lattice && isapprox(a.terms, b.terms; kwargs...) &&
@@ -205,8 +195,8 @@ Base.isapprox(a::OperatorSum{I}, b::OperatorSum{I}; kwargs...) where {I} =
     adjoint(H::OperatorSum)
     H'
 
-The hermitian conjugate (every term must have total charge `unit(I)`; no decaying channels yet).
-It needs the spaces, which is why it lives here and a bare `Terms` has no `h'`.
+The hermitian conjugate (every term must have total charge `unit(I)`; no decaying channels yet). It needs
+the spaces, which is why a bare `Terms` has no `h'`.
 """
 function Base.adjoint(H::OperatorSum{I, L}) where {I, L}
     isempty(H.channels) || throw(

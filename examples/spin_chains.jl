@@ -29,17 +29,8 @@ using OpSum: arity
 # `S_exchange`, and the Hamiltonian is a one-liner. (The rank-1 vector operator ``\vec S`` itself is
 # a charged element of the basis, `spin_basis(SU2Irrep)`; the builder pairs it up for you.)
 #
-# Note the two idioms used here and throughout. The operators are looked up once, outside the loop
-# (they are memoised, so this is taste rather than necessity), and the terms are handed to
-# [`opsum`](@ref OpSum.opsum) in one pass — it is the linear accumulator, where folding `+` would
-# copy on every step.
-#
-# `opsum(lat, terms...)` returns an [`OperatorSum`](@ref OpSum.OperatorSum): the terms together with
-# their lattice, one basis per site. The term algebra itself (placement, `*`) is **latticeless** — it
-# needs no physical space, and the compression needs only the number of sites — so the lattice
-# enters here, when the terms are added, which is also where every letter is checked against the
-# basis of the site it sits on. [`mpo`](@ref OpSum.mpo), `instantiate`, `islossless` and `H'` all
-# take the `OperatorSum`.
+# As throughout, the terms are handed to [`opsum`](@ref OpSum.opsum) in one pass: it is the linear
+# accumulator, where folding `+` would copy on every step.
 
 B = spin_basis(SU2Irrep)
 ops = spin_ops(SU2Irrep)
@@ -73,16 +64,11 @@ res_heis.D, res_heis.Ddense
 #
 # Keeping only ``U(1)`` leaves three neutral operators: `S_z` on one site, and the flip-flop
 # products `S_plus_S_min` and `S_min_S_plus` on two. The charged ``S^\pm`` are inside the basis, so
-# nothing has to be named by an index and nothing depends on how the space happens to be written
-# down. ``S^z`` is a single element of the basis.
+# nothing has to be named by an index. The ``S^z S^z`` term is the operator product of two placed
+# operators, `*`, so it reads as it is printed.
 
 Bu = spin_basis(U1Irrep)
 ou = spin_ops(U1Irrep)
-
-length(ou.S_z)
-
-# The ``S^z S^z`` term is the operator product of two placed operators, `*`, so it reads as it is
-# printed. (It is also available as the builder's `S_z_S_z`, and the two agree.)
 
 u1chain(N) = FiniteChain(Bu, N)
 function xxz(N; J = 1.0, Δ = 1.0)
@@ -99,8 +85,6 @@ H_xxz = xxz(N)
 res_xxz = build("XXZ U(1)", H_xxz)
 
 islossless(H_xxz)
-
-opsum(u1chain(4), ou.S_z[i] * ou.S_z[i + 1] for i in 1:3) ≈ opsum(u1chain(4), ou.S_z_S_z[i, i + 1] for i in 1:3)
 
 # At ``\Delta = 1`` the XXZ chain *is* the Heisenberg chain. The two builds live on different
 # bases with different symmetry groups, so the sharpest available check is that they have the
@@ -189,29 +173,22 @@ let plain = opsum(FiniteChain(B1, 6), ex1[i, i + 1] for i in 1:5)
 end
 
 # The same operator can come from `project`: build the two-site block densely, square *that*, and
-# expand the result in the basis. It is the same Hamiltonian, written through a different route,
-# which makes it a good independent check of the product:
+# expand the result in the basis, an independent check of the product. `instantiate` returns the
+# operator with a trailing trivial charge leg, and `removeunit` drops it, leaving the ordinary
+# ``V \otimes V \leftarrow V \otimes V`` map that can be multiplied.
 
-let
-    bond = removeunit(instantiate(opsum(FiniteChain(B1, 2), ex1[1, 2])), 5)
-    block = project(bond + (1 / 3) * (bond * bond), B1)
-    opsum(FiniteChain(B1, 6), block[i] for i in 1:5) ≈ H_aklt
-end
-
-# `instantiate` returns the operator with a trailing trivial charge leg, and `removeunit` drops it,
-# leaving the ordinary ``V \otimes V \leftarrow V \otimes V`` map that can be multiplied.
+bond1 = removeunit(instantiate(opsum(FiniteChain(B1, 2), ex1[1, 2])), 5)
+block = project(bond1 + (1 / 3) * (bond1 * bond1), B1)
+opsum(FiniteChain(B1, 6), block[i] for i in 1:5) ≈ H_aklt
 
 # A projected block is a sum of terms, and its terms need not all have the same support. Adding a
-# constant to the bond — `project(bond + one(bond) / 4, B1)` — gives the two-site term and a
+# constant to the bond — `project(bond1 + one(bond1) / 4, B1)` — gives the two-site term and a
 # `K = 0` term, because the identity is the first element of every basis and placement treats it as
 # a pass-through. (Terms of arity 0 compress too, but on a finite chain one next to two-site terms
 # costs one index at the first bond.)
 
-let
-    bond = removeunit(instantiate(opsum(FiniteChain(B1, 2), ex1[1, 2])), 5)
-    padded = project(bond + one(bond) / 4, B1)[1]
-    (; nterms = length(padded), arities = sort(unique(arity(t) for t in padded)))
-end
+padded = project(bond1 + one(bond1) / 4, B1)[1]
+(; nterms = length(padded), arities = sort(unique(arity(t) for t in padded)))
 
 # ## ``J_1``–``J_2``
 #
@@ -240,14 +217,9 @@ islossless(H_j1j2)
 # For any finite-range interaction the bond dimension saturates: it is set by how many couplings
 # can straddle a single cut, not by how long the chain is.
 
-for L in (8, 16, 32, 64)
-    r = build("h", heisenberg(L); quiet = true)
-    println("  Heisenberg  N=$(lpad(L, 3))  D=$(r.D)  D_dense=$(r.Ddense)")
-end
-
-for L in (8, 16, 32, 64)
-    r = build("j", j1j2(L); quiet = true)
-    println("  J1-J2       N=$(lpad(L, 3))  D=$(r.D)  D_dense=$(r.Ddense)")
+for (name, model) in (("Heisenberg", heisenberg), ("J1-J2", j1j2)), L in (8, 16, 32, 64)
+    r = build(name, model(L); quiet = true)
+    println("  ", rpad(name, 11), " N=$(lpad(L, 3))  D=$(r.D)  D_dense=$(r.Ddense)")
 end
 
 # ## Scaling

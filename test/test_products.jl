@@ -9,9 +9,8 @@ using TensorKitTensors.FermionOperators: FermionOperators as FO
 
 include("testutils.jl")
 
-# Products of operators (operator-bases.md §3.1 item 7, §3.5): `a * b` across sites is `couple` with
-# the forced channel, and a product that shares a site is resolved in the site's basis when it enters
-# an `OperatorSum`. The oracle throughout is the dense operator product.
+# `a * b` across sites is `couple` with the forced channel; a product sharing a site is resolved in the
+# site's basis when it enters an `OperatorSum`. The oracle is the dense operator product.
 
 plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 dense(lat, x) = plain(instantiate(opsum(lat, x)))
@@ -21,7 +20,7 @@ const Vf = Vect[FermionNumber](0 => 1, 1 => 1)
 const Bf = unitbasis(Vf)
 const F = fermionmode(Bf, FermionNumber(0), FermionNumber(1))
 
-@testset "fermions in matrix units: single-site physics and the dense product" begin
+@testset "fermions: single-site physics and the dense product" begin
     lat1, lat3 = FiniteChain(Bf, 1), FiniteChain(Bf, 3)
     one1 = dense(lat1, scalarop(1, Bf)[1])
     @test dense(lat1, F.cd[1] * F.c[1]) ≈ dense(lat1, F.n[1])            # c†c = n
@@ -123,9 +122,7 @@ end
     @test_throws ArgumentError opsum(lath, E[1, 2] * E[2, 2])
 end
 
-# The oracle for re-coupling: the written-order caterpillar, materialised as written
-# (`_written_block` multiplies the letters' tensors in written order and fuses their charge legs by the
-# written tree), against the site-order terms it is re-expressed as.
+# Re-coupling oracle: the written-order caterpillar materialised by `_written_block`, against the site-order terms.
 function recouples(sites, keys, coeff, Vs)
     out = Terms{sectortype(first(Vs))}()
     OpSum._written!(out, sites, keys, ComplexF64(coeff))

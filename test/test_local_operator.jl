@@ -9,13 +9,9 @@ using LinearAlgebra: dot
 include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, spinvector, matrixunit, fermionmode
 
 # `instantiate` output as the plain `V ← V` map (trailing trivial charge leg dropped)
-function densop(h, lat)
-    O = instantiate(opsum(lat, h))
-    return numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
-end
+densop(h, lat) = (O = instantiate(opsum(lat, h)); numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O)))
 
-# Every site is a basis now. SU(2) and fermions use the matrix-unit bases (`unitbasis`); U(1) spin-½ uses
-# the stock basis, where `S_z` is one atomic letter (so it can be an operand of `couple`).
+# SU(2) and fermions use matrix-unit bases; U(1) spin-½ the stock basis, where `S_z` is one atomic letter.
 const Vsu2 = unitbasis(SU2Space(1 // 2 => 1))
 const Vu1 = spin_basis(U1Irrep)
 const Vf = unitbasis(Vect[FermionNumber](0 => 1, 1 => 1))
@@ -80,7 +76,6 @@ end
 end
 
 @testset "pass-through slots" begin
-    # B ± α: the all-pass-through term, dropped on placement
     b = dot(S, S)
     I0 = Terms{SU2Irrep}
     @test (b + 1 / 4)[1] == dot(S[1], S[2]) + one(I0) / 4

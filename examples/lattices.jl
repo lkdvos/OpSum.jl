@@ -27,15 +27,7 @@ length(alt)
 # a spin-1 site is a different operator, a perfect use of `project`: it is diagonal in the total
 # spin ``J`` of the pair, so it is one number per coupled sector of the `TensorMap`, and the list of
 # bases says in which site's basis each slot is expanded. `exchange(Ba, Bb)` of
-# [Shared utilities](common.md) does exactly that (it is a dozen lines):
-#
-# ```julia
-# t = zeros(ComplexF64, Va ⊗ Vb ← Va ⊗ Vb)
-# for (J, blk) in blocks(t)
-#     blk .= (J.j * (J.j + 1) - sa * (sa + 1) - sb * (sb + 1)) / 2
-# end
-# project(t, [Ba, Bb])
-# ```
+# [Shared utilities](common.md) builds it that way.
 
 ab, ba = exchange(Ba, Bb), exchange(Bb, Ba)
 bond(i) = isodd(i) ? ab : ba     # the bond (i, i + 1) of the alternating chain
@@ -48,9 +40,6 @@ function alternating(N; J = 1.0)
 end
 
 build("alternating ½/1", alternating(6))
-
-# The `OperatorSum` the builder returns carries its lattice, so there is a single value to pass
-# around; the benchmark registry does the same.
 
 islossless(alternating(6))
 
@@ -78,9 +67,8 @@ function impurity(N, at; J = 1.0)
 end
 
 for at in (1, 3, 6)
-    m = mpo(impurity(6, at))
-    Ws, secs = m.Ws, m.bondsectors
-    println("  impurity at $at:  per-bond D = ", [bonddim(secs, b) for b in eachindex(secs)])
+    secs = mpo(impurity(6, at)).bondsectors
+    println("  impurity at $at:  per-bond D = ", map(length, secs))
 end
 
 # And the answer is that it costs **nothing**: the same per-bond dimensions as a uniform spin-½
@@ -96,13 +84,10 @@ end
 
 # ## Flattening two dimensions
 #
-# An MPO lives on a chain, so a 2D lattice has to be ordered. Column-major,
-# ``(x, y) \mapsto (x-1) L_y + y``, with ``x`` along the cylinder and ``y`` around it: each rung is
-# then contiguous and every bond spans at most ``L_y`` sites. That bounded span is precisely what
-# keeps the bond dimension finite.
-#
-# `cylinder_bonds` emits bonds with the smaller linear index first, which is only a convention: for
-# a spin exchange the order does not matter.
+# The column-major ordering of [Shared utilities](common.md), ``(x, y) \mapsto (x-1) L_y + y``, makes
+# every bond span at most ``L_y`` sites, and that bounded span is what keeps the bond dimension
+# finite. `cylinder_bonds` emits bonds with the smaller linear index first, which is only a
+# convention: for a spin exchange the order does not matter.
 
 cylinder_bonds(3, 3)
 
@@ -166,13 +151,6 @@ for Ly in (3, 4)
     end
 end
 
-# Stated as an assertion over the whole grid:
-
-all(
-    build("c", heisenberg_cylinder(Lx, Ly); quiet = true).Ddense == 3Ly + 2
-        for Ly in 3:6, Lx in (3, 4, 5)
-)
-
 # ## Symmetry reduction
 #
 # The reduced bond dimension — the number of symmetry-resolved indices, and the quantity a DMRG
@@ -185,13 +163,7 @@ map(3:6) do Ly
     return (Ly = Ly, reduced = r.D, dense = r.Ddense, ratio = round(r.Ddense / r.D; digits = 2))
 end
 
-# ## Scaling
-#
-# ```
-# julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full
-# ```
-#
-# ![Bond dimension and construction time versus system size](../assets/scaling.png)
+# ## Profile
 #
 # Along the chain the bond dimension rises over the first ``L_y`` sites — the length of one ring —
 # and then sits on a flat plateau however long the cylinder is:

@@ -7,21 +7,16 @@ using TensorKit: sectortype, removeunit
 using VectorInterface: scalartype, scale, add, inner
 using LinearAlgebra: norm
 
-# `SiteOperator` is a small enough type to test directly, and worth it: it is the element type of the
-# reduced bond matrices as well as the on-site operand type, so the sweep leans on its arithmetic
-# (`+` accumulating onto a matching letter is exactly what happens when two uncovered left vertices
-# fold into one bond index) and on `prune` (a bond entry carrying an explicit zero would spend a bond
-# index on nothing). Exercising it through the pipeline alone leaves that surface incidental.
+# `SiteOperator` is the element type of the bond matrices, so the sweep leans on its arithmetic (`+`
+# accumulating onto a matching letter) and on `prune` (an explicit zero would spend a bond index).
 
 const V = SU2Space(1 // 2 => 1)
 const A = IrrepOperator{SU2Irrep}(SU2Irrep(0), 2)   # index 1 is the identity
 const B = IrrepOperator{SU2Irrep}(SU2Irrep(1), 1)
 
 @testset "construction and conversion" begin
-    @test length(SiteOperator{SU2Irrep}()) == 0
     @test isempty(SiteOperator{SU2Irrep}())
 
-    # a bare letter promotes with unit coefficient
     @test collect(pairs(SiteOperator(A))) == [A => ComplexF64(1)]
     @test convert(SiteOperator{SU2Irrep}, A) == SiteOperator(A)
 
@@ -34,13 +29,10 @@ const B = IrrepOperator{SU2Irrep}(SU2Irrep(1), 1)
     @test scalarop(2.5, V) == s
     @test scalarop(2.5, SU2Irrep) == s
 
-    # ...and a zero scalar is the *empty* operator, so it carries no letter at all
+    # a zero scalar is the empty operator
     @test isempty(SiteOperator{SU2Irrep}(0))
 
     @test_throws AssertionError SiteOperator{SU2Irrep}([A], ComplexF64[1, 2])
-end
-
-@testset "traits" begin
     @test sectortype(SiteOperator{SU2Irrep}) === SU2Irrep
     @test scalartype(SiteOperator{SU2Irrep}) === ComplexF64
 end
@@ -54,8 +46,7 @@ end
     @test !isempty(op)
     @test !iszero(op)
 
-    # `iszero` is about the coefficients; an operator can be zero while still carrying letters, which
-    # is exactly the state `prune` exists to clean up
+    # `iszero` is about the coefficients; `prune` removes letters that cancelled
     z = A - A
     @test iszero(z)
     @test !isempty(z)
@@ -70,7 +61,7 @@ end
     @test one(SiteOperator{SU2Irrep}) == SiteOperator{SU2Irrep}(1)
     @test one(op) == SiteOperator{SU2Irrep}(1)
 
-    # `isone` means the bare identity with unit coefficient — i.e. exactly the pass-through channel
+    # `isone`: the pass-through letter with unit coefficient
     @test isone(one(SiteOperator{SU2Irrep}))
     @test isone(scalarop(1, V))
     @test !isone(scalarop(2, V))            # right letter, wrong coefficient
@@ -102,8 +93,7 @@ end
     @test 3 * (2 * A) == 6 * A                # scalar on either side
     @test (4 * A) / 2 == 2 * A
 
-    # a bare letter promotes under every operation, not just the scalar multiply the sweep needs when
-    # weighting a letter by its reduced coefficient
+    # a bare letter promotes under every operation
     @test A * 2 == 2 * SiteOperator(A)
     @test 2 * A == SiteOperator(A) * 2
     @test A / 2 == SiteOperator(A) / 2
@@ -145,9 +135,7 @@ end
 end
 
 @testset "show" begin
-    # Structure only, never the exact rendering of the type parameter: `show` qualifies it or not
-    # depending on what is in scope, so `SiteOperator{SU2Irrep}` standalone becomes
-    # `SiteOperator{TensorKitSectors.SU2Irrep}` inside a test worker.
+    # structure only: the type parameter's qualification depends on what is in scope
     empty_str = sprint(show, zero(SiteOperator{SU2Irrep}))
     @test startswith(empty_str, "SiteOperator{") && endswith(empty_str, "(0)")
 
@@ -163,9 +151,7 @@ end
 end
 
 @testset "instantiation" begin
-    # a scalar materialises as `c` times the identity letter, never through `one(::Type)`
     @test removeunit(instantiate(scalarop(2.0, V), V), 3) ≈ 2 * id(V)
-    # and a combination distributes
     @test instantiate(2 * B, V) ≈ 2 * instantiate(B, V)
     @test_throws ArgumentError instantiate(zero(SiteOperator{SU2Irrep}), V)
 end

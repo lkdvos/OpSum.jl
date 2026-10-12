@@ -8,17 +8,15 @@ import TensorKitTensors.FermionOperators as FO
 
 include("testutils.jl")
 
-# A truncating SVD in a basis that is not orthogonal (operator-bases.md §4): the backends truncate in
-# the Hilbert–Schmidt metric of the basis (src/operators/compression/metric.jl), so the truncated
-# operator depends on the span of the basis and not on how it was written.
+# A truncating SVD truncates in the basis' Hilbert–Schmidt metric, so the result depends on the span of
+# the basis and not on how it was written.
 
 dense(W) = mpo_tensormap(irrep_mpo_tensors(W))
 plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
 pairop(ts, B) = plain(instantiate(opsum(FiniteChain(B, 2), ts)))
 
 @testset "the orthonormal letters carry the operator's norm" begin
-    # Σ |coeff|² over the orthonormal letters is ‖H‖² / dot(𝟙, 𝟙)^N, also across the dim(c) of an
-    # SU(2) charge and for a fermion basis whose `n` overlaps the identity
+    # Σ |coeff|² over the orthonormal letters is ‖H‖² / dot(𝟙, 𝟙)^N (SU(2) charge; fermion `n` overlapping 𝟙)
     V = SU2Space(1 // 2 => 1)
     BU = unitbasis(V)
     S = spinvector(BU)

@@ -7,9 +7,7 @@ using TensorKit: removeunit, numind, BraidingTensor
 
 include("testutils.jl")
 
-# Bases on the lattice (operator-bases.md §7, step 3): a `FiniteChain`/`InfiniteChain` of per-site
-# bases, against which letters are checked and through which `instantiate`, the tensor assembly and
-# `H'` read them. The oracle is the same Hamiltonian in the matrix-unit basis `unitbasis(V)`.
+# Chains of per-site bases; the oracle is the same Hamiltonian in the matrix-unit basis `unitbasis(V)`.
 
 const Imat = ComplexF64[1 0; 0 1]
 const Xmat = ComplexF64[0 1; 1 0]
@@ -18,7 +16,7 @@ const Zmat = ComplexF64[1 0; 0 -1]
 const Spmat = ComplexF64[0 1; 0 0]
 
 plain(t) = numind(t) == 2 * numout(t) ? t : removeunit(t, numind(t))
-pairop(ts, V) = plain(instantiate(opsum(FiniteChain(V, 2), ts)))
+pairop(ts, V, N = 2) = plain(instantiate(opsum(FiniteChain(V, N), ts)))
 
 # a spinless fermion site: `𝟙, n, c†, c` from the two hopping pairs and the number operator
 function fermion_site()
@@ -26,7 +24,7 @@ function fermion_site()
     BU = unitbasis(V)
     F = fermionmode(BU, FermionNumber(0), FermionNumber(1))
     hop, hop′ = pairop(couple(F.cd[1], F.c[2]), BU), pairop(couple(F.c[1], F.cd[2]), BU)
-    n = plain(instantiate(opsum(FiniteChain(BU, 1), F.n[1])))
+    n = pairop(F.n[1], BU, 1)
     B = Basis([hop, hop′, n])
     return (; V, BU, F, B, h = project(hop, B), h′ = project(hop′, B), n = project(n, B))
 end
@@ -57,7 +55,7 @@ end
     @test opsum(FiniteChain(small, 2), project(Zmat, small)[1]) isa OperatorSum
     # the letter of Y in `big` is (Trivial, 3), which `small` does not have
     @test_throws ArgumentError opsum(FiniteChain(small, 2), project(Ymat, big)[1])
-    # a mismatch within range is not caught (decision 6): X of `big`, (Trivial, 2), reads as Z
+    # a mismatch within range is not caught: X of `big`, (Trivial, 2), reads as Z
     @test opsum(FiniteChain(small, 2), project(Xmat, big)[1]) isa OperatorSum
 end
 
@@ -133,11 +131,10 @@ end
 end
 
 @testset "decaying channels over bases" begin
-    # a decaying hop with a parity string, Σ_{i<j} λ^{j-i-1} c†ᵢ (Π_k Pₖ) cⱼ + n: the string is an
-    # operator in the sites' basis like any other, and the fermion sign still rides on the charge
+    # a decaying hop with a parity string, Σ_{i<j} λ^{j-i-1} c†ᵢ (Π_k Pₖ) cⱼ + n
     f = fermion_site()
     λ, N = 0.6, 5
-    Pm = id(f.V) - 2 * plain(instantiate(opsum(FiniteChain(f.BU, 1), f.F.n[1])))
+    Pm = id(f.V) - 2 * pairop(f.F.n[1], f.BU, 1)
     p = project(Pm, f.B)
     lat = FiniteChain(f.B, N)
     H = opsum(lat, expterm(f.h[1, 2]; decay = λ, string = p), 0.3 * f.n[2])

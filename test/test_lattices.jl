@@ -13,14 +13,10 @@ const VSU2 = SU2Space(1 // 2 => 1)
 const VSU2b = SU2Space(1 => 1)
 const VU1 = Rep[U₁](0 => 1, 1 => 1)
 
-# Every site of a lattice is a `Basis`; the complete matrix-unit basis stands in for the bare space.
 const BSU2 = unitbasis(VSU2)
 const BSU2b = unitbasis(VSU2b)
 const BU1 = unitbasis(VU1)
 const BSU2_0 = unitbasis(SU2Space(0 => 1))
-
-# The lattice layer is the boundary where a latticeless operator meets physical spaces, so its
-# accessors and its conversions are public surface in their own right.
 
 @testset "FiniteChain" begin
     lat = FiniteChain([BSU2, BSU2b, BSU2])
@@ -33,12 +29,11 @@ const BSU2_0 = unitbasis(SU2Space(0 => 1))
     @test lat[2] == BSU2b
     @test sectortype(lat) == SU2Irrep
 
-    # the uniform convenience constructor replaces `fill(V, N)`
     @test FiniteChain(BSU2, 3) == FiniteChain(fill(BSU2, 3))
     @test FiniteChain(lat) === lat                      # idempotent
     @test occursin("FiniteChain", sprint(show, lat))
 
-    # a lattice of bare spaces is gone: every site is a `Basis`
+    # every site is a `Basis`; bare spaces are rejected
     @test_throws ArgumentError FiniteChain(VSU2, 3)
     @test_throws ArgumentError FiniteChain([VSU2, VSU2b])
     @test_throws ArgumentError InfiniteChain([VSU2])
@@ -77,7 +72,6 @@ end
 end
 
 @testset "_maxsite distinguishes the two lattices" begin
-    # this is what makes the site-range check apply to one and not the other
     @test _maxsite(FiniteChain(BSU2, 4)) == 4
     @test _maxsite(InfiniteChain([BSU2])) === nothing
 end
@@ -91,10 +85,8 @@ end
     inf = InfiniteChain([BSU2])
     @test _tolattice(inf) === inf
 
-    # ...and names what went wrong otherwise, rather than failing inside `collect`
     @test_throws ArgumentError _tolattice([1, 2, 3])           # wrong element type
     @test_throws ArgumentError _tolattice(3)                   # not iterable at all
-    # the realistic version of that: an algorithm selector one argument too early
     @test_throws ArgumentError _tolattice(BipartiteAlgorithm())
     h = opsum(dot(spinvector(BSU2)[1], spinvector(BSU2)[2]))
     @test_throws ArgumentError mpo(h, SVDBondAlgorithm())
@@ -124,8 +116,6 @@ end
     @test occursin("InfiniteChain, N = 1", sprint(show, inf))
 end
 
-# Terms are checked as they enter the container, so an operator can never reach a numerical result
-# through spaces it was not validated against, and the error points at the line that added it.
 @testset "the lattice boundary is where operator and spaces are confronted" begin
     S = spinvector(BSU2)
     h = opsum(dot(S[i], S[i + 1]) for i in 1:3)
@@ -176,7 +166,6 @@ end
 end
 
 @testset "adjoint over a non-uniform and an infinite lattice" begin
-    # `adjoint` only reads the spaces of the sites a term touches, so any lattice kind works
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     Bf = unitbasis(Vf)
     F = fermionmode(Bf, FermionNumber(0), FermionNumber(1))

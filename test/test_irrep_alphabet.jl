@@ -18,7 +18,6 @@ const σZ = ComplexF64[1 0; 0 -1]
 
     # index 1 of the trivial charge is the identity, so the matrix units of that charge start at 2
     @test ops == [IrrepOperator(SU2Irrep(0), 2), IrrepOperator(SU2Irrep(1), 1)]
-    @test length(ops) == 2
 
     # trivial-charge element (c = 0): normalized identity for this single-sector space
     id_op = IrrepOperator(SU2Irrep(0), 2)
@@ -34,8 +33,7 @@ const σZ = ComplexF64[1 0; 0 -1]
     for q in 1:3                         # each spherical component is traceless
         @test abs(tr(B[:, :, q])) < 1.0e-12
     end
-    # the three components are linearly independent and span the traceless
-    # 2×2 operators — i.e. the same space as {σx, σy, σz}
+    # the three components are independent and span the same space as {σx, σy, σz}
     comps = hcat((vec(B[:, :, q]) for q in 1:3)...)
     @test rank(comps) == 3
     @test rank(hcat(comps, vec(σX), vec(σY), vec(σZ))) == 3
@@ -49,7 +47,6 @@ end
     mats = [convert(Array, instantiate(op, V))[:, :, 1] for op in ops]
     @test rank(hcat(vec.(mats)...)) == 4  # linearly independent
 
-    # each alphabet element is normalized under TensorKit's inner
     for op in ops
         t = instantiate(op, V)
         @test inner(t, t) ≈ 1
@@ -92,8 +89,7 @@ const SPACES = (
     ops = instances(IrrepOperator, V)
     tensors = [instantiate(op, V) for op in ops]
     for i in eachindex(ops), j in eachindex(ops)
-        # TensorMap `inner` is only defined between operators of equal charge
-        # (same HomSpace); cross-charge orthogonality is structural.
+        # TensorMap `inner` needs equal charge (same HomSpace); cross-charge orthogonality is structural
         if ops[i].c == ops[j].c
             @test inner(tensors[i], tensors[j]) ≈ (i == j) atol = 1.0e-12
             # the symbolic inner reproduces the qdim-weighted TensorMap inner
@@ -105,7 +101,6 @@ const SPACES = (
 end
 
 @testset "completeness / count" begin
-    # universal identity: Σ over the alphabet of dim(c) == dim(V)²
     for V in SPACES
         ops = instances(IrrepOperator, V)
         @test sum(dim(op.c) for op in ops) == dim(V)^2
@@ -115,10 +110,9 @@ end
     for V in (ℂ^2, Rep[U₁](0 => 1, 1 => 1), Rep[U₁](0 => 2, 1 => 1))
         @test length(instances(IrrepOperator, V)) == reduceddim(V)^2
     end
-    # non-abelian: the count is the number of fusion channels, larger than reduceddim²
+    # non-abelian: the number of fusion channels, not reduceddim²
     V = SU2Space(1 // 2 => 1)
-    @test length(instances(IrrepOperator, V)) == 2
-    @test length(instances(IrrepOperator, V)) != reduceddim(V)^2
+    @test length(instances(IrrepOperator, V)) == 2 != reduceddim(V)^2
 end
 
 @testset "ordering, hashing, scalars" begin

@@ -62,8 +62,8 @@ end
 
 # They are linearly independent but not orthogonal (any two overlap by ``1/3``), and the three-site
 # structure shows in the cost: the pairing of neighbours has one bond index everywhere, the other two
-# need three. Three is exactly the number of independent
-# singlet couplings of four spin-1 operators, which is what ``\vec S_i`` carries.
+# need three. Three is exactly the number of independent singlet couplings of four spin-1 operators,
+# which is what ``\vec S_i`` carries.
 
 # ### A note on ring exchange
 #
@@ -77,9 +77,8 @@ end
 # - (\vec S_a\!\cdot\!\vec S_c)(\vec S_b\!\cdot\!\vec S_d).
 # ```
 #
-# Nothing has to be worked out by hand — no recoupling coefficients — since `*` and placement do it.
-# The cost of a ring exchange is that of its most expensive pairing, which is what the ladder below
-# measures.
+# No recoupling coefficients are needed: `*` and placement do it. The cost of a ring exchange is
+# that of its most expensive pairing, which is what the ladder below measures.
 
 # ## Four fermions: the same, and the sign is free
 #
@@ -145,11 +144,3 @@ for Lx in (4, 6, 8, 12)
     r = build("plaq", plaquette_ladder(Lx); quiet = true)
     println("  Lx=$(rpad(Lx, 3)) N=$(rpad(2Lx, 3))  D=$(rpad(r.D, 3))  D_dense=$(r.Ddense)")
 end
-
-# ## Scaling
-#
-# ```
-# julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full
-# ```
-#
-# ![Bond dimension and construction time versus system size](../assets/scaling.png)

@@ -51,12 +51,10 @@ using LinearAlgebra: dot, eigvals, norm
 
 # ## Mixed-spin bonds
 #
-# The builders give the exchange of two sites of the *same* spin. The coupling between sites of two
-# different spins is an operator on a pair of different bases, and the example for `project`: under
-# SU(2) it is diagonal in the total spin ``J`` of the pair, with
-# ``\vec S_a\!\cdot\!\vec S_b = \tfrac12\left[J(J+1) - s_a(s_a+1) - s_b(s_b+1)\right]``, which is one
-# number per coupled sector of the `TensorMap`. Giving the *list* of bases says in which site's basis
-# each slot is expanded.
+# The builders give the exchange of two sites of the *same* spin. For two different spins, under SU(2)
+# the coupling is diagonal in the total spin ``J`` of the pair, with
+# ``\vec S_a\!\cdot\!\vec S_b = \tfrac12\left[J(J+1) - s_a(s_a+1) - s_b(s_b+1)\right]``: one number
+# per coupled sector of a `TensorMap`, which `project` expands in the list of the two bases.
 
 """
     exchange(Ba, Bb) -> LocalOperator
@@ -116,8 +114,7 @@ ladder_bonds(Lx, Ly) = cylinder_bonds(Lx, Ly; periodic_y = false)
 # need for the same operator.
 
 bonddim(secs, b) = length(secs[b])
-# `init = 0` is not decoration: an aggressive `SequentialSVD` truncation can leave a bond with *no*
-# sectors at all (see the long-range page), and reporting that as 0 beats throwing from the reporter.
+# `init = 0`: an aggressive `SequentialSVD` truncation can leave a bond with no sectors at all.
 densedim(secs, b) = sum(dim(c) for c in secs[b]; init = 0)
 maxbonddim(secs) = maximum(b -> bonddim(secs, b), eachindex(secs))
 maxdensedim(secs) = maximum(b -> densedim(secs, b), eachindex(secs))
@@ -126,9 +123,6 @@ maxdensedim(secs) = maximum(b -> densedim(secs, b), eachindex(secs))
     build(name, H::OperatorSum; alg) -> NamedTuple
 
 Construct the MPO and report its bond dimensions and (warm) construction time.
-
-The [`OperatorSum`](@ref OpSum.OperatorSum) carries its lattice, so the model functions below return
-one value and `build(name, model(...))` takes it as is.
 """
 function build(name, H::OperatorSum; alg = BipartiteAlgorithm(), quiet = false)
     mpo(H, alg)   # warm up compilation so the timing is meaningful
@@ -149,36 +143,32 @@ end
 
 # ## Verification
 #
-# Three checks of increasing cost. Every example runs at least the first.
+# Three checks of increasing cost; every example runs at least the first.
 #
-# **1. Faithfulness** — cheap, purely symbolic, valid at any `N` and for any sector including
-# fermionic ones: the reduced MPO reconstructs the original term sum exactly. Only meaningful for
-# lossless compression; after a truncating SVD it says nothing. This is
-# [`islossless`](@ref OpSum.islossless), part of OpSum's public API.
-
+# **1. Faithfulness** — purely symbolic, valid at any `N` and for any sector including fermionic
+# ones: the reduced MPO reconstructs the original term sum exactly
+# ([`islossless`](@ref OpSum.islossless)). Only meaningful for lossless compression.
+#
 # **2. Tensor assembly** — contract the assembled `TensorMap`s with
 # [`mpo_tensormap`](@ref OpSum.mpo_tensormap) and compare against the dense oracle. Exponential in
-# `N`, so small systems only, but it stays inside TensorKit and never builds a dense array, so it is
-# valid for fermions too.
+# `N`, so small systems only, but it stays inside TensorKit and is valid for fermions too.
 
 function mpo_matches_oracle(H::OperatorSum; alg = BipartiteAlgorithm())
     m = mpo(H, alg)
-    Ws, secs = m.Ws, m.bondsectors
-    return mpo_tensormap(irrep_mpo_tensors(Ws, secs, H.lattice)) ≈ instantiate(H)
+    return mpo_tensormap(irrep_mpo_tensors(m.Ws, m.bondsectors, H.lattice)) ≈ instantiate(H)
 end
 
 # **3. Spectrum** — the physics check, and the only honest route for fermions when comparing
-# against an external reference. Eigenvalues are computed block by block, which is intrinsic and
-# basis-independent.
+# against an external reference. Each block is labelled by a coupled sector `c` and holds one
+# eigenvalue per multiplet; repeating it `dim(c)` times (the ``2j+1`` states of an SU(2) multiplet)
+# makes spectra comparable across different symmetry groups.
 
-# Each block is labelled by a coupled sector `c` and holds one eigenvalue per multiplet. In the
-# full (dense) Hilbert space every such eigenvalue appears `dim(c)` times — for SU(2) that is the
-# ``2j+1`` states of the multiplet. Repeating them accordingly is what makes spectra comparable
-# across different symmetry groups.
+# An operator with a trailing charge leg is reduced to an endomorphism first.
+_endo(O::AbstractTensorMap) = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
+
 function spectrum(O::AbstractTensorMap)
-    Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
     vals = Float64[]
-    for (c, b) in blocks(Oop)
+    for (c, b) in blocks(_endo(O))
         ev = real(eigvals(Matrix(b)))
         for _ in 1:dim(c)
             append!(vals, ev)
@@ -190,7 +180,6 @@ spectrum(H::OperatorSum) = spectrum(instantiate(H))
 
 "Relative deviation from Hermiticity — the sharpest detector of a wrong fermionic sign."
 function hermiticity_error(H::OperatorSum)
-    O = instantiate(H)
-    Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
-    return norm(Oop - Oop') / norm(Oop)
+    O = _endo(instantiate(H))
+    return norm(O - O') / norm(O)
 end

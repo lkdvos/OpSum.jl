@@ -1,23 +1,16 @@
-# The lattices an operator can be compressed over. A term bag is latticeless — nothing in the term
-# algebra or in the sweep needs a physical space, and the sweep needs only the site *count* — so the
-# lattice enters with the `OperatorSum`, and these are the two things that can be supplied.
-#
-# A site is described by its operator `Basis` (basis.jl), whose letters the terms on it index into.
-# (A bare physical space, meaning its matrix units, was accepted until operator-bases.md §7, step 7.)
-#
-# `FiniteChain` and `InfiniteChain` differ in exactly two observable ways: whether `getindex` wraps,
-# and whether a site index outside `1:length` is an error. Everything downstream branches on the type
-# rather than on a flag.
+# The lattices an operator can be compressed over; they enter with the `OperatorSum`, as terms are
+# latticeless. A site is described by its operator `Basis` (basis.jl), whose letters the terms on it index
+# into. `FiniteChain` and `InfiniteChain` differ in whether `getindex` wraps and whether a site outside
+# `1:length` is an error; downstream code branches on the type.
 
-using TensorKit: TensorKit, ElementarySpace, Sector, Trivial, sectortype
+using TensorKit: TensorKit, Trivial, sectortype
 
 """
     AbstractLattice
 
 Supertype of the lattices an [`OperatorSum`](@ref) can carry: [`FiniteChain`](@ref) and
-[`InfiniteChain`](@ref). A lattice names the operator [`Basis`](@ref) of every site, which is what tensor assembly, [`instantiate`](@ref) and
-letter validation need; the compression itself needs only `length` (the number of sites, or the
-unit-cell period).
+[`InfiniteChain`](@ref). A lattice names the operator [`Basis`](@ref) of every site (needed by tensor
+assembly, [`instantiate`](@ref) and letter validation); the compression itself needs only `length`.
 """
 abstract type AbstractLattice end
 
@@ -25,14 +18,12 @@ abstract type AbstractLattice end
     FiniteChain(bases::AbstractVector{<:Basis})
     FiniteChain(B::Basis, N::Integer)
 
-An open chain of `length(bases)` sites, carrying one operator [`Basis`](@ref) per site: the letters
-of a term on site `i` index into `bases[i]`. Sites with different spaces are combined by listing
-their bases, e.g. `vcat(Bf, Bs, Bf)`; all must share one symmetry. `getindex` does *not* wrap: site
-`i` exists only for `i ∈ 1:length(chain)`, and a term reaching outside that range is an error rather
-than a wrap-around.
+An open chain of `length(bases)` sites, carrying one operator [`Basis`](@ref) per site: the letters of a
+term on site `i` index into `bases[i]`. Sites with different spaces are combined by listing their bases,
+e.g. `vcat(Bf, Bs, Bf)`; all must share one symmetry. `getindex` does *not* wrap: a term reaching outside
+`1:length(chain)` is an error.
 
-`FiniteChain(B, N)` is the uniform chain. A bare vector of bases is accepted anywhere a
-`FiniteChain` is, and converted.
+`FiniteChain(B, N)` is the uniform chain. A bare vector of bases is accepted anywhere a `FiniteChain` is.
 """
 struct FiniteChain{S} <: AbstractLattice
     sites::Vector{S}
@@ -46,15 +37,12 @@ FiniteChain(lat::FiniteChain) = lat
     InfiniteChain(bases::AbstractVector)
     InfiniteChain(B::Basis)
 
-An infinite chain with a repeating unit cell of `L = length(bases)` sites, carrying one operator
-[`Basis`](@ref) per site of the cell. Site `i` of the
-infinite lattice has basis `bases[mod1(i, L)]`, for any `i ∈ ℤ` — `getindex` wraps, so this is the
-lattice of the whole chain and not just of the cell.
+An infinite chain with a repeating unit cell of `L = length(bases)` sites, one operator [`Basis`](@ref) per
+site. Site `i ∈ ℤ` has basis `bases[mod1(i, L)]` (`getindex` wraps).
 
-An operator compressed over one is a *generating set*: the operator represented is
-`Σ_{n ∈ ℤ} translate(H, n·L)`, so each translation class must appear exactly once (see
-[`unitcell_terms`](@ref)). Its terms may reach past the cell — `SS[1, 2]` on a one-site cell
-names site 2 — which is exactly what the wrap-around `getindex` is for.
+An operator compressed over one is a *generating set*: it represents `Σ_{n ∈ ℤ} translate(H, n·L)`, so each
+translation class must appear exactly once (see [`unitcell_terms`](@ref)). Terms may reach past the
+cell: `SS[1, 2]` on a one-site cell names site 2.
 """
 struct InfiniteChain{S} <: AbstractLattice
     sites::Vector{S}
@@ -68,11 +56,10 @@ InfiniteChain(sites::AbstractVector) = (v = _sitevector(sites); InfiniteChain{el
 InfiniteChain(V) = InfiniteChain([V])
 InfiniteChain(lat::InfiniteChain) = lat
 
-# A concretely typed copy where the sites allow one (`vcat` of bases of different spaces need not).
+# a concretely typed copy where the sites allow one
 _sitevector(sites) = collect(map(identity, sites))
 
-# One kind of site throughout, of one symmetry. `_space`/`Basis` are defined later (basis.jl), which
-# is fine for a function only called at run time.
+# every site a `Basis`, all of one symmetry
 function _checksites(sites::Vector)
     isempty(sites) && return sites
     all(s -> s isa Basis, sites) || throw(
@@ -101,7 +88,6 @@ Base.lastindex(lat::AbstractLattice) = length(lat)
 Base.:(==)(a::AbstractLattice, b::AbstractLattice) =
     typeof(a) == typeof(b) && a.sites == b.sites
 
-# The one behavioural difference: the finite chain has an edge, the infinite one does not.
 Base.getindex(lat::FiniteChain, i::Integer) = lat.sites[i]
 Base.getindex(lat::InfiniteChain, i::Integer) = lat.sites[mod1(Int(i), length(lat))]
 
@@ -115,8 +101,7 @@ Base.show(io::IO, lat::InfiniteChain) = print(io, "InfiniteChain(", lat.sites, "
 """
     windowlattice(lat::InfiniteChain, N::Int) -> FiniteChain
 
-The first `N` sites of the infinite lattice as a finite chain, for the unrolled window the infinite
-sweep runs on.
+The first `N` sites of the infinite lattice as a finite chain (the unrolled window of the infinite sweep).
 """
 windowlattice(lat::InfiniteChain, N::Int) = FiniteChain([lat[i] for i in 1:N])
 

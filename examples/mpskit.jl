@@ -114,11 +114,6 @@ e∞ = real(expectation_value(ψ∞, H∞mpo)) / 2
 
 isapprox(e∞, 1 / 4 - log(2); atol = 1.0e-3)
 
-# The plain (non-Hamiltonian) tensors tile as well, which is what `MPSKit.InfiniteMPO` takes:
-
-T∞ = irrep_mpo_tensors(mpo(H∞))
-space(T∞[1], 1) == space(T∞[end], 4)'
-
 # ## Name clashes
 #
 # `using OpSum, MPSKit` is safe: OpSum's MPO type is [`SymbolicMPO`](@ref OpSum.SymbolicMPO), so it

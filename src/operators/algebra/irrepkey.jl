@@ -1,11 +1,10 @@
-# Charge-augmented alphabet + caterpillar fusion helpers: `ITOKey = (op, bond_charge_out, vertex)`,
-# the alphabet the flat `ITOTermTable`/`mpo` pipeline consumes. Prefixes agreeing on the full
-# `ITOKey` share automaton state, so the automaton is block-diagonal in the bond charge. Idle sites
-# get the pass-through symbol: the identity, which is letter `(unit, 1)` in every alphabet.
+# Charge-augmented alphabet + caterpillar fusion helpers: `ITOKey = (op, bond_charge_out, vertex)`.
+# Prefixes agreeing on the full `ITOKey` share automaton state, so the automaton is block-diagonal in
+# the bond charge.
 #
-# `Term` stores keys, not a fusion tree, because for a caterpillar the keys *are* the tree
-# (`bondcharges`/`vertexlabels` project one onto them; `_tree_from_bonds` in irrepalgebra.jl inverts
-# it) — `total` alone would not do, since for `K ≥ 3` non-abelian several channels reach the same total.
+# `Term` stores keys, not a fusion tree: for a caterpillar the keys *are* the tree (`bondcharges`/
+# `vertexlabels` project one onto them; `_tree_from_bonds` inverts it). `total` alone would not do,
+# since for `K ≥ 3` non-abelian several channels reach the same total.
 
 using TensorKit
 using TensorKit: Sector, FusionTree, fusiontrees, unit
@@ -14,10 +13,8 @@ using .IrrepTensorOperators: IrrepOperator
 """
     passthrough(::Type{I}) where {I<:Sector}
 
-The pass-through symbol: the identity, which is element 1 of every [`Basis`](@ref), i.e. the
-letter of trivial charge `unit(I)` and index `1`. Fills idle sites, injecting trivial charge and
-acting as `id(V)`. Placement drops it, so a placed `Term` never contains it; that is what keeps it
-apart from the letters of real factors in the sweep.
+The pass-through symbol: the identity, element 1 of every [`Basis`](@ref) (trivial charge `unit(I)`,
+index `1`). Fills idle sites. Placement drops it, so a placed `Term` never contains it.
 """
 passthrough(::Type{I}) where {I <: Sector} = IrrepOperator{I}(unit(I), 1)
 
@@ -28,15 +25,12 @@ Whether `op` is the identity, i.e. the pass-through letter `(unit, 1)`.
 """
 ispassthrough(op::IrrepOperator) = op.n == 1 && op.c == unit(op.c)
 
-# Augmented trie key
-# ------------------
 """
     ITOKey{I<:Sector}
 
 Alphabet symbol of the charge-augmented automaton: `op` (the ITO letter or pass-through), `bond`
-(the bond charge *out* of this site, i.e. the running fusion up to and including it), and `vertex`
-(the fusion-vertex multiplicity label; `1` for multiplicity-free fusion). Prefixes agreeing on op
-*and* bond *and* vertex share a trie node, so the trie is a direct sum of per-bond-sector FSMs.
+(the running fusion charge *out* of this site) and `vertex` (the fusion-vertex multiplicity label,
+`1` for multiplicity-free fusion).
 """
 struct ITOKey{I <: Sector}
     op::IrrepOperator{I}
@@ -57,13 +51,11 @@ function Base.show(io::IO, k::ITOKey)
     return print(io, "ITOKey(", k.op, ", bond=", k.bond, ", μ=", k.vertex, ")")
 end
 
-# Caterpillar coupling tree + its per-site charges/labels
-# -------------------------------------------------------
 """
     caterpillar_trees(charges::NTuple{K,I}, total::I) -> Vector{FusionTree{I,K}}
 
 All left-nested caterpillar fusion trees of the per-site `charges` fusing to `total`, in
-TensorKit's canonical order (finite, bounded — delegated to TensorKit `fusiontrees`).
+TensorKit's canonical order.
 """
 function caterpillar_trees(charges::NTuple{K, I}, total::I) where {K, I <: Sector}
     K == 0 && throw(ArgumentError("empty charge tuple"))

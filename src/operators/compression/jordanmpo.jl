@@ -1,46 +1,34 @@
-# Jordan-form MPO emission: one `SparseBlockTensorMap` per site, virtual legs `SumSpace`s with one
-# level per bond index, reordered (start channel, rest, finish channel) — what MPSKit's
-# `JordanMPOTensor`/`FiniteMPOHamiltonian` consume. `irrep_mpo_tensors` (irrepmpo.jl) emits the dense
-# shape instead.
-#
-# Both identity channels are padded in at every internal bond even where the cover spent no index on
-# them, so the result is minimal *among Jordan-form MPOs*, at most `+2` per bond over the cover's
-# minimum — padded channels are pure identity chains and cannot change the operator.
-# `_force_finish!` (irrepgraph.jl) is the one thing that touches the cover for this path.
+# Jordan-form MPO emission: one `SparseBlockTensorMap` per site, virtual legs `SumSpace`s with one level per
+# bond index, reordered (start channel, rest, finish channel). Both identity channels are padded in at every
+# internal bond even where the cover spent no index on them (at most `+2` per bond; padded channels are pure
+# identity chains). `_force_finish!` (irrepgraph.jl) is the one thing that touches the cover for this path.
 
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, SumSpace, eachspace
-using TensorKit: BraidingTensor, Vect, ElementarySpace, unit, tensormaptype
+using TensorKit: BraidingTensor, Vect, unit, tensormaptype
 using .IrrepTensorOperators: IrrepOperator
 
 """
     jordan_mpo_tensors(H::OperatorSum[, alg]) -> Vector{<:SparseBlockTensorMap}
 
-`jordan_mpo_tensors(mpo(H, alg))`: compress `H` (see [`mpo`](@ref)) and emit it in **Jordan form**,
-one `BlockTensorKit.SparseBlockTensorMap` per site (of the chain, or of the unit cell),
-`W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, whose virtual legs are `SumSpace`s carrying one level
-`Vect[I](charge => 1)` per bond index, ordered as
+`jordan_mpo_tensors(mpo(H, alg))`: compress `H` (see [`mpo`](@ref)) and emit it in **Jordan form**, one
+`BlockTensorKit.SparseBlockTensorMap` per site (of the chain, or of the unit cell),
+`W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, whose virtual legs are `SumSpace`s with one level `Vect[I](charge => 1)`
+per bond index, ordered `(start channel, everything else, finish channel)` with the identity at `(1, 1)`
+and `(end, end)`. On a finite chain the boundary bonds are one-dimensional and trivially charged, so `H`
+must have total charge `unit(I)`.
 
-    (start channel, everything else, finish channel)
+Diagonal unit-coefficient pass-throughs are emitted as `TensorKit.BraidingTensor`s, so a consumer can store
+them as scalars. This is the shape MPSKit's `JordanMPOTensor` consumes (`instantiate(mpo(H))`); use
+[`irrep_mpo_tensors`](@ref) for dense per-site `TensorMap`s.
 
-with the identity at `(1, 1)` and `(end, end)`. On a finite chain the boundary bonds `B_0` and `B_N`
-are one-dimensional and trivially charged, so `H` must have total charge `unit(I)`.
-
-Diagonal pass-through entries with unit coefficient are emitted as `TensorKit.BraidingTensor`s, which
-is what lets a consumer store them as scalars rather than dense blocks. This is the shape MPSKit's
-`JordanMPOTensor` / `MPOHamiltonian` consume, which `instantiate(mpo(H))` builds with MPSKit loaded;
-use [`irrep_mpo_tensors`](@ref) for the dense per-site `TensorMap`s instead.
-
-`alg` defaults to [`BipartiteAlgorithm`](@ref). An [`SVDBondAlgorithm`](@ref) bond basis is a
-*mixture* of prefix states in which neither identity channel is a basis vector, so both are padded at
-every bond; a truncation aggressive enough to empty a bond is rejected, since a Jordan-form MPO with a
-zero-dimensional bond cannot carry its identity corners. Exponentially decaying channels on a finite
-chain have no Jordan form yet.
+An [`SVDBondAlgorithm`](@ref) bond basis mixes prefix states, so neither identity channel is a basis
+vector and both are padded at every bond; a truncation that empties a bond is rejected, since the
+identity corners need an index. Exponentially decaying channels on a finite chain have no Jordan form yet.
 """
 jordan_mpo_tensors(H::OperatorSum, args...) = jordan_mpo_tensors(mpo(H, args...))
 
-# Reorder one internal bond; `s`/`f` are the start/finish indices (`0` if the cover spent none).
-# Slots `1`/`end` are *reserved* for them live or not, so padding needs no separate bookkeeping.
-# Returns `(pos, sec)`: `pos[old] -> new`, `sec[new]` the new charge.
+# Reorder one internal bond; `s`/`f` are the start/finish indices (`0` if the cover spent none). Slots
+# `1`/`end` are reserved for them, live or not. Returns `(pos, sec)`: `pos[old] -> new`, `sec[new]` the charge.
 function _jordan_bond(sec::Vector{I}, s::Int, f::Int) where {I}
     n = length(sec)
     iszero(n) && throw(
@@ -71,15 +59,11 @@ end
 """
     jordan_mpo_tensors(Ws, bondsectors, starts, finishes, sites) -> Vector{<:SparseBlockTensorMap}
 
-The reduced-data form of [`jordan_mpo_tensors`](@ref): `(Ws, bondsectors)` as an [`mpo`](@ref) holds
-them, plus the per-bond start/finish channel indices from `_irrep_channels` (`0` where the cover did
-not spend an index — that channel is then padded).
+The reduced-data form of [`jordan_mpo_tensors`](@ref): `(Ws, bondsectors)` as an [`mpo`](@ref) holds them,
+plus the per-bond start/finish indices from `_irrep_channels` (`0` where that channel is padded).
 
-Two structural invariants are checked per site rather than assumed, because a violation would be
-silent: nothing may enter the start column except from the start row, and the finish row may emit into
-nothing but the finish column. Both follow from how the two channels are read off the cover, but they
-are the properties a consumer's block accessors rely on, and a wrong one drops operators on the floor
-instead of erroring.
+Two invariants are checked per site because a violation would silently drop operators: nothing may enter
+the start column except from the start row, and the finish row may emit into nothing but the finish column.
 """
 function jordan_mpo_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}}, bondsectors::Vector{Vector{I}},
@@ -95,8 +79,7 @@ function jordan_mpo_tensors(
         )
     )
 
-    # `pos[i]` / `jsec[i]` describe the bond to the *left* of site i; both boundaries stay
-    # one-dimensional (and are simultaneously that bond's start and finish channel).
+    # `pos[i]` / `jsec[i]` describe the bond to the *left* of site i; the boundaries stay one-dimensional.
     pos = Vector{Vector{Int}}(undef, N + 1)
     jsec = Vector{Vector{I}}(undef, N + 1)
     pos[1], jsec[1] = Int[1], I[unit(I)]
@@ -107,9 +90,8 @@ function jordan_mpo_tensors(
     return _jordan_tensors(Ws, pos, jsec, sites)
 end
 
-# The emission proper, shared by the finite chain and the infinite unit cell: `pos[i]` maps the old
-# indices of the bond to the *left* of site `i` to their Jordan slots and `jsec[i]` gives the charges
-# of those slots (`length(pos) == length(Ws) + 1`; for a unit cell `pos[1]` is the last bond's).
+# The emission proper, shared by the finite chain and the infinite unit cell: `pos[i]` maps the old indices
+# of the bond left of site `i` to Jordan slots, `jsec[i]` gives those slots' charges (`length == N + 1`).
 function _jordan_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}}, pos::Vector{Vector{Int}},
         jsec::Vector{Vector{I}}, sites
@@ -120,13 +102,12 @@ function _jordan_tensors(
     spaces = map(sec -> SumSpace([Vect[I](c => 1) for c in sec]), jsec)
 
     return map(1:N) do i
-        site = sites[i]                  # the site's basis (or space), which the letters index into
+        site = sites[i]
         V = _space(site)
         secL, secR = jsec[i], jsec[i + 1]
         nrows, ncols = length(secL), length(secR)
 
-        # 1. permute the reduced entries into Jordan order. The permutation is a bijection, so no two
-        #    reduced entries can land in the same slot.
+        # 1. permute the reduced entries into Jordan order (a bijection)
         entries = Dictionary{Tuple{Int, Int}, SiteOperator{I}}()
         for (idx, localop) in storedpairs(Ws[i])
             l, r = Tuple(idx)
@@ -135,8 +116,7 @@ function _jordan_tensors(
             insert!(entries, (pos[i][l], pos[i + 1][r]), op)
         end
 
-        # 2. the two structural invariants, then the two identity corners (padding them where the
-        #    compression did not produce them — see the file header).
+        # 2. the structural invariants, then the identity corners (padded where missing)
         for (row, col) in keys(entries)
             (ncols > 1 && col == 1 && row != 1) &&
                 _invariant("row $row of site $i enters the Jordan start channel")
@@ -154,8 +134,7 @@ function _jordan_tensors(
             end
         end
 
-        # 3. emit. A unit-coefficient pass-through on a charge-preserving slot *is* the braiding, and
-        #    is emitted as one so that a consumer can keep it out of dense storage.
+        # 3. emit; a unit-coefficient pass-through on a charge-preserving slot is a braiding
         W = SparseBlockTensorMap{TT}(undef, spaces[i] ⊗ V ← V ⊗ spaces[i + 1])
         blocks = Dictionary{Tuple{IrrepOperator{I}, I, I}, tensormaptype(S, 2, 2, ComplexF64)}()
         for ((row, col), op) in pairs(entries)

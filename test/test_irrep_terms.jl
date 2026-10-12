@@ -47,7 +47,6 @@ end
 end
 
 @testset "caterpillar channel enumeration is bounded/canonical" begin
-    I = SU2Irrep
     c = SU2Irrep(1)
     @test length(caterpillar_trees((c, c), SU2Irrep(0))) == 1
     @test length(caterpillar_trees((c, c, c), SU2Irrep(0))) == 1
@@ -70,8 +69,6 @@ end
         [U1Irrep(1), U1Irrep(2)]
 end
 
-# `dot` sorts before reading `-√dim(c)` off the left operand, so the factor cannot depend on the
-# order written. Dual sectors have equal quantum dimension, so the two readings agree numerically too.
 @testset "dot is order-independent in its operands" begin
     V = Rep[U₁](0 => 1, 1 => 1)
     raise = LO(IrrepOperator(U1Irrep(1), 1))
@@ -102,8 +99,6 @@ end
     @test total(tk0) == unit(Trivial)
 end
 
-# The reduced representation (reduced coefficients + fusion structure) must re-materialize to the
-# correct dense operator — verified end-to-end against an explicit Heisenberg chain.
 @testset "end-to-end: reduced representation reconstructs the dense operator" begin
     V = SU2Space(1 // 2 => 1)
     Sx = ComplexF64[0 1; 1 0] / 2
@@ -120,25 +115,15 @@ end
         end
         return H
     end
-    # TensorMap operator → matrix: drop the dim-1 total-charge leg, reorder to kron index order
-    function to_matrix(t, N)
-        A = convert(Array, t)
-        ndims(A) == 2N + 1 && (A = dropdims(A; dims = 2N + 1))
-        perm = (reverse(1:N)..., reverse((N + 1):(2N))...)
-        return reshape(permutedims(A, perm), 2^N, 2^N)
-    end
-
     for N in (2, 3)
         sites = fill(unitbasis(V), N)
         S = spinvector(unitbasis(V))
         H = reduce(+, dot(S[i], S[i + 1]) for i in 1:(N - 1))
-        direct = instantiate(opsum(sites, H))
-        @test to_matrix(direct, N) ≈ heis_ref(N)
+        @test physmatrix(instantiate(opsum(sites, H)), N, 2) ≈ heis_ref(N)
     end
 end
 
-# K ≥ 3: the intermediate ("inner line") charge is a genuine degree of freedom that `(charges,
-# total)` cannot capture — the stored caterpillar tree keeps the channels distinct.
+# K ≥ 3: the inner-line charge is not captured by `(charges, total)`; the caterpillar tree keeps it.
 @testset "K=3 SU(2): distinct coupling channels" begin
     V = SU2Space(1 // 2 => 1)
     Sop = spinvector(unitbasis(V))
@@ -146,7 +131,6 @@ end
     terms = [couple(couple(Sop[1], Sop[2]; to = b2), Sop[3]; to = SU2Irrep(1)) for b2 in channels]
     ks = [onlyterm(t) for t in terms]
 
-    # same sites, ops, and total — distinguished ONLY by the inner-line charge in the tree
     @test length(unique(ks)) == 3
     @test all(k -> k.sites == [1, 2, 3] && total(k) == SU2Irrep(1), ks)
     @test [termbonds(k) for k in ks] == [
@@ -157,9 +141,7 @@ end
 
     # and they materialize to genuinely different operators
     mats = [convert(Array, instantiate(opsum(fill(unitbasis(V), 3), t))) for t in terms]
-    @test !(mats[1] ≈ mats[2])
-    @test !(mats[1] ≈ mats[3])
-    @test !(mats[2] ≈ mats[3])
+    @test !any(mats[i] ≈ mats[j] for i in 1:3 for j in (i + 1):3)
 end
 
 # `≈` compares the canonical terms as sparse vectors: round-off left over from a cancellation is no

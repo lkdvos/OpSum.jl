@@ -7,78 +7,35 @@ using TensorKit: @tensor
 
 include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix
 
-@testset "SU(2) MPO tensors contract to the operator" begin
-    V = SU2Space(1 // 2 => 1)
-    d = 2
-
-    # --- N = 2 : single S·S term ---
-    sites2 = fill(unitbasis(V), 2)
-    S2 = spinvector(unitbasis(V))
-    H2 = opsum(dot(S2[1], S2[2]))
-    Ws, secs = reduced(mpo(opsum(sites2, H2)))
-    T = irrep_mpo_tensors(Ws, secs, sites2)
-    @tensor Op2[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
-
-    M_mpo = physmatrix(Op2, 2, d)
-    M_ref = physmatrix(instantiate(opsum(sites2, H2)), 2, d)
-    @test M_mpo ≈ M_ref
-
-    # physical sanity: equals ¼(σx⊗σx + σy⊗σy + σz⊗σz)
-    σX = ComplexF64[0 1; 1 0]; σY = ComplexF64[0 -im; im 0]; σZ = ComplexF64[1 0; 0 -1]
-    @test M_mpo ≈ 0.25 * (kron(σX, σX) + kron(σY, σY) + kron(σZ, σZ))
-
-    # --- N = 3 : Heisenberg chain ---
-    sites3 = fill(unitbasis(V), 3)
-    H3 = opsum(dot(spinvector(unitbasis(V))[1], spinvector(unitbasis(V))[2]), dot(spinvector(unitbasis(V))[2], spinvector(unitbasis(V))[3]))
-    Ws3, secs3 = reduced(mpo(opsum(sites3, H3)))
-    T3 = irrep_mpo_tensors(Ws3, secs3, fill(unitbasis(V), 3))
-    @tensor Op3[o1 o2 o3 bL; bR i1 i2 i3] :=
-        T3[1][bL o1; i1 b1] * T3[2][b1 o2; i2 b2] * T3[3][b2 o3; i3 bR]
-
-    @test physmatrix(Op3, 3, d) ≈ physmatrix(instantiate(opsum(sites3, H3)), 3, d)
-end
-
-@testset "trivial sector (ℂ²) MPO tensors contract to the operator" begin
-    V = ℂ^2
-    d = 2
-    ops = [IrrepOperator(unit(Trivial), n) for n in 1:4]
-    sites = fill(unitbasis(V), 3)
-    H = opsum(
-        couple(LO(ops[2])[1], LO(ops[3])[2]; to = unit(Trivial)),
-        couple(LO(ops[2])[2], LO(ops[3])[3]; to = unit(Trivial)),
-    )
-    Ws, secs = reduced(mpo(opsum(sites, H)))
-    T = irrep_mpo_tensors(Ws, secs, fill(unitbasis(V), 3))
-    @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
+contract2(T) = @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
+function contract3(T)
+    return @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
         T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
-    @test physmatrix(Op, 3, d) ≈ physmatrix(instantiate(opsum(sites, H)), 3, d)
 end
 
-@testset "U(1) hopping MPO tensors contract to the operator" begin
-    V = Rep[U₁](0 => 1, 1 => 1)
-    d = 2
-    raise = LO(IrrepOperator(U1Irrep(1), 1))
-    lower = LO(IrrepOperator(U1Irrep(-1), 1))
-    sites = fill(unitbasis(V), 2)
-    H = opsum(dot(raise[1], lower[2]), dot(lower[1], raise[2]))
-    Ws, secs = reduced(mpo(opsum(sites, H)))
-    T = irrep_mpo_tensors(Ws, secs, fill(unitbasis(V), 2))
-    @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
-    @test physmatrix(Op, 2, d) ≈ physmatrix(instantiate(opsum(sites, H)), 2, d)
-end
-
-@testset "K=3 SU(2) MPO tensors contract to the operator" begin
-    V = SU2Space(1 // 2 => 1)
-    d = 2
-    S = spinvector(unitbasis(V))
-    # genuine 3-body scalar: ((S₁⊗S₂)→spin-1) ⊗ S₃ → singlet
-    sites = fill(unitbasis(V), 3)
-    H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
-    Ws, secs = reduced(mpo(opsum(sites, H)))
-    T = irrep_mpo_tensors(Ws, secs, fill(unitbasis(V), 3))
-    @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
-        T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
-    @test physmatrix(Op, 3, d) ≈ physmatrix(instantiate(opsum(sites, H)), 3, d)
+@testset "MPO tensors contract to the operator" begin
+    Vs = SU2Space(1 // 2 => 1)
+    S = spinvector(unitbasis(Vs))
+    Vu = Rep[U₁](0 => 1, 1 => 1)
+    raise, lower = LO(IrrepOperator(U1Irrep(1), 1)), LO(IrrepOperator(U1Irrep(-1), 1))
+    ops = [LO(IrrepOperator(unit(Trivial), n)) for n in 1:4]
+    cases = [
+        ("SU2 S·S", unitbasis(Vs), 2, opsum(dot(S[1], S[2]))),
+        ("SU2 Heisenberg", unitbasis(Vs), 3, opsum(dot(S[1], S[2]), dot(S[2], S[3]))),
+        ("trivial", unitbasis(ℂ^2), 3, opsum(couple(ops[2][i], ops[3][i + 1]; to = unit(Trivial)) for i in 1:2)),
+        ("U1 hopping", unitbasis(Vu), 2, opsum(dot(raise[1], lower[2]), dot(lower[1], raise[2]))),
+        ("SU2 K=3", unitbasis(Vs), 3, opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))),
+    ]
+    for (name, B, N, H) in cases
+        sites = fill(B, N)
+        T = irrep_mpo_tensors(reduced(mpo(opsum(sites, H)))..., sites)
+        M = physmatrix(N == 2 ? contract2(T) : contract3(T), N, 2)
+        @test M ≈ physmatrix(instantiate(opsum(sites, H)), N, 2)
+        if name == "SU2 S·S"
+            σX = ComplexF64[0 1; 1 0]; σY = ComplexF64[0 -im; im 0]; σZ = ComplexF64[1 0; 0 -1]
+            @test M ≈ 0.25 * (kron(σX, σX) + kron(σY, σY) + kron(σZ, σZ))
+        end
+    end
 end
 
 # Physical cross-check of the coupling convention: the unique SU(2)-invariant 3-spin scalar in the

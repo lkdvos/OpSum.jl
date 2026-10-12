@@ -7,16 +7,14 @@ using LinearAlgebra: dot
 
 include(joinpath(@__DIR__, "testutils.jl"))   # physmatrix, densedim
 
-# Spin-½ with SU(2) symmetry, from the stock basis: `b` is S⃗ᵢ·S⃗ⱼ (one letter per site), `S` the
-# (charged) spin vector, which a Hamiltonian term never is.
+# Spin-½ SU(2): `b` is S⃗ᵢ·S⃗ⱼ, `S` the charged spin vector (never a Hamiltonian term).
 const BSU2 = spin_basis(SU2Irrep)
 const SU2OPS = spin_ops(SU2Irrep)
 const S = spinvector(BSU2)
 const b = SU2OPS.S_exchange
-# a spin-0 site: it carries no operator but the identity
+# a spin-0 site carries no operator but the identity
 const BSU2_0 = unitbasis(SU2Space(0 => 1))
 
-# the message of the ArgumentError `f()` throws
 function argerr(f)
     try
         f()
@@ -40,17 +38,14 @@ end
         W = mpo(H)
         @test W isa SymbolicMPO{SU2Irrep, <:L}
         @test [densedim(W.bondsectors, k) for k in eachindex(W.bondsectors)] == D
-        # islossless is a finite-chain check; an infinite chain is refused
         H.lattice isa FiniteChain ? (@test islossless(H)) : @test_throws ArgumentError islossless(H)
     end
 
-    # the dense oracle of a decaying model is the geometric sum truncated to the chain
     Hs = opsum(FiniteChain(BSU2, 4), b[1], expterm(b[1]; decay = 0.4))
     @test instantiate(Hs) ≈ instantiate(opsum(FiniteChain(BSU2, 4), chain_terms(Hs)))
     @test mpo_tensormap(irrep_mpo_tensors(mpo(Hs))) ≈ instantiate(Hs)
 
-    # SVD exists on a plain finite chain only; the Jordan form everywhere but on a finite chain with
-    # decaying channels, whose identity channels are not identified yet
+    # SVD exists on a plain finite chain only; Jordan form everywhere but finite chains with decaying channels
     @test mpo(cells[1][1], SVDBondAlgorithm(truncrank(6))) isa SymbolicMPO
     @test length(jordan_mpo_tensors(cells[1][1])) == 8
     @test length(jordan_mpo_tensors(cells[2][1])) == 1
@@ -76,14 +71,13 @@ end
     @test H4.lattice == lat
     @test H1 ≈ H2 && H1 ≈ H3 && H1 ≈ H4
 
-    # `+` copies, `opsum!` mutates; coincident terms sum
     H = OperatorSum(lat)
     G = H + b[1]
     @test isempty(H) && length(G) == 1
     opsum!(H, b[1], b[1])
     @test H ≈ 2 * G && (2H) / 2 ≈ H && isempty((H - H).terms)
 
-    # a failed insertion leaves the container untouched; bad arguments are named
+    # a failed insertion leaves the container untouched
     H = opsum(lat, b[1])
     @test_throws ArgumentError opsum!(H, b[2], b[N])      # b[N] reaches site N + 1
     @test length(H) == 1
@@ -93,14 +87,10 @@ end
 end
 
 @testset "a lattice of bare spaces is refused" begin
-    V = SU2Space(1 // 2 => 1)
-    @test_throws ArgumentError FiniteChain(V, 4)
-    @test_throws ArgumentError InfiniteChain([V])
-    @test_throws ArgumentError OperatorSum(fill(V, 4))
+    @test_throws ArgumentError OperatorSum(fill(SU2Space(1 // 2 => 1), 4))
 end
 
 @testset "H + H' on hopping chains" begin
-    # U(1) spin-½, against a hand-built hermitian operator
     N = 4
     lat = FiniteChain(spin_basis(U1Irrep), N)
     U = spin_ops(U1Irrep)
@@ -112,10 +102,10 @@ end
     Hhand = sum(site(Dict(i => Sp, i + 1 => Sm)) + site(Dict(i => Sm, i + 1 => Sp)) for i in 1:(N - 1))
     @test physmatrix(instantiate(H), N, 2) ≈ Hhand
 
-    # fermions: the adjoint supplies the anticommutation sign; infinite chains work too
+    # fermions: the adjoint supplies the anticommutation sign
     F = fermion_ops()
     BF = fermion_basis()
-    cdc = F.f_plus_f_min                                   # c†ᵢ cⱼ
+    cdc = F.f_plus_f_min
     hops(i) = -1.0 * (cdc[i, i + 1] + cdc[i + 1, i])
     Tf = opsum(FiniteChain(BF, 5), -1.0 * cdc[i, i + 1] for i in 1:4)
     @test Tf + Tf' ≈ opsum(FiniteChain(BF, 5), hops(i) for i in 1:4)
@@ -137,18 +127,15 @@ end
     @test occursin("outside the lattice `1:4`", argerr(() -> opsum(lat, b[4])))
     @test length(opsum(InfiniteChain(BSU2), b[4])) == 1                       # an infinite chain wraps
 
-    # an infinite chain holds a generating set: neutral, no K = 0, letters valid on the cell
     inf = InfiniteChain(BSU2)
     @test occursin("charge-neutral", argerr(() -> opsum(inf, S[1])))
     @test occursin("K = 0", argerr(() -> opsum(inf, one(Terms{SU2Irrep}))))
     @test_throws ArgumentError opsum(inf, expterm(couple(S[1], S[2]; to = SU2Irrep(1)); decay = 0.5))
     @test_throws ArgumentError opsum(InfiniteChain(BSU2_0), expterm(b[1]; decay = 0.5))
-    # two representatives of one translation class are only visible across the set
     @test occursin("translates of each other", argerr(() -> mpo(opsum(inf, b[1], b[2]))))
     @test mpo(opsum(inf, b[1], b[1])) isa SymbolicMPO                   # a term twice is one term
 
     @test_throws ArgumentError instantiate(OperatorSum(lat))
-    # the old `(h, lat)` forms point at the container
     @test occursin("opsum(lat", argerr(() -> mpo(b[1], lat)))
     @test_throws MethodError islossless(b[1], lat)
 end
@@ -162,7 +149,6 @@ end
         @test_throws ArgumentError a + OperatorSum(other)
     end
     @test !(a ≈ opsum(FiniteChain(BSU2, 5), b[1]))
-    # channels travel with the container
     e = expterm(b[1]; decay = 0.3)
     @test length((a + e).channels.channels) == 1 && (a + e) ≈ (a + opsum(lat, e))
 end

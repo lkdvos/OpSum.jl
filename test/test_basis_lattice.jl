@@ -128,3 +128,40 @@ end
     @test space(Ts[1], 1) == space(Ts[1], 4)'
     @test space(Ts[1], 2) == ℂ^2
 end
+
+@testset "decaying channels over bases" begin
+    # a decaying hop with a parity string, Σ_{i<j} λ^{j-i-1} c†ᵢ (Π_k Pₖ) cⱼ + n: the string is an
+    # operator in the sites' basis like any other, and the fermion sign still rides on the charge
+    f = fermion_site()
+    λ, N = 0.6, 5
+    Pm = id(f.V) - 2 * plain(instantiate(opsum(FiniteChain(f.V, 1), f.F.n[1])))
+    p = project(Pm, f.B)
+    lat = FiniteChain(f.B, N)
+    H = opsum(lat, expterm(f.h[1, 2]; decay = λ, string = p), 0.3 * f.n[2])
+    want = opsum(
+        lat, 0.3 * f.n[2],
+        (λ^(j - i - 1) * foldl(*, (p[k] for k in (i + 1):(j - 1)); init = f.h[i, j]) for i in 1:N for j in (i + 1):N)
+    )
+    @test instantiate(H) ≈ instantiate(want)
+    @test mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(want)
+
+    # the same on an infinite chain, against the explicit window
+    Hi = opsum(InfiniteChain(f.B), expterm(f.h[1, 2]; decay = λ, string = p), 0.3 * f.n[1])
+    W = mpo(Hi)
+    got = Dict(t => t.coeff for t in OpSum.mpo_terms_window(W, 6))
+    exact = Dict(t => t.coeff for t in OpSum.window_terms(Hi, 6))
+    @test all(haskey(exact, t) && exact[t] ≈ v for (t, v) in got)
+    @test all(haskey(got, t) for t in keys(exact) if maximum(t.sites) <= 4)
+
+    # a channel's letters land on sites it does not name: they must mean the same operator there
+    Q = Basis([Xmat, Zmat])
+    x, z = project(Xmat, Q), project(Zmat, Q)
+    Z1 = Basis([Zmat])
+    @test_throws ArgumentError opsum(FiniteChain(vcat(Q, Z1, Q)), expterm(z[1] * z[2]; decay = λ))
+    z1 = project(Zmat, Z1)
+    @test opsum(InfiniteChain([Q, Z1]), expterm(z[1] * z1[2]; decay = λ)) isa OperatorSum
+    @test_throws ArgumentError opsum(InfiniteChain([Q, Z1]), expterm(z[1] * z[3]; decay = λ, string = z))
+    # `z` is letter (unit, 3) of `Q`, which `Z1` lacks
+    @test_throws ArgumentError opsum(InfiniteChain(Z1), expterm(z1[1] * z1[2]; decay = λ, string = z))
+    @test_throws ArgumentError opsum(FiniteChain(Z1, 3), expterm(z[1] * z[2]; decay = λ))
+end

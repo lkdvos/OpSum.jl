@@ -110,6 +110,38 @@ _wrongsector_op(I, J) = throw(
 function _checkinsert(lat::AbstractLattice, terms::Vector{Term{I}}, chans) where {I}
     _checklattice(terms, lat)
     _checkgenerating(lat, terms, chans)
+    _checkchannels(lat, chans)
+    return nothing
+end
+
+# A decaying channel puts its letters on more sites than it names: on a finite chain its translates
+# move by one site, and a string fills every site of the stretched gap, which (stepping by the period)
+# reaches every position of the cell. One letter means one operator on all of those only when they
+# carry the same basis, so that is required. (On an infinite chain the representative itself steps by
+# the cell and is checked by `_checkgenerating`.)
+function _checkchannels(lat::AbstractLattice, chans)
+    for k in keys(chans)
+        I = sectortype(k.term)
+        letters = IrrepOperator{I}[l for (l, _) in k.string if l !== nothing]
+        lat isa FiniteChain && append!(letters, (key.op for key in k.term.keys))
+        isempty(letters) && continue
+        allequal(lat.sites) || throw(
+            ArgumentError(
+                "a decaying channel " * (lat isa FiniteChain ? "on a finite chain moves by one site" : "with a string fills every site of its gap") *
+                    ", so its letters land on sites with different bases, where they mean different " *
+                    "operators; use one basis on every site" * (lat isa FiniteChain ? ", or an InfiniteChain whose cell is the pattern" : "")
+            )
+        )
+        info = _alphabet(first(lat.sites), I)
+        for op in letters
+            1 <= op.n <= get(info, op.c, 0) || throw(
+                ArgumentError(
+                    "letter $op of a decaying channel does not exist on the lattice ($(first(lat.sites))): " *
+                        "its sites carry $(get(info, op.c, 0)) operator(s) of charge $(op.c)"
+                )
+            )
+        end
+    end
     return nothing
 end
 

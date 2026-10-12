@@ -22,6 +22,11 @@ function _compress(
     ) where {I}
     N = length(H.lattice)
     if isempty(H.channels)
+        # a truncation has to see the basis' own inner product (metric.jl); lossless, it does not
+        if alg isa SVDBondAlgorithm && alg.strategy.trunc !== nothing
+            out = _compress_in_metric(H.terms, H.lattice, bondstrategy(alg))
+            out === nothing || return out
+        end
         tt = ITOTermTable(H.terms, N)
         return _irrep_channels(tt, nvertices(tt), bondstrategy(alg))
     end

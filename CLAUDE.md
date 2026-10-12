@@ -116,6 +116,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
      A `SymbolicMPO` iterates over its sites; there is no `(Ws, bondsectors)` destructuring (`reduced(W)` in `test/testutils.jl` is the test helper). The finite compression is `_compress` (irrepmpo.jl), the infinite one `_infinite_window`.
      On a finite chain without channels it goes through `_irrep_channels`, i.e. the finish channel is forced into the cover (`_force_finish!`) so that the result has a Jordan form; on every showcase model that costs nothing over the unconstrained cover, but a constant (`K = 0`) term next to two-site terms costs one index at the first bond (`test/test_irrep_graph.jl` pins both covers).
      `alg` is `BipartiteAlgorithm()` (default) or `SVDBondAlgorithm(trunc; sweep)`; each names a `BondStrategy` (`src/operators/compression/algorithms.jl`) that `_irrep_sweep` dispatches on — `VertexCover` (min-vertex-cover, the default), `IndependentSVD` (`truncrank(k)` = k per bond; the `SVDBondAlgorithm` default) or `SequentialSVD` (k after upstream truncation).
+     A *truncating* SVD on a lattice of bases compresses in the basis' Hilbert–Schmidt metric (`metric.jl`: terms rewritten over per-charge orthonormalised letters, `G_c = A'A`, entries mapped back with `A⁻¹`), so the result depends on the span of the bases, not on how they were written; lossless SVD and sites given by spaces skip it.
    - The two verification helpers are public and live here too: `islossless(H[, alg])` is `mpo_terms(mpo(H)) ≈ chain_terms(H)` on a finite chain (infinite chains are unsupported), and `mpo_tensormap(Ts)` contracts a chain of site tensors into `instantiate`'s convention.
    - `mpo_terms(Ws, secs)` reconstructs the operator (faithfulness check) and takes **no** lattice: the bond data names charges but not spaces, and the result is a latticeless `Terms` bag. `irrep_mpo_tensors(W)` (or the reduced-data form `irrep_mpo_tensors(Ws, secs, lat)`) assembles the symmetric `TensorMap`s (one contraction per distinct on-site letter per site, not per bond entry).
 
@@ -143,6 +144,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
    - Each channel lowers to a small weighted automaton (`_lower_channels`) whose states *are* its suffix classes, with the cyclic core named by an interned loop descriptor; the sweep then treats it as an ordinary right vertex (`ITOGraph.rchan`/`rstate`) whose diagonal is `λ·pass-through`.
      Two things are load-bearing: cyclic states are **forced** into the vertex cover (`_forced_cover`, else λ accumulates instead of landing on the diagonal), and λ must ride as an *edge weight* so the emitted entry carries a letter — tensor assembly iterates `pairs(op)`, so a letter-less `SiteOperator` is silently dropped.
      `research/infinite-mpo.md` §7 is the design note, including what it costs (a channel's period is part of its declaration, so a bigger cell is not free).
+   - The `string` is a `SiteOperator` in the sites' basis. A channel's letters land on sites it does not name (translates move by one site on a finite chain; a string fills every gap site), so `_checkchannels` (on insertion) requires those sites to share one basis and the letters to exist in it.
 
 ### Key design patterns
 
@@ -165,7 +167,7 @@ The pipeline is: symbolic term algebra → flat term list → per-bond-sector bi
 
 ### Test structure
 
-- Test files are `test/test_irrep_*.jl`, `test/test_infinite_*.jl`, `test/test_exp_decay.jl`, `test/test_operator_sum.jl`, `test/test_jordan_mpo.jl`, and for bases `test/test_operator_basis.jl`, `test/test_basis_lattice.jl` and `test/test_mpskit_ext.jl`; each is standalone (defines its own reference matrices).
+- Test files are `test/test_irrep_*.jl`, `test/test_infinite_*.jl`, `test/test_exp_decay.jl`, `test/test_operator_sum.jl`, `test/test_jordan_mpo.jl`, and for bases `test/test_operator_basis.jl`, `test/test_basis_lattice.jl`, `test/test_basis_svd.jl` and `test/test_mpskit_ext.jl`; each is standalone (defines its own reference matrices).
 - Tests use `ParallelTestRunner` for parallel execution; individual files can be run directly with `julia --project`.
 - MPSKit is a **weak** dependency of the package (the extension) and a test dependency, tracked as a `url` + `rev = "main"` source rather than a local path so the test environment still resolves on CI and elsewhere. TensorKitTensors is a test dependency (the Hubbard and fermion operators the basis tests are built from).
   It is `main` and not the registered release because the registered `JordanMPOTensor` predates its `tensors,scalars` field rework.

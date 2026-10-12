@@ -386,6 +386,12 @@ mpo(H, SVDBondAlgorithm(truncrank(8)))                        # per-bond
 mpo(H, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
 ```
 
+A basis need not be orthogonal (`n` overlaps `𝟙`), so a truncating SVD does not treat the letters as
+orthonormal: it compresses in the Hilbert–Schmidt inner product of each site's basis and writes the
+result back in that basis.
+The truncated operator therefore depends on the span of the bases, not on how they were written.
+Without truncation the basis does not matter, and nothing is changed.
+
 ### Jordan form, for an MPO library
 
 `irrep_mpo_tensors` gives one dense `TensorMap` per site, with the whole bond collapsed into a single
@@ -525,9 +531,13 @@ is the geometric sum truncated to the chain — [`OpSum.chain_terms`](@ref)`(H)`
   Sites
   before it form the entry block, so multi-site blocks on either end work:
   `expterm(couple(couple(A[1], A[2]; to = c), B[4]); decay = λ, exitsite = 4)`.
-* `string` is an on-site operator carried by the stretched gap (default: the identity).
+* `string` is an on-site operator carried by the stretched gap (default: the identity), projected
+  into the sites' basis like any other operator (`string = project(P, B)`).
   It must be
   charge-neutral — a charged string would make the running bond charge drift along the loop.
+  A channel's letters land on sites it does not name — its translates move by one site on a finite
+  chain, and a string fills every site of the gap — so those sites must all carry the same basis; on
+  an `InfiniteChain` with a mixed cell, a channel without a string is fine.
 * A **sum of exponentials** is a sum of `expterm`s.
   Channels with different `λ` are linearly
   independent, so each costs one bond index; channels sharing `(λ, string, exit)` merge into one.
@@ -639,6 +649,7 @@ compression.
 | `… unresolved on-site product(s) …` | `length`, iteration or `≈` on a bag holding `a[i] * b[i]`; it is resolved in the site's basis when it enters an `OperatorSum` |
 | `mpo takes an OperatorSum` | a bare term bag; write `mpo(opsum(lat, h))` |
 | `a term acts on site …, outside the lattice 1:N` | raised when the term is added: it reaches past the `FiniteChain` of the `OperatorSum` |
+| `a decaying channel …, so its letters land on sites with different bases` | an `expterm` on a finite chain of mixed bases, or one with a string on a mixed cell |
 | `letter … does not exist on site …` | the lattice's space at that site carries no operator of that charge — operator and lattice do not match |
 | `cannot add an operator over J to an OperatorSum on a lattice of sector type I` | operator and lattice carry different symmetries |
 | `a lattice must be a FiniteChain, an InfiniteChain, or an iterable of ElementarySpaces` | the lattice slot got something else — often an algorithm selector passed one argument too early |

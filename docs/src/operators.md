@@ -33,17 +33,8 @@ Six types carry the whole interface:
 | [`OperatorSum`](@ref OpSum.OperatorSum) | a lattice plus the terms (and channels) on it; letters are checked against the bases as they enter | [`opsum`](@ref OpSum.opsum)`(lat, terms...)`, `OperatorSum(lat)` + [`opsum!`](@ref OpSum.opsum!), `+`, `*`, `H'` |
 | [`SymbolicMPO`](@ref OpSum.SymbolicMPO) | the compressed MPO, on either lattice; with MPSKit loaded `instantiate(W)` is MPSKit's Hamiltonian | [`mpo`](@ref OpSum.mpo) |
 
-Everything named above is exported, so `using OpSum` is enough — you do not need a `using OpSum: …`
-list.
-The full surface is `Basis`, the stock bases `spin_basis`, `fermion_basis`, `boson_basis`,
-`hubbard_basis`, `tj_basis` and their builders `spin_ops`, `fermion_ops`, `boson_ops`, `hubbard_ops`,
-`tj_ops`, then `IrrepOperator`, `scalarop`, `project`, `LocalOperator`, `islossless`, `mpo_tensormap`,
-`Term`, `Terms`, `couple`, `couple_channels`, `opsum`, `canonicalize!`, `OperatorSum`, `opsum!`,
-`AbstractLattice`, `FiniteChain`, `InfiniteChain`, `mpo`, `SymbolicMPO`, `irrep_mpo_tensors`,
-`jordan_mpo_tensors`, `mpo_terms`, `instantiate`, `expterm`, `ExpSum`, `BipartiteAlgorithm`,
-`SVDBondAlgorithm` and the bond-basis strategies `VertexCover`, `IndependentSVD`, `SequentialSVD`.
-
-Note that `dot` (for the Cartesian `Sᵢ·Sⱼ`) is `LinearAlgebra.dot`, so that one still needs
+Everything named here is exported, so `using OpSum` is enough.
+The exception is `dot` (the Cartesian `Sᵢ·Sⱼ`), which is `LinearAlgebra.dot` and needs
 `using LinearAlgebra: dot`.
 
 ## Never name an alphabet letter by its index
@@ -61,10 +52,9 @@ spin_basis(U1Irrep)
 
 Four elements: the identity and `Sᶻ` (both of charge 0), and the two charged ones `S⁺` and `S⁻`.
 Which element is which depends on the order the basis was built in, so **do not write those `n`s
-into your code**: reorder the definition and every letter index permutes silently — you get a
-different Hamiltonian and no error anywhere.
-
-Write the operator down instead, and let OpSum find the letters.
+into your code**: reorder the definition and every letter index permutes silently, giving a
+different Hamiltonian and no error.
+Write the operator down instead (a builder entry or `project`), and let OpSum find the letters.
 
 ## On-site operators
 
@@ -127,12 +117,10 @@ Vc = space(Bc)
 
 Both a plain `V ← V` and a charged `V ← V ⊗ Vect[I](c => 1)` are accepted, and a plain matrix
 (`project(Xmat, B)`) when there is no symmetry.
-The expansion is exact: the coefficients are inner products, and `project` re-materializes its own
+The expansion is exact (the coefficients are inner products), and `project` re-materializes its own
 output and compares it against the input, throwing if the operator is outside the span of the basis
 (the stock bases are complete, so it never is).
-
-Nothing is ever converted to a dense `Array`, which matters for fermionic sectors where
-`convert(Array, t)` is not well defined.
+Nothing is converted to a dense `Array`, which matters for fermionic sectors.
 
 The identity is element 1 of every basis, and a scalar multiple of it is [`scalarop`](@ref
 OpSum.scalarop); a placed identity is a pass-through, so it is dropped on placement and the term is
@@ -207,9 +195,9 @@ four = ex[1, 3] * ex[2, 4]           # interleaved sites: re-coupled into site o
 
 A `LocalOperator` is the multi-site counterpart of a `SiteOperator`: the same term on `K` slots, placed
 later with `B[i]` or `B[i, j]`.
-Placement is a relabelling of the sites, so the projection (and its faithfulness check) is paid once
-per *block*, not once per bond; `B[i, j]` is exact for any symmetry, and a fermionic hop across a gap
-carries its string.
+Placement only relabels the sites, so it is exact for any symmetry (a fermionic hop across a gap
+carries its string), and the projection and its faithfulness check are paid once per *block*, not
+once per bond.
 `LocalOperator`s add, subtract and scale, and `B + α` is a pass-through slot that placement drops:
 
 ```@example ops
@@ -232,11 +220,10 @@ T = opsum(flat, -1.0 * F.f_plus_f_min[1, 2])
 T + T' ≈ opsum(flat, -1.0 * (F.f_plus_f_min[1, 2] + F.f_plus_f_min[2, 1]))
 ```
 
-The adjoint of an alphabet letter is a combination of the dual charge's letters, which only the
-basis knows, so `'` lives on the container and a bare `Terms` bag has none (it throws, pointing here).
+The adjoint of a letter is a combination of the dual charge's letters, which only the basis knows, so
+`'` lives on the container and a bare `Terms` bag has none (it throws, pointing here).
 It also works on an `InfiniteChain`.
-Every term must be charge-neutral: a charged term's adjoint lives in the dual sector.
-An operator holding `expterm` channels has no adjoint yet.
+Every term must be charge-neutral, and an operator holding `expterm` channels has no adjoint.
 
 ## Projecting a whole block
 
@@ -258,9 +245,7 @@ Bxxz = project(hbond, Bu)
 ```
 
 The result is a [`LocalOperator`](@ref OpSum.LocalOperator).
-Indexing places it — `Bxxz[i]` on sites `i:i+K-1`, or `Bxxz[s₁, …, s_K]` on `K` explicitly named
-sites — and gives back a `Terms` bag, so the projection (and its faithfulness check) is paid once per
-*block*, not once per bond:
+Indexing places it (`Bxxz[i]`, `Bxxz[s₁, …, s_K]`) and gives back a `Terms` bag:
 
 ```@example ops
 sites = FiniteChain(Bu, 6)
@@ -268,8 +253,6 @@ Hxxz = opsum(sites, Bxxz[i] for i in 1:5)
 length(Hxxz)
 ```
 
-Placement only relabels the sites, so `Bxxz[i, i + 2]` is exact for any symmetry (a fermionic hop
-across a gap carries its string).
 `project(h, [B₁, B₂, …])` expands slot `j` in `Bⱼ`, which is how a block between *different* sites
 is written: the spin-½ / spin-1 exchange on the [Lattices and geometry](@ref) page is one.
 
@@ -280,11 +263,7 @@ h : V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K                        # charg
 h : V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K ⊗ Vect[I](tot => 1)    # total charge tot
 ```
 
-The physical spaces are read off `h`.
-The coefficients are exact inner products, so this is an expansion, not a fit — and `project`
-re-materializes its own output and compares it against the input, throwing if the result is not
-faithful.
-`atol`/`rtol` control what counts as negligible.
+The physical spaces are read off `h`; `atol`/`rtol` control what counts as negligible.
 
 !!! note "A projected block is a sum of terms"
     The identity is the first element of every basis, so an on-site identity factor of a projected
@@ -339,9 +318,7 @@ minimum vertex cover) or `SVDBondAlgorithm(trunc)` with a `MatrixAlgebraKit` tru
 
 ### Where the lattice enters, and why there
 
-The lattice enters with the [`OperatorSum`](@ref OpSum.OperatorSum), and that is not an oversight —
-it is the first thing that needs one.
-Three tiers:
+Three tiers of the interface need progressively more of the lattice:
 
 | needs | what |
 |---|---|
@@ -349,10 +326,8 @@ Three tiers:
 | the site **count** `N` (or the cell period `L`) | the whole sweep: `mpo`, `mpo_terms` |
 | the **spaces** | letter validation, `H'`, `instantiate`, `irrep_mpo_tensors` |
 
-The compression never looks at a physical space: it reads `N` off the lattice and works on charges
-and site indices alone.
-The container is where the operator and the spaces are confronted: every letter is checked against
-its site's space, and every term of a `FiniteChain` against `1:N`, **as the term is added**:
+The container is where operators and sites are confronted: every letter is checked against its
+site's basis, and every term of a `FiniteChain` against `1:N`, **as the term is added**:
 
 ```@example ops
 try
@@ -362,12 +337,9 @@ catch e
 end
 ```
 
-A lattice may be a `FiniteChain`, an `InfiniteChain`, or any iterable naming one `Basis` per site (a
-`Vector`, a tuple, a generator), which becomes a `FiniteChain`.
-A lattice of bare spaces is an error: every site is a basis.
-
-`opsum(lat, terms...)` builds the container in one pass, `opsum!(H, terms...)` fills one in place;
-`H + x` copies `H`, so folding it over many terms is quadratic.
+A lattice may be a `FiniteChain`, an `InfiniteChain`, or any iterable naming one `Basis` per site,
+which becomes a `FiniteChain`; a lattice of bare spaces is an error.
+`FiniteChain(B, N)` is the uniform chain, `FiniteChain([B₁, B₂, …])` puts a different basis on every site.
 The natural shape for a model builder is to return the `OperatorSum`:
 
 ```julia
@@ -376,11 +348,8 @@ heisenberg(N; J = 1.0) = opsum(FiniteChain(Bsu2, N), J * S.S_exchange[i, i + 1] 
 mpo(heisenberg(64))
 ```
 
-`FiniteChain(B, N)` is the uniform chain; `FiniteChain([B₁, B₂, …])` puts a different basis on every site.
-
-`SVDBondAlgorithm` has two truncation semantics, chosen by its `sweep` keyword.
-They agree exactly
-when `trunc === nothing`, and differ only once truncation bites:
+`SVDBondAlgorithm` has two truncation semantics, chosen by its `sweep` keyword, which agree exactly
+when `trunc === nothing` and differ once truncation bites:
 
 | `sweep` | meaning of `truncrank(k)` |
 |---|---|
@@ -392,20 +361,18 @@ mpo(H, SVDBondAlgorithm(truncrank(8)))                        # per-bond
 mpo(H, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD)) # left-to-right sweep
 ```
 
-A basis need not be orthogonal (`n` overlaps `𝟙`), so a truncating SVD does not treat the letters as
-orthonormal: it compresses in the Hilbert–Schmidt inner product of each site's basis and writes the
-result back in that basis.
-The truncated operator therefore depends on the span of the bases, not on how they were written.
-Without truncation the basis does not matter, and nothing is changed.
+A basis need not be orthogonal, so a truncating SVD compresses in the Hilbert–Schmidt inner product of
+each site's basis and writes the result back in it: the truncated operator depends on the span of the
+bases, not on how they were written.
+Without truncation the basis does not matter.
 
 ### Jordan form, for an MPO library
 
 `irrep_mpo_tensors` gives one dense `TensorMap` per site, with the whole bond collapsed into a single
-`GradedSpace` — the right shape for contracting a small chain and checking it, the wrong one for an
-MPO library, which wants the block structure back.
-[`jordan_mpo_tensors`](@ref
-OpSum.jordan_mpo_tensors) emits that instead: one `BlockTensorKit.SparseBlockTensorMap` per site,
-one level per bond index, and the bond indices reordered into upper-triangular (Jordan) form
+`GradedSpace`: right for checking a small chain, wrong for an MPO library, which wants the block
+structure back.
+[`jordan_mpo_tensors`](@ref OpSum.jordan_mpo_tensors) emits one `BlockTensorKit.SparseBlockTensorMap`
+per site, one level per bond index, with the bond indices reordered into upper-triangular (Jordan) form
 
 ```
 ⎛ 1  C  D ⎞     row/column 1   = "nothing placed yet"
@@ -419,20 +386,14 @@ map(W -> size(W, 4), Wsj)
 ```
 
 This is what MPSKit's `JordanMPOTensor` and `FiniteMPOHamiltonian` / `InfiniteMPOHamiltonian`
-consume; with MPSKit loaded, `instantiate(mpo(H))` builds them (MPSKit is only a weak dependency).
-Since every bond space is already known exactly, the consumer needs no
-space-deduction fixed point.
+consume; with MPSKit loaded (a weak dependency), `instantiate(mpo(H))` builds them.
 
-Both identity channels are emitted at every internal bond, even where the compression did not spend a
-bond index on them: a chain with no on-site fields has nothing starting to the right of the last
-bonds, so the minimum vertex cover legitimately omits the start channel there, and nothing has
-finished yet at the first bonds.
-The emitted MPO is therefore minimal among *Jordan-form* MPOs and
-can exceed the cover's minimum (`mpo(H).bondsectors`) by at most two indices per bond — in practice `+1` at
-the first internal bond and `+1` at the last, `0` in the bulk.
-The padded channels are pure identity
-chains that cost no dense storage and cannot change the operator.
-
+Both identity channels are emitted at every internal bond, even where the minimum vertex cover spent no
+index on them (nothing has finished at the first bonds, nothing starts after the last ones).
+The emitted MPO is minimal among *Jordan-form* MPOs and can exceed the cover's minimum
+(`mpo(H).bondsectors`) by at most two indices per bond: in practice `+1` at the first and last
+internal bonds, `0` in the bulk.
+The padded channels are pure identity chains that cannot change the operator.
 The total charge must be trivial (a Jordan MPO's right boundary is an identity), and a truncation
 aggressive enough to empty a bond is rejected rather than silently emitted.
 
@@ -446,14 +407,10 @@ string order parameter is one term with a run of active sites.
 
 The one place the two paths genuinely diverge is a **charged** operator — total charge other than
 `unit(I)`, such as a bare ``c^\dagger_2``, written as `project(t, B)[2]` for a `TensorMap` `t` with a charge leg.
-[`mpo`](@ref OpSum.mpo) compresses it happily, and
-[`irrep_mpo_tensors`](@ref OpSum.irrep_mpo_tensors) assembles it: the bond data carries the charge
-and the last bond is simply not the unit sector.
-[`jordan_mpo_tensors`](@ref OpSum.jordan_mpo_tensors) **refuses** it, for the reason in the paragraph
-above — a Jordan MPO's right boundary is an identity, and a charged operator has no such boundary.
-So
-build charged objects and measure with them through `mpo` and `irrep_mpo_tensors`; the Jordan emission is for
-Hamiltonians handed to an MPS algorithm.
+[`mpo`](@ref OpSum.mpo) and [`irrep_mpo_tensors`](@ref OpSum.irrep_mpo_tensors) handle it (the last
+bond is simply not the unit sector), but [`jordan_mpo_tensors`](@ref OpSum.jordan_mpo_tensors)
+**refuses** it, since a charged operator has no identity right boundary.
+The Jordan emission is for Hamiltonians handed to an MPS algorithm.
 
 ## Infinite chains
 
@@ -468,10 +425,8 @@ Hgen = opsum(
 Hinf = mpo(Hgen)
 ```
 
-The call has the same shape as the finite one: the operator is an
-[`OperatorSum`](@ref OpSum.OperatorSum) — its terms exactly what placement and `*` return — and the lattice
-says which chain to tile it over.
-What comes back is a [`SymbolicMPO`](@ref OpSum.SymbolicMPO) on the infinite chain.
+The call has the same shape as the finite one; the result is a [`SymbolicMPO`](@ref OpSum.SymbolicMPO)
+on the infinite chain.
 
 The argument is a **generating set**, not the Hamiltonian: the operator represented is
 ``\sum_{n \in \mathbb{Z}} \mathrm{translate}(H, nL)``, so each translation class must appear exactly
@@ -483,19 +438,15 @@ same class twice and is rejected by `mpo`; on a two-site cell they are different
 Hinf.bondsectors, Hinf.start, Hinf.finish
 ```
 
-It holds `L` bond matrices and `L` bond-charge lists, with bond `0` identified with bond `L`, exactly
-like a finite one holds `N`.
-It also
-carries the two boundary vectors as bond indices: `start[j]` is the channel on which nothing has begun
-and `finish[j]` the one on which everything has finished.
-`irrep_mpo_tensors(Hinf)` assembles `L`
-site tensors that tile — site 1's left virtual space is site `L`'s right virtual space.
+It holds `L` bond matrices and bond-charge lists, with bond `0` identified with bond `L`, and carries
+the two boundary channels as bond indices: `start[j]` is the channel on which nothing has begun and
+`finish[j]` the one on which everything has finished.
+`irrep_mpo_tensors(Hinf)` assembles `L` site tensors that tile.
 
 !!! note
     Terms must be charge-neutral, and `SVDBondAlgorithm` is not available here: it compresses each bond
     independently against a vacuum-terminated layout, with no bond basis that closes on itself.
-    Terms
-    with no support (`K = 0`) are rejected too, since `Σ_n c·𝟙` does not converge.
+    Terms with no support (`K = 0`) are rejected too, since `Σ_n c·𝟙` does not converge.
 
 ## Exponentially decaying interactions
 
@@ -557,20 +508,9 @@ is the geometric sum truncated to the chain — [`OpSum.chain_terms`](@ref)`(H)`
 
 ## Recommended patterns
 
-**Write the operator, not the index.**
-Anything that mentions a bare `IrrepOperator(c, n)` in model
-code is a latent bug.
-Go through the stock builders (`spin_ops`, `fermion_ops`, `hubbard_ops`, …) or `project`.
-
-**Build local operators wherever reads best.**
-The stock bases and their builders (`spin_basis`, `spin_ops`, `fermion_ops`, …) are
-memoised per symmetry, so calling them inside the term loop costs a dictionary lookup.
-
 **Hand every term to `opsum` at once.**
-It makes one pass over each argument, so building an
-`M`-term Hamiltonian is ``\Theta(M)`` — an all-to-all model on 256 sites (32640 terms) assembles in a
-few hundredths of a second. `opsum(lat, terms...)` does the same into an `OperatorSum`.
-Any number of arguments is allowed, and iterables nest, so several
+`opsum(lat, terms...)` makes one pass over each argument and iterables nest, so building an `M`-term
+Hamiltonian is ``\Theta(M)`` (32640 terms on 256 sites take a few hundredths of a second) and several
 families of terms need no `vcat`:
 
 ```julia
@@ -582,36 +522,27 @@ h = opsum(
 )
 ```
 
-`h + term` and `append!(h, terms)` also work on a bag, and `append!` is likewise one pass; on an
-`OperatorSum` the in-place route is `opsum!(H, terms...)`.
-`append!`/`opsum!` mutate, so start from a bag you own (`zero(h)`, `Terms{I}()`, `OperatorSum(lat)`) or a `copy(h)`.
-But `+` *copies* the
-accumulated list, so folding it — `for t in terms; H = H + t; end` — is quadratic.
-That is fine for a
-handful of terms and the wrong choice for thousands.
-
-The normal form (coincident terms summed, cancelled ones dropped) is not taken on the way in: it
-happens once, in [`canonicalize!`](@ref OpSum.canonicalize!), when the term set is first observed or
-compressed.
-So `length(H)` always reports the number of terms the operator *has*, never the number
-appended.
+`append!(h, terms)` (and `opsum!(H, terms...)` on an `OperatorSum`) is likewise one pass but mutates, so
+start from something you own (`zero(h)`, `Terms{I}()`, `OperatorSum(lat)`, `copy(h)`).
+`+` *copies* the accumulated list, so folding it (`for t in terms; H = H + t; end`) is quadratic:
+fine for a handful of terms, wrong for thousands.
+The normal form (coincident terms summed, cancelled ones dropped) is taken once, by
+[`canonicalize!`](@ref OpSum.canonicalize!), when the term set is first observed or compressed, so
+`length(H)` is the number of terms the operator *has*, never the number appended.
 
 **Project a bond block once, place it per bond.**
-`project(h, B)` (like every two-site entry of a builder) is an unplaced `LocalOperator`, and `B[i]` is a
-relabelling of its terms, so a translation-invariant chain is `opsum(lat, Bxxz[i] for i in 1:(N - 1))` with a
-single projection (and a single faithfulness check) however long the chain.
-Build the `TensorMap` once outside the loop, too.
+`project(h, B)` and the two-site builder entries are unplaced `LocalOperator`s, so a translation-invariant
+chain is `opsum(lat, Bxxz[i] for i in 1:(N - 1))` with a single projection however long the chain.
+The stock bases and builders are memoised per symmetry, so calling them inside a term loop is cheap.
 
 **Order the sites of a 2D lattice so bonds stay short.**
 An MPO lives on a chain.
-Column-major
-ordering ``(x, y) \mapsto (x-1)L_y + y`` keeps every bond of a cylinder within ``L_y`` sites, which
-is what makes the bond dimension linear in the circumference and independent of the length.
+Column-major ordering ``(x, y) \mapsto (x-1)L_y + y`` keeps every bond of a cylinder within ``L_y``
+sites, which makes the bond dimension linear in the circumference and independent of the length.
 
 **Pick the largest symmetry you can express, and put the operators you use in the basis.**
-The same Heisenberg chain needs 3 reduced bond
-indices under SU(2) and 5 under U(1).
-The reduced number is what a DMRG sweep pays for.
+The same Heisenberg chain needs 3 reduced bond indices under SU(2) and 5 under U(1); the reduced
+number is what a DMRG sweep pays for.
 
 ## Verifying an operator
 
@@ -655,7 +586,7 @@ compression.
 | `letter … does not exist on site …` | the basis at that site carries no operator of that charge and index — the operator was written for another basis |
 | `all sites of a lattice must share one symmetry` | a mixed lattice of bases with different sector types |
 | `cannot add an operator over J to an OperatorSum on a lattice of sector type I` | operator and lattice carry different symmetries |
-| `a lattice must be a FiniteChain, an InfiniteChain, or an iterable of operator Basises …` | the lattice slot got something else: a bare space (`FiniteChain(V, N)`; every site is a `Basis` now, `FiniteChain(spin_basis(…), N)`) or an algorithm selector passed one argument too early |
+| `a lattice must be a FiniteChain, an InfiniteChain, or an iterable of operator Basises …` | the lattice slot got something else: a bare space (`FiniteChain(V, N)`; use `FiniteChain(spin_basis(…), N)`) or an algorithm selector passed one argument too early |
 | `cannot add an unplaced … to an OperatorSum` | a `SiteOperator`/`LocalOperator` was passed to `opsum`; place it first (`A[i]`, `B[i]`) |
 | `adjoint: … no postfix h'` | a bare `Terms` bag has no `'`; put it on a lattice, `opsum(lat, h)'` |
 | `project: unsupported operator space` | domain ≠ codomain, or a charge leg that is dual or has degeneracy > 1 |

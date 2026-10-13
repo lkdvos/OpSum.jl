@@ -16,7 +16,3 @@ TensorKit = "0.17"
 
 [sources]
 OpSum = {path = ".."}
-# The `mpskit.jl` page is executed, so the docs environment needs MPSKit on the same terms as the
-# test environment: `main`, not the registered release, because the registered `JordanMPOTensor`
-# predates its `tensors,scalars` rework. See the note in `test/Project.toml`.
-MPSKit = {url = "https://github.com/QuantumKitHub/MPSKit.jl", rev = "main"}

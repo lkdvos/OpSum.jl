@@ -2,7 +2,9 @@
 # product operators for time evolution" (SciPost Phys. 17, 135 (2024)): start from the `N`-fold Kronecker power
 # of the Jordan-form MPO (`_mpo_power`, which represents `H^N`), fold the "finished" levels back onto the start
 # level with the weights of the Taylor series (Alg. 1) and merge the levels that differ by a permutation (Alg. 2).
-# The result is an MPO of `exp(τH)` correct through `τ^N`, whose entries are polynomials in `τ`.
+# The result is an MPO of `exp(τH)` correct through `τ^N`, whose entries are polynomials in `τ`. Two optional
+# passes go beyond that: the extension (Alg. 3) adds the order `N + 1` terms that reuse the existing levels, and
+# the approximate compression (Alg. 4) merges the levels that agree through `τ^N`.
 #
 # Conventions
 #
@@ -20,6 +22,23 @@
 #     (`c` has at least as many starts as finishes, `s` has them in front) the column `c` is dropped and the row
 #     added to row `s`; for a right-merge (`s` has the finishes at the back) the row is dropped and the column
 #     added to column `s`.
+#   * Order of the passes. The paper applies the extension to the power `H^N` itself, before Alg. 1: it adds to
+#     the entries `O[a, b]` with `1 ∉ b`, among them the all-finish column that Alg. 1 then folds (this is where
+#     the `τ³ DDD` of the `(1,1)` entry of Eq. (43) comes from), and skips the rows that Alg. 1 removes. The
+#     passes here run in the same order: extension, fold, merge, compression. The extension reads the entries of
+#     the next power lazily (`_kron_entry!`), through the word tries the power was built with.
+#   * Exactness. Alg. 2 is exact on the plain power, but not after the extension: the merge of the *starts* still
+#     is (it drops a column, and the columns with starts are not touched by the extension), the merge of the
+#     *finishes* is not (it drops a row, and the extension writes into rows with finishes, symmetrically in
+#     the letters but not in the positions of the finishes). Which level of a class stands for it is then part
+#     of the construction at order `τ^{N+1}`: the finishes at the back is the choice that reproduces MPSKit's
+#     `TaylorCluster` to machine precision (its tuples run through the layers in reverse, so its "finishes in
+#     front" is this); the other choice differs by a relative `~10^{-3}` at `τ ~ 0.3`. Everything through `τ^N` is
+#     unaffected.
+#   * Alg. 4 is stated for the paper's levels, where a level and its permutations are one. A level `a` with finish
+#     channels and no start channel is canonical here with the finishes at the back, and its target is `a` with
+#     the finishes turned into starts *and then the starts gathered at the front*, the canonical level of that
+#     tuple (the column of the unsorted one was dropped by Alg. 2). Its row is discarded.
 #   * Gauge. Permuting the components of a level induces `R(b_k, b_m)` per swapped pair of component charges
 #     (`-1` for two fermion-odd ones). Alg. 2 only ever moves a start (or finish) component past the others,
 #     and the identity channels have charge `unit`, so the gauge is trivial and the rows and columns are added
@@ -177,6 +196,8 @@ end
 # those of the bond to its right) and, per bond, its levels with the ones not yet removed.
 struct TaylorWork{I <: Sector, L <: AbstractLattice, N}
     lattice::L
+    sites::Vector{KronSite{I}}                  # the layer entries and word tries of the power, per site
+    stats::PowerStats
     Ms::Vector{WorkMatrix{I}}
     levels::Vector{Vector{NTuple{N, Int}}}      # bond j is right of site j
     index::Vector{Dict{NTuple{N, Int}, Int}}
@@ -205,7 +226,7 @@ function _taylor_work(W::SymbolicMPO{I, L}, N::Integer) where {I, L}
         return wm
     end
     return TaylorWork{I, L, Int(N)}(
-        W.lattice, Ms, levels, [Dict(t => k for (k, t) in enumerate(lv)) for lv in levels],
+        W.lattice, P.sites, P.stats, Ms, levels, [Dict(t => k for (k, t) in enumerate(lv)) for lv in levels],
         [maximum(maximum, lv) for lv in levels], P.mpo.bondsectors, [trues(length(lv)) for lv in levels]
     )
 end
@@ -242,11 +263,12 @@ function _gather(t::NTuple{N, Int}, v::Int, front::Bool) where {N}
     return NTuple{N, Int}(front ? (same..., other...) : (other..., same...))
 end
 
-# Alg. 2 (exact): a level with at least as many start channels as finish channels is merged into the level with
-# the starts in front, one with more finishes into the level with the finishes at the back, the others' order
-# kept (see the file header for which of the row and the column is added and which dropped). Returns the
-# number of levels removed.
-function _merge_equivalent!(w::TaylorWork)
+# Alg. 2 (exact on the plain power): a level with at least as many start channels as finish channels is merged
+# into the level with the starts in front, one with more finishes into the level with the finishes at the back,
+# the others' order kept (see the file header for which of the row and the column is added and which dropped).
+# `left = false` / `right = false` skip the merges of the starts / of the finishes. After the extension only
+# the merge of the starts is exact: see the file header. Returns the number of levels removed.
+function _merge_equivalent!(w::TaylorWork; left::Bool = true, right::Bool = true)
     removed = 0
     for j in 1:nsites(w)
         n = w.top[j]
@@ -255,11 +277,103 @@ function _merge_equivalent!(w::TaylorWork)
         for (k, t) in enumerate(w.levels[j])
             w.alive[j][k] || continue
             leftmerge = count(==(n), t) <= count(==(1), t)
+            (leftmerge ? left : right) || continue
             s = leftmerge ? _gather(t, 1, true) : _gather(t, n, false)
             s == t && continue
             nxt == 0 && _invariant("level $t on the right boundary has to be merged: fold the passive levels first")
             target = w.index[j][s]
             leftmerge ? _addrow!(w.Ms[nxt], target, k) : _addcol!(M, target, k)
+            _remove!(w, j, k)
+            removed += 1
+        end
+    end
+    return removed
+end
+
+# Alg. 3 (extension): the terms of order `N + 1` that fit the existing levels, taken from the power `H^{N+1}`,
+#
+#     O[a, b] += τ N! / ((N + 1)! n₁ n₃) Σ_{c,d} H^{N+1}[a with a start inserted at c, b with a finish inserted at d],
+#
+# `n₁` the number of starts of the first and `n₃` that of finishes of the second index (both counted after the
+# insertion), for every pair of levels with no start in `b`, except for the rows that Alg. 1 removes (no start and
+# a finish in `a`). The entries of `H^{N+1}` are never built as a matrix: for each `a`, `c` and `d` the layers of
+# the columns `b` are enumerated over the nonzero layer entries (the finish forced in layer `d`, no start
+# anywhere), and every word is multiplied once, in the tries of the power. The `N + 1` positions of an insertion
+# give the same level when they are next to the same letter, so each distinct entry is read once and carries
+# the multiplicity. Returns the number of entries of `H^{N+1}` read. Run before `_fold_passive!` (see the file
+# header).
+function _extend!(w::TaylorWork{I, L, N}) where {I, L, N}
+    nread = 0
+    for i in 1:nsites(w)
+        ks = w.sites[i]
+        rb = _rowbond(w, i)
+        n = w.top[i]
+        nleft = rb == 0 ? 0 : w.top[rb]
+        # the rows: the levels of the bond to the left (one level `(1, …, 1)` at the left end of a finite chain)
+        rowlevels = rb == 0 ? [ntuple(_ -> 1, Val(N))] : w.levels[rb]
+        for (r, a) in enumerate(rowlevels)
+            rb == 0 || w.alive[rb][r] || continue
+            # the rows removed by Alg. 1
+            rb != 0 && all(l -> l == 1 || l == nleft, a) && any(==(nleft), a) && continue
+            acc = Dict{Int, SiteOperator{I}}()
+            for c in 1:(N + 1)
+                # inserting the start next to another gives the same level, so the positions are taken by runs, the
+                # first position of the run standing for the `1 + (length of the run of starts in a)` of them
+                (c == 1 || a[c - 1] != 1) || continue
+                ma = 1
+                while c + ma - 1 <= N && a[c + ma - 1] == 1
+                    ma += 1
+                end
+                ae = (a[1:(c - 1)]..., 1, a[c:N]...)
+                for d in 1:(N + 1)
+                    candidates(k) = if k == d
+                        e = get(ks.lookup, (ae[k], n), nothing)
+                        e === nothing ? () : (e,)
+                    else
+                        Iterators.filter(e -> e.col > 1, ks.byrow[ae[k]])
+                    end
+                    # likewise for the finish: only the first of a run of finishes in `b` with one inserted
+                    accept(es, k) = k != d || d == 1 || es[d - 1].col != n
+                    _walk!(ks, N + 1, candidates, accept) do es, node, sgn
+                        b = ntuple(j -> es[j < d ? j : j + 1].col, Val(N))
+                        col = get(w.index[i], b, 0)
+                        (col != 0 && w.alive[i][col]) || return
+                        nread += 1
+                        mb = 1
+                        while d + mb <= N + 1 && es[d + mb].col == n
+                            mb += 1
+                        end
+                        op = ks.prods[node] * (sgn * ma * mb)
+                        acc[col] = haskey(acc, col) ? acc[col] + op : op
+                        return
+                    end
+                end
+            end
+            n1 = count(==(1), a) + 1
+            for (col, op) in acc
+                n3 = count(==(n), w.levels[i][col]) + 1
+                _add!(w.Ms[i], r, col, TaylorEntry(op * (factorial(N) / (factorial(N + 1) * n1 * n3)), 1))
+            end
+        end
+    end
+    return nread
+end
+
+# Alg. 4 (approximate compression): a level `a` with finish channels and no start channel is merged into the level
+# with the finishes turned into starts, `O[:, b] += τ^n (N - n)! / N! · O[:, a]` for `n` finishes in `a`, and its
+# row is dropped. The two agree through `τ^N`; the difference is of order `τ^{N+1}`. Returns the number of levels
+# removed. Run after `_merge_equivalent!` (see the file header).
+function _compress!(w::TaylorWork{I, L, N}) where {I, L, N}
+    removed = 0
+    for j in 1:nsites(w)
+        n = w.top[j]
+        for (k, t) in enumerate(w.levels[j])
+            w.alive[j][k] || continue
+            a = count(==(n), t)
+            (a > 0 && all(>(1), t)) || continue
+            target = w.index[j][_gather(map(l -> l == n ? 1 : l, t), 1, true)]
+            w.alive[j][target] || _invariant("the target of the compression of $t has been removed")
+            _addcol!(w.Ms[j], target, k, factorial(N - a) / factorial(N), a)
             _remove!(w, j, k)
             removed += 1
         end

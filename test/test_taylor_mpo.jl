@@ -2,15 +2,16 @@ using Test
 using OpSum
 using OpSum: mpo, irrep_mpo_tensors, instantiate, couple, opsum, expterm, SiteOperator, storedpairs, prune,
     TaylorEntry, evaluate, _scaled, _mul, _jordan_layout, _mpo_power, _taylor_work, _taylor_mpo, _fold_passive!,
-    _merge_equivalent!, _prune_orphans!, _rowbond, _bond_space, _deg_indices
+    _merge_equivalent!, _prune_orphans!, _extend!, _compress!, _kron_entry!, _rowbond, _bond_space, _deg_indices
 using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: norm
 
 include(joinpath(@__DIR__, "testutils.jl"))   # plain
 
-# Alg. 1 and 2 of the Taylor MPO (`taylor_mpo`): the structure against the paper's tables, the exactness of the
-# merge, and the order of accuracy against the dense exponential.
+# The Taylor MPO (`taylor_mpo`): Alg. 1 and 2 (the structure against the paper's tables, the exactness of the
+# merge), Alg. 3 and 4 (the lazy entries of the next power, the closed forms of the paper and of MPSKit's tests),
+# and the order of accuracy against the dense exponential.
 
 dense(H) = plain(instantiate(H))
 taylor_dense(T, τ) = plain(mpo_tensormap(irrep_mpo_tensors(T, τ)))
@@ -234,7 +235,7 @@ bonddims(T) = map(s -> sum(dim, s), T.bondsectors)
         W = mpo(H)
         chi = length(_jordan_layout(W).bondsectors[4]) - 2
         for N in 1:2
-            D = bonddims(taylor_mpo(W, N))
+            D = bonddims(taylor_mpo(W, N; extension = false))
             # (a nilpotent letter, `S⁺S⁺ = 0`, leaves some of the levels unreachable)
             full = N == 1 ? 1 + chi : 1 + 2chi + chi^2
             @test (name == "Ising" ? D[3] == full : D[3] <= full)
@@ -243,7 +244,31 @@ bonddims(T) = map(s -> sum(dim, s), T.bondsectors)
         higher === nothing && continue
         @test chi == 1
         for (N, d) in zip(3:4, higher)
-            @test bonddims(taylor_mpo(W, N))[3] == d
+            @test bonddims(taylor_mpo(W, N; extension = false))[3] == d
+        end
+    end
+end
+
+@testset "bond dimensions with extension and compression" begin
+    # the paper's counts (Sec. 8.3) in the interior Jordan dimension `χ`; a nilpotent letter (`S⁺S⁺ = 0`, charge
+    # conservation) leaves levels unreachable, which are pruned, so the XXZ counts are below the formula
+    paper(chi, N) = (
+        1 + chi, 1 + chi + chi^2, 1 + 3chi + chi^2 + chi^3, 1 + 5chi + 4chi^2 + chi^3 + chi^4,
+    )[N]
+    for (name, H, observed) in (("Ising", finite_models()[1][2], [2, 3, 6, 12]), ("XXZ", finite_models()[2][2], [4, 13, 42, 130]))
+        W = mpo(H)
+        chi = length(_jordan_layout(W).bondsectors[4]) - 2
+        name == "Ising" && @test chi == 1
+        for N in 1:4
+            T = taylor_mpo(W, N; extension = true, compression = true)
+            D = bonddims(T)
+            @test D[3] == observed[N]
+            @test D[3] <= paper(chi, N)
+            name == "Ising" && @test D[3] == paper(chi, N)
+            @test D[end] == 1
+            # the extension adds entries between existing levels, which can only make more of them reachable
+            N == 2 && @test bonddims(taylor_mpo(W, N; extension = false))[3] <=
+                bonddims(taylor_mpo(W, N; extension = true))[3] <= 1 + 2chi + chi^2
         end
     end
 end
@@ -252,11 +277,229 @@ end
     W = mpo(H)
     for N in 2:3
         T1 = _taylor_mpo(W, N, NOCOMPRESS)
-        T12 = taylor_mpo(W, N)
+        T12 = taylor_mpo(W, N; extension = false)
         @test all(bonddims(T12) .<= bonddims(T1))
         @test all(bonddims(T12)[2:(end - 1)] .< bonddims(T1)[2:(end - 1)])
         for τ in (0.3, -0.2im, 0.1 + 0.15im)
             @test taylor_dense(T12, τ) ≈ taylor_dense(T1, τ)
+        end
+    end
+end
+
+# After the extension only the merge of the start channels is exact; the merge of the finish channels changes the
+# terms beyond `τ^N`, exactly the ones the extension adds partially (see `taylor.jl`)
+@testset "Alg 2 after Alg 3: $name" for (name, H) in finite_models()
+    W = mpo(H)
+    D = dense(H)
+    merge_starts!(w) = _merge_equivalent!(w; right = false)
+    for N in 2:3
+        T1 = _taylor_mpo(W, N, (_extend!, _fold_passive!))
+        Ts = _taylor_mpo(W, N, (_extend!, _fold_passive!, merge_starts!))
+        Tf = _taylor_mpo(W, N, (_extend!, _fold_passive!, _merge_equivalent!))
+        @test all(bonddims(Ts)[2:(end - 1)] .< bonddims(T1)[2:(end - 1)])
+        @test all(bonddims(Tf)[2:(end - 1)] .<= bonddims(Ts)[2:(end - 1)])
+        for τ in (0.3, -0.2im, 0.1 + 0.15im)
+            @test taylor_dense(Ts, τ) ≈ taylor_dense(T1, τ)
+        end
+        # the full merge agrees through `τ^N`: the difference is at least of order `τ^{N+1}`
+        cs = (0.4, 0.2, 0.1)
+        diffs = [norm(taylor_dense(Tf, -c / norm(D)) - taylor_dense(T1, -c / norm(D))) for c in cs]
+        if all(>(1.0e-13), diffs)
+            @test (log(diffs[3]) - log(diffs[1])) / (log(cs[3]) - log(cs[1])) >= N + 1 - 0.15
+        end
+    end
+end
+
+@testset "lazy entries of the next power: $name" for (name, H) in
+    (finite_models()[1], finite_models()[2], finite_models()[4], finite_models()[5], finite_models()[6])
+    W = mpo(H)
+    L = length(W)
+    # the tries of the second power evaluate the entries of the third (words are order-free), signs included
+    P2 = _mpo_power(W, 2; closed = true)
+    P3 = _mpo_power(W, 3; closed = true)
+    ncompared = 0
+    for i in (1, 2, L)
+        rows = i == 1 ? [(1, 1, 1)] : P3.levels[i - 1]
+        cols = P3.levels[i]
+        rowindex = Dict(t => k for (k, t) in enumerate(rows))
+        colindex = Dict(t => k for (k, t) in enumerate(cols))
+        stored = Dict(Tuple(idx) => op for (idx, op) in storedpairs(P3.mpo.Ws[i]))
+        for l in rows, r in cols
+            x = _kron_entry!(P2.sites[i], l, r)
+            y = get(stored, (rowindex[l], colindex[r]), nothing)
+            if y === nothing
+                @test x === nothing
+            else
+                @test x ≈ y
+                ncompared += 1
+            end
+        end
+    end
+    @test ncompared > 0
+    # a layer of identities is the identity
+    @test _kron_entry!(P2.sites[2], (1,), (1,)) ≈ one(SiteOperator{sectortype(H.lattice)})
+end
+
+@testset "Alg 3 reads a fraction of the next power: $name" for (name, H) in (finite_models()[1], finite_models()[2])
+    W = mpo(H)
+    for N in 1:3
+        w = _taylor_work(W, N)
+        nmul = w.stats.nmul
+        nread = _extend!(w)
+        full = _mpo_power(W, N + 1; closed = true).stats
+        @test 0 < nread < full.nentries
+        # the products are looked up in the tries of the power, which the next power would build anew
+        @test w.stats.nmul - nmul <= full.nmul
+    end
+end
+
+# the mean of the on-site products of the given words
+function mean_words(B, words...)
+    return foldl(+, (foldl((x, y) -> _mul(B, x, y), wd) for wd in words)) * (1 / length(words))
+end
+
+@testset "Alg 3 and 4 closed forms (Eqs. (43), (45), MPSKit's `O(1)`/`O(2) exact expression`): $name" for (name, H) in
+    (finite_models()[1], finite_models()[2], finite_models()[3])
+    W = mpo(H)
+    I = sectortype(H.lattice)
+    i = 3
+    B = H.lattice[i]
+    J = _jordan_layout(W)
+    n = length(J.bondsectors[i + 1])
+    mids = 2:(n - 1)
+    D, Id = J.Ws[i][1, n], J.Ws[i][1, 1]
+    mul(x, y) = _mul(B, x, y)
+    avg(words...) = mean_words(B, words...)
+    Bv(a) = J.Ws[i][a, n]
+    Cv(b) = J.Ws[i][1, b]
+    Av(a, b) = J.Ws[i][a, b]
+
+    function passes(N)
+        w = _taylor_work(W, N)
+        @test _extend!(w) > 0
+        _fold_passive!(w)
+        _merge_equivalent!(w)
+        return w
+    end
+
+    # N = 1: the extension alone (there is nothing to compress)
+    w1 = passes(1)
+    @test _compress!(w1) == 0
+    _prune_orphans!(w1)
+    @test level_entry(w1, i, (1,), (1,)) ≈ poly(I, 0 => Id, 1 => D, 2 => mul(D, D) * 0.5)
+    for a in mids
+        @test level_entry(w1, i, (1,), (a,)) ≈ poly(I, 0 => Cv(a), 1 => avg((Cv(a), D), (D, Cv(a))))
+        @test level_entry(w1, i, (a,), (1,)) ≈ poly(I, 1 => Bv(a), 2 => avg((Bv(a), D), (D, Bv(a))))
+        for b in mids
+            sym_AD = avg((Av(a, b), D), (D, Av(a, b)))
+            sym_CB = avg((Cv(b), Bv(a)), (Bv(a), Cv(b)))
+            @test level_entry(w1, i, (a,), (b,)) ≈ poly(I, 0 => Av(a, b), 1 => sym_AD + sym_CB)
+        end
+    end
+
+    # N = 2 with the compression: the levels (1,1), (1,c), (c,d); the sums over the orderings of the paper, each
+    # letter carrying the index of its position among the letters that have one
+    w2 = passes(2)
+    @test _compress!(w2) > 0
+    _prune_orphans!(w2)
+    alive = Set(t for (t, a) in zip(w2.levels[i], w2.alive[i]) if a)
+    canonical = Set([[(1, 1)]; [(1, a) for a in mids]; [(a, b) for a in mids for b in mids]])
+    @test alive ⊆ canonical
+    name == "Ising (Trivial)" && @test alive == canonical && count(w2.alive[i]) == 1 + 1 * (n - 2) + (n - 2)^2
+    # the rows are the levels of the bond to the left, which can lose other levels to the pruning
+    live(t, bond) = w2.alive[bond][w2.index[bond][t]]
+    function chk(row, col, expected)
+        (live(row, i - 1) && live(col, i)) || return nothing
+        @test level_entry(w2, i, row, col) ≈ expected
+        return nothing
+    end
+    chk(
+        (1, 1), (1, 1),
+        poly(I, 0 => Id, 1 => D, 2 => mul(D, D) * 0.5, 3 => mul(mul(D, D), D) * (1 / 6))
+    )
+    for b in mids
+        chk(
+            (1, 1), (1, b),
+            poly(
+                I, 0 => Cv(b), 1 => avg((Cv(b), D), (D, Cv(b))),
+                2 => avg((Cv(b), D, D), (D, Cv(b), D), (D, D, Cv(b))) * 0.5
+            )
+        )
+    end
+    for c in mids
+        chk(
+            (1, c), (1, 1),
+            poly(
+                I, 1 => Bv(c), 2 => avg((Bv(c), D), (D, Bv(c))),
+                3 => avg((Bv(c), D, D), (D, Bv(c), D), (D, D, Bv(c))) * 0.5
+            )
+        )
+    end
+    for a in mids, b in mids
+        chk(
+            (1, 1), (a, b),
+            poly(I, 0 => mul(Cv(a), Cv(b)), 1 => avg((Cv(a), Cv(b), D), (Cv(a), D, Cv(b)), (D, Cv(a), Cv(b))))
+        )
+    end
+    for c in mids, d in mids
+        chk(
+            (c, d), (1, 1),
+            poly(
+                I, 2 => mul(Bv(c), Bv(d)) * 0.5,
+                3 => avg((Bv(c), Bv(d), D), (Bv(c), D, Bv(d)), (D, Bv(c), Bv(d))) * 0.5
+            )
+        )
+    end
+    for c in mids, b in mids
+        A, Bc, Cb = Av(c, b), Bv(c), Cv(b)
+        chk(
+            (1, c), (1, b),
+            poly(
+                I, 0 => A,
+                1 => avg((A, D), (D, A)) + avg((Cb, Bc), (Bc, Cb)),
+                2 => avg((A, D, D), (D, A, D), (D, D, A)) * 0.5 +
+                    avg((Cb, Bc, D), (Cb, D, Bc), (Bc, Cb, D), (Bc, D, Cb), (D, Cb, Bc), (D, Bc, Cb))
+            )
+        )
+        for a in mids
+            chk(
+                (1, c), (a, b),
+                poly(
+                    I,
+                    0 => avg((Cv(a), Av(c, b)), (Av(c, a), Cb)) * 2,
+                    1 => avg(
+                        (Av(c, a), Cb, D), (Av(c, a), D, Cb), (Cv(a), Av(c, b), D),
+                        (Cv(a), D, Av(c, b)), (D, Av(c, a), Cb), (D, Cv(a), Av(c, b))
+                    ) * 2 + avg((Cv(a), Bc, Cb), (Cv(a), Cb, Bc), (Bc, Cv(a), Cb))
+                )
+            )
+        end
+    end
+    for c in mids, d in mids, b in mids
+        chk(
+            (c, d), (1, b),
+            poly(
+                I,
+                1 => avg((Av(c, b), Bv(d)), (Bv(c), Av(d, b))),
+                2 => avg(
+                    (Av(c, b), Bv(d), D), (Av(c, b), D, Bv(d)), (Bv(c), Av(d, b), D),
+                    (Bv(c), D, Av(d, b)), (D, Av(c, b), Bv(d)), (D, Bv(c), Av(d, b))
+                ) + avg((Bv(c), Bv(d), Cv(b)), (Bv(c), Cv(b), Bv(d)), (Cv(b), Bv(c), Bv(d))) * 0.5
+            )
+        )
+        for a in mids
+            chk(
+                (c, d), (a, b),
+                poly(
+                    I,
+                    0 => mul(Av(c, a), Av(d, b)),
+                    1 => avg((Av(c, a), Av(d, b), D), (Av(c, a), D, Av(d, b)), (D, Av(c, a), Av(d, b))) +
+                        avg(
+                        (Av(c, a), Cv(b), Bv(d)), (Av(c, a), Bv(d), Cv(b)), (Cv(a), Av(c, b), Bv(d)),
+                        (Cv(a), Bv(c), Av(d, b)), (Bv(c), Av(d, a), Cv(b)), (Bv(c), Cv(a), Av(d, b))
+                    ) * 2
+                )
+            )
         end
     end
 end
@@ -275,14 +518,38 @@ function error_slope(T, D, imaginary::Bool)
     return sum((xs .- sum(xs) / 3) .* (ys .- sum(ys) / 3)) / sum((xs .- sum(xs) / 3) .^ 2)
 end
 
+# `‖U_N(τ) − exp(τH)‖` at `τ = -c / ‖H‖`, imaginary time
+function error_at(T, D, c)
+    τ = -c / norm(D)
+    return norm(taylor_dense(T, τ) - exp(τ * D))
+end
+
 @testset "order of accuracy: $name" for (name, H) in finite_models()
     D = dense(H)
     W = mpo(H)
-    for N in 1:4
-        T = taylor_mpo(W, N)
+    for N in 1:3, extension in (false, true), compression in (false, true)
+        T = taylor_mpo(W, N; extension, compression)
         for imaginary in (true, false)
             @test error_slope(T, D, imaginary) ≈ N + 1 atol = 0.15
         end
+    end
+    # the defaults are the paper's extended MPO, and the order four is exercised on the cheap models
+    @test taylor_dense(taylor_mpo(W, 2), 0.1) ≈ taylor_dense(taylor_mpo(W, 2; extension = true, compression = false), 0.1)
+    name in ("Ising (Trivial)", "XXZ (U1)") || return
+    for extension in (false, true), compression in (false, true)
+        @test error_slope(taylor_mpo(W, 4; extension, compression), D, true) ≈ 5 atol = 0.15
+    end
+end
+
+@testset "the extension is more precise: $name" for (name, H) in (finite_models()[1], finite_models()[2])
+    D = dense(H)
+    W = mpo(H)
+    for N in 1:3, c in (0.4, 0.2)
+        plain_err = error_at(taylor_mpo(W, N; extension = false), D, c)
+        ext_err = error_at(taylor_mpo(W, N; extension = true), D, c)
+        both_err = error_at(taylor_mpo(W, N; extension = true, compression = true), D, c)
+        @info "Taylor error ratios" name N c ext = ext_err / plain_err ext_comp = both_err / plain_err
+        @test ext_err < plain_err
     end
 end
 
@@ -378,13 +645,15 @@ end
     W = mpo(H)
     L = length(W)
     Hwin = window_operator(irrep_mpo_tensors(W), W.bondsectors, W.start[L], W.finish[L], cells)
-    for N in 1:3
-        T = taylor_mpo(W, N)
+    for N in 1:3, extension in (false, true), compression in (false, true)
+        T = taylor_mpo(W, N; extension, compression)
         @test T.bondsectors[L][1] == unit(sectortype(H.lattice))
         Tw(τ) = window_operator(irrep_mpo_tensors(T, τ), T.bondsectors, 1, 1, cells)
         @test Tw(0.0) ≈ one(Hwin)
         for imaginary in (true, false)
-            @test window_slope(Tw, Hwin, imaginary) ≈ N + 1 atol = 0.15
+            # (the extension adds terms of order N + 2 whose weight can pull the fit below N + 1, never above)
+            slope = window_slope(Tw, Hwin, imaginary)
+            @test N + 1 - 0.3 <= slope <= N + 1 + 0.15
         end
     end
 end

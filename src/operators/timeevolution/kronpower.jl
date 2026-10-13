@@ -62,7 +62,7 @@ function _levels(n::Int, ::Val{N}, keep) where {N}
 end
 
 """
-    _mpo_power(W::SymbolicMPO, N::Integer; keep = _keepall, closed = false) -> (; mpo, levels, stats)
+    _mpo_power(W::SymbolicMPO, N::Integer; keep = _keepall, closed = false) -> (; mpo, levels, stats, sites)
 
 The `N`-fold Kronecker power of the Jordan form of `W` (`_jordan_layout`): a [`SymbolicMPO`](@ref)
 `mpo` whose bond indices are levels, `NTuple{N,Int}`s of Jordan indices, so that
@@ -73,7 +73,9 @@ Throws where `jordan_mpo_tensors` does, and for a non-abelian symmetry.
 in this vector, layer 1 varying fastest unless `keep` removed some), so `levels[N]` is the bond left of
 site 1 on an infinite chain; the left boundary of a finite chain is the single level `(1, …, 1)`.
 `mpo.start`/`mpo.finish` are the positions of `(1, …, 1)` and `(end, …, end)` (`0` where the bond has no
-such channel: the right boundary of a finite chain has no start). `stats` counts the work done.
+such channel: the right boundary of a finite chain has no start). `stats` counts the work done, and `sites[i]`
+is the `KronSite` of site `i`: its layer entries and word trie, from which any single entry of a power
+of any order is available lazily (`_kron_entry!`).
 
 `keep(prefix::Tuple)` is the hook for pruning: it is asked about every prefix of every level and a level
 survives only if all prefixes do.
@@ -101,12 +103,13 @@ function _mpo_power(W::SymbolicMPO{I}, ::Val{N}, keep, closed) where {I, N}
     index = [Dict(t => k for (k, t) in enumerate(lv)) for lv in levels]
 
     stats = PowerStats()
-    Ws = map(1:L) do i
+    built = map(1:L) do i
         return _power_site(
             W.lattice[i], layout.Ws[i], Val(N), index[i], index[i + 1],
             layout.bondsectors[i], layout.bondsectors[i + 1], keep, stats
         )
     end
+    sites, Ws = first.(built), last.(built)
 
     first_ = ntuple(_ -> 1, Val(N))
     last_(b) = ntuple(_ -> length(layout.bondsectors[b]), Val(N))
@@ -114,15 +117,28 @@ function _mpo_power(W::SymbolicMPO{I}, ::Val{N}, keep, closed) where {I, N}
     start = [pick(b, !iszero(layout.start[b]), first_) for b in 2:(L + 1)]
     finish = [pick(b, !iszero(layout.finish[b]), last_(b)) for b in 2:(L + 1)]
     mpo = SymbolicMPO(W.lattice, Ws, secs[2:(L + 1)], start, finish)
-    return (; mpo, levels = levels[2:(L + 1)], stats)
+    return (; mpo, levels = levels[2:(L + 1)], stats, sites)
 end
 
-# One site: depth-first over the layers, so that the partial product of layers `1..k` is shared by all
-# completions, with the trie of active words memoising the products across the whole site.
-function _power_site(
-        B::Basis{I}, Wi::SparseMatrixCSC{SiteOperator{I}}, ::Val{N}, rowindex, colindex,
-        secL::Vector{I}, secR::Vector{I}, keep, stats::PowerStats
-    ) where {I, N}
+# One site of a power: the layer entries `W[l, r]` with interned operators, and the trie of active words. A word is
+# multiplied once, however many level pairs carry it (and whatever the number of layers: the trie is the same for
+# a power of any order, which is what lets `_extend!` evaluate entries of the next power lazily). `node 1` is the
+# empty word; `children[(node, id)]` is the node of the word extended by entry `id`, `0` if the product vanishes.
+struct KronSite{I <: Sector}
+    basis::Basis{I}
+    ops::Vector{SiteOperator{I}}
+    entries::Vector{LayerEntry{I}}
+    lookup::Dict{Tuple{Int, Int}, LayerEntry{I}}
+    byrow::Vector{Vector{LayerEntry{I}}}
+    secR::Vector{I}
+    prods::Vector{SiteOperator{I}}
+    children::Dict{Tuple{Int, Int}, Int}
+    stats::PowerStats
+end
+
+function KronSite(
+        B::Basis{I}, Wi::SparseMatrixCSC{SiteOperator{I}}, secL::Vector{I}, secR::Vector{I}, stats::PowerStats
+    ) where {I}
     ops = SiteOperator{I}[]
     ids = Dict{SiteOperator{I}, Int}()
     entries = LayerEntry{I}[]
@@ -134,58 +150,93 @@ function _power_site(
         end
         push!(entries, LayerEntry{I}(l, r, id, only(secR[r] ⊗ dual(secL[l]))))
     end
+    lookup = Dict((e.row, e.col) => e for e in entries)
+    byrow = [LayerEntry{I}[] for _ in 1:size(Wi, 1)]
+    foreach(e -> push!(byrow[e.row], e), entries)
+    return KronSite{I}(
+        B, ops, entries, lookup, byrow, secR, SiteOperator{I}[one(SiteOperator{I})],
+        Dict{Tuple{Int, Int}, Int}(), stats
+    )
+end
 
-    # the trie: node 1 is the empty word; `children[(node, id)]` is the node of the word extended by
-    # entry `id`, `0` if the product vanishes. A node's product is only ever built here.
-    prods = SiteOperator{I}[one(SiteOperator{I})]
-    children = Dict{Tuple{Int, Int}, Int}()
-    function extend(node::Int, id::Int)
-        return get!(children, (node, id)) do
-            if node == 1
-                push!(prods, ops[id])
-            else
-                stats.nmul += 1
-                P = _mul(B, prods[node], ops[id])
-                isempty(P) && return 0
-                push!(prods, P)
-            end
-            return length(prods)
+# the node of the word of `node` extended by the layer entry `id`; a node's product is only ever built here
+function _extend_word!(ks::KronSite, node::Int, id::Int)
+    return get!(ks.children, (node, id)) do
+        if node == 1
+            push!(ks.prods, ks.ops[id])
+        else
+            ks.stats.nmul += 1
+            ks.stats.nwords += 1
+            P = _mul(ks.basis, ks.prods[node], ks.ops[id])
+            isempty(P) && return 0
+            push!(ks.prods, P)
         end
+        return length(ks.prods)
     end
+end
 
+# Depth-first over the `n` layers of an entry, so that the partial product of layers `1..k` is shared by all
+# completions: layer `k` tries the entries of `candidates(k)` that `accept(es, k)` (given the entries `es[1:k]`
+# chosen so far), and `leaf(es, node, sgn)` is called with every complete choice, the node of its product and its
+# braiding sign (see the file header).
+function _walk!(leaf, ks::KronSite{I}, n::Int, candidates, accept) where {I}
     braided = !(BraidingStyle(I) isa Bosonic)
-    ls, rs = zeros(Int, N), zeros(Int, N)
-    qs = Vector{I}(undef, N)
-    rows, cols = Int[], Int[]
-    vals = SiteOperator{I}[]
-    accepted(v, k) = keep === _keepall || keep(ntuple(j -> v[j], k))
-
+    es = Vector{LayerEntry{I}}(undef, n)
     function visit(k::Int, node::Int, sgn::Float64)
-        if k > N
-            push!(rows, rowindex[ntuple(j -> ls[j], Val(N))])
-            push!(cols, colindex[ntuple(j -> rs[j], Val(N))])
-            push!(vals, sgn == 1 ? prods[node] : prods[node] * sgn)
+        if k > n
+            leaf(es, node, sgn)
             return
         end
-        for e in entries
-            ls[k], rs[k] = e.row, e.col
-            (accepted(ls, k) && accepted(rs, k)) || continue
-            child = e.id == 0 ? node : extend(node, e.id)
+        for e in candidates(k)
+            es[k] = e
+            accept(es, k) || continue
+            child = e.id == 0 ? node : _extend_word!(ks, node, e.id)
             iszero(child) && continue
             s = sgn
             if braided
                 for j in 1:(k - 1)
-                    s *= _braidsign(qs[j], secR[e.col])
+                    s *= _braidsign(es[j].charge, ks.secR[e.col])
                 end
             end
-            qs[k] = e.charge
             visit(k + 1, child, s)
         end
         return
     end
     visit(1, 1, 1.0)
+    return
+end
 
-    stats.nwords += count(key -> key[1] != 1, keys(children))
+# `W^{⊗n}[(l₁, …, l_n), (r₁, …, r_n)]` as a `SiteOperator`, `nothing` if it is zero: one entry of a power, without
+# building the power.
+function _kron_entry!(ks::KronSite{I}, ls, rs) where {I}
+    n = length(ls)
+    length(rs) == n || throw(ArgumentError("a row and a column of the same number of layers are needed"))
+    out = nothing
+    candidates(k) = (e = get(ks.lookup, (ls[k], rs[k]), nothing); e === nothing ? () : (e,))
+    _walk!(ks, n, candidates, (_, _) -> true) do _, node, sgn
+        out = sgn == 1 ? ks.prods[node] : ks.prods[node] * sgn
+        return
+    end
+    return out
+end
+
+# One site of the power: all nonzero entries, depth-first over the layers.
+function _power_site(
+        B::Basis{I}, Wi::SparseMatrixCSC{SiteOperator{I}}, ::Val{N}, rowindex, colindex,
+        secL::Vector{I}, secR::Vector{I}, keep, stats::PowerStats
+    ) where {I, N}
+    ks = KronSite(B, Wi, secL, secR, stats)
+    rows, cols = Int[], Int[]
+    vals = SiteOperator{I}[]
+    accepted(es, k) = keep === _keepall || (
+        keep(ntuple(j -> es[j].row, k)) && keep(ntuple(j -> es[j].col, k))
+    )
+    _walk!(ks, N, _ -> ks.entries, accepted) do es, node, sgn
+        push!(rows, rowindex[ntuple(j -> es[j].row, Val(N))])
+        push!(cols, colindex[ntuple(j -> es[j].col, Val(N))])
+        push!(vals, sgn == 1 ? ks.prods[node] : ks.prods[node] * sgn)
+        return
+    end
     stats.nentries += length(vals)
-    return sparse(rows, cols, vals, length(rowindex), length(colindex))
+    return ks, sparse(rows, cols, vals, length(rowindex), length(colindex))
 end

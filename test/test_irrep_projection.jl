@@ -132,7 +132,7 @@ end
     V = SU2Space(1 // 2 => 1)
     S = spinvec(V)
 
-        t = onlyterm(pu(inst(dot(S[1], S[2]), [V, V]), [1, 2]))
+    t = onlyterm(pu(inst(dot(S[1], S[2]), [V, V]), [1, 2]))
     @test t.sites == [1, 2]
     @test total(t) == SU2Irrep(0)
     @test bondcharges(tree(t)) == [SU2Irrep(1), SU2Irrep(0)]

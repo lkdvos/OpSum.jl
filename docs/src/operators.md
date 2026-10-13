@@ -181,6 +181,37 @@ mpo(Hexp).bondsectors
 * A sum of exponentials is a sum of `expterm`s, one bond index per distinct `λ`.
 * On a finite chain the sum is truncated to the chain (`OpSum.chain_terms(H)` spells it out). Use the smallest unit cell you can, since a channel's period is part of its declaration.
 
+## Time evolution
+
+[`taylor_mpo`](@ref OpSum.taylor_mpo)`(H, N)` builds an MPO of ``U \approx e^{\tau H}`` that is correct through ``\tau^N``, following Van Damme, Haegeman, McCulloch and Vanderstraeten, [SciPost Phys. 17, 135 (2024)](https://doi.org/10.21468/SciPostPhys.17.5.135) ("Efficient higher-order matrix product operators for time evolution").
+`H` is an `OperatorSum` (or a [`SymbolicMPO`](@ref OpSum.SymbolicMPO)); the result is a [`TaylorMPO`](@ref OpSum.TaylorMPO), with the same bond sectors as a `SymbolicMPO` but with the time left **symbolic**: every entry is a polynomial in ``\tau``.
+The convention is ``U \approx e^{\tau H}``: imaginary time ``e^{-\beta H}`` is ``\tau = -\beta``, real time ``e^{-itH}`` is ``\tau = -it``.
+
+```@example ops
+U = taylor_mpo(Hxxz, 2)
+```
+
+Evaluating at a number gives the numeric bond matrices (sparse matrices of `SiteOperator`s), and `irrep_mpo_tensors(U, τ)` the symmetric site tensors.
+
+```@example ops
+Ws = U(-0.1)                      # = evaluate(U, -0.1): bond matrices at τ = -0.1
+Ts = irrep_mpo_tensors(U, -0.1)
+```
+
+The error against ``e^{\tau H}`` scales as ``\tau^{N+1}``, with the MPO size-extensive (it contains all disconnected products of terms of `H`).
+
+* `extension = true` adds the terms of ``H^{N+1}`` that overlap only ``N`` times, for a smaller error at little or no cost in bond dimension (none for the Ising chain; `16, 52, 155` instead of `14, 42, 117` for `N = 2, 3, 4` of the U(1) XXZ chain).
+* `compression = true` additionally merges levels that carry only finish channels, which is lossy at order ``\tau^{N+1}`` (the error stays ``O(\tau^{N+1})``) but gives the smallest bonds. In the bulk of the Ising chain the bond dimensions with both options are `2, 3, 6, 12` for `N = 1, …, 4`, as in the paper. Symmetries and nilpotent letters can make them smaller still, e.g. `4, 13, 42, 130` for the U(1)-symmetric XXZ chain.
+* Both options default to `extension = true, compression = false`.
+
+Finite and infinite chains are both supported (on an `InfiniteChain`, `H` is a generating set as for [`mpo`](@ref OpSum.mpo)).
+Only abelian symmetries are supported, fermions included; a non-abelian symmetry throws.
+The total charge of `H` must be `unit`, and on a finite chain `H` may not contain [`expterm`](@ref OpSum.expterm) channels.
+On-site products of letters are expanded in the site's basis, so the basis must be closed under products (e.g. `Basis(ops; complete = true)`); otherwise `project` throws that the product is not in the span of the basis.
+
+With MPSKit loaded, `instantiate(U, τ)` gives an MPSKit `FiniteMPO` / `InfiniteMPO`, and `MPSKit.make_time_mpo(H, dt, TaylorCluster(; N, extension, compression); imaginary_evolution)` routes MPSKit's `TaylorCluster` to this symbolic builder.
+Because ``\tau`` is symbolic, the MPO is built once and evaluated for every time step.
+
 ## Reading an error
 
 | Message | Cause |

@@ -52,6 +52,19 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   translation-invariant cell (`_infinite_window`); the suffix canonicalisation (`_canonicalise_rights!`) is required
   for the cell to close. `expterm` channels (`expterms.jl`) lower to weighted automata: cyclic states are forced into
   the cover, and λ rides as an edge weight so every emitted entry carries a letter.
+* **Time evolution** (`timeevolution/{jordanlayout,kronpower,taylor,taylormpo}.jl`, `algebra/letterproducts.jl`):
+  `taylor_mpo(H|W, N; extension = true, compression = false)` → `TaylorMPO`, the symbolic `exp(τH)` MPO through `τ^N`
+  (Van Damme et al., SciPost Phys. 17, 135); entries are `TaylorEntry` τ-polynomials, `evaluate(W, τ)` / `W(τ)` /
+  `irrep_mpo_tensors(W, τ)` fix `τ` (`U ≈ exp(τH)`: imaginary time `τ = -β`, real time `τ = -it`). Abelian only
+  (fermions included), non-abelian throws; the MPSKit extension adds `instantiate(W, τ)` and `make_time_mpo(…,
+  TaylorCluster)`. On-site products are coefficient arithmetic on per-basis structure constants (`_letter_product`,
+  memoised per letter pair); the `N`-fold Kronecker power of the Jordan form is enumerated depth-first with a word trie
+  so each distinct ordered product is computed once. Load-bearing: (1) the sign rule, each entry carries
+  `∏_{k<m} R(q_k, bR_m)` (the `R(q_k, q_m)` part cancels the graded sign of the on-site product, the rest reorders
+  letter legs past bond legs; invisible for bosons, wrong for fermions); (2) pass order extension (Alg 3, `H^{N+1}`
+  entries evaluated lazily, never materialised) → fold (Alg 1) → merge (Alg 2, exact) → compression (Alg 4, lossy at
+  `τ^{N+1}`) → orphan pruning, and the merge orientation (1's, start channels, to the front, 3's, finish channels, to
+  the back, matching MPSKit's `TaylorCluster`). Finite chains close the right boundary with both identity channels.
 
 ## Conventions
 

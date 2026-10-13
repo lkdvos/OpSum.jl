@@ -1,16 +1,5 @@
-# On-site operators: a sparse combination of alphabet letters. `SiteOperator{I}` is what `project`,
-# `matrixunit`, `spin` and `scalarop` return, and the element type of the reduced MPO's bond matrices
-# — a small ordered map `IrrepOperator{I} => ComplexF64`, stored as two parallel vectors rather than a
-# `Dict` (one or two letters in every realistic case, so linear scan beats hashing and keeps ordering
-# deterministic).
-#
-# The bare identity is not a special field: it is the `passthrough` sentinel letter
-# (`IrrepOperator{I}(unit(I), 0)`), which already means "acts as `id(V)`, carries no charge". So
-# `scalarop(c, I)` is literally `c · passthrough`, and every consumer branches on `ispassthrough`
-# rather than a separate scalar slot.
-#
-# There is no symbolic on-site product: it would need structure constants for the alphabet (6j data,
-# for ITOs), so the supported route is to build the product as a `TensorMap` and `project` it back.
+# On-site operators: a sparse combination of alphabet letters, the element type of the reduced MPO's
+# bond matrices. Two parallel vectors, not a `Dict`: one or two letters in practice, deterministic order.
 
 using TensorKit: Sector, sectortype
 using LinearAlgebra: LinearAlgebra
@@ -19,15 +8,8 @@ using VectorInterface: VectorInterface, inner
 """
     SiteOperator{I<:Sector}
 
-An operator on a **single** site, not yet placed on the lattice: a sparse combination of ITO
-alphabet letters, `Σₖ coeffs[k] · letters[k]`.
-
-Obtained from [`project`](@ref), [`matrixunit`](@ref), [`spin`](@ref) or [`scalarop`](@ref), and
-combined with ordinary arithmetic (`+ - * /`). Place it on a site with `A[i]`, which produces a
-[`Terms`](@ref) bag.
-
-The identity is represented as the `passthrough` sentinel letter, so `scalarop(c, I)` is `c` times
-that letter rather than a distinct kind of object.
+An unplaced single-site operator `Σₖ coeffs[k] · letters[k]`, from [`project`](@ref), [`spin_ops`](@ref)
+and friends or [`scalarop`](@ref); combine with `+ - * /` and place with `A[i]` (a [`Terms`](@ref) bag).
 """
 struct SiteOperator{I <: Sector}
     letters::Vector{IrrepOperator{I}}
@@ -38,8 +20,6 @@ struct SiteOperator{I <: Sector}
     end
 end
 
-# Constructors
-# ------------
 SiteOperator{I}() where {I <: Sector} = SiteOperator{I}(IrrepOperator{I}[], ComplexF64[])
 SiteOperator(letters::Vector{IrrepOperator{I}}, coeffs::Vector{ComplexF64}) where {I} =
     SiteOperator{I}(letters, coeffs)
@@ -53,10 +33,6 @@ Base.convert(::Type{SiteOperator{I}}, c::Number) where {I} = SiteOperator{I}(c)
 TensorKit.sectortype(::Type{SiteOperator{I}}) where {I} = I
 VectorInterface.scalartype(::Type{<:SiteOperator}) = ComplexF64
 
-# Container interface
-# -------------------
-# `pairs` is the accessor every consumer uses: it replaces the old `_local_terms`, which returned
-# `(nothing, coeff)` for a scalar and `(letter, coeff)` otherwise. There is no `nothing` case now.
 Base.pairs(op::SiteOperator) = (l => c for (l, c) in zip(op.letters, op.coeffs))
 Base.keys(op::SiteOperator) = op.letters
 Base.values(op::SiteOperator) = op.coeffs
@@ -64,27 +40,15 @@ Base.length(op::SiteOperator) = length(op.letters)
 Base.isempty(op::SiteOperator) = isempty(op.letters)
 Base.iszero(op::SiteOperator) = all(iszero, op.coeffs)
 
-Base.zero(::Type{SiteOperator{I}}) where {I} = SiteOperator{I}()
-Base.zero(::SiteOperator{I}) where {I} = SiteOperator{I}()
-Base.one(::Type{SiteOperator{I}}) where {I} = SiteOperator{I}(1)
-Base.one(::SiteOperator{I}) where {I} = SiteOperator{I}(1)
+Base.zero(::Union{SiteOperator{I}, Type{SiteOperator{I}}}) where {I} = SiteOperator{I}()
+Base.one(::Union{SiteOperator{I}, Type{SiteOperator{I}}}) where {I} = SiteOperator{I}(1)
 
-# `isone` is "the bare identity with unit coefficient", i.e. exactly the pass-through channel.
-function Base.isone(op::SiteOperator)
-    length(op) == 1 || return false
-    return ispassthrough(only(op.letters)) && isone(only(op.coeffs))
-end
+Base.isone(op::SiteOperator) = length(op) == 1 && ispassthrough(only(op.letters)) && isone(only(op.coeffs))
 
-function Base.:(==)(x::SiteOperator{I}, y::SiteOperator{I}) where {I}
-    return x.letters == y.letters && x.coeffs == y.coeffs
-end
+Base.:(==)(x::SiteOperator{I}, y::SiteOperator{I}) where {I} = x.letters == y.letters && x.coeffs == y.coeffs
 Base.hash(x::SiteOperator, h::UInt) = hash(x.coeffs, hash(x.letters, hash(:SiteOperator, h)))
 
-# Arithmetic
-# ----------
-# `+` accumulates onto matching letters. This is the operation `increaseindex!` performs when two
-# reduced bond entries land in the same `(row, col)` slot, which happens when two uncovered left
-# vertices sharing an incoming link fold into the same covered-right bond index.
+# accumulates onto matching letters (two bond entries sharing a slot)
 function Base.:+(x::SiteOperator{I}, y::SiteOperator{I}) where {I}
     letters = copy(x.letters)
     coeffs = copy(x.coeffs)
@@ -107,29 +71,17 @@ Base.:*(x::SiteOperator{I}, a::Number) where {I} = SiteOperator{I}(copy(x.letter
 Base.:*(a::Number, x::SiteOperator) = x * a
 Base.:/(x::SiteOperator, a::Number) = x * inv(a)
 
-# A bare letter promotes under all of the above, so `2 * A`, `A / 2`, `-A` and `A - B` mean what they
-# look like rather than erring. The per-bond sweep leans on the scalar case when it weights a letter by
-# its reduced coefficient (`key.op * coeff`); the rest is there so the promotion surface has no holes
-# for a caller to fall into.
+# A bare letter times a scalar promotes (the sweep uses `key.op * coeff`).
 Base.:*(x::IrrepOperator, a::Number) = SiteOperator(x) * a
 Base.:*(a::Number, x::IrrepOperator) = SiteOperator(x) * a
-Base.:/(x::IrrepOperator, a::Number) = SiteOperator(x) / a
-Base.:+(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} = SiteOperator(x) + SiteOperator(y)
-Base.:-(x::IrrepOperator) = -SiteOperator(x)
-Base.:-(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} = SiteOperator(x) - SiteOperator(y)
 
 VectorInterface.scale(x::SiteOperator, a::Number) = x * a
-VectorInterface.add(x::SiteOperator{I}, y::SiteOperator{I}) where {I} = x + y
 
-# `inner` likewise accepts a bare letter on either side. Without these the mixed call falls through to
-# `LinearAlgebra.dot`'s generic path and dies on `iterate` rather than saying anything useful.
-VectorInterface.inner(x::IrrepOperator{I}, y::SiteOperator{I}) where {I} = inner(SiteOperator(x), y)
-VectorInterface.inner(x::SiteOperator{I}, y::IrrepOperator{I}) where {I} = inner(x, SiteOperator(y))
-VectorInterface.inner(x::IrrepOperator{I}, y::IrrepOperator{I}) where {I} =
-    inner(SiteOperator(x), SiteOperator(y))
-
-function VectorInterface.inner(x::SiteOperator{I}, y::SiteOperator{I}) where {I}
-    # the alphabet is orthonormal, so the inner product is the plain coefficient overlap
+# orthonormal alphabet: the plain coefficient overlap; a bare letter is accepted on either side
+function VectorInterface.inner(
+        x::Union{IrrepOperator{I}, SiteOperator{I}}, y::Union{IrrepOperator{I}, SiteOperator{I}}
+    ) where {I}
+    x, y = convert(SiteOperator{I}, x), convert(SiteOperator{I}, y)
     result = zero(ComplexF64)
     for (lx, cx) in zip(x.letters, x.coeffs), (ly, cy) in zip(y.letters, y.coeffs)
         lx == ly && (result += conj(cx) * cy)
@@ -142,15 +94,12 @@ function Base.isapprox(x::SiteOperator{I}, y::SiteOperator{I}; kwargs...) where 
     return isapprox(norm(x - y), 0; atol = max(norm(x), norm(y)) * 1.0e-12, kwargs...)
 end
 
-# Drop letters whose coefficient has cancelled to zero. Bond entries must not carry explicit zeros:
-# the cover treats a zero-weight edge as absent, so keeping one would spend a bond index on nothing.
+# drop letters whose coefficient cancelled (a zero-weight edge would spend a bond index)
 function prune(op::SiteOperator{I}) where {I}
     keep = findall(!iszero, op.coeffs)
     return SiteOperator{I}(op.letters[keep], op.coeffs[keep])
 end
 
-# Show
-# ----
 function Base.show(io::IO, op::SiteOperator{I}) where {I}
     isempty(op) && return print(io, "SiteOperator{", I, "}(0)")
     print(io, "SiteOperator{", I, "}(")

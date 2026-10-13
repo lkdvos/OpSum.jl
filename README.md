@@ -14,33 +14,33 @@ Two things distinguish it.
 The compression is *lossless*: the resulting MPO reproduces every term of the input exactly, rather than being an approximation with a truncation threshold.
 And the symmetry is carried all the way through, so the bond indices are irreducible-representation labels and the MPO tensors come out as symmetric `TensorMap`s.
 
-The compression algorithms are inspired by [ITensorMPOConstruction.jl](https://github.com/ITensor/ITensorMPOConstruction.jl); the contribution here is folding non-abelian symmetry into them and making them work on TensorKit objects.
-See [Acknowledgements](#acknowledgements) below.
+```julia
+using OpSum, TensorKit
+
+B = spin_basis(SU2Irrep)
+S = spin_ops(SU2Irrep)
+H = opsum(FiniteChain(B, 32), S.S_exchange[i, i + 1] for i in 1:31)
+W = mpo(H)                       # exact, symmetry-reduced MPO
+map(length, W.bondsectors)       # reduced bond dimensions
+```
 
 ## Installation
 
-This package is not yet registered.
-It can be installed directly from GitHub:
+Not yet registered:
 
 ```julia
-julia> using Pkg: Pkg
-
-julia> Pkg.add(url="https://github.com/lkdvos/OpSum.jl")
+using Pkg
+Pkg.add(url = "https://github.com/lkdvos/OpSum.jl")
 ```
 
 ## Documentation
 
-The [documentation](https://lkdvos.github.io/OpSum.jl/dev/) opens with a worked SU(2) Heisenberg chain, from operator sum to reduced MPO, and continues with example pages covering [spin chains](https://lkdvos.github.io/OpSum.jl/dev/examples/spin_chains/), [long-range interactions](https://lkdvos.github.io/OpSum.jl/dev/examples/long_range/), [lattices and geometry](https://lkdvos.github.io/OpSum.jl/dev/examples/lattices/), [multi-body couplings](https://lkdvos.github.io/OpSum.jl/dev/examples/multibody/) and [fermions](https://lkdvos.github.io/OpSum.jl/dev/examples/fermions/) — each measuring how the bond dimension responds.
-The [reference](https://lkdvos.github.io/OpSum.jl/dev/reference/) documents the API.
+See the [documentation](https://lkdvos.github.io/OpSum.jl/dev/) for a worked tutorial, the operator guide, example pages and the API reference.
 
 ## Acknowledgements
 
-The MPO construction here is inspired by [ITensorMPOConstruction.jl](https://github.com/ITensor/ITensorMPOConstruction.jl) (MIT licensed, © 2024 Ben Corbett and contributors), which demonstrated that exact minimal-bond-dimension MPOs can be built by bipartite-graph compression.
-OpSum.jl takes those algorithms and folds in non-abelian symmetry, so that bond indices carry irreducible-representation labels and the MPO tensors come out as TensorKit `TensorMap`s.
-
-The underlying bipartite-graph / minimum-vertex-cover method is due to J. Ren, W. Li, T. Jiang and Z. Shuai, [*A general automatic method for optimal construction of matrix product operators using bipartite graph theory*, J. Chem. Phys. **153**, 084118 (2020)](https://doi.org/10.1063/5.0018149).
-
-ITensorMPOConstruction.jl asks to be cited as B. Corbett and A. Miyake, [*Scaling up the transcorrelated density matrix renormalization group*, Phys. Rev. B **112**, 165120 (2025)](https://doi.org/10.1103/nzrt-l2j1).
+Inspired by [ITensorMPOConstruction.jl](https://github.com/ITensor/ITensorMPOConstruction.jl) (MIT, © 2024 Ben Corbett and contributors) and the bipartite-graph method of Ren, Li, Jiang and Shuai, [J. Chem. Phys. **153**, 084118 (2020)](https://doi.org/10.1063/5.0018149); OpSum.jl folds non-abelian symmetry into it.
+ITensorMPOConstruction.jl asks to be cited as B. Corbett and A. Miyake, [Phys. Rev. B **112**, 165120 (2025)](https://doi.org/10.1103/nzrt-l2j1).
 
 ## License
 

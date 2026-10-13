@@ -1,6 +1,4 @@
-# The lattice-carrying container: a lattice, finite-range terms placed on it, and exponentially
-# decaying channels. Letters are checked against the spaces as terms enter. Design note:
-# `research/local-operators.md`.
+# The lattice-carrying container; terms are checked against the lattice as they enter.
 
 using Dictionaries: Dictionary, setwith!
 using TensorKit: Sector
@@ -8,11 +6,9 @@ using TensorKit: Sector
 """
     OperatorSum{I<:Sector, L<:AbstractLattice}
 
-A Hamiltonian on a lattice: the lattice, a [`Terms`](@ref) bag of finite-range terms and an
-[`ExpSum`](@ref) of decaying channels. Build it with `opsum(lat, terms...)` or fill an
-`OperatorSum(lat)` with [`opsum!`](@ref); `irrep_mpo(H)`, `islossless(H)`, `instantiate(H)` and
-`jordan_mpo_tensors(H)` take it. Terms are checked against the lattice as they enter. On an
-infinite chain `H` is a generating set, so terms must be charge-neutral and have `K ≥ 1`.
+A Hamiltonian on a lattice: a [`Terms`](@ref) bag of finite-range terms plus an [`ExpSum`](@ref) of
+decaying channels. Build it with `opsum(lat, terms...)` or fill an `OperatorSum(lat)` with
+[`opsum!`](@ref). On an infinite chain terms must be charge-neutral with `K ≥ 1`.
 """
 struct OperatorSum{I <: Sector, L <: AbstractLattice}
     lattice::L
@@ -34,26 +30,25 @@ function Base.copy(H::OperatorSum{I, L}) where {I, L}
         H.lattice, copy(H.terms), ExpSum{I}(copy(H.channels.channels))
     )
 end
-# --- inserting terms ------------------------------------------------------------------------------
-
 """
     opsum!(H::OperatorSum, terms...) -> H
 
-Add `Term`s, `Terms`, `ExpSum`s or (nested) iterables of those to `H` in place, in one pass. Checked
-against the lattice before anything is added. (`H + x` copies `H`.)
+Add `Term`s, `Terms`, `ExpSum`s or (nested) iterables of those to `H` in place. Everything is checked
+against the lattice before anything is added.
 """
 function opsum!(H::OperatorSum{I}, args...) where {I}
-    terms = Term{I}[]
+    buf = Terms{I}()
     chans = Dictionary{ExpKey{I}, ComplexF64}()
     for a in args
-        _collect_op!(terms, chans, a, I)
+        _collect_op!(buf, chans, a, I)
     end
+    terms = buf.terms
+    # on-site products are resolved here, where the sites' bases are known
+    isempty(buf.pending) || append!(terms, _resolve(buf.pending, H.lattice))
     _checkinsert(H.lattice, terms, chans)
     append!(H.terms.terms, terms)
     if !isempty(chans)
-        for (k, v) in pairs(chans)
-            setwith!(+, H.channels.channels, k, v)
-        end
+        foreach(((k, v),) -> setwith!(+, H.channels.channels, k, v), pairs(chans))
         filter!(!iszero, H.channels.channels)
     end
     return H
@@ -65,10 +60,10 @@ end
 Accumulate `terms` into a new [`OperatorSum`](@ref) on `lat`.
 """
 opsum(lat::AbstractLattice, args...) = opsum!(OperatorSum(lat), args...)
-opsum(sites::AbstractVector{<:ElementarySpace}, args...) = opsum!(OperatorSum(sites), args...)
+opsum(sites::AbstractVector{<:Basis}, args...) = opsum!(OperatorSum(sites), args...)
 
-_collect_op!(out, ch, t::Term{I}, ::Type{I}) where {I} = push!(out, t)
-_collect_op!(out, ch, ts::Terms{I}, ::Type{I}) where {I} = append!(out, ts.terms)
+_collect_op!(out, ch, t::Term{I}, ::Type{I}) where {I} = push!(out.terms, t)
+_collect_op!(out, ch, ts::Terms{I}, ::Type{I}) where {I} = _collect_terms!(out, ts, I)
 function _collect_op!(out, ch, es::ExpSum{I}, ::Type{I}) where {I}
     for (k, v) in pairs(es.channels)
         setwith!(+, ch, k, v)
@@ -107,6 +102,34 @@ _wrongsector_op(I, J) = throw(
 function _checkinsert(lat::AbstractLattice, terms::Vector{Term{I}}, chans) where {I}
     _checklattice(terms, lat)
     _checkgenerating(lat, terms, chans)
+    _checkchannels(lat, chans)
+    return nothing
+end
+
+# A channel puts its letters on sites it does not name (translates, string), which must share one basis.
+function _checkchannels(lat::AbstractLattice, chans)
+    for k in keys(chans)
+        I = sectortype(k.term)
+        letters = IrrepOperator{I}[l for (l, _) in k.string if l !== nothing]
+        lat isa FiniteChain && append!(letters, (key.op for key in k.term.keys))
+        isempty(letters) && continue
+        allequal(lat.sites) || throw(
+            ArgumentError(
+                "a decaying channel " * (lat isa FiniteChain ? "on a finite chain moves by one site" : "with a string fills every site of its gap") *
+                    ", so its letters land on sites with different bases, where they mean different " *
+                    "operators; use one basis on every site" * (lat isa FiniteChain ? ", or an InfiniteChain whose cell is the pattern" : "")
+            )
+        )
+        info = _alphabet(first(lat.sites), I)
+        for op in letters
+            1 <= op.n <= get(info, op.c, 0) || throw(
+                ArgumentError(
+                    "letter $op of a decaying channel does not exist on the lattice ($(first(lat.sites))): " *
+                        "its sites carry $(get(info, op.c, 0)) operator(s) of charge $(op.c)"
+                )
+            )
+        end
+    end
     return nothing
 end
 
@@ -122,8 +145,6 @@ function _checkgenerating(lat::InfiniteChain, terms::Vector{Term{I}}, chans) whe
     return nothing
 end
 
-# --- arithmetic -----------------------------------------------------------------------------------
-
 const _Summand{I} = Union{Term{I}, Terms{I}, ExpSum{I}}
 
 Base.:+(H::OperatorSum, x::_Summand) = opsum!(copy(H), x)
@@ -135,11 +156,13 @@ end
 
 VectorInterface.scale(H::OperatorSum{I, L}, α::Number) where {I, L} =
     OperatorSum{I, L}(H.lattice, scale(H.terms, α), scale(H.channels, α))
-Base.:*(α::Number, H::OperatorSum) = scale(H, α)
-Base.:*(H::OperatorSum, α::Number) = scale(H, α)
-Base.:/(H::OperatorSum, α::Number) = scale(H, inv(α))
-Base.:-(H::OperatorSum) = scale(H, -1)
-Base.:-(a::OperatorSum, b::OperatorSum) = a + (-b)
+
+const _Scalable = Union{Term, Terms, LocalOperator, OperatorSum}
+Base.:*(α::Number, x::_Scalable) = scale(x, α)
+Base.:*(x::_Scalable, α::Number) = scale(x, α)
+Base.:/(x::_Scalable, α::Number) = scale(x, inv(α))
+Base.:-(x::_Scalable) = scale(x, -1)
+Base.:-(a::_Scalable, b::_Scalable) = a + (-b)
 
 function _samelattice(a::OperatorSum, b::OperatorSum, op)
     a.lattice == b.lattice || throw(
@@ -150,28 +173,19 @@ function _samelattice(a::OperatorSum, b::OperatorSum, op)
     return nothing
 end
 
-# --- comparison, display --------------------------------------------------------------------------
-
-function _channelsapprox(a::ExpSum, b::ExpSum; kwargs...)
-    length(a.channels) == length(b.channels) || return false
-    for (k, v) in pairs(a.channels)
-        haskey(b.channels, k) || return false
-        isapprox(v, b.channels[k]; kwargs...) || return false
-    end
-    return true
-end
+_channelsapprox(a::ExpSum, b::ExpSum; kwargs...) =
+    length(a.channels) == length(b.channels) &&
+    all(((k, v),) -> haskey(b.channels, k) && isapprox(v, b.channels[k]; kwargs...), pairs(a.channels))
 
 Base.isapprox(a::OperatorSum{I}, b::OperatorSum{I}; kwargs...) where {I} =
     a.lattice == b.lattice && isapprox(a.terms, b.terms; kwargs...) &&
     _channelsapprox(a.channels, b.channels; kwargs...)
-# --- the operations that need the spaces ----------------------------------------------------------
-
 """
     adjoint(H::OperatorSum)
     H'
 
-The hermitian conjugate (every term must have total charge `unit(I)`; no decaying channels yet).
-It needs the spaces, which is why it lives here and a bare `Terms` has no `h'`.
+The hermitian conjugate; every term must have total charge `unit(I)`, and decaying channels are not
+supported.
 """
 function Base.adjoint(H::OperatorSum{I, L}) where {I, L}
     isempty(H.channels) || throw(
@@ -183,13 +197,12 @@ end
 """
     instantiate(H::OperatorSum)
 
-Materialize `H` on its finite lattice into a `TensorMap` (the dense oracle); decaying channels are
-truncated to the chain ([`chain_terms`](@ref)).
+Materialize `H` on its finite lattice as a `TensorMap`; decaying channels are truncated to the chain.
 """
 function instantiate(H::OperatorSum{I, <:FiniteChain}) where {I}
     isempty(H.lattice) && throw(ArgumentError("cannot instantiate over an empty lattice"))
     isempty(H) && throw(ArgumentError("cannot instantiate an empty operator"))
-    return _instantiate_terms(chain_terms(H), H.lattice.spaces)
+    return _instantiate_terms(chain_terms(H), H.lattice.sites)
 end
 instantiate(::OperatorSum{I, <:InfiniteChain}) where {I} = throw(
     ArgumentError("cannot instantiate an operator on an infinite chain")

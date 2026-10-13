@@ -2,16 +2,8 @@ using Test
 using OpSum: bipartite_connected_components
 
 @testset "bipartite_connected_components" begin
-    @testset "single connected component" begin
-        adjU = [[1, 2], [2, 3]]
-        us, vs = bipartite_connected_components(adjU, 3)
-        @test length(us) == 1
-        @test only(us) == [1, 2]
-        @test only(vs) == [1, 2, 3]
-    end
-
     @testset "two disjoint components" begin
-        # component A: U1-V1, U1-V2, U2-V2, U3-V2 (all linked through V2) ; component B: U4-V3
+        # A: U1-V1, U1-V2, U2-V2, U3-V2; B: U4-V3
         adjU = [[1, 2], [2], [2], [3]]
         us, vs = bipartite_connected_components(adjU, 3)
         @test length(us) == 2

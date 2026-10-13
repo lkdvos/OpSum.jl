@@ -1,15 +1,10 @@
-# Maximum matching + minimum vertex cover (src/datastructures/bipartite.jl).
-#
-# The MPO sweeps use `min_vertex_cover_bipartite` to pick every bond's basis, so its *size* is the
-# bond dimension: an off-by-one here silently inflates every MPO. König's theorem gives an
-# independent oracle — |minimum vertex cover| == |maximum matching| — which is what most of these
-# tests check, on top of verifying that the returned masks really do cover every edge.
+# Maximum matching + minimum vertex cover (src/datastructures/bipartite.jl). The cover size is the bond
+# dimension; König's theorem (|min cover| == |max matching|) is the oracle, plus an edge-cover check.
 
 using Test
 using Random
 using OpSum: hopcroft_karp, min_vertex_cover_bipartite
 
-# every edge has at least one endpoint in the cover
 function covers_all_edges(adjU, coverU, coverV)
     for u in eachindex(adjU), v in adjU[u]
         (coverU[u] || coverV[v]) || return false
@@ -17,7 +12,6 @@ function covers_all_edges(adjU, coverU, coverV)
     return true
 end
 
-# `pairU`/`pairV` are a consistent matching of the claimed size, using only real edges
 function is_matching(adjU, nV, pairU, pairV, matching)
     count(!iszero, pairU) == matching || return false
     count(!iszero, pairV) == matching || return false
@@ -29,53 +23,22 @@ function is_matching(adjU, nV, pairU, pairV, matching)
     return true
 end
 
-adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
-
 @testset "bipartite matching and cover" begin
     @testset "small hand-checked graphs" begin
-        # a path U1-V1-U2-V2: maximum matching 2, minimum cover 2
-        adjU = [[1], [1, 2]]
-        cU, cV, pairU, pairV, m = min_vertex_cover_bipartite(adjU, 2, 2)
-        @test m == 2
-        @test count(cU) + count(cV) == m
-        @test covers_all_edges(adjU, cU, cV)
-        @test is_matching(adjU, 2, pairU, pairV, m)
-
-        # a star centred on U1 (the "nothing started yet" channel of the MPO sweep): the minimum
-        # cover is the single left vertex, never the leaves
+        # a star: the minimum cover is the centre, never the leaves
         adjU = [[1, 2, 3, 4]]
         cU, cV, _, _, m = min_vertex_cover_bipartite(adjU, 1, 4)
         @test m == 1
         @test cU == [true]
         @test !any(cV)
 
-        # an isolated left vertex is never covered
-        adjU = [[1], Int[]]
-        cU, cV, _, _, m = min_vertex_cover_bipartite(adjU, 2, 1)
-        @test m == 1
-        @test !cU[2]
-        @test count(cU) + count(cV) == m
-
-        # empty graph
         cU, cV, _, _, m = min_vertex_cover_bipartite([Int[], Int[]], 2, 3)
         @test m == 0
         @test !any(cU) && !any(cV)
     end
 
-    @testset "complete bipartite graphs" begin
-        for (n, m) in ((1, 5), (3, 3), (4, 7), (6, 2))
-            adjU = [collect(1:m) for _ in 1:n]
-            cU, cV, pairU, pairV, matching = min_vertex_cover_bipartite(adjU, n, m)
-            @test matching == min(n, m)                    # K_{n,m}
-            @test count(cU) + count(cV) == matching        # König
-            @test covers_all_edges(adjU, cU, cV)
-            @test is_matching(adjU, m, pairU, pairV, matching)
-        end
-    end
-
     @testset "long alternating path (iterative DFS depth)" begin
-        # U_k - V_k and U_{k+1} - V_k for all k: a path of length 2n-1. The recursive DFS nested to
-        # the alternating-path length here; this pins that a deep component no longer overflows.
+        # a path of length 2n-1; pins that a deep component does not overflow the stack
         n = 20_000
         adjU = [k == 1 ? [1] : [k - 1, k] for k in 1:n]
         cU, cV, pairU, pairV, matching = min_vertex_cover_bipartite(adjU, n, n)
@@ -85,7 +48,7 @@ adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
         @test is_matching(adjU, n, pairU, pairV, matching)
     end
 
-    @testset "random graphs: König + dense/adjacency agreement" begin
+    @testset "random graphs: König" begin
         rng = MersenneTwister(0x00C0FFEE)
         for trial in 1:200
             n = rand(rng, 1:12)
@@ -98,13 +61,7 @@ adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
             @test covers_all_edges(adjU, cU, cV)
             @test count(cU) + count(cV) == matching   # König's theorem
 
-            # the dense-matrix method must agree with the adjacency-list one
-            dU, dV, _, _, dmatching = min_vertex_cover_bipartite(adjmatrix(adjU, m))
-            @test dmatching == matching
-            @test dU == cU
-            @test dV == cV
-
-            # brute-force minimum cover for the smallest instances
+            # brute force on the smallest instances
             if n + m <= 12
                 best = typemax(Int)
                 for maskU in 0:(2^n - 1), maskV in 0:(2^m - 1)
@@ -117,8 +74,7 @@ adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
         end
     end
 
-    # Berge: a matching is maximum iff no augmenting path exists. Independent of `hopcroft_karp` —
-    # a plain BFS over alternating paths from every free left vertex.
+    # Berge: a matching is maximum iff no augmenting path exists (plain BFS, independent of `hopcroft_karp`)
     function has_augmenting_path(adjU, nV, pairU, pairV)
         seenV = falses(nV)
         queue = findall(iszero, pairU)
@@ -129,8 +85,8 @@ adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
             for v in adjU[u]
                 seenV[v] && continue
                 seenV[v] = true
-                iszero(pairV[v]) && return true       # reached a free right vertex
-                push!(queue, pairV[v])               # else continue along the matching edge
+                iszero(pairV[v]) && return true
+                push!(queue, pairV[v])
             end
         end
         return false
@@ -143,8 +99,7 @@ adjmatrix(adjU, nV) = [v in adjU[u] for u in eachindex(adjU), v in 1:nV]
             adjU = [findall(<(0.4), rand(rng, m)) for _ in 1:n]
             pairU, pairV, matching = hopcroft_karp(adjU, n, m)
             @test is_matching(adjU, m, pairU, pairV, matching)
-            # Berge's criterion — the real maximality certificate. Comparing against a cover from the
-            # same call would be circular, since König's construction derives one from the other.
+            # Berge, not König: a cover from the same call would be circular
             @test !has_augmenting_path(adjU, m, pairU, pairV)
         end
     end

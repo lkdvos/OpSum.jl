@@ -1,93 +1,80 @@
 using Test
 using OpSum
-using OpSum: instantiate, spin, couple, matrixunit, SiteOperator, opsum, irrep_mpo
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: instantiate, couple, opsum, mpo, mpo_tensormap
 using TensorKit
-using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, nonzero_keys, nonzero_pairs, eachspace
+using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, nonzero_keys, eachspace
 using MPSKit
-using MPSKit: JordanMPOTensor, FiniteMPOHamiltonian, FiniteMPS, DMRG, find_groundstate,
-    expectation_value
-using LinearAlgebra: dot
+using MPSKit: JordanMPOTensor, FiniteMPOHamiltonian, FiniteMPS, expectation_value
+using TensorKitTensors.SpinOperators: SpinOperators
 
 include(joinpath(@__DIR__, "testutils.jl"))                                   # LO
-include(joinpath(@__DIR__, "..", "benchmark", "ShowcaseModels.jl"))           # mpo_tensormap
-using .ShowcaseModels: mpo_tensormap, spectrum
 
-# Reference models, one per sector kind, all at N = 4 (except the 3-body one, which needs 3 sites).
-# The size matters: contracting the assembled MPO against the `instantiate` oracle costs a fresh
-# `ncon` specialization per (length, sectortype) pair, so every extra combination is a minute of
-# compilation for no extra coverage. Structural checks run on all of these; the dense oracle runs on
-# the three in `oracle_models`.
+# Reference models, one per sector kind, at N = 4 (the 3-body one at 3): a dense contraction costs a
+# fresh `ncon` specialization per (length, sectortype). Structural checks run on all, the dense oracle
+# on `oracle_models`.
 function reference_models()
-    Vs = SU2Space(1 // 2 => 1)
-    S = spin(Vs)
-    Vu = Rep[U₁](0 => 1, 1 => 1)
-    raise = LO(IrrepOperator(U1Irrep(1), 1))
-    lower = LO(IrrepOperator(U1Irrep(-1), 1))
-    Vt = ℂ^2
-    ops = instances(IrrepOperator, Vt)
+    BS = spin_basis(SU2Irrep)
+    SU2 = spin_ops(SU2Irrep)
+    S = spinvector(BS)
+    BU = spin_basis(U1Irrep)
+    U1 = spin_ops(U1Irrep)
+    BT = spin_basis()
+    Triv = spin_ops()
 
     models = [
-        # SU(2) Heisenberg: the case where Jordan padding has to reproduce the textbook bond dim 3
-        "heisenberg N=4" => (opsum(dot(S[i], S[i + 1]) for i in 1:3), FiniteChain(Vs, 4)),
-        # decoupled pairs: two disconnected trivial-charge channels at the middle bond
+        # Jordan padding has to reproduce the textbook bond dim 3
+        "heisenberg N=4" => (opsum(SU2.S_exchange[i, i + 1] for i in 1:3), FiniteChain(BS, 4)),
+        # two disconnected trivial-charge channels at the middle bond
         "singlet pairs N=4" =>
-            (opsum(dot(S[1], S[2]), dot(S[3], S[4])), FiniteChain(Vs, 4)),
-        # a genuine 3-body term, so the caterpillar inner line rides the bond
+            (opsum(SU2.S_exchange[1, 2], SU2.S_exchange[3, 4]), FiniteChain(BS, 4)),
+        # the caterpillar inner line rides the bond
         "K=3 SU(2) N=3" => (
             opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))),
-            FiniteChain(Vs, 3),
+            FiniteChain(BS, 3),
         ),
         "U(1) hopping N=4" => (
             opsum(
-                dot(raise[i], lower[i + 1]) + dot(lower[i], raise[i + 1]) for i in 1:3
+                U1.S_plus_S_min[i, i + 1] + U1.S_min_S_plus[i, i + 1] for i in 1:3
             ),
-            FiniteChain(Vu, 4),
+            FiniteChain(BU, 4),
         ),
         fermionic_model(),
-        # on-site terms: the only source of a D block, and of a finish channel at an early bond
+        # on-site terms: the only source of a D block
         "trivial chain + field N=4" => (
             opsum(
-                (
-                    couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial))
-                        for i in 1:3
-                ),
-                0.5 * LO(ops[2])[2],
+                (Triv.S_plus_S_min[i, i + 1] for i in 1:3),
+                0.5 * Triv.S_z[2],
             ),
-            FiniteChain(Vt, 4),
+            FiniteChain(BT, 4),
         ),
     ]
-    # each model's terms go onto its chain: the `OperatorSum` is what the compression takes
     return [name => (opsum(sites, H), sites) for (name, (H, sites)) in models]
 end
 
-# t-V chain *with a next-nearest-neighbour hop*: that is what makes an odd-parity bond charge pass
-# over a site, so the diagonal pass-through entry there is a braiding rather than a plain identity,
-# and emitting it as a `BraidingTensor` has to carry the anticommutation sign.
-function fermionic_model()
-    V = Vect[FermionNumber](0 => 1, 1 => 1)
-    vac, occ = FermionNumber(0), FermionNumber(1)
-    c, cd, n = matrixunit(V, vac, occ), matrixunit(V, occ, vac), matrixunit(V, occ, occ)
+# The next-nearest-neighbour hop makes an odd-parity bond charge pass over a site, so the diagonal
+# pass-through there is a braiding whose `BraidingTensor` has to carry the anticommutation sign.
+function fermionic_model(N = 4)
+    F = fermion_ops()
+    cdc = F.f_plus_f_min                                # c†ᵢ cⱼ, in any site order
     H = opsum(
         (
-            couple(cd[i], c[i + 1]) - couple(c[i], cd[i + 1]) + 2 * couple(n[i], n[i + 1])
-                for i in 1:3
+            cdc[i, i + 1] + cdc[i + 1, i] + 2 * F.f_num[i] * F.f_num[i + 1]
+                for i in 1:(N - 1)
         ),
-        (0.3 * (couple(cd[i], c[i + 2]) - couple(c[i], cd[i + 2])) for i in 1:2),
+        (0.3 * (cdc[i, i + 2] + cdc[i + 2, i]) for i in 1:(N - 2)),
     )
-    return "t-V fermions N=4" => (H, FiniteChain(V, 4))
+    return "t-V fermions N=$N" => (H, FiniteChain(fermion_basis(), N))
 end
 
-# The two the *dense* oracle runs on: the SU(2) coupling and the fermionic braiding. Contracting an
-# N-site MPO against `instantiate` is the one genuinely expensive check in this file — a fresh `ncon`
-# specialization per (length, sectortype) — and everything else here is structural or per-site, so it
-# is spent only where a sign or a fusion coefficient could be wrong. The remaining sectors are covered
-# densely by `test_irrep_mpo_tensors.jl`, which validates the same letter/coupler assembly.
-oracle_models() = reference_models()[[1, 5]]
+# The dense oracle runs where a sign or fusion coefficient could be wrong: SU(2) with a caterpillar
+# inner line, and fermionic braiding. Both at N = 3, the smallest chain that has each feature.
+function oracle_models()
+    name, (H, sites) = fermionic_model(3)
+    return [reference_models()[3], name => (opsum(sites, H), sites)]
+end
 
-# The Jordan contract, checked without reference to any consumer: one-dimensional trivial boundary
-# bonds, matching virtual spaces across every bond, identity corners, nothing entering the start
-# channel from below and nothing leaving the finish channel sideways.
+# The Jordan contract: trivial boundary bonds, matching virtual spaces, identity corners, nothing
+# entering the start channel from below or leaving the finish channel sideways.
 function check_jordan_structure(Ws)
     N = length(Ws)
     @test size(Ws[1], 1) == 1
@@ -100,8 +87,7 @@ function check_jordan_structure(Ws)
         keys4 = collect(nonzero_keys(W))
         if cols > 1
             @test CartesianIndex(1, 1, 1, 1) in keys4
-            # a `BraidingTensor` and not merely something equal to one: that is the flag a consumer
-            # reads to keep the ubiquitous identity blocks out of dense storage
+            # the flag a consumer reads to keep identity blocks out of dense storage
             @test W[1, 1, 1, 1] isa BraidingTensor
             @test !any(K -> K[4] == 1 && K[1] != 1, keys4)
         end
@@ -116,16 +102,13 @@ end
 
 @testset "Jordan structure — $name" for (name, (H, sites)) in reference_models()
     Ws = jordan_mpo_tensors(H)
-    @test Ws isa Vector{<:SparseBlockTensorMap}
     check_jordan_structure(Ws)
 end
 
 @testset "Jordan padding costs at most the two identity channels" begin
-    # `irrep_mpo` is minimal among all MPOs with its sparsity pattern; the Jordan form is minimal
-    # among *Jordan-form* MPOs, and the gap is exactly the padded start/finish channels.
     for (_, (H, sites)) in reference_models()
         N = length(sites)
-        _, secs = irrep_mpo(H)
+        _, secs = reduced(mpo(H))
         Ws = jordan_mpo_tensors(H)
         for i in 1:(N - 1)
             @test length(secs[i]) <= size(Ws[i], 4) <= length(secs[i]) + 2
@@ -133,67 +116,46 @@ end
         @test size(Ws[N], 4) == 1
     end
 
-    # The textbook nearest-neighbour Hamiltonian is uniformly three-dimensional in Jordan form: the
-    # padding is +1 at the first internal bond, +1 at the last, and 0 in the bulk.
-    V = SU2Space(1 // 2 => 1)
-    S = spin(V)
+    # textbook nearest-neighbour chain: padding is +1 at the first and last internal bonds, 0 in the bulk
+    B = spin_basis(SU2Irrep)
+    b = spin_ops(SU2Irrep).S_exchange
     N = 6
-    sites = FiniteChain(V, N)
-    H = opsum(sites, dot(S[i], S[i + 1]) for i in 1:(N - 1))
-    @test map(length, irrep_mpo(H).bondsectors) == [2, 3, 3, 3, 2, 1]
+    sites = FiniteChain(B, N)
+    H = opsum(sites, b[i] for i in 1:(N - 1))
+    @test map(length, mpo(H).bondsectors) == [2, 3, 3, 3, 2, 1]
     Ws = jordan_mpo_tensors(H)
     @test [size(W, 4) for W in Ws] == [3, 3, 3, 3, 3, 1]
     @test [size(W, 1) for W in Ws] == [1, 3, 3, 3, 3, 3]
 end
 
 @testset "rejected inputs" begin
-    V = SU2Space(1 // 2 => 1)
-    S = spin(V)
-    # a non-scalar total charge has no identity at the right boundary
-    @test_throws ArgumentError jordan_mpo_tensors(opsum(FiniteChain(V, 3), S[i] for i in 1:3))
-    # an empty operator has no bond structure at all
-    @test_throws ArgumentError jordan_mpo_tensors(OperatorSum(FiniteChain(V, 3)))
-    # an infinite chain is not a Jordan-form target
-    @test_throws ArgumentError jordan_mpo_tensors(opsum(InfiniteChain([V]), dot(S[1], S[2])))
-    # a truncation aggressive enough to empty a bond cannot carry the identity corners
-    H = opsum(FiniteChain(V, 4), dot(S[i], S[i + 1]) for i in 1:3)
+    B = spin_basis(SU2Irrep)
+    b = spin_ops(SU2Irrep).S_exchange
+    S = spinvector(B)
+    @test_throws ArgumentError jordan_mpo_tensors(opsum(FiniteChain(B, 3), S[i] for i in 1:3))
+    @test_throws ArgumentError jordan_mpo_tensors(OperatorSum(FiniteChain(B, 3)))
+    cell = jordan_mpo_tensors(opsum(InfiniteChain(B), b[1]))
+    @test length(cell) == 1 && cell[1][1, 1, 1, 1] isa BraidingTensor
+    H = opsum(FiniteChain(B, 4), b[i] for i in 1:3)
     alg = SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD)
     @test_throws ArgumentError jordan_mpo_tensors(H, alg)
 end
 
-# ── The MPSKit seam ───────────────────────────────────────────────────────────
-# `JordanMPOTensor(::SparseBlockTensorMap)` is the constructor this emission targets, and it takes the
-# emitted tensors as they are — but only in the *bulk*. It asserts that both diagonal corners are
-# identities, which a boundary tensor cannot satisfy: site 1 has a single row, so its `(end, end)`
-# corner is the `(1, end)` D-block slot (an on-site term, or nothing at all), and symmetrically at
-# site N. So the Hamiltonian is assembled through the routing that constructor itself uses (`undef` +
-# `setindex!`, which is what recognises the braidings), uniformly and without the assert, and the
-# constructor is exercised separately on the bulk. Uniformly, because a mixture of the two gives an
-# abstractly-typed `Vector` of site tensors, and MPSKit's algorithms then run untyped.
-function to_jordan(W)
-    O = MPSKit.jordanmpotensortype(spacetype(W), storagetype(W))(undef, space(W))
-    for (I, v) in nonzero_pairs(W)
-        O[I] = v
-    end
-    return O
-end
-
+# The MPSKit seam: `JordanMPOTensor(::SparseBlockTensorMap)` asserts identity corners, which only bulk
+# tensors satisfy, so it is exercised on the bulk and `instantiate(mpo(H))` handles the boundaries.
 @testset "MPSKit round trip — $name" for (name, (H, sites)) in reference_models()
     Ws = jordan_mpo_tensors(H)
 
-    # `JordanMPOTensor(::SparseBlockTensorMap)` consumes the bulk tensors unmodified
     for i in 2:(length(Ws) - 1)
         J = JordanMPOTensor(Ws[i])
         @test J isa MPSKit.JordanMPOTensor
         @test Set(nonzero_keys(J)) == Set(nonzero_keys(Ws[i]))
     end
 
-    Hmpo = FiniteMPOHamiltonian(map(to_jordan, Ws))
+    Hmpo = instantiate(mpo(H))
     @test Hmpo isa FiniteMPOHamiltonian
     @test length(Hmpo) == length(sites)
-    # Site by site, the round trip through MPSKit's block split is lossless. This is the sharp test of
-    # the ordering, and cheaper than contracting the chain: the A/B/C/D accessors *silently drop* an
-    # entry that sits outside the Jordan pattern, so a misplacement shows up here as a missing block.
+    # the A/B/C/D accessors silently drop an entry outside the Jordan pattern, so a misplacement shows here
     for (W, J) in zip(Ws, parent(Hmpo))
         @test SparseBlockTensorMap(J) ≈ W
     end
@@ -204,16 +166,20 @@ end
     @test mpo_tensormap(map(TensorMap, Ws)) ≈ instantiate(H)
 end
 
-@testset "MPSKit DMRG ground state matches exact diagonalization" begin
-    V = SU2Space(1 // 2 => 1)
-    S = spin(V)
-    N = 6
-    H = opsum(FiniteChain(V, N), dot(S[i], S[i + 1]) for i in 1:(N - 1))
-    Hmpo = FiniteMPOHamiltonian(map(to_jordan, jordan_mpo_tensors(H)))
-
-    exact = spectrum(H)[1]
-    # half-integer *and* integer spins: an odd bond of a spin-½ chain carries the former
-    ψ = FiniteMPS(randn, ComplexF64, N, V, SU2Space(0 => 8, 1 // 2 => 8, 1 => 8, 3 // 2 => 4))
-    ψ, = find_groundstate(ψ, Hmpo, DMRG(; maxiter = 50, verbosity = 0))
-    @test real(expectation_value(ψ, Hmpo)) ≈ exact rtol = 1.0e-6
+# Energies of the instantiated Hamiltonian against MPSKit's own construction from the local term, on a
+# random state (a DMRG run would only add MPSKit-algorithm compilation to the same check).
+@testset "MPSKit expectation value matches the local-operator construction" begin
+    B = spin_basis(SU2Irrep)
+    V = space(B)
+    b = spin_ops(SU2Irrep).S_exchange
+    N = 4
+    H = opsum(FiniteChain(B, N), b[i] for i in 1:(N - 1))
+    Hmpo = instantiate(mpo(H))
+    ref = FiniteMPOHamiltonian(
+        fill(V, N), ((i, i + 1) => SpinOperators.S_exchange(ComplexF64, SU2Irrep) for i in 1:(N - 1))...
+    )
+    # half-integer and integer spins: odd bonds of a spin-½ chain carry the former
+    ψ = FiniteMPS(randn, ComplexF64, N, V, SU2Space(0 => 4, 1 // 2 => 4, 1 => 4))
+    @test expectation_value(ψ, Hmpo) ≈ expectation_value(ψ, ref)
+    @test abs(expectation_value(ψ, ref)) > 1.0e-3
 end

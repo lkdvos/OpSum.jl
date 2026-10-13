@@ -16,26 +16,26 @@
 using OpSum: OpSum
 include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 
-V = SU2Space(1 // 2 => 1)
-S = spin(V)
+B = spin_basis(SU2Irrep)
+ex = spin_ops(SU2Irrep).S_exchange
 
 # ## One channel
 #
 # The representative is an ordinary two-site term. `decay` stretches the gap before its exit block.
 
-tail = expterm(dot(S[1], S[2]); decay = 0.6)
+tail = expterm(ex[1, 2]; decay = 0.6)
 
 # It goes into an [`OperatorSum`](@ref OpSum.OperatorSum) next to the finite-range terms, on either
 # lattice — the channel is just another argument of `opsum`.
 
-H = opsum(InfiniteChain([V]), dot(S[1], S[2]), tail)
-irrep_mpo(H)
+H = opsum(InfiniteChain(B), ex[1, 2], tail)
+mpo(H)
 
 # One extra bond index buys the entire tail. Compare the same model without it:
 
-let cell = InfiniteChain([V])
-    bare = irrep_mpo(opsum(cell, dot(S[1], S[2])))
-    with = irrep_mpo(H)
+let cell = InfiniteChain(B)
+    bare = mpo(opsum(cell, ex[1, 2]))
+    with = mpo(H)
     println("  nearest neighbour only:  D=", map(length, bare.bondsectors))
     println("  + geometric tail:        D=", map(length, with.bondsectors))
 end
@@ -48,8 +48,8 @@ end
 # geometric sum **truncated to the chain**; on an `L`-site `InfiniteChain` entry and exit both step
 # by `L`.
 
-Hfinite = opsum(FiniteChain(V, 8), dot(S[1], S[2]), tail)
-irrep_mpo(Hfinite)
+Hfinite = opsum(FiniteChain(B, 8), ex[1, 2], tail)
+mpo(Hfinite)
 
 # The finite MPO is not translation-invariant at the edges — the tail has fewer places to start near
 # the right end — which is why its bond dimensions taper. The interior is what the infinite cell
@@ -58,9 +58,9 @@ irrep_mpo(Hfinite)
 # Being a truncated geometric sum is a statement about which terms exist, and
 # [`OpSum.chain_terms`](@ref) writes them out. So the finite case is checkable the ordinary way:
 
-let H6 = opsum(FiniteChain(V, 6), dot(S[1], S[2]), tail)
-    Ws, secs = irrep_mpo(H6)
-    mpo_terms(Ws, secs) ≈ OpSum.chain_terms(H6)
+let H6 = opsum(FiniteChain(B, 6), ex[1, 2], tail)
+    m = mpo(H6)
+    mpo_terms(m.Ws, m.bondsectors) ≈ OpSum.chain_terms(H6)
 end
 
 # ## `decay` counts per site
@@ -68,13 +68,13 @@ end
 # This is the one thing to get right. `λ` is applied once per *string* site, so the member with gap
 # `g` (that is, `g` sites between the two operators) carries `λ^g`. Reading it off the reconstructed
 # terms is the least ambiguous way to see it. Coefficients are quoted relative to the two-site term
-# `dot` itself produces, so the Cartesian factor of the `dot` convention divides out:
+# `ex[1, 2]` itself produces, so the normalisation of the exchange operator divides out:
 
-base = only(dot(S[1], S[2])).coeff
+base = only(ex[1, 2]).coeff
 
-let lat = FiniteChain(V, 5), λ = 0.5
-    Ws, secs = irrep_mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = λ)))
-    for t in mpo_terms(Ws, secs)
+let lat = FiniteChain(B, 5), λ = 0.5
+    m = mpo(opsum(lat, expterm(ex[1, 2]; decay = λ)))
+    for t in mpo_terms(m.Ws, m.bondsectors)
         gap = t.sites[end] - t.sites[1] - 1
         println("  sites=", t.sites, "  gap=", gap, "  coeff/base=", round(real(t.coeff / base); digits = 6))
     end
@@ -85,13 +85,13 @@ end
 # ## One `expterm` is a family; one `Terms` is a term
 #
 # Worth stating on its own, because the two halves of an `OperatorSum` behave differently on a finite
-# chain. `dot(S[1], S[2])` is a *single* term on sites 1 and 2 — a term bag is literal — while the
+# chain. `ex[1, 2]` is a *single* term on sites 1 and 2 — a term bag is literal — while the
 # `expterm` declares its whole family. So adding both does not give a uniform nearest-neighbour
 # coupling; it doubles the coefficient at sites `[1, 2]` and nowhere else:
 
-let lat = FiniteChain(V, 4), λ = 0.5
-    Ws, secs = irrep_mpo(opsum(lat, dot(S[1], S[2]), expterm(dot(S[1], S[2]); decay = λ)))
-    for t in mpo_terms(Ws, secs)
+let lat = FiniteChain(B, 4), λ = 0.5
+    m = mpo(opsum(lat, ex[1, 2], expterm(ex[1, 2]; decay = λ)))
+    for t in mpo_terms(m.Ws, m.bondsectors)
         println("  sites=", t.sites, "  coeff/base=", round(real(t.coeff / base); digits = 6))
     end
 end
@@ -110,27 +110,25 @@ end
 # — the one thing it must be is charge-neutral, since a charged string would make the running bond
 # charge drift along the loop.
 
-Vu = Rep[U₁](0 => 1, 1 => 1)
-up, dn = U1Irrep(1), U1Irrep(0)
-Su = spin_ops(Vu, up, dn)
-parity = 2 * Su.Sz            # charge-neutral: a diagonal on-site operator
+Bu = spin_basis(U1Irrep)
+ou = spin_ops(U1Irrep)
+parity = 2 * ou.S_z            # charge-neutral: a diagonal on-site operator
 
 Hstring = opsum(
-    InfiniteChain([Vu]),
-    couple(Su.Sp[1], Su.Sm[2]),
-    expterm(couple(Su.Sp[1], Su.Sm[2]); decay = 0.5, string = parity)
+    InfiniteChain(Bu),
+    ou.S_plus_S_min[1, 2],
+    expterm(ou.S_plus_S_min[1, 2]; decay = 0.5, string = parity)
 )
-irrep_mpo(Hstring)
+mpo(Hstring)
 
 # ## Multi-site blocks on either end
 #
 # `exitsite` is the first site of the exit block; everything before it is the entry block. So a
-# three-site representative can stretch the gap between a two-site entry and a one-site exit:
+# three-site representative can stretch the gap between a two-site entry and a one-site exit. Here
+# the representative is the product ``S^z_1 S^z_2 \cdot S^z_4``, with the stretched gap at site 3:
 
-Hblock = expterm(
-    couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[4]); decay = 0.5, exitsite = 4
-)
-irrep_mpo(opsum(InfiniteChain([V]), dot(S[1], S[2]), Hblock))
+Hblock = expterm(ou.S_z_S_z[1, 2] * ou.S_z[4]; decay = 0.5, exitsite = 4)
+mpo(opsum(InfiniteChain(Bu), ou.S_z_S_z[1, 2], Hblock))
 
 # ## A sum of exponentials
 #
@@ -138,14 +136,14 @@ irrep_mpo(opsum(InfiniteChain([V]), dot(S[1], S[2]), Hblock))
 # linearly independent, so each costs one bond index; channels sharing `(λ, string, exit)` merge into
 # one.
 
-let cell = InfiniteChain([V]), λs = (0.9, 0.5, 0.1)
-    h = opsum(cell, dot(S[1], S[2]), (expterm(dot(S[1], S[2]); decay = λ) for λ in λs))
-    println("  three decays:   D=", map(length, irrep_mpo(h).bondsectors))
+let cell = InfiniteChain(B), λs = (0.9, 0.5, 0.1)
+    h = opsum(cell, ex[1, 2], (expterm(ex[1, 2]; decay = λ) for λ in λs))
+    println("  three decays:   D=", map(length, mpo(h).bondsectors))
     dup = opsum(
-        cell, dot(S[1], S[2]),
-        expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[1], S[2]); decay = 0.5)
+        cell, ex[1, 2],
+        expterm(ex[1, 2]; decay = 0.5), expterm(ex[1, 2]; decay = 0.5)
     )
-    println("  two identical:  D=", map(length, irrep_mpo(dup).bondsectors))
+    println("  two identical:  D=", map(length, mpo(dup).bondsectors))
 end
 
 # So the cost is one index per *distinct* channel, and a fitted power law costs what its fit needs —
@@ -157,15 +155,22 @@ end
 # `|λ| ≥ 1` does not converge, and is an error rather than a silently wrong operator:
 
 try
-    expterm(dot(S[1], S[2]); decay = 1.0)
+    expterm(ex[1, 2]; decay = 1.0)
 catch e
     println(sprint(showerror, e))
 end
 
-# A charged string is rejected for the reason above:
+# A charged string is rejected for the reason above. A charged operator is not something the
+# builders hand out, but `project` accepts one written as a `TensorMap` with a charge leg:
+
+Vu = space(Bu)
+splus = zeros(ComplexF64, Vu ← Vu ⊗ Vect[U1Irrep](1 => 1))
+for (_, blk) in blocks(splus)
+    blk .= 1
+end
 
 try
-    expterm(couple(Su.Sp[1], Su.Sm[2]); decay = 0.5, string = Su.Sp)
+    expterm(ou.S_plus_S_min[1, 2]; decay = 0.5, string = project(splus, Bu))
 catch e
     println(first(sprint(showerror, e), 160))
 end

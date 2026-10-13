@@ -6,9 +6,9 @@
 # The pipeline has three objects:
 #
 #  1. a **term bag** — what you write down. It knows site indices and charges, and **no lattice**.
-#  2. an **`OperatorSum`** — the term bag together with a **lattice** (one physical space per site).
-#     The terms are checked against the spaces as they go in, which is the first place the spaces
-#     are actually needed.
+#  2. an **`OperatorSum`** — the term bag together with a **lattice** (one operator basis per site).
+#     The terms are checked against the bases as they go in, which is the first place the
+#     physical sites are actually needed.
 #  3. an **MPO** — the compressed result.
 
 using OpSum: OpSum
@@ -16,25 +16,28 @@ include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 
 # ## One bond
 #
-# `spin(V)` is the single irreducible tensor operator of an SU(2) site — the vector operator
-# ``\vec{S}`` itself, not three separate components. `S[i]` places it on site `i`, and `dot` couples
-# two placements to a scalar.
+# A site is a [`Basis`](@ref OpSum.Basis): the operators one can write on it, in the language of its
+# symmetry. `spin_basis(SU2Irrep)` is the spin-½ site with SU(2) symmetry, and `spin_ops(SU2Irrep)`
+# its operators expanded in that basis. Under SU(2) the only neutral spin operator on two sites is
+# ``\vec S_i \!\cdot\! \vec S_j``: it is `S_exchange`, and `S_exchange[i, j]` places it on sites `i`
+# and `j`.
 
-V = SU2Space(1 // 2 => 1)
-S = spin(V)
-h = dot(S[1], S[2])
+B = spin_basis(SU2Irrep)
+ops = spin_ops(SU2Irrep)
+h = ops.S_exchange[1, 2]
 
 # That is already a `Terms`: a bag of terms. It carries no lattice, so it does not yet know what a
 # "site" is physically — only that there are two of them and which charges they carry. Putting it
-# on a lattice gives an `OperatorSum`, which is what the MPO is formed from:
+# on a lattice, one basis per site, gives an `OperatorSum`, which is what the MPO is formed from:
 
-lat = FiniteChain(V, 2)
+lat = FiniteChain(B, 2)
 H2 = opsum(lat, h)
-mpo = irrep_mpo(H2)
+W = mpo(H2)
 
-# The MPO destructures as the pair it holds, on either lattice:
+# A [`SymbolicMPO`](@ref OpSum.SymbolicMPO) holds, per site, a sparse matrix of on-site operators
+# (`W[i]`, or `W.Ws`), and per bond the charges of its indices (`W.bondsectors`), on either lattice:
 
-Ws, secs = mpo
+Ws, secs = W.Ws, W.bondsectors
 length(secs)
 
 # ## Three ways to check it
@@ -68,7 +71,7 @@ spectrum(H2)
 # `+` also works, but it copies, so folding it over many terms is quadratic — `opsum` (or `opsum!`
 # into an `OperatorSum` you own) is the linear route.
 
-heisenberg(N; J = 1.0) = opsum(FiniteChain(V, N), J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
+heisenberg(N; J = 1.0) = opsum(FiniteChain(B, N), J * ops.S_exchange[i, i + 1] for i in 1:(N - 1))
 H = heisenberg(8)
 build("Heisenberg N=8", H)
 
@@ -81,22 +84,24 @@ end
 
 # ## No symmetry at all: transverse-field Ising
 #
-# `ℂ^2` is an ungraded space, so there is nothing to exploit and the Pauli matrices are simply
-# written down. [`project`](@ref OpSum.project) expands a `TensorMap` in the on-site alphabet, which
-# is how every on-site operator in these pages is built — never by writing a letter index by hand,
-# because those follow TensorKit's block order and hard-coding one is a silent bug.
+# With `spin_basis()` (the default symmetry is `Trivial`) there is nothing to exploit, and the
+# operators are the Cartesian ones. If the one you want is not in the builder, write it down and let
+# [`project`](@ref OpSum.project)`(O, B)` expand it in the basis — never by writing a letter index by
+# hand, because those follow TensorKit's block order and hard-coding one is a silent bug.
 
-Vc = ℂ^2
-σx = project(TensorMap(ComplexF64[0 1; 1 0], Vc ← Vc), Vc)
-σz = project(TensorMap(ComplexF64[1 0; 0 -1], Vc ← Vc), Vc)
+Bc = spin_basis()
+Vc = space(Bc)
+σx = project(TensorMap(ComplexF64[0 1; 1 0], Vc ← Vc), Bc)
+σz = project(TensorMap(ComplexF64[1 0; 0 -1], Vc ← Vc), Bc)
 
 # This model also mixes arities: the field is a one-site term and the coupling a two-site one, in
-# one operator. Nothing special is needed for that — `opsum` takes both.
+# one operator. Nothing special is needed for that — `opsum` takes both. Operators multiply with
+# `*`, so the coupling is written the way it is printed:
 
 function tfim(N; J = 1.0, g = 0.5)
     return opsum(
-        FiniteChain(Vc, N),
-        (-J * couple(σz[i], σz[i + 1]) for i in 1:(N - 1)),
+        FiniteChain(Bc, N),
+        (-J * σz[i] * σz[i + 1] for i in 1:(N - 1)),
         (-g * σx[i] for i in 1:N),
     )
 end
@@ -115,36 +120,26 @@ end
 
 # ## An abelian symmetry: XXZ
 #
-# Grade the site by magnetisation and U(1) is available. `matrixunit(V, out, in)` is ``|out⟩⟨in|``,
-# which is all the spin operators are:
-
-Vu = Rep[U₁](0 => 1, 1 => 1)
-up, dn = U1Irrep(1), U1Irrep(0)
-Sp = matrixunit(Vu, up, dn)
-Sm = matrixunit(Vu, dn, up)
-Sz = (matrixunit(Vu, up, up) - matrixunit(Vu, dn, dn)) / 2
-
-# `Sᶻ` is worth a second look: it is a **composite** on-site operator, two alphabet letters with
-# coefficients, and ordinary arithmetic on `SiteOperator`s reads the way you would write it on
-# paper. `couple` distributes over both operands, so nothing has to be expanded by hand.
-
-length(Sz)
-
-# [`spin_ops`](@ref OpSum.spin_ops) bundles exactly these three. Its `sectors` argument is in
-# **descending** magnetisation, and is not optional: a `Vect[U₁]` spin site is as often labelled by
-# particle number as by ``m``, and inferring which would be a silent guess.
-
-spin_ops(Vu, up, dn).Sz ≈ Sz
+# Grade the site by magnetisation and U(1) is available. The builder now has the three neutral
+# operators a conserved ``S^z`` allows: `S_z`, and the two flip-flop products `S_plus_S_min` and
+# `S_min_S_plus`, which are ``S^+_i S^-_j`` and ``S^-_i S^+_j``. The charged ``S^\pm`` are inside the
+# basis, so the Hamiltonian
 
 # ```math
 # H = \sum_i \tfrac12 \left( S^+_i S^-_{i+1} + S^-_i S^+_{i+1} \right) + \Delta\, S^z_i S^z_{i+1}
 # ```
 
+# is written as printed. `S_z[i] * S_z[i + 1]` is the operator product of two placed operators, and
+# is the same operator as the builder's `S_z_S_z[i, i + 1]`:
+
+Bu = spin_basis(U1Irrep)
+ou = spin_ops(U1Irrep)
+
 function xxz(N; Δ = 1.0)
     return opsum(
-        FiniteChain(Vu, N),
-        couple(Sp[i], Sm[i + 1]) / 2 + couple(Sm[i], Sp[i + 1]) / 2 +
-            Δ * couple(Sz[i], Sz[i + 1]) for i in 1:(N - 1)
+        FiniteChain(Bu, N),
+        ou.S_plus_S_min[i, i + 1] / 2 + ou.S_min_S_plus[i, i + 1] / 2 +
+            Δ * ou.S_z[i] * ou.S_z[i + 1] for i in 1:(N - 1)
     )
 end
 
@@ -152,7 +147,7 @@ Hxxz = xxz(6)
 build("XXZ Δ=1 N=6", Hxxz)
 
 # At ``Δ = 1`` this *is* the Heisenberg chain, just graded by U(1) instead of SU(2) — same operator,
-# two symmetries. The MPOs are not comparable (different spaces, different bond labels), but the
+# two symmetries. The MPOs are not comparable (different bases, different bond labels), but the
 # spectra are, once multiplet degeneracies are unfolded:
 
 spectrum(Hxxz) ≈ spectrum(heisenberg(6))
@@ -169,8 +164,8 @@ end
 
 # ## Where to go next
 #
-# * [Spin chains](spin_chains.md) — non-abelian coupling, `dot` versus `couple`, and projecting a whole bond.
-# * [Multi-body interactions](multibody.md) — three and four sites, and the fusion channels between them.
+# * [Spin chains](spin_chains.md) — the stock spin sites, products of operators, and projecting a whole bond.
+# * [Multi-body interactions](multibody.md) — products of three and four operators, and their placement.
 # * [Fermions](fermions.md) — who supplies the anticommutation sign.
 # * [Lattices and geometry](lattices.md) — non-uniform chains, ladders, cylinders.
 # * [Handing the MPO to MPSKit](mpskit.md) — DMRG on what you just built.

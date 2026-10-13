@@ -1,25 +1,14 @@
-# Projection: dense symmetric `TensorMap` → symbolic ITO terms, the inverse of `instantiate`. Naming
-# letters `(c, n)` directly is fragile since `n` follows TensorKit's block order, so operators are
-# built as tensors and projected back instead.
-#
-# No linear solve needed: the candidate basis `α = (ops, tree)` is orthogonal with a closed-form
-# diagonal, so `c_α = inner(E_α, h) / g` where
-#
-#     inner(E_α, E_β) = δ_ops · δ_tree · dim(tot) / Π_k dim(ops[k].c)  =:  δ_αβ · g(ops, tot)
-#
-# and complete (candidate count = target homspace dimension), so a symmetric `h` of the accepted shape
-# is always exactly in the span; the only residual is `tol` truncation.
+# Dense symmetric `TensorMap` → matrix-unit ITO terms, the inverse of `instantiate`. No linear solve:
+# the candidates `(ops, tree)` are orthogonal and complete with `inner(E_α, E_β) = δ_αβ g`,
+# `g = dim(tot) / Π_k dim(ops[k].c)`, so `c_α = inner(E_α, h) / g`.
 
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, oneunit
 using LinearAlgebra: norm
 
-# Coefficients below `100 * eps` (relative to `‖h‖`) are round-off from `inner`, not physics. Kept
-# deliberately tight: dropping a genuinely small coupling would be silently absorbed by the
-# faithfulness check, so the default must only ever discard noise.
+# Relative coefficients below this are round-off from `inner`.
 _default_rtol(h::AbstractTensorMap) = 100 * eps(real(float(scalartype(h))))
 
-# Give `h` the trailing total-charge leg the forward map produces. `insertrightunit` re-wraps the data
-# unchanged, so it is free and exactly norm-preserving.
+# `h` with the trailing total-charge leg the forward map produces, and that charge.
 function _with_charge_leg(h::AbstractTensorMap, K::Int, ::Type{I}) where {I <: Sector}
     nin = numin(h)
     if nin == K
@@ -39,13 +28,11 @@ function _with_charge_leg(h::AbstractTensorMap, K::Int, ::Type{I}) where {I <: S
     )
 end
 
-# The projection proper: `(ops, tree, coeff)` for every candidate whose norm contribution exceeds
-# `θ`, plus the total number of candidates considered (for the round-off slack).
+# `(ops, tree, coeff)` for every candidate whose norm contribution exceeds `θ`, and the candidate count.
 function _ito_coefficients(
         hc::AbstractTensorMap, Vs::AbstractVector{<:ElementarySpace}, tot::I, θ::Real
     ) where {I <: Sector}
     K = length(Vs)
-    # letters grouped by charge, once per site
     bycharge = map(Vs) do V
         groups = Dictionary{I, Vector{IrrepOperator{I}}}()
         for op in instances(IrrepOperator, V)
@@ -59,17 +46,14 @@ function _ito_coefficients(
     for cs in Iterators.product(map(collect ∘ keys, bycharge)...)
         trees = caterpillar_trees(cs, tot)
         isempty(trees) && continue
-        # g = inner(E, E), analytic (an exact ratio of quantum dimensions — no extra contraction)
         g = dim(tot) / prod(dim, cs)
         letters = ntuple(k -> bycharge[k][cs[k]], K)
         for opstup in Iterators.product(letters...), tree in trees
             ncand += 1
             ops = collect(IrrepOperator{I}, opstup)
-            E = _instantiate_basis(ops, tree, Vs)
+            E = _instantiate_term(ops, 1:K, tree, Vs)
             c = ComplexF64(inner(E, hc) / g)
-            # Threshold the component's *norm contribution*: by orthogonality
-            # `‖dropped‖² = Σ|c_α|² g_α` exactly, and `g` varies by `dim(tot)/Π dim(c_k)`, so bare
-            # `abs(c)` is not norm-controlled.
+            # the norm contribution is `|c| √g`, so bare `abs(c)` would not control the dropped norm
             abs(c) * sqrt(g) > θ || continue
             push!(out, (ops, tree, c))
         end
@@ -77,47 +61,11 @@ function _ito_coefficients(
     return out, ncand
 end
 
-"""
-    project(h::AbstractTensorMap; atol = 0, rtol = 100eps) -> LocalOperator
-    project(h::AbstractTensorMap, sites; kwargs...) -> Terms
-
-Project a symmetric `K`-site operator onto the ITO term basis — the inverse of
-[`instantiate`](@ref). `h` must have one of the two shapes `instantiate` produces, with
-`K = numout(h)`:
-
-    h :  V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K                          # charge-neutral
-    h :  V_1 ⊗ … ⊗ V_K  ←  V_1 ⊗ … ⊗ V_K ⊗ Vect[I](tot => 1)      # total charge `tot`
-
-The result is an unplaced [`LocalOperator`](@ref) on `K` slots, placed with `B[i]` or
-`B[s₁, …, s_K]`; `project(h, sites)` is `project(h)[sites...]`. The coefficients are exact inner
-products against an orthogonal, complete basis, so no fit is involved.
-
-Coefficients whose norm contribution falls at or below `max(atol, rtol * norm(h))` are dropped;
-the result is then re-materialized and compared against `h`, and an `ArgumentError` is thrown if
-the residual exceeds that same tolerance. A projected operator therefore provably represents its
-input. An operator that is zero (or entirely below tolerance) gives an empty `LocalOperator`.
-
-Every returned term is active on **all** `K` slots: an on-site identity factor comes back as a
-trivial-charge letter, not as a shorter term. So `project ∘ instantiate` is the identity only for
-operators whose terms all have full support on the sites projected.
-
-```jldoctest
-julia> using TensorKit
-
-julia> V = SU2Space(1//2 => 1);
-
-julia> h = OpSum.instantiate(opsum([V, V], couple(spin(V)[1], spin(V)[2]; to = SU2Irrep(0))));
-
-julia> B = project(h); (length(B.terms), OpSum.nsites(B))
-(1, 2)
-
-julia> project(h, [2, 5]) ≈ B[2, 5]
-true
-```
-
-See also [`matrixunit`](@ref), [`couple`](@ref).
-"""
-function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rtol(h))
+# The expansion of a symmetric `K`-site operator (optionally with a trailing total-charge leg) in
+# matrix-unit letters, a `LocalOperator` on `K` slots: the coordinates every `Basis` is projected
+# through. Coefficients at or below `max(atol, rtol‖h‖)` are dropped; the result is checked against `h`.
+# Every term is active on all slots (an identity factor is a trivial-charge matrix unit).
+function _project_units(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rtol(h))
     K = numout(h)
     K >= 1 ||
         throw(ArgumentError("project: `h` must act on at least one site, got numout(h) = $K"))
@@ -126,8 +74,7 @@ function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rto
     FusionStyle(I) isa GenericFusion && throw(
         ArgumentError("project: GenericFusion sectors ($I) are deferred (fusion multiplicity > 1)")
     )
-    # `Vect[Trivial] === ComplexSpace`, so this accepts unsymmetric complex spaces but rejects e.g.
-    # `CartesianSpace`, which shares their sector type yet cannot carry a charge leg.
+    # `Vect[Trivial] === ComplexSpace`; this rejects e.g. `CartesianSpace`, which cannot carry a charge leg
     spacetype(h) === Vect[I] || throw(
         ArgumentError("project: `h` must live on $(Vect[I]) spaces, got $(spacetype(h))")
     )
@@ -135,8 +82,7 @@ function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rto
     Vs = [codomain(h)[k] for k in 1:K]
     hc, tot = _with_charge_leg(h, K, I)
 
-    # One equality covers the remaining shape errors: domain ≠ codomain, a dual or higher-degeneracy
-    # charge leg, and a wrong space type.
+    # covers: domain ≠ codomain, a dual or higher-degeneracy charge leg
     Vprod = foldl(⊗, Vs)
     expected = Vprod ← (Vprod ⊗ Vect[I](tot => 1))
     space(hc) == expected ||
@@ -146,21 +92,16 @@ function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rto
     θ = max(float(atol), float(rtol) * hnorm)
     coeffs, ncand = _ito_coefficients(hc, Vs, tot, θ)
 
-    # A caterpillar tree *is* its running bond charges plus vertex labels, i.e. the `ITOKey`s.
-    # Candidates are distinct by construction, so nothing accumulates.
-    slots = collect(1:K)
-    terms = Term{I}[]
-    sizehint!(terms, length(coeffs))
-    for (ops, tree, c) in coeffs
-        bonds, verts = bondcharges(tree), vertexlabels(tree)
-        keys = ITOKey{I}[ITOKey{I}(ops[j], bonds[j], verts[j]) for j in 1:K]
-        push!(terms, Term{I}(slots, keys, c))
-    end
-    out = Terms{I}(terms)
+    # a caterpillar tree is its running bond charges, i.e. the `ITOKey`s
+    out = Terms{I}(
+        Term{I}[
+            Term{I}(collect(1:K), ITOKey{I}[ITOKey{I}(ops[j], bondcharges(tree)[j], 1) for j in 1:K], c)
+                for (ops, tree, c) in coeffs
+        ]
+    )
 
-    # Faithfulness: recompute the operator from the emitted terms alone. This is a genuinely
-    # independent pass through the forward map, so it also catches a wrong `g` or a misassigned tree.
-    resid = isempty(terms) ? hnorm : norm(hc - _instantiate_terms(out, Vs))
+    # faithfulness: recompute the operator from the emitted terms (also catches a wrong `g` or tree)
+    resid = isempty(coeffs) ? hnorm : norm(hc - _instantiate_terms(out, Vs))
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, ncand)) * hnorm
     resid <= θ + slack || throw(
         ArgumentError(
@@ -170,93 +111,4 @@ function project(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _default_rto
     )
 
     return LocalOperator{I}(out, K)
-end
-
-# Checked here, not in `getindex`, where one label would read as a contiguous placement.
-function project(h::AbstractTensorMap, sites; kwargs...)
-    sitev = collect(sites)
-    eltype(sitev) <: Integer || throw(
-        ArgumentError("project: site labels must be lattice indices (`Integer`), got $(eltype(sitev))")
-    )
-    B = project(h; kwargs...)
-    K = nsites(B)
-    length(sitev) == K || throw(
-        ArgumentError("project: got $(length(sitev)) site labels for an operator on $K sites")
-    )
-    return B[sitev...]
-end
-
-"""
-    project(O::AbstractTensorMap, V::ElementarySpace; atol = 0, rtol = 100eps) -> SiteOperator
-
-Expand a single-site operator in the ITO alphabet of `V`, as an [`SiteOperator`](@ref) that is not yet
-placed on the lattice. `O` must be either `V ← V` or `V ← V ⊗ Vect[I](c => 1)`. The result carries
-one letter per surviving alphabet element.
-
-Because a `SiteOperator` supports ordinary arithmetic, composite on-site operators read the way you
-would write them on paper, and `A[i]` then places the whole expansion:
-
-```julia
-Sz = (matrixunit(V, up, up) - matrixunit(V, dn, dn)) / 2
-H  = sum(couple(Sz[i], Sz[i + 1]; to = unit(I)) for i in 1:(N - 1))
-```
-
-Note that the identity is not an alphabet letter: `project(id(V), V)` returns a sum of
-trivial-charge letters (`n ≥ 1`) rather than `scalarop(1, V)` (which is the `n = 0` pass-through
-sentinel). An operator that is zero (or entirely below tolerance) gives the empty `SiteOperator`, which
-does not retain the charge of the input.
-"""
-function project(
-        O::AbstractTensorMap, V::ElementarySpace; atol::Real = 0, rtol::Real = _default_rtol(O)
-    )
-    numout(O) == 1 || throw(
-        ArgumentError("project: a single-site operator must have one output leg, got $(numout(O))")
-    )
-    codomain(O)[1] == V ||
-        throw(ArgumentError("project: `O` acts on $(codomain(O)[1]), not on the given space $V"))
-
-    I = sectortype(V)
-    B = project(O; atol, rtol)
-    isempty(B.terms) && return zero(SiteOperator{I})
-    letters = IrrepOperator{I}[only(t.keys).op for t in B.terms]
-    coeffs = ComplexF64[t.coeff for t in B.terms]
-    return SiteOperator{I}(letters, coeffs)
-end
-
-"""
-    matrixunit(V::ElementarySpace, out::I, in::I) -> SiteOperator
-
-The matrix unit ``|out⟩⟨in|`` on a space whose sectors are one-dimensional and appear with
-multiplicity one (abelian or fermionic: `Vect[U₁]`, `Vect[FermionNumber]`, and products thereof).
-The operator charge follows from the fusion `out ⊗ in' → c`, and the alphabet letters are *derived*
-by [`project`](@ref) rather than named by index.
-
-```julia
-V = Vect[FermionNumber](0 => 1, 1 => 1)
-vac, occ = FermionNumber(0), FermionNumber(1)
-c  = matrixunit(V, vac, occ)   # annihilation
-cd = matrixunit(V, occ, vac)   # creation
-n  = matrixunit(V, occ, occ)   # number
-```
-
-Memoised per `(V, out, in)`, so the projection is paid once even when this is called inside a term
-loop. [`fermion_ops`](@ref) and [`spin_ops`](@ref) bundle the sets above.
-"""
-function matrixunit(V::ElementarySpace, out::I, in::I) where {I <: Sector}
-    return _cached(_MATRIXUNIT_CACHE, (V, out, in)) do
-        _matrixunit(V, out, in)
-    end
-end
-
-const _MATRIXUNIT_CACHE = Dict{Tuple{ElementarySpace, Sector, Sector}, Any}()
-
-function _matrixunit(V::ElementarySpace, out::I, in::I) where {I <: Sector}
-    dim(out) == 1 && dim(in) == 1 ||
-        throw(ArgumentError("matrixunit requires one-dimensional sectors, got $out and $in"))
-    dim(V, out) == 1 && dim(V, in) == 1 ||
-        throw(ArgumentError("matrixunit requires multiplicity-one sectors in $V, got $out and $in"))
-    c = only(⊗(out, dual(in)))
-    t = zeros(ComplexF64, V ← V ⊗ Vect[I](c => 1))
-    block(t, out) .= 1
-    return project(t, V)
 end

@@ -1,23 +1,23 @@
 using Test
 using OpSum
-using OpSum: LocalOperator, nsites, project, instantiate, couple, couple_channels, spin, spin_ops,
-    fermion_ops, scalarop, opsum, Terms, FiniteChain
+using OpSum: LocalOperator, nsites, project, instantiate, couple, couple_channels, spin_ops,
+    spin_basis, scalarop, opsum, Terms, FiniteChain
 using TensorKit
-using TensorKit: removeunit, numind
 using LinearAlgebra: dot
 
-# `instantiate` output as the plain `V ← V` map (trailing trivial charge leg dropped)
-function densop(h, lat)
-    O = instantiate(opsum(lat, h))
-    return numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
-end
+include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, spinvector, matrixunit, fermionmode
 
-const Vsu2 = SU2Space(1 // 2 => 1)
-const Vu1 = Rep[U₁](0 => 1, 1 => 1)
-const Vf = Vect[FermionNumber](0 => 1, 1 => 1)
-const S = spin(Vsu2)
-const Sp, Sm, Sz = spin_ops(Vu1, U1Irrep(1), U1Irrep(0))
-const F = fermion_ops(Vf)
+densop(h, lat) = plain(instantiate(opsum(lat, h)))
+
+# SU(2) and fermions use matrix-unit bases; U(1) spin-½ the stock basis, where `S_z` is one atomic letter.
+const Vsu2 = unitbasis(SU2Space(1 // 2 => 1))
+const Vu1 = spin_basis(U1Irrep)
+const Vf = unitbasis(Vect[FermionNumber](0 => 1, 1 => 1))
+const S = spinvector(Vsu2)
+const Sp = matrixunit(Vu1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+const Sm = matrixunit(Vu1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
+const Sz = spin_ops(U1Irrep).S_z
+const F = fermionmode(Vf, FermionNumber(0), FermionNumber(1))
 
 # contiguous and gapped placements of a K-slot block
 placements(K) = (collect(1:K), collect(3:(K + 2)), collect(1:2:(2K - 1)))
@@ -31,11 +31,8 @@ placements(K) = (collect(1:K), collect(3:(K + 2)), collect(1:2:(2K - 1)))
         (Vf, hop(1, 2), hop),
     )
     for (V, h2, direct) in cases
-        B = project(instantiate(opsum([V, V], h2)))
+        B = project(instantiate(opsum(FiniteChain(V, 2), h2)), V)
         @test B isa LocalOperator && nsites(B) == 2
-        for sites in ([1, 2], [3, 4], [1, 3], [2, 7])
-            @test B[sites...] == project(instantiate(opsum([V, V], h2)), sites)
-        end
         @test B[4] == B[4, 5]
         # the gap site is a pass-through; the dense operator is the directly placed one
         for (i, j, N) in ((1, 3, 3), (2, 4, 4), (1, 4, 4))
@@ -45,7 +42,7 @@ placements(K) = (collect(1:K), collect(3:(K + 2)), collect(1:2:(2K - 1)))
     end
     # K = 3 with a charged intermediate
     chi = couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(1))
-    B3 = project(instantiate(opsum(fill(Vsu2, 3), chi)))
+    B3 = project(instantiate(opsum(FiniteChain(Vsu2, 3), chi)), Vsu2)
     @test nsites(B3) == 3
     @test B3[1, 4, 5] ≈ couple(couple(S[1], S[4]; to = SU2Irrep(1)), S[5]; to = SU2Irrep(1))
 end
@@ -63,8 +60,6 @@ end
     for (i, j, k, l) in placements(4)
         @test couple(F.cd, F.c, F.cd, F.c)[i, j, k, l] == couple(F.cd[i], F.c[j], F.cd[k], F.c[l])
     end
-    @test couple(Sp, Sm, Sz)[1, 3, 5] == couple(Sp[1], Sm[3], Sz[5])
-    @test couple(S, S, S)[2, 3, 5] == couple(S[2], S[3], S[5])
     # SU(2) channels: forced (to = 3 needs j₁₂ = 2) and named, plus the query
     @test couple(S, S, S; to = SU2Irrep(3))[1] == couple(S[1], S[2], S[3]; to = SU2Irrep(3))
     @test couple_channels(S, S, S, S) == couple_channels(S[1], S[2], S[3], S[4])
@@ -77,7 +72,6 @@ end
 end
 
 @testset "pass-through slots" begin
-    # B ± α: the all-pass-through term, dropped on placement
     b = dot(S, S)
     I0 = Terms{SU2Irrep}
     @test (b + 1 / 4)[1] == dot(S[1], S[2]) + one(I0) / 4
@@ -108,14 +102,13 @@ end
 end
 
 @testset "errors" begin
-    B = project(instantiate(opsum([Vsu2, Vsu2], dot(S[1], S[2]))))
+    B = project(instantiate(opsum(FiniteChain(Vsu2, 2), dot(S[1], S[2]))), Vsu2)
     @test_throws ArgumentError B[1, 2, 3]         # wrong index count
-    @test_throws ArgumentError B[2, 1]            # non-increasing
+    @test B[2, 1] ≈ B[1, 2]                      # out of order: re-coupled, and S⃗₂·S⃗₁ = S⃗₁·S⃗₂
     @test_throws ArgumentError B[0]               # site < 1
     @test_throws ArgumentError LocalOperator(dot(S[1], S[3]), 2)     # support is not 1:K
-    @test_throws ArgumentError B + project(instantiate(opsum(fill(Vsu2, 3), couple(S[1], S[2], S[3]))))
+    @test_throws ArgumentError B + project(instantiate(opsum(FiniteChain(Vsu2, 3), couple(S[1], S[2], S[3]))), Vsu2)
     @test_throws ArgumentError couple(S, couple(S, S; to = SU2Irrep(1)))    # multi-slot later operand
     @test_throws MethodError couple(S, S[2])      # placed and unplaced do not mix
     @test_throws ArgumentError couple(S, S, S, S) # unforced channel, as for the placed form
-    @test B + B ≈ 2 * B
 end

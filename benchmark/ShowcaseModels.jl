@@ -21,120 +21,120 @@ export siteindex, cylinder_bonds, ladder_bonds
 export bonddim, densedim, maxbonddim, maxdensedim, build
 export mpo_matches_oracle, spectrum, hermiticity_error
 # ...and OpSum's own verification helpers and operator builders, so a dependent needs one `using`.
-export islossless, mpo_tensormap, spin_ops, fermion_ops, opsum, FiniteChain, OperatorSum
-export spin, matrixunit, project, couple
+export islossless, mpo_tensormap, spin_ops, fermion_ops, hubbard_ops, opsum, FiniteChain, OperatorSum
+export spin_basis, fermion_basis, hubbard_basis, project, couple
 
 # ── Model builders ────────────────────────────────────────────────────────────
 # Each builder returns an `OperatorSum`: the terms, accumulated in one `opsum(lat, …)` pass and
 # checked against the `FiniteChain` they are to be compressed over, which the container carries.
+# The operators come from the stock bases (`spin_ops`, `fermion_ops`, `hubbard_ops`): every term is
+# written from charge-neutral operators, placed with `op[i, j]` and combined with `*`.
 
-const SPIN_HALF = SU2Space(1 // 2 => 1)
+# The two-site `S⃗ᵢ·S⃗ⱼ` of the SU(2)-symmetric spin-½ basis, one letter on each site.
+const SU2_SPIN_HALF = spin_ops(SU2Irrep)
+const SU2_SPIN_HALF_BASIS = spin_basis(SU2Irrep)
 
 function heisenberg_su2(N; J = 1.0)
-    S = spin(SPIN_HALF)
-    return opsum(FiniteChain(SPIN_HALF, N), J * dot(S[i], S[i + 1]) for i in 1:(N - 1))
+    S = SU2_SPIN_HALF.S_exchange
+    return opsum(FiniteChain(SU2_SPIN_HALF_BASIS, N), J * S[i, i + 1] for i in 1:(N - 1))
 end
 
 function j1j2_su2(N; J1 = 1.0, J2 = 0.5)
-    S = spin(SPIN_HALF)
+    S = SU2_SPIN_HALF.S_exchange
     return opsum(
-        FiniteChain(SPIN_HALF, N),
-        (J1 * dot(S[i], S[i + 1]) for i in 1:(N - 1)),
-        (J2 * dot(S[i], S[i + 2]) for i in 1:(N - 2)),
+        FiniteChain(SU2_SPIN_HALF_BASIS, N),
+        (J1 * S[i, i + 1] for i in 1:(N - 1)),
+        (J2 * S[i, i + 2] for i in 1:(N - 2)),
     )
 end
 
-const SPIN_ONE = SU2Space(1 => 1)
-
-# The case `FiniteChain(V, N)` cannot express: a *non-uniform* lattice, one space per site. Nothing
+# The case `FiniteChain(B, N)` cannot express: a *non-uniform* lattice, one basis per site. Nothing
 # about the term algebra changes — only the lattice the MPO is formed over — which is the point.
+# There is no stock two-site operator across *different* spins, so `exchange(Ba, Bb)` (from
+# `examples/common.jl`) projects the coupling of the two sites into the pair of bases.
 function alternating_spin(N; J = 1.0)
     iseven(N) || throw(ArgumentError("alternating_spin: N=$N must be even"))
-    spaces = [isodd(i) ? SPIN_HALF : SPIN_ONE for i in 1:N]
-    Sa, Sb = spin(SPIN_HALF), spin(SPIN_ONE)
-    op(i) = isodd(i) ? Sa : Sb
-    return opsum(FiniteChain(spaces), J * dot(op(i)[i], op(i + 1)[i + 1]) for i in 1:(N - 1))
+    Ba, Bb = spin_basis(SU2Irrep; spin = 1 // 2), spin_basis(SU2Irrep; spin = 1)
+    ab, ba = exchange(Ba, Bb), exchange(Bb, Ba)         # (½, 1) bonds on odd i, (1, ½) bonds on even i
+    bases = [isodd(i) ? Ba : Bb for i in 1:N]
+    return opsum(
+        FiniteChain(bases), J * (isodd(i) ? ab : ba)[i, i + 1] for i in 1:(N - 1)
+    )
 end
 
 function haldane_shastry(N; J = 1.0)
-    S = spin(SPIN_HALF)
+    S = SU2_SPIN_HALF.S_exchange
     pref = J * π^2 / N^2
     return opsum(
-        FiniteChain(SPIN_HALF, N),
-        (pref / sin(π * (m - n) / N)^2) * dot(S[n], S[m])
+        FiniteChain(SU2_SPIN_HALF_BASIS, N),
+        (pref / sin(π * (m - n) / N)^2) * S[n, m]
             for n in 1:(N - 1) for m in (n + 1):N
     )
 end
 
 function powerlaw_su2(N; α = 3.0, J = 1.0)
-    S = spin(SPIN_HALF)
+    S = SU2_SPIN_HALF.S_exchange
     return opsum(
-        FiniteChain(SPIN_HALF, N),
-        (J * abs(m - n)^(-α)) * dot(S[n], S[m])
+        FiniteChain(SU2_SPIN_HALF_BASIS, N),
+        (J * abs(m - n)^(-α)) * S[n, m]
             for n in 1:(N - 1) for m in (n + 1):N
     )
 end
 
 function cylinder_su2(N; Ly = 4, periodic_y = true, J = 1.0)
     N % Ly == 0 || throw(ArgumentError("cylinder: N=$N must be a multiple of Ly=$Ly"))
-    S = spin(SPIN_HALF)
+    S = SU2_SPIN_HALF.S_exchange
     bonds = cylinder_bonds(div(N, Ly), Ly; periodic_y)
-    return opsum(FiniteChain(SPIN_HALF, N), J * dot(S[i], S[j]) for (i, j) in bonds)
+    return opsum(FiniteChain(SU2_SPIN_HALF_BASIS, N), J * S[i, j] for (i, j) in bonds)
 end
 
-const FERMION_MODE = Vect[FermionNumber](0 => 1, 1 => 1)
+# Spinless fermions with particle-number conservation. `c†ᵢcⱼ` (`f_plus_f_min`) is placed in any site
+# order: reordering the anticommuting operators costs a sign, which the algebra supplies.
+const FERMION_SYMMETRY = U1Irrep
+const FERMION_BASIS = fermion_basis(FERMION_SYMMETRY)
 
-# `couple` is order-free for abelian sectors, so the h.c. partner of `c†_i c_j` is written as it
-# reads: anticommuting `c†_j c_i` into storage order costs a sign, and `couple` inserts it.
 function _hopping_terms(F, bonds, t)
-    return [
-        -t * (couple(F.cd[i], F.c[j]) + couple(F.cd[j], F.c[i]))
-            for (i, j) in bonds
-    ]
+    return [-t * (F.f_plus_f_min[i, j] + F.f_plus_f_min[j, i]) for (i, j) in bonds]
 end
 
 function free_fermions(N; t = 1.0)
-    F = fermion_ops()
+    F = fermion_ops(FERMION_SYMMETRY)
     bonds = [(i, i + 1) for i in 1:(N - 1)]
-    return opsum(FiniteChain(FERMION_MODE, N), _hopping_terms(F, bonds, t))
+    return opsum(FiniteChain(FERMION_BASIS, N), _hopping_terms(F, bonds, t))
 end
 
 function tv_chain(N; t = 1.0, Vint = 2.0)
-    F = fermion_ops()
+    F = fermion_ops(FERMION_SYMMETRY)
     bonds = [(i, i + 1) for i in 1:(N - 1)]
     return opsum(
-        FiniteChain(FERMION_MODE, N),
+        FiniteChain(FERMION_BASIS, N),
         _hopping_terms(F, bonds, t),
-        (Vint * couple(F.n[i], F.n[j]) for (i, j) in bonds),
+        (Vint * F.f_num[i] * F.f_num[j] for (i, j) in bonds),
     )
 end
 
-const KITAEV_MODE = Vect[FermionParity](0 => 1, 1 => 1)
-
 # Pairing does not conserve particle number, so this chain is graded by `FermionParity` alone — the
-# symmetry is the user's choice, not the package's. `c†ᵢc†ⱼ` is charge-neutral there (1 ⊗ 1 = 0),
-# which is exactly what a U(1)-graded space would refuse.
+# symmetry is the user's choice, not the package's (`fermion_ops()` is the parity-only site).
+# `c†ᵢc†ⱼ` is charge-neutral there (1 ⊗ 1 = 0), which is exactly what a U(1)-graded space would refuse.
 function kitaev_chain(N; t = 1.0, Δ = 0.5)
-    odd, even = FermionParity(1), FermionParity(0)
-    c = matrixunit(KITAEV_MODE, even, odd)
-    cd = matrixunit(KITAEV_MODE, odd, even)
+    F = fermion_ops()
     bonds = [(i, i + 1) for i in 1:(N - 1)]
     return opsum(
-        FiniteChain(KITAEV_MODE, N),
-        (-t * (couple(cd[i], c[j]) + couple(cd[j], c[i])) for (i, j) in bonds),
-        (Δ * (couple(cd[i], cd[j]) + couple(c[j], c[i])) for (i, j) in bonds),
+        FiniteChain(fermion_basis(), N),
+        (-t * (F.f_plus_f_min[i, j] + F.f_plus_f_min[j, i]) for (i, j) in bonds),
+        (Δ * (F.f_plus_f_plus[i, j] - F.f_min_f_min[i, j]) for (i, j) in bonds),
     )
 end
 
 # Fermi-Hubbard with one spin-orbital per site, `(i, σ) -> 2(i-1) + σ`. Every operator is then a
-# single alphabet letter, and the on-site `U n↑n↓` becomes an ordinary two-site term between the
+# single fermion operator, and the on-site `U n↑n↓` becomes an ordinary two-site term between the
 # two orbitals of the same physical site. `N` counts *orbitals*, so it must be even.
 orbital(i, σ) = 2 * (i - 1) + σ
 
 function hubbard(N; t = 1.0, U = 4.0, Ly = nothing)
     iseven(N) || throw(ArgumentError("hubbard: N=$N counts spin-orbitals and must be even"))
     Nsites = div(N, 2)
-    F = fermion_ops()
+    F = fermion_ops(FERMION_SYMMETRY)
     sitebonds = if Ly === nothing
         [(i, i + 1) for i in 1:(Nsites - 1)]
     else
@@ -146,47 +146,22 @@ function hubbard(N; t = 1.0, U = 4.0, Ly = nothing)
         _hopping_terms(F, [(orbital(i, σ), orbital(j, σ))], t)
             for (i, j) in sitebonds for σ in 1:2
     )
-    int = (U * couple(F.n[orbital(i, 1)], F.n[orbital(i, 2)]) for i in 1:Nsites)
-    return opsum(FiniteChain(FERMION_MODE, N), hop, int)
+    int = (U * F.f_num[orbital(i, 1)] * F.f_num[orbital(i, 2)] for i in 1:Nsites)
+    return opsum(FiniteChain(FERMION_BASIS, N), hop, int)
 end
 
 # Fermi-Hubbard with SU(2) spin: non-abelian *and* fermionic at once, one physical site per site
-# instead of two spin-orbitals. The site space is graded by `(n, j, parity)`.
-const HUBBARD_SU2 = ProductSector{Tuple{U1Irrep, SU2Irrep, FermionParity}}
-const HUBBARD_SU2_SITE =
-    Vect[HUBBARD_SU2]((0, 0, 0) => 1, (1, 1 // 2, 1) => 1, (2, 0, 0) => 1)
-
-const HUB_VAC = HUBBARD_SU2((0, 0, 0))
-const HUB_SINGLE = HUBBARD_SU2((1, 1 // 2, 1))
-const HUB_DOUBLE = HUBBARD_SU2((2, 0, 0))
-
-# `Σ_σ c†_{1σ} c_{2σ}` on a bond. This is the one operator in the registry that cannot be assembled
-# from `matrixunit`: that needs one-dimensional sectors, and the singly-occupied sector here has
-# quantum dimension 2 (it *is* the spin-½ doublet). So the bond is written as a `TensorMap` in the
-# fusion-tree basis and handed to `project`, which is the general route. The four reduced elements
-# are the Clebsch-Gordan factors of the doubly-occupied channel; what makes them trustworthy rather
-# than merely transcribed is that `test_showcase_models.jl` checks this model's spectrum against the
-# spin-orbital encoding above, which shares no code with it.
-function hubbard_su2_hop()
-    V = HUBBARD_SU2_SITE
-    t = zeros(ComplexF64, V ⊗ V ← V ⊗ V)
-    leg(a, b, c) = only(fusiontrees((a, b), c, (false, false)))
-    three = HUBBARD_SU2((3, 1 // 2, 1))
-    t[leg(HUB_VAC, HUB_SINGLE, HUB_SINGLE), leg(HUB_SINGLE, HUB_VAC, HUB_SINGLE)] .= 1
-    t[leg(HUB_SINGLE, HUB_DOUBLE, three), leg(HUB_DOUBLE, HUB_SINGLE, three)] .= -1
-    t[leg(HUB_VAC, HUB_DOUBLE, HUB_DOUBLE), leg(HUB_SINGLE, HUB_SINGLE, HUB_DOUBLE)] .= sqrt(2)
-    t[leg(HUB_SINGLE, HUB_SINGLE, HUB_DOUBLE), leg(HUB_DOUBLE, HUB_VAC, HUB_DOUBLE)] .= sqrt(2)
-    return t
-end
+# instead of two spin-orbitals. The stock Hubbard site is graded by `(particle number, spin)`; the
+# hopping `Σ_σ c†ᵢσ cⱼσ + h.c.` and the on-site `n↑n↓` are both neutral operators of it.
+const HUBBARD_SU2_BASIS = hubbard_basis(U1Irrep, SU2Irrep)
+const HUBBARD_SU2_OPS = hubbard_ops(U1Irrep, SU2Irrep)
 
 function hubbard_su2(N; t = 1.0, U = 4.0)
-    hop = hubbard_su2_hop()
-    bond = project(-t * (hop + hop'))                                # projected once, placed per bond
-    nupndn = matrixunit(HUBBARD_SU2_SITE, HUB_DOUBLE, HUB_DOUBLE)   # dim-1 sector: reachable
+    ops = HUBBARD_SU2_OPS
     return opsum(
-        FiniteChain(HUBBARD_SU2_SITE, N),
-        (bond[i] for i in 1:(N - 1)),
-        (U * nupndn[i] for i in 1:N),
+        FiniteChain(HUBBARD_SU2_BASIS, N),
+        (-t * ops.e_hopping[i, i + 1] for i in 1:(N - 1)),
+        (U * ops.ud_num[i] for i in 1:N),
     )
 end
 
@@ -218,11 +193,11 @@ sweeps(smoke, ci, full) = Dict(:smoke => smoke, :ci => ci, :full => full)
 # all-to-all models are `Θ(N³)` -- there the bond coefficient matrix `J(n,m)` restricted to
 # `n <= b < m` is genuinely dense, so that is intrinsic to an exact minimum-vertex-cover sweep rather
 # than an artefact. Use `SVDBondAlgorithm` with truncation for large long-range systems.
-# Bond-dimension metrics cost a single `irrep_mpo` call while timings cost several samples, so the
+# Bond-dimension metrics cost a single `mpo` call while timings cost several samples, so the
 # metric sweeps run to roughly twice the size.
 #
 # NOTE on reading the timing figures: with the compression linear, the plotted *total* for a
-# finite-range model is now dominated by the symbolic term accumulation, not by `irrep_mpo`. The
+# finite-range model is now dominated by the symbolic term accumulation, not by `mpo`. The
 # `phases` figure breaks the two apart, and it is the one to look at when judging the compression.
 const MODELS = ModelSpec[
     ModelSpec(
@@ -332,7 +307,8 @@ Deterministic (timing-free) MPO statistics for one model at one size.
 """
 function model_metrics(spec::ModelSpec, N::Int)
     H = spec.build(N)
-    Ws, secs = irrep_mpo(H)
+    m = mpo(H)
+    Ws, secs = m.Ws, m.bondsectors
     return (
         size = N,
         nterms = length(H),

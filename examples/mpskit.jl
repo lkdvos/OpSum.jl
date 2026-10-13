@@ -1,15 +1,17 @@
 # # Handing the MPO to MPSKit
 #
 # OpSum compresses an operator; it does not solve anything with it. This page is the seam: how a
-# compressed MPO becomes an MPSKit `FiniteMPOHamiltonian`, and how to check that what comes out the
-# other side is the operator you wrote down.
+# compressed MPO becomes an MPSKit `FiniteMPOHamiltonian` or `InfiniteMPOHamiltonian`, and how to check
+# that what comes out the other side is the operator you wrote down.
 #
-# There are two emissions, and picking the right one is the whole story:
+# [`mpo`](@ref OpSum.mpo) compresses an `OperatorSum` into a [`SymbolicMPO`](@ref OpSum.SymbolicMPO),
+# and with MPSKit loaded `instantiate(W)` turns that into MPSKit's Hamiltonian. Underneath, there are
+# two tensor emissions:
 #
 # | function | tensors | what consumes it |
 # |---|---|---|
 # | [`irrep_mpo_tensors`](@ref OpSum.irrep_mpo_tensors) | one `TensorMap` per site | contraction, dense comparison, `MPSKit.InfiniteMPO` |
-# | [`jordan_mpo_tensors`](@ref OpSum.jordan_mpo_tensors) | one `SparseBlockTensorMap` per site | `MPSKit.FiniteMPOHamiltonian`, and hence DMRG |
+# | [`jordan_mpo_tensors`](@ref OpSum.jordan_mpo_tensors) | one `SparseBlockTensorMap` per site | `instantiate(W)`, and hence DMRG and VUMPS |
 #
 # `jordan_mpo_tensors` is the one MPSKit's Hamiltonian machinery wants: it reorders the bond indices
 # so the start channel is first and the finish channel last, pads both identity channels where the
@@ -20,62 +22,47 @@
 using OpSum: OpSum
 include(joinpath(pkgdir(OpSum), "examples", "common.jl"))
 
-using MPSKit: MPSKit, JordanMPOTensor, FiniteMPOHamiltonian, FiniteMPS, DMRG, find_groundstate,
-    expectation_value
-using BlockTensorKit: SparseBlockTensorMap, nonzero_pairs, nonzero_keys
+using MPSKit: MPSKit, JordanMPOTensor, FiniteMPOHamiltonian, InfiniteMPOHamiltonian, FiniteMPS,
+    InfiniteMPS, DMRG, VUMPS, find_groundstate, expectation_value
+using BlockTensorKit: SparseBlockTensorMap, nonzero_keys
 
-V = SU2Space(1 // 2 => 1)
-S = spin(V)
-chain(N) = FiniteChain(V, N)
+B = spin_basis(SU2Irrep)
+V = space(B)                      # the physical space of the MPS
+ex = spin_ops(SU2Irrep).S_exchange
+chain(N) = FiniteChain(B, N)
 
 # ## The Hamiltonian
 #
 # Nothing new — an SU(2) Heisenberg chain, the same operator as on the spin-chains page.
 
 N = 6
-H = opsum(chain(N), dot(S[i], S[i + 1]) for i in 1:(N - 1))
+H = opsum(chain(N), ex[i, i + 1] for i in 1:(N - 1))
 Ws = jordan_mpo_tensors(H)
 map(W -> size(W, 4), Ws)
 
 # Those are the Jordan-form bond sizes: `3` in the bulk for a Heisenberg chain, closing to `1` at
 # the right edge. Two of the three bulk indices are the identity channels, which is why a
-# nearest-neighbour model in Jordan form is `+2` over the unconstrained minimum that
-# [`irrep_mpo`](@ref OpSum.irrep_mpo) reports.
+# nearest-neighbour model in Jordan form is `+2` over the minimum the cover itself reaches
+# (`mpo(H).bondsectors`).
 
-# ## The one wart: boundary tensors
+# ## Into MPSKit
 #
-# `JordanMPOTensor(::SparseBlockTensorMap)` is the constructor this emission targets, and in the
-# *bulk* it takes the tensors exactly as they come:
+# `mpo(H)` is the compressed operator, still symbolic: per site a sparse matrix of on-site operators,
+# per bond its charges and its two identity channels. With MPSKit loaded, `instantiate` builds the
+# Hamiltonian from its Jordan form:
 
-J = JordanMPOTensor(Ws[3])
-Set(nonzero_keys(J)) == Set(nonzero_keys(Ws[3]))
+W = mpo(H)
+Hmpo = instantiate(W)
 
-# At the boundaries it throws instead. That is not a bug in either package: the constructor asserts
-# that both diagonal corners are identities, and a boundary tensor cannot satisfy it — site 1 has a
-# single row, so its `(end, end)` corner is the `(1, end)` slot, which holds an on-site term or
-# nothing at all.
-#
-# So route the tensors through the same `undef` + `setindex!` path the constructor itself uses,
-# uniformly for every site. Uniformly matters: mixing the two spellings gives an abstractly-typed
-# `Vector` of site tensors, and MPSKit's algorithms then run untyped.
-
-function to_jordan(W)
-    O = MPSKit.jordanmpotensortype(spacetype(W), storagetype(W))(undef, space(W))
-    for (I, v) in nonzero_pairs(W)
-        O[I] = v
-    end
-    return O
-end
-
-Hmpo = FiniteMPOHamiltonian(map(to_jordan, Ws))
-
-# ## Checking the round trip
-#
 # MPSKit splits each site tensor into Jordan blocks (`A`/`B`/`C`/`D`), and those accessors *silently
-# drop* an entry that sits outside the Jordan pattern. So the sharp check is site by site, not a
-# contraction: a misplaced entry shows up here as a missing block.
+# drop* an entry that sits outside the Jordan pattern. So the sharp check of the round trip is site by
+# site, not a contraction: a misplaced entry shows up here as a missing block.
 
-all(SparseBlockTensorMap(J) ≈ W for (W, J) in zip(Ws, parent(Hmpo)))
+all(SparseBlockTensorMap(J) ≈ Wj for (Wj, J) in zip(jordan_mpo_tensors(W), parent(Hmpo)))
+
+# The bulk tensors are valid `JordanMPOTensor`s as they come, too:
+
+Set(nonzero_keys(JordanMPOTensor(Ws[3]))) == Set(nonzero_keys(Ws[3]))
 
 # ## Ground state versus exact diagonalisation
 #
@@ -105,35 +92,29 @@ isapprox(E, exact; atol = 1.0e-8)
 
 mpo_matches_oracle(H)
 
-# ## What the infinite path can and cannot do
+# ## The infinite chain
 #
-# On an `InfiniteChain`, `irrep_mpo` returns an `InfiniteMPO` whose tensors tile: the left virtual
-# space of the first equals the right virtual space of the last.
+# On an `InfiniteChain` the operator is a generating set, one term per translation class, and
+# `instantiate(mpo(H∞))` is an `InfiniteMPOHamiltonian`: the unit cell's bond indices carry both
+# identity channels, so its Jordan form needs no padding. A spin-½ chain under SU(2) needs a two-site
+# cell, since the bond spaces alternate between half-integer and integer spins.
 
-lat∞ = InfiniteChain([V])
-H∞ = opsum(lat∞, dot(S[1], S[2]))               # a generating set: one term per translation class
-T∞ = irrep_mpo_tensors(irrep_mpo(H∞), lat∞)
-space(T∞[1], 1) == space(T∞[end], 4)'
+lat∞ = InfiniteChain([B, B])
+H∞ = opsum(lat∞, ex[1, 2], ex[2, 3])
+H∞mpo = instantiate(mpo(H∞))
 
-# That tiling is exactly `MPSKit.InfiniteMPO`'s requirement, so the plain MPO hands over:
+# VUMPS then gives the Heisenberg ground-state energy per site, `1/4 - log(2)` (Bethe):
 
-MPSKit.InfiniteMPO(T∞)
+ψ∞ = InfiniteMPS([V, V], [SU2Space(1 // 2 => 10, 3 // 2 => 4), SU2Space(0 => 10, 1 => 8, 2 => 2)])
+ψ∞, = find_groundstate(ψ∞, H∞mpo, VUMPS(; tol = 1.0e-8, verbosity = 0))
+e∞ = real(expectation_value(ψ∞, H∞mpo)) / 2
+(; vumps = e∞, bethe = 1 / 4 - log(2))
 
-# An infinite *Hamiltonian* does not, and it is worth being plain about why rather than letting a
-# user find out by hitting the throw. `MPSKit.InfiniteMPOHamiltonian` requires `JordanMPOTensor`
-# elements, and `jordan_mpo_tensors` is defined on a finite chain only:
+#-
 
-try
-    jordan_mpo_tensors(H∞)
-catch e
-    println(sprint(showerror, e))
-end
-
-# So VUMPS/IDMRG on an OpSum-built infinite Hamiltonian needs infinite Jordan emission, which does
-# not exist yet. The finite path above is complete; the infinite path stops at `InfiniteMPO`.
+isapprox(e∞, 1 / 4 - log(2); atol = 1.0e-3)
 
 # ## Name clashes
 #
-# `using OpSum, MPSKit` leaves `FiniteMPO` and `InfiniteMPO` ambiguous — both packages export both
-# names, for different types (OpSum's hold `Ws` + `bondsectors`; MPSKit's hold site tensors). Qualify
-# them, as this page does with `MPSKit.InfiniteMPO`.
+# `using OpSum, MPSKit` is safe: OpSum's MPO type is [`SymbolicMPO`](@ref OpSum.SymbolicMPO), so it
+# does not collide with MPSKit's `FiniteMPO` and `InfiniteMPO`.

@@ -38,18 +38,18 @@ julia> Pkg.add(url="https://github.com/lkdvos/OpSum.jl")
 # The SU(2) Heisenberg chain — nearest-neighbour spin-spin coupling on a spin-½ chain — end to end:
 
 using OpSum
-using OpSum: irrep_mpo, mpo_terms, spin
 using TensorKit
-using LinearAlgebra: dot
 
-V = SU2Space(1 // 2 => 1)          # one spin-½ per site
 N = 8
-chain = FiniteChain(V, N)          # the lattice: one space per site
+B = spin_basis(SU2Irrep)           # one spin-½ site, with SU(2) symmetry
+chain = FiniteChain(B, N)          # the lattice: one basis per site
 
-S = spin(V)                        # the SU(2) rank-1 vector operator
-H = opsum(chain, dot(S[i], S[i + 1]) for i in 1:(N - 1))   # the terms on the lattice, in one pass
+ops = spin_ops(SU2Irrep)           # its operators; `S_exchange` is S⃗ᵢ·S⃗ⱼ
+H = opsum(chain, ops.S_exchange[i, i + 1] for i in 1:(N - 1))   # the terms on the lattice, in one pass
 
-Ws, sectors = irrep_mpo(H)         # reduced bond matrices + per-bond charge sectors
+m = mpo(H)         # reduced bond matrices + per-bond charge sectors
+
+Ws, sectors = m.Ws, m.bondsectors
 
 # The bond dimension: `sectors[b]` lists the irrep labels on the bond to the right of site `b`, so
 # its length is the number of symmetry-resolved indices, and the quantum-dimension-weighted sum is
@@ -74,14 +74,14 @@ back ≈ H.terms
 #
 # The example pages build a range of models and measure how the bond dimension responds:
 #
-# - [Shared utilities](https://lkdvos.github.io/OpSum.jl/dev/examples/common/) — naming alphabet
-#   letters, coupling composite operators, lattice geometry, and the verification helpers.
+# - [Shared utilities](https://lkdvos.github.io/OpSum.jl/dev/examples/common/) — the stock bases and
+#   their operators, lattice geometry, and the verification helpers.
 # - [Getting started](https://lkdvos.github.io/OpSum.jl/dev/examples/getting_started/) — one bond,
 #   then one Hamiltonian, with every step of the pipeline named.
-# - [Spin chains](https://lkdvos.github.io/OpSum.jl/dev/examples/spin_chains/) — Heisenberg, XXZ and
-#   ``J_1``–``J_2``: how symmetry and interaction range set the bond dimension.
+# - [Spin chains](https://lkdvos.github.io/OpSum.jl/dev/examples/spin_chains/) — Heisenberg, XXZ,
+#   bilinear-biquadratic and ``J_1``–``J_2``: how symmetry and interaction range set the bond dimension.
 # - [Multi-body interactions](https://lkdvos.github.io/OpSum.jl/dev/examples/multibody/) — three- and
-#   four-body couplings, and the fusion channels that label them.
+#   four-body couplings as products of two-body operators.
 # - [Fermions](https://lkdvos.github.io/OpSum.jl/dev/examples/fermions/) — free chains, pairing and
 #   the Fermi–Hubbard model, with no Jordan–Wigner strings anywhere.
 # - [Lattices and geometry](https://lkdvos.github.io/OpSum.jl/dev/examples/lattices/) — non-uniform

@@ -1,124 +1,17 @@
-# Named operator sets: the `Sp`/`Sm`/`Sz` block for a U(1)-graded spin site and the `(c, cd, n)`
-# triple for a fermionic mode, as pure conventions (which sector is "up", ladder normalisation) that
-# should live in one place rather than be re-derived per model.
-#
-# Built out of `matrixunit`/`spin` (irrepprojection.jl), not colocated there since those need
-# `project`; both are memoised (utility/memo.jl), so calling these inside a term loop is cheap.
+# Hermitian conjugation of an `OperatorSum` (`H'`). The named operator sets live in stockbases.jl.
 
 using TensorKit: ElementarySpace, Sector, sectortype, dual, removeunit
 
-# exports are consolidated in `src/OpSum.jl`
-
-"""
-    spin_ops(V::ElementarySpace, sectors::AbstractVector) -> NamedTuple
-    spin_ops(V::ElementarySpace, up, dn)
-
-`(; Sp, Sm, Sz)` of a U(1)-graded spin-`s` site, where `sectors` lists the `2s+1` sectors of `V` in
-**descending magnetic quantum number** (`m = s, s-1, …, -s`):
-
-    Sᶻ = Σ_m m |m⟩⟨m|,    S⁺ = Σ_m √(s(s+1) - m(m+1)) |m+1⟩⟨m|,    S⁻ = (S⁺)ᵀ
-
-so that `couple(Sz[i], Sz[j]) + (couple(Sp[i], Sm[j]) + couple(Sm[i], Sp[j])) / 2` is the Cartesian
-`S⃗ᵢ · S⃗ⱼ` — the same operator `dot(spin(V)[i], spin(V)[j])` builds under SU(2).
-
-The `m` values come from the *order* of `sectors`, never from the sector labels. A `Vect[U₁]` spin
-site is just as often labelled by particle number as by `m` (`Rep[U₁](0 => 1, 1 => 1)` for spin-½ is
-the common spelling), so inferring them would be a silent guess. The two-sector case takes its
-sectors directly: `spin_ops(V, up, dn)`.
-
-Each sector of `V` must be one-dimensional with multiplicity one — what [`matrixunit`](@ref) needs.
-
-See also [`spin`](@ref) for the SU(2) irreducible-tensor form, and [`fermion_ops`](@ref).
-"""
-function spin_ops(V::ElementarySpace, sectors::AbstractVector{I}) where {I <: Sector}
-    n = length(sectors)
-    n >= 2 ||
-        throw(ArgumentError("spin_ops: need at least two sectors to have a ladder, got $n"))
-    allunique(sectors) ||
-        throw(ArgumentError("spin_ops: the sectors must be distinct, got $sectors"))
-    # `s` is read off *how many* sectors there are, so a partial list is not a smaller spin — it is
-    # the wrong ladder normalisation on a subspace, silently. `matrixunit` catches a sector that is
-    # absent from `V`; only this catches a sector of `V` that was left out.
-    Set(sectors) == Set(TensorKit.sectors(V)) || throw(
-        ArgumentError(
-            "spin_ops: `sectors` must list every sector of $V exactly once, since the spin `s` " *
-                "follows from how many there are; got $sectors"
-        )
-    )
-    s = (n - 1) / 2
-    m(k) = s - (k - 1)                                  # descending: s, s-1, …, -s
-    ladder(k) = sqrt(s * (s + 1) - m(k + 1) * (m(k + 1) + 1))
-    Sz = sum(
-        m(k) * matrixunit(V, sectors[k], sectors[k]) for k in 1:n if !iszero(m(k))
-    )
-    Sp = sum(ladder(k) * matrixunit(V, sectors[k], sectors[k + 1]) for k in 1:(n - 1))
-    Sm = sum(ladder(k) * matrixunit(V, sectors[k + 1], sectors[k]) for k in 1:(n - 1))
-    return (; Sp, Sm, Sz)
-end
-spin_ops(V::ElementarySpace, up::I, dn::I) where {I <: Sector} = spin_ops(V, I[up, dn])
-
-"""
-    fermion_ops(V = Vect[FermionNumber](0 => 1, 1 => 1)) -> NamedTuple
-    fermion_ops(V::ElementarySpace, vac, occ)
-
-`(; c, cd, n)` of a spinless fermionic mode: annihilation `c`, creation `c†` and number `n̂`, as
-matrix units between the empty sector `vac` and the occupied sector `occ` of `V`.
-
-No Jordan–Wigner string is involved anywhere: the odd-parity charge flowing along the virtual bond
-carries the anticommutation, which is why these are ordinary single-letter operators. Both site
-orders of a hopping term are available — [`couple`](@ref) inserts the sign — so
-
-```julia
-F = fermion_ops()
-H = -t * sum(couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i]) for i in 1:(N - 1))
-```
-
-The one-argument form infers `vac`/`occ` for `Vect[FermionNumber]` only; any other graded space has
-to name them.
-
-See also [`spin_ops`](@ref), [`matrixunit`](@ref).
-"""
-function fermion_ops(V::ElementarySpace, vac::I, occ::I) where {I <: Sector}
-    return (;
-        c = matrixunit(V, vac, occ),
-        cd = matrixunit(V, occ, vac),
-        n = matrixunit(V, occ, occ),
-    )
-end
-function fermion_ops(V::ElementarySpace = Vect[FermionNumber](0 => 1, 1 => 1))
-    I = sectortype(V)
-    I === FermionNumber || throw(
-        ArgumentError(
-            "fermion_ops(V) reads the empty and occupied sectors off `FermionNumber` only, but $V " *
-                "has sectors of type $I; name them explicitly as `fermion_ops(V, vac, occ)`"
-        )
-    )
-    return fermion_ops(V, FermionNumber(0), FermionNumber(1))
-end
-
-# Hermitian conjugation
-# =====================
-# `H'` is what turns a hopping amplitude into a hermitian Hamiltonian, and there is no cheap symbolic
-# route to it. The adjoint of a term factorises over sites — `(f ⊗ g)† = f† ⊗ g†` in any dagger
-# category, so no leg reversal is involved — but the *letter* adjoints do not stay in the alphabet
-# position-by-position: `instantiate(letter, V)'` carries the dual charge and is generally a
-# combination of that charge's letters, and re-expressing the caterpillar coupler over the dual
-# charges is categorical data (B-symbols), not bookkeeping.
-#
-# So this goes the reliable way instead: materialise the term's `K`-site block through the tested
-# forward map, take the adjoint there, and `project` it back. That is correct by construction —
-# `project` re-materialises its own output and throws if it is not faithful — and the cost is one
-# projection per *distinct* `(keys, spaces)`, memoised, rather than one per term.
+# No symbolic adjoint (a letter's adjoint carries the dual charge; the caterpillar coupler over dual
+# charges is B-symbol data): materialise the term's `K`-site block, adjoint it, `project` it back.
+# Memoised per distinct `(keys, spaces)`.
 
 const _ADJOINT_CACHE = Dict{Any, Any}()
 
-# Re-label a bag built on the local lattice `1:K` onto `sites` (ascending, so nothing is re-sorted).
-_resite(ts::Terms{I}, sites::AbstractVector{Int}) where {I} =
-    Terms{I}(Term{I}[Term{I}(Int[sites[s] for s in t.sites], t.keys, t.coeff) for t in ts.terms])
+# a `K`-site block projected slot-wise into the sites' bases (throws outside their span)
+_project_local(h, Bs::AbstractVector{<:Basis{I}}) where {I} = LocalOperator{I}(_project_terms(h, Bs), length(Bs))
 
-# The per-term-shape machinery behind `adjoint(::OperatorSum)`. Every term must have total charge
-# `unit(I)`: a charged term's adjoint carries the dual charge, which is a different object than a
-# `Terms{I}` can hold. Only the spaces of the sites `h` actually touches are read.
+# Behind `adjoint(::OperatorSum)`; total charge must be `unit(I)`, since a charged adjoint carries the dual.
 function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
     out = Term{I}[]
     for t in h
@@ -137,14 +30,14 @@ function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
         Vs = [lat[s] for s in t.sites]
         local_adj = _cached(_ADJOINT_CACHE, (t.keys, Vs)) do
             blk = _instantiate_term(Term{I}(collect(1:K), t.keys, ComplexF64(1)), Vs)
-            return project(removeunit(blk, 2K + 1)', 1:K)
+            return _project_local(removeunit(blk, 2K + 1)', Vs)
         end
-        append!(out, scale(_resite(local_adj, t.sites), conj(t.coeff)).terms)
+        # placement drops the identity slots a basis projection can produce
+        append!(out, scale(local_adj[t.sites...], conj(t.coeff)).terms)
     end
     return Terms{I}(out)
 end
 
-# `h'` is the natural thing to reach for, and a bare MethodError would not say what is missing.
 Base.adjoint(::Terms) = throw(
     ArgumentError(
         "adjoint: the adjoint of an alphabet letter is a combination of the dual charge's letters " *

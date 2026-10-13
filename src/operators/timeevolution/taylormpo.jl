@@ -59,8 +59,10 @@ boundaries of a finite chain. The operator is size-extensive: it contains all di
 Two keywords add terms of order `τ^{N+1}` to the same construction:
 
   - `extension` (Alg. 3): adds, to the entries between existing levels, the terms of `H^{N+1}` that only overlap
-    `N` times, with their exact Taylor weights. The bond dimension is that of Alg. 1 + 2, and only the entries
-    of `H^{N+1}` that are used are computed (never the whole power).
+    `N` times, with their exact Taylor weights. It reuses the levels of Alg. 1 + 2 but can reach levels that a
+    nilpotent letter left unreachable, so the bond dimension can grow (not for the Ising chain; `16, 52, 155`
+    instead of `14, 42, 117` for `N = 2, 3, 4` of the U(1) XXZ chain). Only the entries of `H^{N+1}` that are
+    used are computed (never the whole power).
   - `compression` (Alg. 4): merges every level that has finish channels and no start channel into the level
     with those finishes turned into starts, with the weight `τ^n (N - n)! / N!` of its `n` finishes. This is
     *lossy* at order `τ^{N+1}` (the error stays `O(τ^{N+1})`), but combined with the extension the paper found it
@@ -69,7 +71,9 @@ Two keywords add terms of order `τ^{N+1}` to the same construction:
 
 On an [`InfiniteChain`](@ref) `H` is a generating set as in [`mpo`](@ref); the MPO is that of the unit cell.
 Needs the total charge of `H` to be `unit`, an abelian symmetry, and, on a finite chain, no exponentially
-decaying channels, like [`jordan_mpo_tensors`](@ref).
+decaying channels, like [`jordan_mpo_tensors`](@ref). Every on-site product of letters is expanded in the
+site's basis, so the basis must be closed under products (a complete basis, e.g. `Basis(ops; complete = true)`);
+otherwise this throws `project: the operator is not in the span of the basis`.
 """
 function taylor_mpo(W::SymbolicMPO, N::Integer; extension::Bool = true, compression::Bool = false)
     passes = Function[]
@@ -89,3 +93,17 @@ function _taylor_mpo(W::SymbolicMPO, N::Integer, passes)
     _prune_orphans!(work)
     return _taylor_finish(work, Int(N))
 end
+
+"""
+    instantiate(W::TaylorMPO, τ::Number)
+
+MPSKit's `FiniteMPO` or `InfiniteMPO` of `exp(τH)` for `W`, evaluated at `τ` (see [`irrep_mpo_tensors`](@ref)).
+Requires MPSKit to be loaded; with it, `make_time_mpo(H::OperatorSum, dt, TaylorCluster(; N, extension,
+compression))` builds `taylor_mpo(H, N; extension, compression)` and instantiates it at `τ = -dt` (imaginary
+evolution) or `τ = -i dt`.
+"""
+instantiate(W::TaylorMPO, τ::Number) = _mpskit_time_mpo(W, τ)
+
+_mpskit_time_mpo(::Any, ::Any) = throw(
+    ArgumentError("instantiate(::TaylorMPO, τ) builds an MPSKit MPO: load MPSKit first (`using MPSKit`)")
+)

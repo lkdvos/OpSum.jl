@@ -8,16 +8,17 @@
 #     bond, one per layer; its charge is the fused charge of the components (unique: abelian only).
 #   * Order. Layer 1 is leftmost: `(W^{⊗N})[(l), (r)] = ± W[l₁,r₁] · W[l₂,r₂] ⋯ W[l_N,r_N]`.
 #   * Sign. A layer entry is coupled `κ(bL ⊗ q → bR)`, running bond first. Stacking the layers, the letter of
-#     layer `k` at site `j` has to pass the letters of every later layer `m > k` at the sites left of `j`
-#     (whose total charge is the running bond charge `bL_m`): `R(q_k, bL_m)`. On top of that each site
-#     needs `R(q_k, q_m)`, the order of the two charge legs that `_letter_product` does not account for
-#     (found against the dense oracle, not derived). The net braiding is `R(q_k, bL_m) R(q_k, q_m) = R(q_k, bR_m)`, so the entry carries
-#     `∏_{k<m} R(q_k, bR_m)`: `q_k` the letter charge of entry `k`, `bR_m` the charge of the right index of
-#     entry `m`; `-1` per fermion-odd pair, `1` for a bosonic symmetry. Checked against the dense `H^N`
-#     (fermionic parity, `U₁ × parity`, Hubbard); the signless entries, or `R(q_k, bL_m)` alone, fail it.
-#     The equally valid `R(bL_k, q_m)` differs by the bond gauge `(-1)^{p(b_k) p(b_m)}`, which is trivial at
-#     the neutral boundary indices, so it gives the same operator; the rule is pairwise and multiplicative,
-#     so it composes when a power is extended by one more layer.
+#     layer `k` at site `j` passes the letters of every later layer `m > k` at the sites to its left, whose
+#     total charge is the running bond charge `bL_m`: that costs `R(q_k, bL_m)`, the plain reordering of
+#     letter leg `k` past bond leg `m`. On top of that, `_letter_product` carries the graded sign
+#     `(-1)^{p(x)p(y)}` of the placed-operator `*` for two fermion-odd letters, and `R(q_k, q_m)` is `-1`
+#     exactly then, so it cancels that sign. The entry therefore carries
+#     `∏_{k<m} R(q_k, bL_m) R(q_k, q_m) = ∏_{k<m} R(q_k, bR_m)`: `q_k` the letter charge of entry `k`, `bR_m`
+#     the charge of the right index of entry `m`; `-1` per fermion-odd pair, `1` for a bosonic symmetry.
+#     Checked against the dense `H^N` (fermionic parity, `U₁ × parity`, Hubbard); the signless entries, or
+#     `R(q_k, bL_m)` alone, fail it. The equally valid `R(bL_k, q_m)` differs by the bond gauge
+#     `(-1)^{p(b_k) p(b_m)}`, which is trivial at the neutral boundary indices, so it gives the same operator;
+#     the rule is pairwise and multiplicative, so it composes when a power is extended by one more layer.
 #
 # The product of an entry is the product of its *active word*: the non-identity layer entries, in layer
 # order. Layer entries are interned to small ids per site, and the partial products of all words form
@@ -61,7 +62,7 @@ function _levels(n::Int, ::Val{N}, keep) where {N}
 end
 
 """
-    _mpo_power(W::SymbolicMPO, N::Integer; keep = _keepall) -> (; mpo, levels, stats)
+    _mpo_power(W::SymbolicMPO, N::Integer; keep = _keepall, closed = false) -> (; mpo, levels, stats)
 
 The `N`-fold Kronecker power of the Jordan form of `W` (`_jordan_layout`): a [`SymbolicMPO`](@ref)
 `mpo` whose bond indices are levels, `NTuple{N,Int}`s of Jordan indices, so that
@@ -76,15 +77,19 @@ such channel: the right boundary of a finite chain has no start). `stats` counts
 
 `keep(prefix::Tuple)` is the hook for pruning: it is asked about every prefix of every level and a level
 survives only if all prefixes do.
+
+`closed = true` gives the right boundary of a finite chain its start channel too (`_jordan_layout`), so it has
+the two identity indices `1, 2` like every other bond and `levels[N]` is all of `{1, 2}^N`: the power then
+represents `H^N` for the boundary vector `(2, …, 2)`, and the other levels are what `taylor_mpo` folds.
 """
-function _mpo_power(W::SymbolicMPO{I}, N::Integer; keep = _keepall) where {I}
+function _mpo_power(W::SymbolicMPO{I}, N::Integer; keep = _keepall, closed::Bool = false) where {I}
     N >= 1 || throw(ArgumentError("the power must be at least 1, got $N"))
     _checkkron(I)
-    return _mpo_power(W, Val(Int(N)), keep)
+    return _mpo_power(W, Val(Int(N)), keep, closed)
 end
 
-function _mpo_power(W::SymbolicMPO{I}, ::Val{N}, keep) where {I, N}
-    layout = _jordan_layout(W)
+function _mpo_power(W::SymbolicMPO{I}, ::Val{N}, keep, closed) where {I, N}
+    layout = _jordan_layout(W; closed)
     L = length(W)
     # bond `b` is left of site `b`; the right bond of an infinite chain is the first again
     levels = Vector{Vector{NTuple{N, Int}}}(undef, L + 1)

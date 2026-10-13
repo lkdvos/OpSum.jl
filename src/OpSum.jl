@@ -18,6 +18,8 @@ export mpo, SymbolicMPO
 export irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
+# time evolution
+export taylor_mpo, TaylorMPO
 # exponentially decaying interactions
 export expterm, ExpSum
 # verification
@@ -76,5 +78,7 @@ include("operators/compression/irrepmpo.jl")
 include("operators/compression/jordanmpo.jl")
 include("operators/timeevolution/jordanlayout.jl")
 include("operators/timeevolution/kronpower.jl")
+include("operators/timeevolution/taylor.jl")
+include("operators/timeevolution/taylormpo.jl")
 
 end

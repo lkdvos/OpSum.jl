@@ -123,9 +123,9 @@ end
 end
 
 @testset "decaying channels over bases" begin
-    # a decaying hop with a parity string, Σ_{i<j} λ^{j-i-1} c†ᵢ (Π_k Pₖ) cⱼ + n
+    # a decaying hop with a parity string, Σ_{i<j} λ^{j-i-1} c†ᵢ (Π_k Pₖ) cⱼ + n (N = 3 is the dense size used throughout the file)
     f = fermion_site()
-    λ, N = 0.6, 5
+    λ, N = 0.6, 3
     Pm = id(f.V) - 2 * pairop(f.F.n[1], f.BU, 1)
     p = project(Pm, f.B)
     lat = FiniteChain(f.B, N)

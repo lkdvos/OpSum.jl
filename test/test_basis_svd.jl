@@ -40,7 +40,7 @@ end
 @testset "a truncation does not depend on how the basis is written" begin
     Im, Xm, Ym, Zm = ComplexF64[1 0; 0 1], ComplexF64[0 1; 1 0], ComplexF64[0 -im; im 0],
         ComplexF64[1 0; 0 -1]
-    N = 6
+    N = 3
     J = [1 / abs(i - j)^1.3 for i in 1:N, j in 1:N]
     function ising(B)
         x, z = project(Xm, B), project(Zm, B)
@@ -55,7 +55,7 @@ end
     D = instantiate(H1)
     @test instantiate(H2) ≈ D
     for sweep in (IndependentSVD, SequentialSVD)
-        alg = SVDBondAlgorithm(truncrank(3); sweep)
+        alg = SVDBondAlgorithm(truncrank(2); sweep)
         A1, A2 = dense(mpo(H1, alg)), dense(mpo(H2, alg))
         @test norm(A1 - D) / norm(D) > 0.05                     # a real truncation
         @test A2 ≈ A1
@@ -77,7 +77,7 @@ end
     F1, F2 = chain(Basis([hop, hop′, num])), chain(Basis([hop, hop′, num - 0.5 * id(V)]))
     Df = instantiate(F1)
     @test instantiate(F2) ≈ Df
-    alg = SVDBondAlgorithm(truncrank(3))
+    alg = SVDBondAlgorithm(truncrank(2))
     A1, A2 = dense(mpo(F1, alg)), dense(mpo(F2, alg))
     @test norm(A1 - Df) / norm(Df) > 0.01
     @test A2 ≈ A1

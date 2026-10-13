@@ -26,11 +26,11 @@ function argerr(f)
 end
 
 @testset "the four cells share one container and one signature" begin
-    fin, inf = FiniteChain(BSU2, 8), InfiniteChain(BSU2)
+    fin, inf = FiniteChain(BSU2, 4), InfiniteChain(BSU2)
     cells = [
-        (opsum(fin, (b[i] for i in 1:7)), FiniteChain, [4, 5, 5, 5, 5, 5, 4, 1]),
+        (opsum(fin, (b[i] for i in 1:3)), FiniteChain, [4, 5, 4, 1]),
         (opsum(inf, b[1]), InfiniteChain, [5]),
-        (opsum(fin, b[1], expterm(b[1]; decay = 0.4)), FiniteChain, [7, 5, 5, 5, 5, 5, 4, 1]),
+        (opsum(fin, b[1], expterm(b[1]; decay = 0.4)), FiniteChain, [7, 5, 4, 1]),
         (opsum(inf, b[1], expterm(b[1]; decay = 0.4)), InfiniteChain, [8]),
     ]
     for (H, L, D) in cells
@@ -41,13 +41,13 @@ end
         H.lattice isa FiniteChain ? (@test islossless(H)) : @test_throws ArgumentError islossless(H)
     end
 
-    Hs = opsum(FiniteChain(BSU2, 4), b[1], expterm(b[1]; decay = 0.4))
-    @test instantiate(Hs) ≈ instantiate(opsum(FiniteChain(BSU2, 4), chain_terms(Hs)))
+    Hs = opsum(FiniteChain(BSU2, 3), b[1], expterm(b[1]; decay = 0.4))
+    @test instantiate(Hs) ≈ instantiate(opsum(FiniteChain(BSU2, 3), chain_terms(Hs)))
     @test mpo_tensormap(irrep_mpo_tensors(mpo(Hs))) ≈ instantiate(Hs)
 
     # SVD exists on a plain finite chain only; Jordan form everywhere but finite chains with decaying channels
     @test mpo(cells[1][1], SVDBondAlgorithm(truncrank(6))) isa SymbolicMPO
-    @test length(jordan_mpo_tensors(cells[1][1])) == 8
+    @test length(jordan_mpo_tensors(cells[1][1])) == 4
     @test length(jordan_mpo_tensors(cells[2][1])) == 1
     @test_throws ArgumentError jordan_mpo_tensors(cells[3][1])
     @test length(jordan_mpo_tensors(cells[4][1])) == 1
@@ -86,7 +86,7 @@ end
 end
 
 @testset "H + H' on hopping chains" begin
-    N = 4
+    N = 3
     lat = FiniteChain(spin_basis(U1Irrep), N)
     U = spin_ops(U1Irrep)
     T = opsum(lat, U.S_plus_S_min[i, i + 1] for i in 1:(N - 1))
@@ -102,8 +102,8 @@ end
     BF = fermion_basis()
     cdc = F.f_plus_f_min
     hops(i) = -1.0 * (cdc[i, i + 1] + cdc[i + 1, i])
-    Tf = opsum(FiniteChain(BF, 5), -1.0 * cdc[i, i + 1] for i in 1:4)
-    @test Tf + Tf' ≈ opsum(FiniteChain(BF, 5), hops(i) for i in 1:4)
+    Tf = opsum(FiniteChain(BF, 3), -1.0 * cdc[i, i + 1] for i in 1:2)
+    @test Tf + Tf' ≈ opsum(FiniteChain(BF, 3), hops(i) for i in 1:2)
     ilat = InfiniteChain(BF)
     Ti = opsum(ilat, -1.0 * cdc[1, 2])
     @test mpo(Ti + Ti').bondsectors == mpo(opsum(ilat, hops(1))).bondsectors

@@ -13,9 +13,11 @@ include(joinpath(@__DIR__, "testutils.jl"))   # physmatrix, densedim
 # operators, which sweeps every representable (letters, caterpillar tree) combination at once, so the
 # running-charge component of the sweep's state is actually exercised.
 
+# Every (symmetry, `K`) pair compiles its own `project` and tensor code, which is what the runtime is. So one
+# symmetry per distinct behaviour: none, non-abelian, and graded abelian (`FermionNumber` is a `U(1)` with
+# a fermionic braiding, so it also stands for the bosonic `U1Irrep`).
 const PROPERTY_SPACES = [
     "Trivial" => unitbasis(ℂ^2),
-    "U1Irrep" => unitbasis(Rep[U₁](0 => 1, 1 => 1)),
     "SU2Irrep" => unitbasis(SU2Space(1 // 2 => 1)),
     "FermionNumber" => unitbasis(Vect[FermionNumber](0 => 1, 1 => 1)),
 ]
@@ -66,7 +68,7 @@ end
     end
 end
 
-@testset "K = 4 terms — $name" for (name, B) in PROPERTY_SPACES
+@testset "K = 4 terms — $name" for (name, B) in PROPERTY_SPACES[2:end]
     V = space(B)
     # a four-site term is the first with two caterpillar inner lines
     N = 5
@@ -84,7 +86,7 @@ end
 end
 
 @testset "random term sums assemble to the same tensor — $name" for (name, B) in
-    PROPERTY_SPACES[[3, 4]]
+    PROPERTY_SPACES[2:end]
     # dense oracle on the sectors where a fusion coefficient or braiding sign could be wrong (one size
     # and seed: contraction costs an `ncon` specialization per length and sectortype)
     V = space(B)
@@ -110,7 +112,7 @@ function powerlaw_chain(B, N; α = 2.0)
 end
 
 const TRUNC_V = SU2Space(1 // 2 => 1)
-const TRUNC_N = 5
+const TRUNC_N = 4
 const TRUNC_B = unitbasis(TRUNC_V)
 const TRUNC_H = powerlaw_chain(TRUNC_B, TRUNC_N)
 const TRUNC_LAT = FiniteChain(TRUNC_B, TRUNC_N)

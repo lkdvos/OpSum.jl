@@ -5,6 +5,7 @@ using TensorKit
 using LinearAlgebra: dot, I as Id
 using TensorKitTensors.HubbardOperators: HubbardOperators as HO
 using TensorKitTensors.FermionOperators: FermionOperators as FO
+using TensorKitTensors.SpinOperators: SpinOperators as SO
 
 include("testutils.jl")
 
@@ -12,14 +13,24 @@ include("testutils.jl")
 # site's basis when it enters an `OperatorSum`. The oracle is the dense operator product.
 
 dense(lat, x) = plain(instantiate(opsum(lat, x)))
-pairop(ts, B) = plain(instantiate(opsum(FiniteChain(B, 2), ts)))
 
-const Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+# One chain length per space type (three sites; four only where two pairs must interleave), so each compiles its
+# contractions once; the fermionic site is the same space in the first and third testsets.
+
+const Vf = Vect[FermionParity](0 => 1, 1 => 1)
 const Bf = unitbasis(Vf)
-const F = fermionmode(Bf, FermionNumber(0), FermionNumber(1))
+const F = fermionmode(Bf, FermionParity(0), FermionParity(1))
+const lat3 = FiniteChain(Bf, 3)
+
+# the SU(2) Hubbard site, in a basis built from the spin-summed hopping pair
+const P, Sy = U1Irrep, SU2Irrep
+const Bh = Basis([HO.e_plus_e_min(ComplexF64, P, Sy), HO.e_min_e_plus(ComplexF64, P, Sy), HO.e_num(ComplexF64, P, Sy)])
+const E = project(HO.e_plus_e_min(ComplexF64, P, Sy), Bh)
+const nh = project(HO.e_num(ComplexF64, P, Sy), Bh)
+const lath = FiniteChain(Bh, 4)
 
 @testset "fermions: single-site physics and the dense product" begin
-    lat1, lat3 = FiniteChain(Bf, 1), FiniteChain(Bf, 3)
+    lat1 = lat3
     one1 = dense(lat1, scalarop(1, Bf)[1])
     @test dense(lat1, F.cd[1] * F.c[1]) ≈ dense(lat1, F.n[1])            # c†c = n
     @test dense(lat1, F.c[1] * F.cd[1]) ≈ one1 - dense(lat1, F.n[1])     # cc† = 1 - n
@@ -39,7 +50,7 @@ const F = fermionmode(Bf, FermionNumber(0), FermionNumber(1))
     @test D(h12 * F.n[2] * h23) ≈ D(h12) * D(F.n[2]) * D(h23)
     # charged factors under an abelian symmetry: the channel is forced
     Dc(x) = instantiate(opsum(lat3, x))                                  # keeps the charge leg
-    @test Dc(F.cd[1] * F.cd[2] * F.c[2]) ≈ Dc(couple(F.cd[1], F.n[2]; to = FermionNumber(1)))
+    @test Dc(F.cd[1] * F.cd[2] * F.c[2]) ≈ Dc(couple(F.cd[1], F.n[2]; to = FermionParity(1)))
     @test D(h12 * (h12 + 1.5 * one(h12))) ≈ D(h12) * (D(h12) + 1.5 * D(scalarop(1, Bf)[1] + 0 * F.n[1]))
 end
 
@@ -52,9 +63,9 @@ end
     @test_throws ArgumentError expterm(x * couple(F.cd[1], F.c[2]); decay = 0.5)
     # sums, scaling and opsum carry it along
     y = opsum(2 * x, F.n[2], x)
-    @test dense(FiniteChain(Bf, 2), y) ≈ 3 * dense(FiniteChain(Bf, 2), F.n[1]) + dense(FiniteChain(Bf, 2), F.n[2])
+    @test dense(lat3, y) ≈ 3 * dense(lat3, F.n[1]) + dense(lat3, F.n[2])
     # an `OperatorSum` holds resolved terms only
-    H = opsum(FiniteChain(Bf, 2), y)
+    H = opsum(lat3, y)
     @test H.terms ≈ opsum(3 * F.n[1], F.n[2])
 end
 
@@ -72,7 +83,7 @@ end
     lat = FiniteChain(f.B, 3)
     D(x) = dense(lat, x)
     @test D(f.h[2, 2]) ≈ D(f.n[2])                             # Σ c†c on one site is n
-    @test D(f.h′[2, 2]) ≈ D(scalarop(1, Trivial ⊠ FermionParity)[2] + 0 * f.n[2]) - D(f.n[2])
+    @test D(f.h′[2, 2]) ≈ D(scalarop(1, sectortype(f.V))[2] + 0 * f.n[2]) - D(f.n[2])
     # out of order on distinct sites (abelian): the same operator with the legs reordered
     @test D(f.h[2, 1]) ≈ -D(f.h′[1, 2])                        # c†₂c₁ = -c₁c†₂
     # and products with it, in the basis
@@ -84,7 +95,7 @@ end
     V = SU2Space(1 // 2 => 1)
     BU = unitbasis(V)
     S = spinvector(BU)
-    SS = pairop(dot(S[1], S[2]), BU)
+    SS = SO.S_exchange(ComplexF64, SU2Irrep)
     B = Basis([SS])
     ss = project(SS, B)
     lat = FiniteChain(B, 4)
@@ -101,13 +112,7 @@ end
     @test Dc(S[3] * ss[1, 2]) ≈ Dc(ss[1, 2] * S[3])
 
     # the SU(2) Hubbard site: Σσ a†σ aσ on one site is n
-    P, Sy = U1Irrep, SU2Irrep
-    Vh = HO.hubbard_space(P, Sy)
-    Bh = Basis([HO.e_plus_e_min(ComplexF64, P, Sy), HO.e_min_e_plus(ComplexF64, P, Sy), HO.e_num(ComplexF64, P, Sy)])
-    E = project(HO.e_plus_e_min(ComplexF64, P, Sy), Bh)
-    n = project(HO.e_num(ComplexF64, P, Sy), Bh)
-    lath = FiniteChain(Bh, 2)
-    @test dense(lath, E[1, 1]) ≈ dense(lath, n[1])
+    @test dense(lath, E[1, 1]) ≈ dense(lath, nh[1])
     # a·n on one site is the second spinor element, which this basis lacks: resolving it throws
     @test_throws ArgumentError opsum(lath, E[1, 2] * E[2, 2])
 end
@@ -121,15 +126,15 @@ end
 
 @testset "non-abelian re-coupling against the written-order product" begin
     J = SU2Irrep
-    B1 = unitbasis(SU2Space(1 => 1))
+    B1 = unitbasis(SU2Space(1 // 2 => 1))
     S1 = spinvector(B1)
     letter(x) = only(only(x).keys).op
     Vs = fill(B1, 4)
     for j in (0, 1, 2), tot in J(j) ⊗ J(1)                       # every channel, three sites
         a = only(couple(S1[1], S1[3]; to = J(j)))
         keys = vcat(a.keys, OpSum.ITOKey{J}(letter(S1[2]), tot, 1))
-        @test recouples([1, 3, 2], keys, 0.7, Vs[1:3])
-        @test recouples([3, 2, 1], keys, 1.0, Vs[1:3])
+        @test recouples([1, 3, 2], keys, 0.7, Vs)
+        @test recouples([3, 2, 1], keys, 1.0, Vs)
     end
     a = only(couple(couple(S1[1], S1[3]; to = J(2)), S1[4]; to = J(1)))   # four sites, two orders
     keys = vcat(a.keys, OpSum.ITOKey{J}(letter(S1[2]), J(1), 1))
@@ -139,24 +144,20 @@ end
     a = only(couple(S1[1], S1[3]; to = J(1)))
     x = couple(Terms{J}([a]), S1[2]; to = J(1))
     keys = vcat(a.keys, OpSum.ITOKey{J}(letter(S1[2]), J(1), 1))
-    @test OpSum._instantiate_terms(x, Vs[1:3]) ≈
-        a.coeff * only(S1[2]).coeff * OpSum._written_block(keys, [1, 3, 2], Vs[1:3])
+    @test OpSum._instantiate_terms(x, Vs) ≈
+        a.coeff * only(S1[2]).coeff * OpSum._written_block(keys, [1, 3, 2], Vs)
 
     # under an abelian symmetry the re-coupling is the R-symbol bookkeeping
     t = only(couple(F.cd[1], F.c[2], F.cd[3], F.c[4]))
     for p in ([3, 1, 4, 2], [2, 4, 1, 3], [4, 3, 2, 1])
-        out = Terms{FermionNumber}()
+        out = Terms{FermionParity}()
         OpSum._written!(out, p, t.keys, 1.0 + 0im)
-        @test Terms{FermionNumber}(OpSum._recouple(p, t.keys, 1.0 + 0im)) ≈ out
+        @test Terms{FermionParity}(OpSum._recouple(p, t.keys, 1.0 + 0im)) ≈ out
     end
 
     # fermions under SU(2): E[q, p] = E[p, q]†, and interleaved products of spin-summed hoppings
-    P, Sy = U1Irrep, SU2Irrep
-    Bh = Basis([HO.e_plus_e_min(ComplexF64, P, Sy), HO.e_min_e_plus(ComplexF64, P, Sy), HO.e_num(ComplexF64, P, Sy)])
-    E = project(HO.e_plus_e_min(ComplexF64, P, Sy), Bh)
-    lat3, lat4 = FiniteChain(Bh, 3), FiniteChain(Bh, 4)
-    @test dense(lat3, E[3, 1]) ≈ dense(lat3, E[1, 3])'
-    D(x) = dense(lat4, x)
+    @test dense(lath, E[3, 1]) ≈ dense(lath, E[1, 3])'
+    D(x) = dense(lath, x)
     @test D(E[1, 3] * E[2, 4]) ≈ D(E[1, 3]) * D(E[2, 4])
 end
 

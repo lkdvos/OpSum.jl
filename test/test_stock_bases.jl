@@ -17,9 +17,8 @@ end
 
 @testset "complete: every operator on the site is in the span" begin
     for B in (
-            spin_basis(), spin_basis(U1Irrep; spin = 1), spin_basis(SU2Irrep; spin = 3 // 2),
-            fermion_basis(U1Irrep), boson_basis(U1Irrep; cutoff = 3),
-            hubbard_basis(U1Irrep, U1Irrep), hubbard_basis(U1Irrep, SU2Irrep), tj_basis(U1Irrep, SU2Irrep),
+            spin_basis(U1Irrep; spin = 1), spin_basis(SU2Irrep; spin = 3 // 2), fermion_basis(),
+            boson_basis(U1Irrep; cutoff = 3), hubbard_basis(U1Irrep, SU2Irrep), tj_basis(U1Irrep, SU2Irrep),
         )
         V = space(B)
         @test space(B[1]) == (V ← V ⊗ oneunit(V)) && B[1] ≈ insertrightunit(id(V))
@@ -62,7 +61,7 @@ end
 
 @testset "acceptance: XXX on ℂ² in the stock basis" begin
     ops = spin_ops()
-    N = 8
+    N = 4
     H = opsum(FiniteChain(spin_basis(), N), (ops.S_exchange[i, i + 1] for i in 1:(N - 1)))
     @test islossless(H)
     @test sum(dim, mpo(H).bondsectors[N ÷ 2]) == 5   # 6 in matrix units

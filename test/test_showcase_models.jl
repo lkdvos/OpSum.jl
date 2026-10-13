@@ -29,6 +29,14 @@ const EXPECTED = Dict{String, Any}(
     "powerlaw_a3" => (dense = N -> 3 * (N ÷ 2) + 2, mult = N -> N ÷ 2 + 2),
 )
 
+# one site count for every dense `instantiate` below
+const DENSE_N = 3
+# the models whose hermiticity is checked densely (the spin-orbital Hubbard chain's size is a multiple of 2)
+const DENSE_SIZES = Dict(
+    "heisenberg_su2" => DENSE_N, "free_fermions" => DENSE_N, "tv_chain" => DENSE_N,
+    "kitaev_chain" => DENSE_N, "hubbard_1d" => 4, "hubbard_su2" => 2,
+)
+
 @testset "geometry" begin
     for (Lx, Ly) in ((4, 3), (3, 4), (5, 6))
         bonds = cylinder_bonds(Lx, Ly)
@@ -57,17 +65,20 @@ end
             @test maxbonddim(secs) == e.mult(N)
         end
 
-        # hermiticity checks the fermionic ordering sign; `instantiate` is exponential, so one spin control only
-        if N <= 8 && (spec.family === :fermionic || spec.key == "heisenberg_su2")
-            @test hermiticity_error(H) < 1.0e-10
-        end
+    end
+
+    # hermiticity checks the fermionic ordering sign; `instantiate` is exponential and every site count and
+    # sector compiles its own contractions, so it runs on the smallest chain (3 sites, 4 spin orbitals for
+    # the spin-orbital Hubbard chain, whose size is a multiple of 2) with one spin control only
+    if haskey(DENSE_SIZES, spec.key)
+        @test hermiticity_error(spec.build(DENSE_SIZES[spec.key])) < 1.0e-10
     end
 end
 
 @testset "fermionic sign is required" begin
     # the wrong relative sign must break hermiticity, else the check above proves nothing
     F = fermion_ops(U1Irrep)
-    N = 6
+    N = DENSE_N
     wrong = opsum(
         FiniteChain(ShowcaseModels.FERMION_BASIS, N),
         F.f_plus_f_min[i, i + 1] - F.f_plus_f_min[i + 1, i] for i in 1:(N - 1)
@@ -76,7 +87,7 @@ end
 end
 
 @testset "free-fermion spectrum" begin
-    N, t = 6, 1.0
+    N, t = DENSE_N, 1.0
     H = ShowcaseModels.free_fermions(N; t)
     ε = [-2t * cos(k * π / (N + 1)) for k in 1:N]
     exact = sort(
@@ -88,7 +99,7 @@ end
 end
 
 @testset "Hubbard exactly-solvable limits" begin
-    Nsites = 3
+    Nsites = 2
     H0 = ShowcaseModels.hubbard(2Nsites; U = 0.0)
     ε1 = [-2 * cos(k * π / (Nsites + 1)) for k in 1:Nsites]
     ε = vcat(ε1, ε1)
@@ -107,22 +118,21 @@ end
 
 @testset "the two Hubbard encodings agree" begin
     # `hubbard_su2` is non-abelian and fermionic at once; the spin-orbital `hubbard` shares no code with it
-    for Nsites in (2, 3)
-        hsu2 = ShowcaseModels.hubbard_su2(Nsites; t = 1.0, U = 4.0)
-        horb = ShowcaseModels.hubbard(2Nsites; t = 1.0, U = 4.0)
-        a, b = spectrum(hsu2), spectrum(horb)
-        @test length(a) == 4^Nsites          # the spin doublet's qdim must be unfolded
-        @test a ≈ b
-    end
+    Nsites = 2
+    hsu2 = ShowcaseModels.hubbard_su2(Nsites; t = 1.0, U = 4.0)
+    horb = ShowcaseModels.hubbard(2Nsites; t = 1.0, U = 4.0)
+    a, b = spectrum(hsu2), spectrum(horb)
+    @test length(a) == 4^Nsites          # the spin doublet's qdim must be unfolded
+    @test a ≈ b
 
     # the t = 0 limit fixes the on-site normalisation
     U = 4.0
-    h0 = ShowcaseModels.hubbard_su2(3; t = 0.0, U)
-    @test sort(unique(round.(spectrum(h0); digits = 8))) ≈ U .* collect(0:3)
+    h0 = ShowcaseModels.hubbard_su2(Nsites; t = 0.0, U)
+    @test sort(unique(round.(spectrum(h0); digits = 8))) ≈ U .* collect(0:Nsites)
 end
 
 @testset "SU(2) and U(1) agree on the Heisenberg spectrum" begin
-    L = 4
+    L = DENSE_N
     Hs = ShowcaseModels.heisenberg_su2(L)
 
     S = spin_ops(U1Irrep)

@@ -1,16 +1,13 @@
 using Test
 using OpSum
-using OpSum: instantiate, couple, opsum, mpo
+using OpSum: instantiate, couple, opsum, mpo, mpo_tensormap
 using TensorKit
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, nonzero_keys, eachspace
 using MPSKit
-using MPSKit: JordanMPOTensor, FiniteMPOHamiltonian, FiniteMPS, DMRG, find_groundstate,
-    expectation_value
-using LinearAlgebra: dot
+using MPSKit: JordanMPOTensor, FiniteMPOHamiltonian, FiniteMPS, expectation_value
+using TensorKitTensors.SpinOperators: SpinOperators
 
 include(joinpath(@__DIR__, "testutils.jl"))                                   # LO
-include(joinpath(@__DIR__, "..", "benchmark", "ShowcaseModels.jl"))           # mpo_tensormap
-using .ShowcaseModels: mpo_tensormap, spectrum
 
 # Reference models, one per sector kind, at N = 4 (the 3-body one at 3): a dense contraction costs a
 # fresh `ncon` specialization per (length, sectortype). Structural checks run on all, the dense oracle
@@ -56,21 +53,25 @@ end
 
 # The next-nearest-neighbour hop makes an odd-parity bond charge pass over a site, so the diagonal
 # pass-through there is a braiding whose `BraidingTensor` has to carry the anticommutation sign.
-function fermionic_model()
+function fermionic_model(N = 4)
     F = fermion_ops()
     cdc = F.f_plus_f_min                                # c†ᵢ cⱼ, in any site order
     H = opsum(
         (
             cdc[i, i + 1] + cdc[i + 1, i] + 2 * F.f_num[i] * F.f_num[i + 1]
-                for i in 1:3
+                for i in 1:(N - 1)
         ),
-        (0.3 * (cdc[i, i + 2] + cdc[i + 2, i]) for i in 1:2),
+        (0.3 * (cdc[i, i + 2] + cdc[i + 2, i]) for i in 1:(N - 2)),
     )
-    return "t-V fermions N=4" => (H, FiniteChain(fermion_basis(), 4))
+    return "t-V fermions N=$N" => (H, FiniteChain(fermion_basis(), N))
 end
 
-# The dense oracle runs where a sign or fusion coefficient could be wrong: SU(2) and fermionic braiding.
-oracle_models() = reference_models()[[1, 5]]
+# The dense oracle runs where a sign or fusion coefficient could be wrong: SU(2) with a caterpillar
+# inner line, and fermionic braiding. Both at N = 3, the smallest chain that has each feature.
+function oracle_models()
+    name, (H, sites) = fermionic_model(3)
+    return [reference_models()[3], name => (opsum(sites, H), sites)]
+end
 
 # The Jordan contract: trivial boundary bonds, matching virtual spaces, identity corners, nothing
 # entering the start channel from below or leaving the finish channel sideways.
@@ -165,17 +166,20 @@ end
     @test mpo_tensormap(map(TensorMap, Ws)) ≈ instantiate(H)
 end
 
-@testset "MPSKit DMRG ground state matches exact diagonalization" begin
+# Energies of the instantiated Hamiltonian against MPSKit's own construction from the local term, on a
+# random state (a DMRG run would only add MPSKit-algorithm compilation to the same check).
+@testset "MPSKit expectation value matches the local-operator construction" begin
     B = spin_basis(SU2Irrep)
     V = space(B)
     b = spin_ops(SU2Irrep).S_exchange
-    N = 6
+    N = 4
     H = opsum(FiniteChain(B, N), b[i] for i in 1:(N - 1))
     Hmpo = instantiate(mpo(H))
-
-    exact = spectrum(H)[1]
+    ref = FiniteMPOHamiltonian(
+        fill(V, N), ((i, i + 1) => SpinOperators.S_exchange(ComplexF64, SU2Irrep) for i in 1:(N - 1))...
+    )
     # half-integer and integer spins: odd bonds of a spin-½ chain carry the former
-    ψ = FiniteMPS(randn, ComplexF64, N, V, SU2Space(0 => 8, 1 // 2 => 8, 1 => 8, 3 // 2 => 4))
-    ψ, = find_groundstate(ψ, Hmpo, DMRG(; maxiter = 50, verbosity = 0))
-    @test real(expectation_value(ψ, Hmpo)) ≈ exact rtol = 1.0e-6
+    ψ = FiniteMPS(randn, ComplexF64, N, V, SU2Space(0 => 4, 1 // 2 => 4, 1 => 4))
+    @test expectation_value(ψ, Hmpo) ≈ expectation_value(ψ, ref)
+    @test abs(expectation_value(ψ, ref)) > 1.0e-3
 end

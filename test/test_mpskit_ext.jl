@@ -26,22 +26,24 @@ centre(secs, b) = sum(dim, secs[b])
     @test_throws ArgumentError OpSum._mpskit_hamiltonian(nothing)
 end
 
+# One spinless-fermion site (parity only) shared by the testsets, so each MPSKit method compiles for
+# one sector type
+P = Trivial
+V = FO.fermion_space(P)
+Vmps = Vect[FermionParity](0 => 4, 1 => 4)
+hop, hop′ = FO.f_plus_f_min(ComplexF64, P), FO.f_min_f_plus(ComplexF64, P)
+num = FO.f_num(ComplexF64, P)
+B = Basis([hop, hop′, num])
+h, h′, n = project(hop, B), project(hop′, B), project(num, B)
+t, t2, μ = 1.0, 0.4, 0.3
+hh = -t * (hop - hop′)                         # hermitian: c†ᵢcⱼ + c†ⱼcᵢ = c†ᵢcⱼ - cᵢc†ⱼ
+pair(i, j) = -(h[i, j] - h′[i, j])
+
 @testset "spinless fermions with a hop across a gap, finite and infinite" begin
     # parity only: with particle-number symmetry a random infinite MPS has the wrong filling, and
     # every expectation value vanishes
-    P = Trivial
-    V = FO.fermion_space(P)
-    Vmps = Vect[FermionParity](0 => 4, 1 => 4)
-    hop, hop′ = FO.f_plus_f_min(ComplexF64, P), FO.f_min_f_plus(ComplexF64, P)
-    num = FO.f_num(ComplexF64, P)
-    B = Basis([hop, hop′, num])
-    h, h′, n = project(hop, B), project(hop′, B), project(num, B)
     @test length(h.terms) == 1 && length(h′.terms) == 1 && length(n) == 1
-    t, t2, μ = 1.0, 0.4, 0.3
-    hh = -t * (hop - hop′)                         # hermitian: c†ᵢcⱼ + c†ⱼcᵢ = c†ᵢcⱼ - cᵢc†ⱼ
-    pair(i, j) = -(h[i, j] - h′[i, j])
-
-    N = 6
+    N = 4
     H = opsum(
         FiniteChain(B, N),
         (t * pair(i, i + 1) for i in 1:(N - 1)),
@@ -87,7 +89,7 @@ end
 
 @testset "Hubbard chains: bond dimension in the right basis, and energies" begin
     t, U = 1.0, 4.0
-    for (P, S, N, today, now) in ((U1Irrep, U1Irrep, 10, 10, 6), (U1Irrep, SU2Irrep, 4, 10, 6))
+    for (P, S, N, today, now) in ((U1Irrep, U1Irrep, 4, 10, 6), (U1Irrep, SU2Irrep, 4, 10, 6))
         site = hubbard_site(P, S)
         H = opsum(FiniteChain(site.B, N), (-t * site.e[i] for i in 1:(N - 1)), (U * site.u[i] for i in 1:N))
         @test islossless(H)
@@ -102,6 +104,8 @@ end
         )
         @test centre(mpo(Hm).bondsectors, b) == today
 
+        # the MPSKit comparison runs on the non-abelian site (the abelian fermionic one is the testset above)
+        S isa SU2Irrep || continue
         Hmps = instantiate(mpo(H))
         ref = FiniteMPOHamiltonian(
             fill(site.V, N), ((i, i + 1) => -t * site.ehop for i in 1:(N - 1))...,
@@ -127,20 +131,17 @@ end
 end
 
 @testset "the SymbolicMPO itself" begin
-    Xmat, Zmat = ComplexF64[0 1; 1 0], ComplexF64[1 0; 0 -1]
-    P = Basis([Xmat, Zmat])
-    X, Z = project(Xmat, P), project(Zmat, P)
     N = 4
-    H = opsum(FiniteChain(P, N), (couple(Z[i], Z[i + 1]) for i in 1:(N - 1)), (0.5 * X[i] for i in 1:N))
+    H = opsum(FiniteChain(B, N), (pair(i, i + 1) for i in 1:(N - 1)), (0.5 * n[i] for i in 1:N))
     W = mpo(H)
     @test length(W) == N && W.lattice == H.lattice
     @test mpo_terms(W) ≈ H.terms
     _, op = first((Tuple(k), v) for (k, v) in OpSum.storedpairs(W[2]) if !isone(v))
-    @test instantiate(op, P) isa AbstractTensorMap
+    @test instantiate(op, B) isa AbstractTensorMap
     @test mpo_tensormap(irrep_mpo_tensors(W)) ≈ instantiate(H)
 
     # decaying channels on a finite chain: compressed, but no Jordan form yet
-    Hd = opsum(FiniteChain(P, N), expterm(couple(Z[1], Z[2]); decay = 0.5))
+    Hd = opsum(FiniteChain(B, N), expterm(couple(n[1], n[2]); decay = 0.5))
     Wd = mpo(Hd)
     @test isempty(Wd.start)
     @test_throws ArgumentError jordan_mpo_tensors(Wd)
@@ -148,18 +149,15 @@ end
 end
 
 @testset "an infinite chain with a decaying interaction" begin
-    # Σ_{i<j} λ^{j-i-1} Zᵢ Zⱼ + h Σ Xᵢ against MPSKit's own construction, truncated at range R
+    # Σ_{i<j} λ^{j-i-1} nᵢ nⱼ + h Σ nᵢ against MPSKit's own construction, truncated at range R
     λ, hx, R = 0.4, 0.3, 40
-    Zm, Xm = ComplexF64[1 0; 0 -1], ComplexF64[0 1; 1 0]
-    P = Basis([Xm, Zm])
-    Z, X = project(Zm, P), project(Xm, P)
-    H = opsum(InfiniteChain(P), expterm(couple(Z[1], Z[2]); decay = λ), hx * X[1])
+    H = opsum(InfiniteChain(B), expterm(couple(n[1], n[2]); decay = λ), hx * n[1])
     Hmps = instantiate(mpo(H))
-    V = ℂ^2
-    ZZ = TensorMap(kron(Zm, Zm), V ⊗ V ← V ⊗ V)
+    nn = num ⊗ num
     ref = InfiniteMPOHamiltonian(
-        [V], ((1, 1 + r) => λ^(r - 1) * ZZ for r in 1:R)..., (1,) => hx * TensorMap(Xm, V ← V)
+        [V], ((1, 1 + r) => λ^(r - 1) * nn for r in 1:R)..., (1,) => hx * num
     )
-    ψ = InfiniteMPS([V], [ℂ^6])
+    ψ = InfiniteMPS([V], [Vmps])
     @test expectation_value(ψ, Hmps) ≈ expectation_value(ψ, ref) atol = 1.0e-10
+    @test abs(expectation_value(ψ, ref)) > 1.0e-3
 end

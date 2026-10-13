@@ -46,6 +46,41 @@ function _jordan_bond(sec::Vector{I}, s::Int, f::Int) where {I}
     return pos, newsec
 end
 
+# Steps 1-2 of the emission, symbolic: the entries of site `i` in Jordan order. `posL`/`posR` map the old
+# indices of its two bonds to Jordan slots, `nrows`/`ncols` are the Jordan bond dimensions.
+function _jordan_entries(
+        Wi::SparseMatrixCSC{SiteOperator{I}}, posL::Vector{Int}, posR::Vector{Int},
+        nrows::Int, ncols::Int, i::Int
+    ) where {I}
+    # 1. permute the reduced entries into Jordan order (a bijection)
+    entries = Dictionary{Tuple{Int, Int}, SiteOperator{I}}()
+    for (idx, localop) in storedpairs(Wi)
+        l, r = Tuple(idx)
+        op = prune(localop)
+        isempty(op) && continue
+        insert!(entries, (posL[l], posR[r]), op)
+    end
+
+    # 2. the structural invariants, then the identity corners (padded where missing)
+    for (row, col) in keys(entries)
+        (ncols > 1 && col == 1 && row != 1) &&
+            _invariant("row $row of site $i enters the Jordan start channel")
+        (nrows > 1 && row == nrows && col != ncols) &&
+            _invariant("the Jordan finish channel of site $i emits into column $col")
+    end
+    for corner in ((1, 1, ncols > 1), (nrows, ncols, nrows > 1))
+        row, col, needed = corner
+        needed || continue
+        op = get(entries, (row, col), nothing)
+        if op === nothing
+            insert!(entries, (row, col), one(SiteOperator{I}))
+        elseif !isone(op)
+            _invariant("the Jordan corner ($row, $col) of site $i is not the identity")
+        end
+    end
+    return entries
+end
+
 # `pos[i]` maps the old indices of the bond left of site `i` to Jordan slots, `jsec[i]` their charges.
 function _jordan_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}}, pos::Vector{Vector{Int}},
@@ -60,34 +95,7 @@ function _jordan_tensors(
         site = sites[i]
         V = _space(site)
         secL, secR = jsec[i], jsec[i + 1]
-        nrows, ncols = length(secL), length(secR)
-
-        # 1. permute the reduced entries into Jordan order (a bijection)
-        entries = Dictionary{Tuple{Int, Int}, SiteOperator{I}}()
-        for (idx, localop) in storedpairs(Ws[i])
-            l, r = Tuple(idx)
-            op = prune(localop)
-            isempty(op) && continue
-            insert!(entries, (pos[i][l], pos[i + 1][r]), op)
-        end
-
-        # 2. the structural invariants, then the identity corners (padded where missing)
-        for (row, col) in keys(entries)
-            (ncols > 1 && col == 1 && row != 1) &&
-                _invariant("row $row of site $i enters the Jordan start channel")
-            (nrows > 1 && row == nrows && col != ncols) &&
-                _invariant("the Jordan finish channel of site $i emits into column $col")
-        end
-        for corner in ((1, 1, ncols > 1), (nrows, ncols, nrows > 1))
-            row, col, needed = corner
-            needed || continue
-            op = get(entries, (row, col), nothing)
-            if op === nothing
-                insert!(entries, (row, col), one(SiteOperator{I}))
-            elseif !isone(op)
-                _invariant("the Jordan corner ($row, $col) of site $i is not the identity")
-            end
-        end
+        entries = _jordan_entries(Ws[i], pos[i], pos[i + 1], length(secL), length(secR), i)
 
         # 3. emit; a unit-coefficient pass-through on a charge-preserving slot is a braiding
         W = SparseBlockTensorMap{TT}(undef, spaces[i] ⊗ V ← V ⊗ spaces[i + 1])

@@ -85,7 +85,11 @@ function irrep_mpo_tensors(W::SymbolicMPO{I, <:InfiniteChain}) where {I}
     return _mpo_tensors(W.Ws, bsecs, W.lattice)
 end
 
-function jordan_mpo_tensors(W::SymbolicMPO{I, <:FiniteChain}) where {I}
+jordan_mpo_tensors(W::SymbolicMPO) = _jordan_tensors(W.Ws, _jordan_bonds(W)..., W.lattice)
+
+# `pos[i]` maps the old indices of the bond left of site `i` to Jordan slots, `jsec[i]` their charges
+# (`N + 1` bonds). The finite boundary bonds stay one-dimensional: a pure start, a pure finish.
+function _jordan_bonds(W::SymbolicMPO{I, <:FiniteChain}) where {I}
     isempty(W.Ws) && throw(
         ArgumentError("cannot emit a Jordan MPO for an empty operator: it has no bond structure")
     )
@@ -102,20 +106,19 @@ function jordan_mpo_tensors(W::SymbolicMPO{I, <:FiniteChain}) where {I}
                 "total-charge-`unit` operator has a Jordan MPO"
         )
     )
-    # the boundary bonds stay one-dimensional
     bonds = [_jordan_bond(W.bondsectors[i], W.start[i], W.finish[i]) for i in 1:(N - 1)]
     pos = Vector{Int}[Int[1], first.(bonds)..., Int[1]]
     jsec = Vector{I}[I[unit(I)], last.(bonds)..., I[unit(I)]]
-    return _jordan_tensors(W.Ws, pos, jsec, W.lattice)
+    return pos, jsec
 end
 
 # The unit cell: every bond carries both identity channels; the bond left of site 1 is bond `L`.
-function jordan_mpo_tensors(W::SymbolicMPO{I, <:InfiniteChain}) where {I}
+function _jordan_bonds(W::SymbolicMPO{I, <:InfiniteChain}) where {I}
     L = length(W)
     bonds = [_jordan_bond(W.bondsectors[j], W.start[j], W.finish[j]) for j in 1:L]
     pos = Vector{Int}[first(bonds[mod1(j - 1, L)]) for j in 1:(L + 1)]
     jsec = Vector{I}[last(bonds[mod1(j - 1, L)]) for j in 1:(L + 1)]
-    return _jordan_tensors(W.Ws, pos, jsec, W.lattice)
+    return pos, jsec
 end
 
 """

@@ -74,5 +74,7 @@ include("operators/infinite/infinitechain.jl")
 include("operators/infinite/infinitegraph.jl")
 include("operators/compression/irrepmpo.jl")
 include("operators/compression/jordanmpo.jl")
+include("operators/timeevolution/jordanlayout.jl")
+include("operators/timeevolution/kronpower.jl")
 
 end

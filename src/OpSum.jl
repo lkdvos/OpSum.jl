@@ -58,6 +58,7 @@ include("operators/algebra/irrepprojection.jl")
 include("operators/algebra/basis.jl")
 include("operators/algebra/builders.jl")
 include("operators/algebra/products.jl")
+include("operators/algebra/letterproducts.jl")
 include("operators/algebra/stockbases.jl")
 
 include("operators/compression/irreptermtable.jl")

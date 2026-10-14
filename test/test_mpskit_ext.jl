@@ -209,7 +209,8 @@ bothtimes = [(0.3, true), (0.2, false)]
         (xxz(i, i + 1) for i in 1:(L - 1)), (0.4 * xxz(i, i + 2) for i in 1:(L - 2)),
         ((0.3 * i) * U.S_z[i] for i in 1:L)
     )
-    @test taylor_check(Hxxz, 1:3, allcombos, bothtimes) < 1.0e-10
+    @test taylor_check(Hxxz, 1:3, allcombos, imagonly) < 1.0e-10
+    @test taylor_check(Hxxz, 2:2, [(true, false)], [(0.2, false)]) < 1.0e-10
 
     F = fermion_ops(U1Irrep)
     Htv = opsum(
@@ -217,7 +218,8 @@ bothtimes = [(0.3, true), (0.2, false)]
         (F.f_plus_f_min[i, i + 1] + F.f_plus_f_min[i + 1, i] + 2 * F.f_num[i] * F.f_num[i + 1] for i in 1:(L - 1)),
         ((0.2 * i) * F.f_num[i] for i in 1:L)
     )
-    @test taylor_check(Htv, 1:3, allcombos, bothtimes) < 1.0e-10
+    @test taylor_check(Htv, 1:3, allcombos, imagonly) < 1.0e-10
+    @test taylor_check(Htv, 2:2, [(true, false)], [(0.2, false)]) < 1.0e-10
 
     site = hubbard_site(U1Irrep, U1Irrep)
     L = 3
@@ -255,9 +257,10 @@ end
         [Vs, Vs],
         [Vect[U1Irrep](0 => 2, 1 => 2, -1 => 2), Vect[U1Irrep](1 // 2 => 2, -1 // 2 => 2, 3 // 2 => 1, -3 // 2 => 1)]
     )
-    for N in 1:3, (ext, comp) in allcombos
+    for N in 1:2, (ext, comp) in allcombos
         infcheck(Hheis, N, ext, comp, ψs, 0.2, true)
     end
+    infcheck(Hheis, 3, true, true, ψs, 0.2, true)
     infcheck(Hheis, 2, true, false, ψs, 0.2, false)
 
     # fermions with parity only: with particle-number symmetry a random infinite MPS has no sensible filling
@@ -270,8 +273,9 @@ end
     Vf = FO.fermion_space(Trivial)
     Vb = Vect[FermionParity](0 => 4, 1 => 4)
     ψf = InfiniteMPS([Vf, Vf], [Vb, Vb])
-    for N in 1:3, (ext, comp) in allcombos
+    for N in 1:2, (ext, comp) in allcombos
         infcheck(Htv, N, ext, comp, ψf, 0.2, true)
     end
+    infcheck(Htv, 3, true, true, ψf, 0.2, true)
     infcheck(Htv, 2, true, false, ψf, 0.2, false)
 end

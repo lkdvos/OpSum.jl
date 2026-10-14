@@ -1,66 +1,15 @@
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, instantiate, couple, opsum, expterm, SiteOperator, storedpairs,
-    _jordan_layout, _mpo_power, _mul, _bond_space, _deg_indices
+using OpSum: mpo, irrep_mpo_tensors, opsum, expterm, SiteOperator, storedpairs, _jordan_layout, _mpo_power, _mul
 using TensorKit
-using TensorKit: @tensor
 using SparseArrays: nnz
 
-include(joinpath(@__DIR__, "testutils.jl"))   # plain
+include(joinpath(@__DIR__, "testutils.jl"))
 
 # The Kronecker power of an MPO tensor, built from structure constants alone: `mpo_tensormap` of the power MPO
 # must be the dense `H^N`. Fermionic models are where a wrong braiding sign shows up.
 
-dense(H) = plain(instantiate(H))
 power_dense(P) = plain(mpo_tensormap(irrep_mpo_tensors(P.mpo)))
-
-# models: `name => H` on a finite chain
-function finite_models()
-    S = spin_ops(Trivial)
-    U = spin_ops(U1Irrep)
-    SU = spin_ops(SU2Irrep)
-    F1 = fermion_ops(U1Irrep)
-    F0 = fermion_ops()
-    Hb = hubbard_ops(U1Irrep, U1Irrep)
-    chain(B, N) = FiniteChain(B, N)
-    return [
-        "Ising (Trivial) L=4" => opsum(
-            chain(spin_basis(Trivial), 4),
-            (-S.S_z_S_z[i, i + 1] for i in 1:3), (0.7 * S.S_x[i] for i in 1:4)
-        ),
-        "XXZ (U1) L=4" => opsum(
-            chain(spin_basis(U1Irrep), 4),
-            (0.5 * (U.S_plus_S_min[i, i + 1] + U.S_min_S_plus[i, i + 1]) + 0.8 * U.S_z_S_z[i, i + 1] for i in 1:3),
-            (0.3 * U.S_z[i] for i in 1:4)
-        ),
-        "J1-J2 Heisenberg (U1) L=4" => opsum(
-            chain(spin_basis(U1Irrep), 4),
-            (0.5 * (U.S_plus_S_min[i, i + 1] + U.S_min_S_plus[i, i + 1]) + U.S_z_S_z[i, i + 1] for i in 1:3),
-            (0.4 * (0.5 * (U.S_plus_S_min[i, i + 2] + U.S_min_S_plus[i, i + 2]) + U.S_z_S_z[i, i + 2]) for i in 1:2)
-        ),
-        "t-V fermions (U1) L=4" => opsum(
-            chain(fermion_basis(U1Irrep), 4),
-            (F1.f_plus_f_min[i, i + 1] + F1.f_plus_f_min[i + 1, i] + 2 * F1.f_num[i] * F1.f_num[i + 1] for i in 1:3)
-        ),
-        "t-V fermions (parity) L=4, next-nearest hop" => opsum(
-            chain(fermion_basis(), 4),
-            (F0.f_plus_f_min[i, i + 1] + F0.f_plus_f_min[i + 1, i] + 2 * F0.f_num[i] * F0.f_num[i + 1] for i in 1:3),
-            (0.3 * (F0.f_plus_f_min[i, i + 2] + F0.f_plus_f_min[i + 2, i]) for i in 1:2)
-        ),
-        "pairing (parity) L=3" => opsum(
-            chain(fermion_basis(), 3),
-            (F0.f_plus_f_plus[i, i + 1] - F0.f_min_f_min[i, i + 1] + 0.5 * F0.f_num[i] for i in 1:2)
-        ),
-        "Hubbard (U1 x U1) L=3" => opsum(
-            chain(hubbard_basis(U1Irrep, U1Irrep), 3),
-            (
-                Hb.u_plus_u_min[i, i + 1] + Hb.u_min_u_plus[i, i + 1] +
-                    Hb.d_plus_d_min[i, i + 1] + Hb.d_min_d_plus[i, i + 1] for i in 1:2
-            ),
-            (4.0 * Hb.ud_num[i] for i in 1:3)
-        ),
-    ]
-end
 
 @testset "SU(2) is rejected" begin
     SU = spin_ops(SU2Irrep)
@@ -70,7 +19,7 @@ end
 
 @testset "dense oracle: $name" for (name, H) in finite_models()
     W = mpo(H)
-    D = dense(H)
+    D = densify(H)
     for N in 2:3
         P = _mpo_power(W, N)
         @test power_dense(P) ≈ D^N
@@ -79,7 +28,7 @@ end
 end
 
 @testset "levels, sectors and identity channels" begin
-    H = Dict(finite_models())["t-V fermions (U1) L=4"]
+    H = only(finite_models("t-V fermions (U1)"))[2]
     W = mpo(H)
     J = _jordan_layout(W)
     n = length.(J.bondsectors)                           # N + 1 bonds
@@ -129,7 +78,7 @@ end
         end
         # nothing instantiated, yet the same operator
         T = irrep_mpo_tensors(J.Ws, J.bondsectors[2:end], H.lattice)
-        @test plain(mpo_tensormap(T)) ≈ dense(H)
+        @test plain(mpo_tensormap(T)) ≈ densify(H)
     end
 end
 
@@ -182,13 +131,8 @@ function naive_power(W, N)
     end
 end
 
-@testset "word memo: $name" for (name, H) in (
-        (
-            name => H for (name, H) in finite_models() if name in (
-                    "Ising (Trivial) L=4", "XXZ (U1) L=4", "t-V fermions (U1) L=4", "Hubbard (U1 x U1) L=3",
-                )
-        )...,
-    )
+@testset "word memo: $name" for (name, H) in
+    finite_models("Ising (Trivial)", "XXZ (U1)", "t-V fermions (U1)", "Hubbard (U1 x U1)")
     W = mpo(H)
     for N in 2:3
         P = _mpo_power(W, N)
@@ -209,52 +153,6 @@ end
         # sharing: fewer words than entries
         @test P.stats.nmul < P.stats.nentries
     end
-end
-
-# Infinite chains: contract `k` unit cells with the start level on the left and the finish level on the right.
-function select_left(T, sec, k)
-    I = eltype(sec)
-    sec[k] == unit(I) || error("not a neutral index")
-    P = zeros(ComplexF64, Vect[I](unit(I) => 1) ← _bond_space(sec))
-    block(P, unit(I))[1, _deg_indices(sec)[k]] = 1
-    @tensor R[a o; i br] := P[a; bl] * T[bl o; i br]
-    return R
-end
-function select_right(T, sec, k)
-    I = eltype(sec)
-    sec[k] == unit(I) || error("not a neutral index")
-    Q = zeros(ComplexF64, _bond_space(sec) ← Vect[I](unit(I) => 1))
-    block(Q, unit(I))[_deg_indices(sec)[k], 1] = 1
-    @tensor R[bl o; i a] := T[bl o; i br] * Q[br; a]
-    return R
-end
-function window_operator(Ts, secs, s, f, cells)
-    L = length(Ts)
-    window = repeat(Ts, cells)
-    window[1] = select_left(window[1], secs[L], s)
-    window[end] = select_right(window[end], secs[L], f)
-    return plain(mpo_tensormap(window))
-end
-
-function infinite_models()
-    U = spin_ops(U1Irrep)
-    F1 = fermion_ops(U1Irrep)
-    BU1 = spin_basis(U1Irrep)
-    BF = fermion_basis(U1Irrep)
-    xxz(i, j; Δ = 1.0) = 0.5 * (U.S_plus_S_min[i, j] + U.S_min_S_plus[i, j]) + Δ * U.S_z_S_z[i, j]
-    tV(i, j; V = 2.0) = F1.f_plus_f_min[i, j] + F1.f_plus_f_min[j, i] + V * F1.f_num[i] * F1.f_num[j]
-    return [
-        "Heisenberg (U1)" => (opsum(InfiniteChain(BU1), xxz(1, 2)), 4),
-        "XXZ + field, L=2 (U1)" => (
-            opsum(InfiniteChain([BU1, BU1]), xxz(1, 2; Δ = 0.7), xxz(2, 3; Δ = 0.7), 0.3 * U.S_z[1]), 2,
-        ),
-        "t-V fermions (U1)" => (opsum(InfiniteChain(BF), tV(1, 2)), 4),
-        "t-V fermions, L=2 (U1)" => (opsum(InfiniteChain([BF, BF]), tV(1, 2), tV(2, 3; V = 1.0)), 2),
-        "decaying XXZ (U1)" => (opsum(InfiniteChain(BU1), expterm(xxz(1, 2); decay = 0.5)), 4),
-        "decaying hopping + NN (fermions)" => (
-            opsum(InfiniteChain(BF), tV(1, 2), expterm(F1.f_plus_f_min[1, 2] + F1.f_plus_f_min[2, 1]; decay = 0.4)), 4,
-        ),
-    ]
 end
 
 @testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models()

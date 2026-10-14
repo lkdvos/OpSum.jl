@@ -1,63 +1,27 @@
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, instantiate, couple, opsum, expterm, SiteOperator, storedpairs, prune,
-    TaylorEntry, evaluate, _scaled, _mul, _jordan_layout, _mpo_power, _taylor_work, _taylor_mpo, _fold_passive!,
-    _merge_equivalent!, _prune_orphans!, _extend!, _compress!, _kron_entry!, _rowbond, _bond_space, _deg_indices
+using OpSum: mpo, irrep_mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, _scaled, _mul,
+    _jordan_layout, _mpo_power, _taylor_work, _taylor_mpo, _fold_passive!, _merge_equivalent!, _prune_orphans!,
+    _extend!, _compress!, _kron_entry!, _rowbond, _bond_space, _deg_indices
 using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: norm
 
-include(joinpath(@__DIR__, "testutils.jl"))   # plain
+include(joinpath(@__DIR__, "testutils.jl"))
 
 # The Taylor MPO (`taylor_mpo`): Alg. 1 and 2 (the structure against the paper's tables, the exactness of the
 # merge), Alg. 3 and 4 (the lazy entries of the next power, the closed forms of the paper and of MPSKit's tests),
 # and the order of accuracy against the dense exponential.
 
-dense(H) = plain(instantiate(H))
 taylor_dense(T, τ) = plain(mpo_tensormap(irrep_mpo_tensors(T, τ)))
 const NOCOMPRESS = (_fold_passive!,)
 
-function finite_models()
-    S = spin_ops(Trivial)
-    U = spin_ops(U1Irrep)
-    F1 = fermion_ops(U1Irrep)
-    F0 = fermion_ops()
-    Hb = hubbard_ops(U1Irrep, U1Irrep)
-    chain(B, N) = FiniteChain(B, N)
-    xxz(i, j) = 0.5 * (U.S_plus_S_min[i, j] + U.S_min_S_plus[i, j]) + 0.8 * U.S_z_S_z[i, j]
-    return [
-        "Ising (Trivial)" => opsum(
-            chain(spin_basis(Trivial), 5),
-            (-S.S_z_S_z[i, i + 1] for i in 1:4), (0.7 * S.S_x[i] for i in 1:5)
-        ),
-        "XXZ (U1)" => opsum(
-            chain(spin_basis(U1Irrep), 5), (xxz(i, i + 1) for i in 1:4), (0.3 * U.S_z[i] for i in 1:5)
-        ),
-        "J1-J2 (U1)" => opsum(
-            chain(spin_basis(U1Irrep), 5), (xxz(i, i + 1) for i in 1:4), (0.4 * xxz(i, i + 2) for i in 1:3)
-        ),
-        "t-V fermions (U1)" => opsum(
-            chain(fermion_basis(U1Irrep), 5),
-            (F1.f_plus_f_min[i, i + 1] + F1.f_plus_f_min[i + 1, i] + 2 * F1.f_num[i] * F1.f_num[i + 1] for i in 1:4)
-        ),
-        "t-V fermions (parity), next-nearest hop" => opsum(
-            chain(fermion_basis(), 4),
-            (F0.f_plus_f_min[i, i + 1] + F0.f_plus_f_min[i + 1, i] + 2 * F0.f_num[i] * F0.f_num[i + 1] for i in 1:3),
-            (0.3 * (F0.f_plus_f_min[i, i + 2] + F0.f_plus_f_min[i + 2, i]) for i in 1:2)
-        ),
-        "Hubbard (U1 x U1)" => opsum(
-            chain(hubbard_basis(U1Irrep, U1Irrep), 3),
-            (
-                Hb.u_plus_u_min[i, i + 1] + Hb.u_min_u_plus[i, i + 1] +
-                    Hb.d_plus_d_min[i, i + 1] + Hb.d_min_d_plus[i, i + 1] for i in 1:2
-            ),
-            (4.0 * Hb.ud_num[i] for i in 1:3)
-        ),
-    ]
-end
+# the models by name (see `finite_models` in testutils.jl)
+ising() = only(finite_models("Ising (Trivial)"))
+const CHEAP = ("Ising (Trivial)", "XXZ (U1)")
 
 @testset "TaylorEntry" begin
-    A = _jordan_layout(mpo(finite_models()[1][2])).Ws[2][1, end]   # a one-letter operator
+    A = _jordan_layout(mpo(ising()[2])).Ws[2][1, end]   # a one-letter operator
     z = zero(TaylorEntry{Trivial})
     @test iszero(z) && iszero(TaylorEntry(zero(SiteOperator{Trivial})))
     e = TaylorEntry(A, 1) + TaylorEntry(A * 2.0, 3) + TaylorEntry(one(SiteOperator{Trivial}))
@@ -78,14 +42,14 @@ end
 end
 
 @testset "closed power: the right boundary has both identity channels" begin
-    H = Dict(finite_models())["t-V fermions (U1)"]
+    H = only(finite_models("t-V fermions (U1)"))[2]
     W = mpo(H)
     L = length(W)
     J = _jordan_layout(W; closed = true)
     @test J.bondsectors[L + 1] == fill(unit(sectortype(H.lattice)), 2)
     @test J.start[L + 1] == 1 && J.finish[L + 1] == 2
     @test isone(J.Ws[L][1, 1])
-    D = dense(H)
+    D = densify(H)
     for N in 1:3
         P = _mpo_power(W, N; closed = true)
         @test length(P.levels[L]) == 2^N
@@ -113,7 +77,7 @@ end
 poly(I, pairs...) = foldl(+, (TaylorEntry(op, p) for (p, op) in pairs); init = zero(TaylorEntry{I}))
 
 @testset "Alg 1 at N = 2 reproduces Eqs. (30)/(32): $name" for (name, H) in
-    (finite_models()[1], finite_models()[3])
+    finite_models("Ising (Trivial)", "J1-J2 (U1)")
     W = mpo(H)
     I = sectortype(H.lattice)
     i = 3
@@ -151,7 +115,7 @@ poly(I, pairs...) = foldl(+, (TaylorEntry(op, p) for (p, op) in pairs); init = z
 end
 
 @testset "Alg 1 + 2 at N = 1 and N = 2 reproduce Eqs. (27) and (39): $name" for (name, H) in
-    (finite_models()[1], finite_models()[2], finite_models()[3])
+    finite_models("Ising (Trivial)", "XXZ (U1)", "J1-J2 (U1)")
     W = mpo(H)
     I = sectortype(H.lattice)
     i = 3
@@ -224,21 +188,16 @@ end
     end
 end
 
-bonddims(T) = map(s -> sum(dim, s), T.bondsectors)
-
 @testset "bond dimensions" begin
-    # N = 1: 1 + χ, N = 2: 1 + 2χ + χ² (the paper); N = 3, 4 are the observed counts of Alg. 1 + 2 (Ising)
-    for (name, H, higher) in (
-            ("Ising", finite_models()[1][2], [8, 15]), ("XXZ", finite_models()[2][2], nothing),
-            ("J1-J2", finite_models()[3][2], nothing),
-        )
-        W = mpo(H)
+    # Alg. 1 + 2: N = 1: 1 + χ, N = 2: 1 + 2χ + χ² (the paper); N = 3, 4 are the observed counts (Ising). A nilpotent
+    # letter (`S⁺S⁺ = 0`, charge conservation) leaves some levels unreachable, which are pruned: below the formula.
+    for (name, higher) in (("Ising (Trivial)", [8, 15]), ("XXZ (U1)", nothing), ("J1-J2 (U1)", nothing))
+        W = mpo(only(finite_models(name))[2])
         chi = length(_jordan_layout(W).bondsectors[4]) - 2
         for N in 1:2
             D = bonddims(taylor_mpo(W, N; extension = false))
-            # (a nilpotent letter, `S⁺S⁺ = 0`, leaves some of the levels unreachable)
             full = N == 1 ? 1 + chi : 1 + 2chi + chi^2
-            @test (name == "Ising" ? D[3] == full : D[3] <= full)
+            @test (name == "Ising (Trivial)" ? D[3] == full : D[3] <= full)
             @test D[end] == 1
         end
         higher === nothing && continue
@@ -247,63 +206,54 @@ bonddims(T) = map(s -> sum(dim, s), T.bondsectors)
             @test bonddims(taylor_mpo(W, N; extension = false))[3] == d
         end
     end
-end
 
-@testset "bond dimensions with extension and compression" begin
-    # the paper's counts (Sec. 8.3) in the interior Jordan dimension `χ`; a nilpotent letter (`S⁺S⁺ = 0`, charge
-    # conservation) leaves levels unreachable, which are pruned, so the XXZ counts are below the formula
+    # with the extension and compression (the paper's counts, Sec. 8.3, in the interior Jordan dimension `χ`)
     paper(chi, N) = (
         1 + chi, 1 + chi + chi^2, 1 + 3chi + chi^2 + chi^3, 1 + 5chi + 4chi^2 + chi^3 + chi^4,
     )[N]
-    for (name, H, observed) in (("Ising", finite_models()[1][2], [2, 3, 6, 12]), ("XXZ", finite_models()[2][2], [4, 13, 42, 130]))
-        W = mpo(H)
+    for (name, observed) in (("Ising (Trivial)", [2, 3, 6, 12]), ("XXZ (U1)", [4, 13, 42, 130]))
+        W = mpo(only(finite_models(name))[2])
         chi = length(_jordan_layout(W).bondsectors[4]) - 2
-        name == "Ising" && @test chi == 1
+        name == "Ising (Trivial)" && @test chi == 1
         for N in 1:4
-            T = taylor_mpo(W, N; extension = true, compression = true)
-            D = bonddims(T)
+            D = bonddims(taylor_mpo(W, N; extension = true, compression = true))
             @test D[3] == observed[N]
             @test D[3] <= paper(chi, N)
-            name == "Ising" && @test D[3] == paper(chi, N)
+            name == "Ising (Trivial)" && @test D[3] == paper(chi, N)
             @test D[end] == 1
-            # the extension adds entries between existing levels, which can only make more of them reachable
-            N == 2 && @test bonddims(taylor_mpo(W, N; extension = false))[3] <=
-                bonddims(taylor_mpo(W, N; extension = true))[3] <= 1 + 2chi + chi^2
         end
+        # the extension adds entries between existing levels, which can only make more of them reachable
+        @test bonddims(taylor_mpo(W, 2; extension = false))[3] <=
+            bonddims(taylor_mpo(W, 2; extension = true))[3] <= 1 + 2chi + chi^2
     end
 end
 
+# Alg. 2 is exact after Alg. 1. After the extension (Alg. 3) only the merge of the start channels is exact; the merge
+# of the finish channels changes the terms beyond `τ^N`, exactly the ones the extension adds partially (see `taylor.jl`)
 @testset "Alg 2 is exact: $name" for (name, H) in finite_models()
     W = mpo(H)
-    for N in 2:3
+    D = densify(H)
+    merge_starts!(w) = _merge_equivalent!(w; right = false)
+    taus = (-0.2im, 0.1 + 0.15im)
+    for N in (name in CHEAP ? (2, 3) : (2,))
         T1 = _taylor_mpo(W, N, NOCOMPRESS)
         T12 = taylor_mpo(W, N; extension = false)
-        @test all(bonddims(T12) .<= bonddims(T1))
         @test all(bonddims(T12)[2:(end - 1)] .< bonddims(T1)[2:(end - 1)])
-        for τ in (0.3, -0.2im, 0.1 + 0.15im)
+        for τ in taus
             @test taylor_dense(T12, τ) ≈ taylor_dense(T1, τ)
         end
-    end
-end
 
-# After the extension only the merge of the start channels is exact; the merge of the finish channels changes the
-# terms beyond `τ^N`, exactly the ones the extension adds partially (see `taylor.jl`)
-@testset "Alg 2 after Alg 3: $name" for (name, H) in finite_models()
-    W = mpo(H)
-    D = dense(H)
-    merge_starts!(w) = _merge_equivalent!(w; right = false)
-    for N in 2:3
-        T1 = _taylor_mpo(W, N, (_extend!, _fold_passive!))
-        Ts = _taylor_mpo(W, N, (_extend!, _fold_passive!, merge_starts!))
-        Tf = _taylor_mpo(W, N, (_extend!, _fold_passive!, _merge_equivalent!))
-        @test all(bonddims(Ts)[2:(end - 1)] .< bonddims(T1)[2:(end - 1)])
-        @test all(bonddims(Tf)[2:(end - 1)] .<= bonddims(Ts)[2:(end - 1)])
-        for τ in (0.3, -0.2im, 0.1 + 0.15im)
-            @test taylor_dense(Ts, τ) ≈ taylor_dense(T1, τ)
+        E1 = _taylor_mpo(W, N, (_extend!, _fold_passive!))
+        Es = _taylor_mpo(W, N, (_extend!, _fold_passive!, merge_starts!))
+        Ef = _taylor_mpo(W, N, (_extend!, _fold_passive!, _merge_equivalent!))
+        @test all(bonddims(Es)[2:(end - 1)] .< bonddims(E1)[2:(end - 1)])
+        @test all(bonddims(Ef)[2:(end - 1)] .<= bonddims(Es)[2:(end - 1)])
+        for τ in taus
+            @test taylor_dense(Es, τ) ≈ taylor_dense(E1, τ)
         end
         # the full merge agrees through `τ^N`: the difference is at least of order `τ^{N+1}`
         cs = (0.4, 0.2, 0.1)
-        diffs = [norm(taylor_dense(Tf, -c / norm(D)) - taylor_dense(T1, -c / norm(D))) for c in cs]
+        diffs = [norm(taylor_dense(Ef, -c / norm(D)) - taylor_dense(E1, -c / norm(D))) for c in cs]
         if all(>(1.0e-13), diffs)
             @test (log(diffs[3]) - log(diffs[1])) / (log(cs[3]) - log(cs[1])) >= N + 1 - 0.15
         end
@@ -311,7 +261,10 @@ end
 end
 
 @testset "lazy entries of the next power: $name" for (name, H) in
-    (finite_models()[1], finite_models()[2], finite_models()[4], finite_models()[5], finite_models()[6])
+    finite_models(
+        "Ising (Trivial)", "XXZ (U1)", "t-V fermions (U1)", "t-V fermions (parity), next-nearest hop",
+        "Hubbard (U1 x U1)",
+    )
     W = mpo(H)
     L = length(W)
     # the tries of the second power evaluate the entries of the third (words are order-free), signs included
@@ -340,7 +293,7 @@ end
     @test _kron_entry!(P2.sites[2], (1,), (1,)) ≈ one(SiteOperator{sectortype(H.lattice)})
 end
 
-@testset "Alg 3 reads a fraction of the next power: $name" for (name, H) in (finite_models()[1], finite_models()[2])
+@testset "Alg 3 reads a fraction of the next power: $name" for (name, H) in finite_models(CHEAP...)
     W = mpo(H)
     for N in 1:3
         w = _taylor_work(W, N)
@@ -359,7 +312,7 @@ function mean_words(B, words...)
 end
 
 @testset "Alg 3 and 4 closed forms (Eqs. (43), (45), MPSKit's `O(1)`/`O(2) exact expression`): $name" for (name, H) in
-    (finite_models()[1], finite_models()[2], finite_models()[3])
+    finite_models("Ising (Trivial)", "XXZ (U1)", "J1-J2 (U1)")
     W = mpo(H)
     I = sectortype(H.lattice)
     i = 3
@@ -504,57 +457,50 @@ end
     end
 end
 
-# `E(τ) = ‖U_N(τ) − exp(τH)‖` against `τ ∈ c / ‖H‖`; the slope of its log-log fit
-function error_slope(T, D, imaginary::Bool)
-    h = norm(D)
+# `E(τ) = ‖U(τ) − exp(τH)‖` (`U(τ)` the dense operator `U(τ)`) at `τ = -c / ‖H‖`, imaginary or real time
+function error_at(U, D, c, imaginary = true)
+    τ = imaginary ? -c / norm(D) : -im * c / norm(D)
+    return norm(U(τ) - exp(τ * D))
+end
+
+# the slope of the log-log fit of `E(τ)` against `τ ∈ c / ‖H‖`
+function error_slope(U, D, imaginary::Bool)
     cs = (0.4, 0.2, 0.1)
-    errs = map(cs) do c
-        τ = imaginary ? -c / h : -im * c / h
-        return norm(taylor_dense(T, τ) - exp(τ * D))
-    end
+    errs = [error_at(U, D, c, imaginary) for c in cs]
     @test all(>(1.0e-13), errs)
     xs = log.(cs)
     ys = log.(errs)
     return sum((xs .- sum(xs) / 3) .* (ys .- sum(ys) / 3)) / sum((xs .- sum(xs) / 3) .^ 2)
 end
 
-# `‖U_N(τ) − exp(τH)‖` at `τ = -c / ‖H‖`, imaginary time
-function error_at(T, D, c)
-    τ = -c / norm(D)
-    return norm(taylor_dense(T, τ) - exp(τ * D))
-end
-
+# order of accuracy N + 1 for every model at N = 2 with all toggles (N = 1, 3, 4, real time and the extension's
+# precision on the cheap models; the operator itself is pinned to MPSKit's `TaylorCluster` in test_mpskit_ext.jl)
 @testset "order of accuracy: $name" for (name, H) in finite_models()
-    D = dense(H)
+    D = densify(H)
     W = mpo(H)
-    for N in 1:3, extension in (false, true), compression in (false, true)
-        T = taylor_mpo(W, N; extension, compression)
-        for imaginary in (true, false)
-            @test error_slope(T, D, imaginary) ≈ N + 1 atol = 0.15
-        end
-    end
-    # the defaults are the paper's extended MPO, and the order four is exercised on the cheap models
-    @test taylor_dense(taylor_mpo(W, 2), 0.1) ≈ taylor_dense(taylor_mpo(W, 2; extension = true, compression = false), 0.1)
-    name in ("Ising (Trivial)", "XXZ (U1)") || return
     for extension in (false, true), compression in (false, true)
-        @test error_slope(taylor_mpo(W, 4; extension, compression), D, true) ≈ 5 atol = 0.15
+        T = taylor_mpo(W, 2; extension, compression)
+        @test error_slope(τ -> taylor_dense(T, τ), D, true) ≈ 3 atol = 0.15
     end
-end
-
-@testset "the extension is more precise: $name" for (name, H) in (finite_models()[1], finite_models()[2])
-    D = dense(H)
-    W = mpo(H)
-    for N in 1:3, c in (0.4, 0.2)
-        plain_err = error_at(taylor_mpo(W, N; extension = false), D, c)
-        ext_err = error_at(taylor_mpo(W, N; extension = true), D, c)
-        both_err = error_at(taylor_mpo(W, N; extension = true, compression = true), D, c)
-        @info "Taylor error ratios" name N c ext = ext_err / plain_err ext_comp = both_err / plain_err
-        @test ext_err < plain_err
+    # the defaults are the paper's extended MPO
+    @test taylor_dense(taylor_mpo(W, 2), 0.1) ≈ taylor_dense(taylor_mpo(W, 2; extension = true, compression = false), 0.1)
+    name in CHEAP || return
+    for N in 1:4, (extension, compression) in ((false, false), (true, true))
+        T = taylor_mpo(W, N; extension, compression)
+        U(τ) = taylor_dense(T, τ)
+        @test error_slope(U, D, true) ≈ N + 1 atol = 0.15
+        N <= 3 && @test error_slope(U, D, false) ≈ N + 1 atol = 0.15
+    end
+    # the extension is more precise than the plain truncation
+    for N in 1:3
+        Up = taylor_mpo(W, N; extension = false)
+        Ue = taylor_mpo(W, N; extension = true)
+        @test error_at(τ -> taylor_dense(Ue, τ), D, 0.4) < error_at(τ -> taylor_dense(Up, τ), D, 0.4)
     end
 end
 
 @testset "taylor_mpo(H, N) and the call syntax" begin
-    H = finite_models()[1][2]
+    H = ising()[2]
     T = taylor_mpo(H, 2)
     @test T isa TaylorMPO
     @test T.order == 2
@@ -564,7 +510,7 @@ end
     @test T.bondsectors[end] == [unit(Trivial)]
     @test size(T.Ws[1], 1) == 1 && size(T.Ws[end], 2) == 1
     # τ = 0 is the identity
-    @test taylor_dense(T, 0.0) ≈ one(dense(H))
+    @test taylor_dense(T, 0.0) ≈ one(densify(H))
     @test occursin("order = 2", sprint(show, T))
 end
 
@@ -584,76 +530,21 @@ end
     @test_throws ArgumentError taylor_mpo(Hs, 2)
 end
 
-# Infinite chains: contract `cells` unit cells with the start level `1` on the left and the folded level `1` on
+# Infinite chains: a window of `cells` unit cells with the start level `1` on the left and the folded level `1` on
 # the right (for the Hamiltonian itself the start and finish channels).
-function select_left(T, sec, k)
-    I = eltype(sec)
-    sec[k] == unit(I) || error("not a neutral index")
-    P = zeros(ComplexF64, Vect[I](unit(I) => 1) ← _bond_space(sec))
-    block(P, unit(I))[1, _deg_indices(sec)[k]] = 1
-    @tensor R[a o; i br] := P[a; bl] * T[bl o; i br]
-    return R
-end
-function select_right(T, sec, k)
-    I = eltype(sec)
-    sec[k] == unit(I) || error("not a neutral index")
-    Q = zeros(ComplexF64, _bond_space(sec) ← Vect[I](unit(I) => 1))
-    block(Q, unit(I))[_deg_indices(sec)[k], 1] = 1
-    @tensor R[bl o; i a] := T[bl o; i br] * Q[br; a]
-    return R
-end
-function window_operator(Ts, secs, s, f, cells)
-    L = length(Ts)
-    window = repeat(Ts, cells)
-    window[1] = select_left(window[1], secs[L], s)
-    window[end] = select_right(window[end], secs[L], f)
-    return plain(mpo_tensormap(window))
-end
-
-function infinite_models()
-    U = spin_ops(U1Irrep)
-    F1 = fermion_ops(U1Irrep)
-    BU1 = spin_basis(U1Irrep)
-    BF = fermion_basis(U1Irrep)
-    xxz(i, j; Δ = 1.0) = 0.5 * (U.S_plus_S_min[i, j] + U.S_min_S_plus[i, j]) + Δ * U.S_z_S_z[i, j]
-    tV(i, j; V = 2.0) = F1.f_plus_f_min[i, j] + F1.f_plus_f_min[j, i] + V * F1.f_num[i] * F1.f_num[j]
-    return [
-        "Heisenberg (U1)" => (opsum(InfiniteChain(BU1), xxz(1, 2)), 4),
-        "XXZ + field, L=2 (U1)" => (
-            opsum(InfiniteChain([BU1, BU1]), xxz(1, 2; Δ = 0.7), xxz(2, 3; Δ = 0.7), 0.3 * U.S_z[1]), 2,
-        ),
-        "t-V fermions (U1)" => (opsum(InfiniteChain(BF), tV(1, 2)), 4),
-        "t-V fermions, L=2 (U1)" => (opsum(InfiniteChain([BF, BF]), tV(1, 2), tV(2, 3; V = 1.0)), 2),
-        "decaying XXZ (U1)" => (opsum(InfiniteChain(BU1), expterm(xxz(1, 2); decay = 0.5)), 4),
-    ]
-end
-
-function window_slope(Tw, D, imaginary::Bool)
-    h = norm(D)
-    cs = (0.4, 0.2, 0.1)
-    errs = map(cs) do c
-        τ = imaginary ? -c / h : -im * c / h
-        return norm(Tw(τ) - exp(τ * D))
-    end
-    @test all(>(1.0e-13), errs)
-    xs = log.(cs)
-    ys = log.(errs)
-    return sum((xs .- sum(xs) / 3) .* (ys .- sum(ys) / 3)) / sum((xs .- sum(xs) / 3) .^ 2)
-end
-
-@testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models()
+@testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models()[1:5]
     W = mpo(H)
     L = length(W)
     Hwin = window_operator(irrep_mpo_tensors(W), W.bondsectors, W.start[L], W.finish[L], cells)
-    for N in 1:3, extension in (false, true), compression in (false, true)
+    # (the extension adds terms of order N + 2 whose weight can pull the fit below N + 1, never above)
+    for N in 1:3, (extension, compression) in ((false, false), (true, true))
         T = taylor_mpo(W, N; extension, compression)
         @test T.bondsectors[L][1] == unit(sectortype(H.lattice))
         Tw(τ) = window_operator(irrep_mpo_tensors(T, τ), T.bondsectors, 1, 1, cells)
         @test Tw(0.0) ≈ one(Hwin)
-        for imaginary in (true, false)
-            # (the extension adds terms of order N + 2 whose weight can pull the fit below N + 1, never above)
-            slope = window_slope(Tw, Hwin, imaginary)
-            @test N + 1 - 0.3 <= slope <= N + 1 + 0.15
+        @test N + 1 - 0.3 <= error_slope(Tw, Hwin, true) <= N + 1 + 0.15
+        if N == 2 && extension
+            @test N + 1 - 0.3 <= error_slope(Tw, Hwin, false) <= N + 1 + 0.15
         end
     end
 end

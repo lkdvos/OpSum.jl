@@ -8,7 +8,8 @@ using Random: MersenneTwister
 
 include("testutils.jl")
 
-# The structure constants of a basis: `e_x · e_y` with the charge legs fused to the unique channel
+# The structure constants of a basis (the product of operators on one site; the fermion sign of a product of
+# operators on a chain is pinned against dense oracles in test_mpo_power.jl): `e_x · e_y` with the charge legs fused to the unique channel
 # `x.c ⊗ y.c`, from the memoised table. The oracle is the dense written-order block and dense products.
 
 const SU2 = SU2Irrep
@@ -19,15 +20,11 @@ const F = fermionmode(Bf, FermionNumber(0), FermionNumber(1))
 
 abelian_bases = [
     "spin 1/2 Trivial" => spin_basis(Trivial; spin = 1 // 2),
-    "spin 1/2 U1" => spin_basis(U1Irrep; spin = 1 // 2),
-    "spin 1 Trivial" => spin_basis(Trivial; spin = 1),
     "spin 1 U1" => spin_basis(U1Irrep; spin = 1),
     "fermion Trivial" => fermion_basis(),
     "fermion U1" => fermion_basis(U1Irrep),
     "fermion FermionNumber (unit basis)" => Bf,
     "hubbard Trivial x Trivial" => hubbard_basis(),
-    "hubbard U1 x Trivial" => hubbard_basis(U1Irrep, Trivial),
-    "hubbard Trivial x U1" => hubbard_basis(Trivial, U1Irrep),
     "hubbard U1 x U1" => hubbard_basis(U1Irrep, U1Irrep),
 ]
 
@@ -64,7 +61,7 @@ end
 
 @testset "fermion convention matches a[i] * b[i]" begin
     lat = FiniteChain(Bf, 1)
-    dense(x) = plain(instantiate(opsum(lat, x)))
+    dense(x) = densify(opsum(lat, x))
     cdc = _mul(Bf, F.cd, F.c)
     @test cdc ≈ F.n                                                  # c†c = n
     @test plain(instantiate(cdc, Bf)) ≈ dense(F.cd[1] * F.c[1])

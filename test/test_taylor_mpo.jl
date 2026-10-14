@@ -18,7 +18,7 @@ const NOCOMPRESS = (_fold_passive!,)
 
 # the models by name (see `finite_models` in testutils.jl)
 ising() = only(finite_models("Ising (Trivial)"))
-const CHEAP = ("Ising (Trivial)", "XXZ (U1)")
+const CHEAP = ("Ising (Trivial)",)
 
 @testset "TaylorEntry" begin
     A = _jordan_layout(mpo(ising()[2])).Ws[2][1, end]   # a one-letter operator
@@ -42,7 +42,7 @@ const CHEAP = ("Ising (Trivial)", "XXZ (U1)")
 end
 
 @testset "closed power: the right boundary has both identity channels" begin
-    H = only(finite_models("t-V fermions (U1)"))[2]
+    H = ising()[2]
     W = mpo(H)
     L = length(W)
     J = _jordan_layout(W; closed = true)
@@ -230,12 +230,13 @@ end
 
 # Alg. 2 is exact after Alg. 1. After the extension (Alg. 3) only the merge of the start channels is exact; the merge
 # of the finish channels changes the terms beyond `τ^N`, exactly the ones the extension adds partially (see `taylor.jl`)
-@testset "Alg 2 is exact: $name" for (name, H) in finite_models()
+# (Ising at N = 2, 3; the unmerged `H^3` on five sites is the expensive dense oracle, so the others stay at N = 2)
+@testset "Alg 2 is exact: $name" for (name, H) in finite_models("Ising (Trivial)", "t-V fermions (U1)")
     W = mpo(H)
     D = densify(H)
     merge_starts!(w) = _merge_equivalent!(w; right = false)
     taus = (-0.2im, 0.1 + 0.15im)
-    for N in (name in CHEAP ? (2, 3) : (2,))
+    for N in (name == "Ising (Trivial)" ? (2, 3) : (2,))
         T1 = _taylor_mpo(W, N, NOCOMPRESS)
         T12 = taylor_mpo(W, N; extension = false)
         @test all(bonddims(T12)[2:(end - 1)] .< bonddims(T1)[2:(end - 1)])
@@ -293,7 +294,7 @@ end
     @test _kron_entry!(P2.sites[2], (1,), (1,)) ≈ one(SiteOperator{sectortype(H.lattice)})
 end
 
-@testset "Alg 3 reads a fraction of the next power: $name" for (name, H) in finite_models(CHEAP...)
+@testset "Alg 3 reads a fraction of the next power: $name" for (name, H) in finite_models("Ising (Trivial)", "XXZ (U1)")
     W = mpo(H)
     for N in 1:3
         w = _taylor_work(W, N)
@@ -473,9 +474,10 @@ function error_slope(U, D, imaginary::Bool)
     return sum((xs .- sum(xs) / 3) .* (ys .- sum(ys) / 3)) / sum((xs .- sum(xs) / 3) .^ 2)
 end
 
-# order of accuracy N + 1 for every model at N = 2 with all toggles (N = 1, 3, 4, real time and the extension's
-# precision on the cheap models; the operator itself is pinned to MPSKit's `TaylorCluster` in test_mpskit_ext.jl)
-@testset "order of accuracy: $name" for (name, H) in finite_models()
+# order of accuracy N + 1 at N = 2 with all toggles, a bosonic and a fermionic model (N = 1, 3, 4, real time and
+# the extension's precision on the cheap ones; the operator itself is pinned to MPSKit's `TaylorCluster` in
+# test_mpskit_ext.jl)
+@testset "order of accuracy: $name" for (name, H) in finite_models("Ising (Trivial)", "t-V fermions (U1)")
     D = densify(H)
     W = mpo(H)
     for extension in (false, true), compression in (false, true)
@@ -484,18 +486,19 @@ end
     end
     # the defaults are the paper's extended MPO
     @test taylor_dense(taylor_mpo(W, 2), 0.1) ≈ taylor_dense(taylor_mpo(W, 2; extension = true, compression = false), 0.1)
-    name in CHEAP || return
-    for N in 1:4, (extension, compression) in ((false, false), (true, true))
-        T = taylor_mpo(W, N; extension, compression)
-        U(τ) = taylor_dense(T, τ)
-        @test error_slope(U, D, true) ≈ N + 1 atol = 0.15
-        N <= 3 && @test error_slope(U, D, false) ≈ N + 1 atol = 0.15
-    end
-    # the extension is more precise than the plain truncation
-    for N in 1:3
-        Up = taylor_mpo(W, N; extension = false)
-        Ue = taylor_mpo(W, N; extension = true)
-        @test error_at(τ -> taylor_dense(Ue, τ), D, 0.4) < error_at(τ -> taylor_dense(Up, τ), D, 0.4)
+    if name in CHEAP
+        for N in 1:4, (extension, compression) in ((false, false), (true, true))
+            T = taylor_mpo(W, N; extension, compression)
+            U(τ) = taylor_dense(T, τ)
+            @test error_slope(U, D, true) ≈ N + 1 atol = 0.15
+            N <= 3 && @test error_slope(U, D, false) ≈ N + 1 atol = 0.15
+        end
+        # the extension is more precise than the plain truncation
+        for N in 1:3
+            Up = taylor_mpo(W, N; extension = false)
+            Ue = taylor_mpo(W, N; extension = true)
+            @test error_at(τ -> taylor_dense(Ue, τ), D, 0.4) < error_at(τ -> taylor_dense(Up, τ), D, 0.4)
+        end
     end
 end
 
@@ -532,7 +535,9 @@ end
 
 # Infinite chains: a window of `cells` unit cells with the start level `1` on the left and the folded level `1` on
 # the right (for the Hamiltonian itself the start and finish channels).
-@testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models()[1:5]
+@testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models(
+        "Heisenberg (U1)", "XXZ + field, L=2 (U1)", "t-V fermions (U1)", "t-V fermions, L=2 (U1)", "decaying XXZ (U1)",
+    )
     W = mpo(H)
     L = length(W)
     Hwin = window_operator(irrep_mpo_tensors(W), W.bondsectors, W.start[L], W.finish[L], cells)

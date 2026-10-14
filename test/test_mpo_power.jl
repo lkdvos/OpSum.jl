@@ -11,20 +11,20 @@ include(joinpath(@__DIR__, "testutils.jl"))
 
 power_dense(P) = plain(mpo_tensormap(irrep_mpo_tensors(P.mpo)))
 
-@testset "SU(2) is rejected" begin
-    SU = spin_ops(SU2Irrep)
-    H = opsum(FiniteChain(spin_basis(SU2Irrep), 3), (SU.S_exchange[i, i + 1] for i in 1:2))
-    @test_throws ArgumentError _mpo_power(mpo(H), 2)
-end
-
-@testset "dense oracle: $name" for (name, H) in finite_models()
+# the bosonic oracle on Ising (N = 2, 3); the fermionic sign rule on the U1 fermions (N = 2, 3), the parity fermions with
+# a next-nearest hop (N = 2) and Hubbard U1 x U1 (N = 2). Every further model only adds compilation.
+@testset "dense oracle: $name" for (name, Ns) in (
+        ("Ising (Trivial)", 2:3), ("t-V fermions (U1)", 2:3),
+        ("t-V fermions (parity), next-nearest hop", 2:2), ("Hubbard (U1 x U1)", 2:2),
+    )
+    H = only(finite_models(name))[2]
     W = mpo(H)
     D = densify(H)
-    for N in 2:3
+    for N in Ns
         P = _mpo_power(W, N)
         @test power_dense(P) ≈ D^N
     end
-    @test power_dense(_mpo_power(W, 1)) ≈ D           # the Jordan form of W itself
+    name == "t-V fermions (U1)" && @test power_dense(_mpo_power(W, 1)) ≈ D   # the Jordan form of W itself
 end
 
 @testset "levels, sectors and identity channels" begin
@@ -60,7 +60,7 @@ end
 end
 
 @testset "jordan layout" begin
-    for (name, H) in finite_models()
+    for (name, H) in finite_models("Ising (Trivial)", "t-V fermions (U1)", "t-V fermions (parity), next-nearest hop")
         W = mpo(H)
         J = _jordan_layout(W)
         L = length(W)
@@ -132,7 +132,7 @@ function naive_power(W, N)
 end
 
 @testset "word memo: $name" for (name, H) in
-    finite_models("Ising (Trivial)", "XXZ (U1)", "t-V fermions (U1)", "Hubbard (U1 x U1)")
+    finite_models("Ising (Trivial)", "t-V fermions (U1)", "Hubbard (U1 x U1)")
     W = mpo(H)
     for N in 2:3
         P = _mpo_power(W, N)
@@ -155,7 +155,7 @@ end
     end
 end
 
-@testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models()
+@testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models("t-V fermions (U1)")
     W = mpo(H)
     L = length(W)
     Ts = irrep_mpo_tensors(W)

@@ -2,6 +2,85 @@ using SparseArrays: SparseMatrixCSC, nonzeros
 using TensorKit: Sector, dim
 
 """
+    TaylorEntry{I}
+
+A polynomial in `τ` with [`SiteOperator`](@ref) coefficients: parallel vectors of strictly ascending `powers`
+and the nonzero `ops` multiplying them. `+` adds, `_scaled(e, c, k)` multiplies by `c τ^k`, `evaluate(e, τ)`
+gives the [`SiteOperator`](@ref) at a value of `τ`.
+"""
+struct TaylorEntry{I <: Sector}
+    powers::Vector{Int}
+    ops::Vector{SiteOperator{I}}
+end
+TaylorEntry{I}() where {I} = TaylorEntry{I}(Int[], SiteOperator{I}[])
+function TaylorEntry(op::SiteOperator{I}, power::Integer = 0) where {I}
+    op = prune(op)
+    return isempty(op) ? TaylorEntry{I}() : TaylorEntry{I}([Int(power)], [op])
+end
+
+Base.zero(::Union{TaylorEntry{I}, Type{TaylorEntry{I}}}) where {I} = TaylorEntry{I}()
+Base.iszero(e::TaylorEntry) = isempty(e.powers)      # an entry is always kept pruned
+Base.length(e::TaylorEntry) = length(e.powers)
+Base.:(==)(x::TaylorEntry{I}, y::TaylorEntry{I}) where {I} = x.powers == y.powers && x.ops == y.ops
+function Base.isapprox(x::TaylorEntry{I}, y::TaylorEntry{I}; kwargs...) where {I}
+    return x.powers == y.powers && all(isapprox(a, b; kwargs...) for (a, b) in zip(x.ops, y.ops))
+end
+
+function Base.:+(x::TaylorEntry{I}, y::TaylorEntry{I}) where {I}
+    powers = Int[]
+    ops = SiteOperator{I}[]
+    i, j = 1, 1
+    while i <= length(x) || j <= length(y)
+        px = i <= length(x) ? x.powers[i] : typemax(Int)
+        py = j <= length(y) ? y.powers[j] : typemax(Int)
+        p = min(px, py)
+        op = if px == py
+            x.ops[i] + y.ops[j]
+        else
+            px < py ? x.ops[i] : y.ops[j]
+        end
+        i += px == p
+        j += py == p
+        op = prune(op)
+        isempty(op) && continue
+        push!(powers, p)
+        push!(ops, op)
+    end
+    return TaylorEntry{I}(powers, ops)
+end
+
+# `c τ^k e`
+function _scaled(e::TaylorEntry{I}, c::Number, k::Integer = 0) where {I}
+    iszero(c) && return TaylorEntry{I}()
+    return TaylorEntry{I}(e.powers .+ Int(k), [prune(op * c) for op in e.ops])
+end
+
+"""
+    evaluate(e::TaylorEntry, τ::Number) -> SiteOperator
+    evaluate(W::TaylorMPO, τ::Number) -> Vector{SparseMatrixCSC{SiteOperator}}
+
+The value at `τ`: of one polynomial entry, or of every entry of a [`TaylorMPO`](@ref) (its bond matrices, the
+form [`irrep_mpo_tensors`](@ref) takes).
+"""
+function evaluate(e::TaylorEntry{I}, τ::Number) where {I}
+    acc = zero(SiteOperator{I})
+    for (p, op) in zip(e.powers, e.ops)
+        acc += op * τ^p
+    end
+    return prune(acc)
+end
+
+function Base.show(io::IO, e::TaylorEntry{I}) where {I}
+    iszero(e) && return print(io, "TaylorEntry{", I, "}(0)")
+    print(io, "TaylorEntry{", I, "}(")
+    for (k, (p, op)) in enumerate(zip(e.powers, e.ops))
+        k > 1 && print(io, " + ")
+        print(io, "τ^", p, "*(", op, ")")
+    end
+    return print(io, ")")
+end
+
+"""
     TaylorMPO{I<:Sector, L<:AbstractLattice}
 
 An MPO of the time-evolution operator `exp(τH)`, correct through `τ^order`, with the time left symbolic: the
@@ -102,8 +181,11 @@ Requires MPSKit to be loaded; with it, `make_time_mpo(H::OperatorSum, dt, Taylor
 compression))` builds `taylor_mpo(H, N; extension, compression)` and instantiates it at `τ = -dt` (imaginary
 evolution) or `τ = -i dt`.
 """
-instantiate(W::TaylorMPO, τ::Number) = _mpskit_time_mpo(W, τ)
+instantiate(W::TaylorMPO, τ::Number) = _mpskit_mpo(W, τ)
 
-_mpskit_time_mpo(::Any, ::Any) = throw(
-    ArgumentError("instantiate(::TaylorMPO, τ) builds an MPSKit MPO: load MPSKit first (`using MPSKit`)")
+# the one fallback of both `instantiate`s; the MPSKit extension adds the methods
+_mpskit_mpo(args...) = throw(
+    ArgumentError(
+        "instantiate(::SymbolicMPO) and instantiate(::TaylorMPO, τ) build MPSKit MPOs: load MPSKit first (`using MPSKit`)"
+    )
 )

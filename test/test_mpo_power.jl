@@ -193,7 +193,7 @@ end
     for N in 2:3
         P = _mpo_power(W, N)
         ref = naive_power(W, N)
-        @test P.stats.nmul == P.stats.nwords == sum(length(r[2]) for r in ref)
+        @test P.stats.nmul == sum(length(r[2]) for r in ref)
         @test P.stats.nentries == sum(length(r[1]) for r in ref)
         # same entries as the naive fold
         for i in 1:length(W)
@@ -207,26 +207,7 @@ end
             @test nnz(M) == length(ref[i][1])
         end
         # sharing: fewer words than entries
-        @test P.stats.nwords < P.stats.nentries
-    end
-end
-
-@testset "column pruning hook" begin
-    S = spin_ops(Trivial)
-    N = 4
-    field = opsum(FiniteChain(spin_basis(Trivial), N), (0.7 * S.S_x[i] for i in 1:N))
-    H = opsum(
-        FiniteChain(spin_basis(Trivial), N),
-        (-S.S_z_S_z[i, i + 1] for i in 1:(N - 1)), (0.7 * S.S_x[i] for i in 1:N)
-    )
-    W = mpo(H)
-    # only the start and finish channels (Jordan indices 1 and 3): the powers of the field term alone
-    only_ends(prefix) = all(l -> l != 2, prefix)
-    for p in 2:3
-        P = _mpo_power(W, p; keep = only_ends)
-        @test all(lv -> all(t -> all(!=(2), t), lv), P.levels)
-        @test all(lv -> length(lv) <= 2^p, P.levels)
-        @test power_dense(P) ≈ dense(field)^p
+        @test P.stats.nmul < P.stats.nentries
     end
 end
 

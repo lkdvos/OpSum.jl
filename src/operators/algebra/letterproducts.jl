@@ -5,10 +5,10 @@
 # The two charge legs are fused to the unique channel `x.c ⊗ y.c`, with the graded sign `a[i] * b[i]` uses
 # (`c†` then `c` is `n`). Abelian symmetries only: the channel must be forced and the legs reorder freely.
 
-using TensorKit: Sector, FusionStyle, UniqueFusion, BraidingStyle, SymmetricBraiding
+using TensorKit: Sector, FusionStyle, BraidingStyle
 
 function _checkkron(::Type{I}) where {I <: Sector}
-    (FusionStyle(I) isa UniqueFusion && BraidingStyle(I) isa SymmetricBraiding) || throw(
+    _canreorder(I) || throw(
         ArgumentError(
             "on-site products of letters need an abelian symmetry (unique fusion, symmetric braiding), " *
                 "got $I with $(FusionStyle(I)) fusion and $(BraidingStyle(I)) braiding"
@@ -32,6 +32,7 @@ function _letter_product(B::Basis{I}, x::IrrepOperator{I}, y::IrrepOperator{I}) 
     ispassthrough(x) && return SiteOperator(y)
     ispassthrough(y) && return SiteOperator(x)
     return _cached(_product_table(B), (x, y)) do
+        _checkkron(I)                    # once per pair, not per product
         tot = only(x.c ⊗ y.c)
         keys = ITOKey{I}[ITOKey{I}(x, x.c, 1), ITOKey{I}(y, tot, 1)]
         h = _written_block(keys, [1, 1], [B])
@@ -42,7 +43,6 @@ end
 
 # Bilinear extension of `_letter_product` to `SiteOperator`s (letters of any charges).
 function _mul(B::Basis{I}, X::SiteOperator{I}, Y::SiteOperator{I}) where {I}
-    _checkkron(I)
     isone(X) && return Y
     isone(Y) && return X
     acc = Dict{IrrepOperator{I}, ComplexF64}()

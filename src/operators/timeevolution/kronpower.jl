@@ -29,17 +29,12 @@
 using SparseArrays: SparseMatrixCSC, sparse
 using TensorKit: Sector, BraidingStyle, Bosonic, Rsymbol, dual, ⊗
 
-# Counters of one `_mpo_power`: `_mul` calls, distinct active words of length ≥ 2 (one `_mul` each) and stored entries.
+# Counters of one `_mpo_power`: `_mul` calls (one per distinct active word of length ≥ 2) and stored entries.
 mutable struct PowerStats
     nmul::Int
-    nwords::Int
     nentries::Int
 end
-PowerStats() = PowerStats(0, 0, 0)
-
-# Hook for pruning columns: `keep(prefix)` is asked about every prefix `(l₁, …, l_k)` of a level, and a level
-# is kept if all its prefixes are. The default keeps everything.
-_keepall(::Tuple) = true
+PowerStats() = PowerStats(0, 0)
 
 # a layer entry `W[row, col]`, interned operator id (`0` is the identity) and letter charge
 struct LayerEntry{I <: Sector}
@@ -54,15 +49,11 @@ _braidsign(q::I, b::I) where {I <: Sector} = Float64(real(Rsymbol(q, b, only(q �
 
 _fuse(secs) = reduce((a, b) -> only(a ⊗ b), secs)
 
-# All levels of a bond with `n` indices whose prefixes `keep` accepts, layer 1 varying fastest.
-function _levels(n::Int, ::Val{N}, keep) where {N}
-    tuples = (Tuple(c) for c in CartesianIndices(ntuple(_ -> n, Val(N))))
-    keep === _keepall && return vec(collect(tuples))
-    return [t for t in tuples if all(k -> keep(t[1:k]), 1:N)]
-end
+# All levels of a bond with `n` indices, layer 1 varying fastest.
+_levels(n::Int, ::Val{N}) where {N} = vec(collect(Tuple(c) for c in CartesianIndices(ntuple(_ -> n, Val(N)))))
 
 """
-    _mpo_power(W::SymbolicMPO, N::Integer; keep = _keepall, closed = false) -> (; mpo, levels, stats, sites)
+    _mpo_power(W::SymbolicMPO, N::Integer; closed = false) -> (; mpo, levels, stats, sites)
 
 The `N`-fold Kronecker power of the Jordan form of `W` (`_jordan_layout`): a [`SymbolicMPO`](@ref)
 `mpo` whose bond indices are levels, `NTuple{N,Int}`s of Jordan indices, so that
@@ -70,34 +61,31 @@ The `N`-fold Kronecker power of the Jordan form of `W` (`_jordan_layout`): a [`S
 Throws where `jordan_mpo_tensors` does, and for a non-abelian symmetry.
 
 `levels[i]` lists the levels of the bond right of site `i` (the index of `mpo`'s bond `i` is the position
-in this vector, layer 1 varying fastest unless `keep` removed some), so `levels[N]` is the bond left of
+in this vector, layer 1 varying fastest), so `levels[N]` is the bond left of
 site 1 on an infinite chain; the left boundary of a finite chain is the single level `(1, …, 1)`.
 `mpo.start`/`mpo.finish` are the positions of `(1, …, 1)` and `(end, …, end)` (`0` where the bond has no
 such channel: the right boundary of a finite chain has no start). `stats` counts the work done, and `sites[i]`
 is the `KronSite` of site `i`: its layer entries and word trie, from which any single entry of a power
 of any order is available lazily (`_kron_entry!`).
 
-`keep(prefix::Tuple)` is the hook for pruning: it is asked about every prefix of every level and a level
-survives only if all prefixes do.
-
 `closed = true` gives the right boundary of a finite chain its start channel too (`_jordan_layout`), so it has
 the two identity indices `1, 2` like every other bond and `levels[N]` is all of `{1, 2}^N`: the power then
 represents `H^N` for the boundary vector `(2, …, 2)`, and the other levels are what `taylor_mpo` folds.
 """
-function _mpo_power(W::SymbolicMPO{I}, N::Integer; keep = _keepall, closed::Bool = false) where {I}
+function _mpo_power(W::SymbolicMPO{I}, N::Integer; closed::Bool = false) where {I}
     N >= 1 || throw(ArgumentError("the power must be at least 1, got $N"))
     _checkkron(I)
-    return _mpo_power(W, Val(Int(N)), keep, closed)
+    return _mpo_power(W, Val(Int(N)), closed)
 end
 
-function _mpo_power(W::SymbolicMPO{I}, ::Val{N}, keep, closed) where {I, N}
+function _mpo_power(W::SymbolicMPO{I}, ::Val{N}, closed) where {I, N}
     layout = _jordan_layout(W; closed)
     L = length(W)
     # bond `b` is left of site `b`; the right bond of an infinite chain is the first again
     levels = Vector{Vector{NTuple{N, Int}}}(undef, L + 1)
     secs = Vector{Vector{I}}(undef, L + 1)
     for b in 1:(L + 1)
-        levels[b] = _levels(length(layout.bondsectors[b]), Val(N), keep)
+        levels[b] = _levels(length(layout.bondsectors[b]), Val(N))
         secs[b] = [_fuse(layout.bondsectors[b][collect(t)]) for t in levels[b]]
     end
     index = [Dict(t => k for (k, t) in enumerate(lv)) for lv in levels]
@@ -106,7 +94,7 @@ function _mpo_power(W::SymbolicMPO{I}, ::Val{N}, keep, closed) where {I, N}
     built = map(1:L) do i
         return _power_site(
             W.lattice[i], layout.Ws[i], Val(N), index[i], index[i + 1],
-            layout.bondsectors[i], layout.bondsectors[i + 1], keep, stats
+            layout.bondsectors[i], layout.bondsectors[i + 1], stats
         )
     end
     sites, Ws = first.(built), last.(built)
@@ -166,7 +154,6 @@ function _extend_word!(ks::KronSite, node::Int, id::Int)
             push!(ks.prods, ks.ops[id])
         else
             ks.stats.nmul += 1
-            ks.stats.nwords += 1
             P = _mul(ks.basis, ks.prods[node], ks.ops[id])
             isempty(P) && return 0
             push!(ks.prods, P)
@@ -223,15 +210,12 @@ end
 # One site of the power: all nonzero entries, depth-first over the layers.
 function _power_site(
         B::Basis{I}, Wi::SparseMatrixCSC{SiteOperator{I}}, ::Val{N}, rowindex, colindex,
-        secL::Vector{I}, secR::Vector{I}, keep, stats::PowerStats
+        secL::Vector{I}, secR::Vector{I}, stats::PowerStats
     ) where {I, N}
     ks = KronSite(B, Wi, secL, secR, stats)
     rows, cols = Int[], Int[]
     vals = SiteOperator{I}[]
-    accepted(es, k) = keep === _keepall || (
-        keep(ntuple(j -> es[j].row, k)) && keep(ntuple(j -> es[j].col, k))
-    )
-    _walk!(ks, N, _ -> ks.entries, accepted) do es, node, sgn
+    _walk!(ks, N, _ -> ks.entries, (_, _) -> true) do es, node, sgn
         push!(rows, rowindex[ntuple(j -> es[j].row, Val(N))])
         push!(cols, colindex[ntuple(j -> es[j].col, Val(N))])
         push!(vals, sgn == 1 ? ks.prods[node] : ks.prods[node] * sgn)

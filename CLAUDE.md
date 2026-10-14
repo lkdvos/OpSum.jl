@@ -52,7 +52,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   translation-invariant cell (`_infinite_window`); the suffix canonicalisation (`_canonicalise_rights!`) is required
   for the cell to close. `expterm` channels (`expterms.jl`) lower to weighted automata: cyclic states are forced into
   the cover, and λ rides as an edge weight so every emitted entry carries a letter.
-* **Time evolution** (`timeevolution/{jordanlayout,kronpower,taylor,taylormpo}.jl`, `algebra/letterproducts.jl`):
+* **Time evolution** (`timeevolution/{kronpower,taylormpo,taylor}.jl`, `algebra/letterproducts.jl`):
   `taylor_mpo(H|W, N; extension = true, compression = false)` → `TaylorMPO`, the symbolic `exp(τH)` MPO through `τ^N`
   (Van Damme et al., SciPost Phys. 17, 135); entries are `TaylorEntry` τ-polynomials, `evaluate(W, τ)` / `W(τ)` /
   `irrep_mpo_tensors(W, τ)` fix `τ` (`U ≈ exp(τH)`: imaginary time `τ = -β`, real time `τ = -it`). Abelian only

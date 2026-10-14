@@ -88,5 +88,5 @@ end
     @test _mul(B, X, one(X)) == X
 
     S = spin_basis(SU2)
-    @test_throws ArgumentError _mul(S, SiteOperator(S.letters[1]), SiteOperator(S.letters[1]))
+    @test_throws ArgumentError _mul(S, SiteOperator(S.letters[2]), SiteOperator(S.letters[2]))
 end

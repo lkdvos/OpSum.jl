@@ -45,92 +45,11 @@
 #     as they stand. (The dense operator of the merged MPO is the check: a wrong sign changes it.)
 #
 # Entries are `TaylorEntry`s: polynomials in `τ` with `SiteOperator` coefficients, so the construction is
-# independent of `τ` and the numeric value is only taken in `evaluate`.
+# independent of `τ` and the numeric value is only taken in `evaluate` (`TaylorEntry` and `TaylorMPO` are in
+# `taylormpo.jl`).
 
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Sector
-
-"""
-    TaylorEntry{I}
-
-A polynomial in `τ` with [`SiteOperator`](@ref) coefficients: parallel vectors of strictly ascending `powers`
-and the nonzero `ops` multiplying them. `+` adds, `_scaled(e, c, k)` multiplies by `c τ^k`, `evaluate(e, τ)`
-gives the [`SiteOperator`](@ref) at a value of `τ`.
-"""
-struct TaylorEntry{I <: Sector}
-    powers::Vector{Int}
-    ops::Vector{SiteOperator{I}}
-end
-TaylorEntry{I}() where {I} = TaylorEntry{I}(Int[], SiteOperator{I}[])
-function TaylorEntry(op::SiteOperator{I}, power::Integer = 0) where {I}
-    op = prune(op)
-    return isempty(op) ? TaylorEntry{I}() : TaylorEntry{I}([Int(power)], [op])
-end
-
-Base.zero(::Union{TaylorEntry{I}, Type{TaylorEntry{I}}}) where {I} = TaylorEntry{I}()
-Base.iszero(e::TaylorEntry) = isempty(e.powers)      # an entry is always kept pruned
-Base.length(e::TaylorEntry) = length(e.powers)
-Base.:(==)(x::TaylorEntry{I}, y::TaylorEntry{I}) where {I} = x.powers == y.powers && x.ops == y.ops
-Base.hash(e::TaylorEntry, h::UInt) = hash(e.ops, hash(e.powers, hash(:TaylorEntry, h)))
-function Base.isapprox(x::TaylorEntry{I}, y::TaylorEntry{I}; kwargs...) where {I}
-    return x.powers == y.powers && all(isapprox(a, b; kwargs...) for (a, b) in zip(x.ops, y.ops))
-end
-
-function Base.:+(x::TaylorEntry{I}, y::TaylorEntry{I}) where {I}
-    powers = Int[]
-    ops = SiteOperator{I}[]
-    i, j = 1, 1
-    while i <= length(x) || j <= length(y)
-        px = i <= length(x) ? x.powers[i] : typemax(Int)
-        py = j <= length(y) ? y.powers[j] : typemax(Int)
-        p = min(px, py)
-        op = if px == py
-            x.ops[i] + y.ops[j]
-        else
-            px < py ? x.ops[i] : y.ops[j]
-        end
-        i += px == p
-        j += py == p
-        op = prune(op)
-        isempty(op) && continue
-        push!(powers, p)
-        push!(ops, op)
-    end
-    return TaylorEntry{I}(powers, ops)
-end
-
-# `c τ^k e`
-function _scaled(e::TaylorEntry{I}, c::Number, k::Integer = 0) where {I}
-    iszero(c) && return TaylorEntry{I}()
-    return TaylorEntry{I}(e.powers .+ Int(k), [prune(op * c) for op in e.ops])
-end
-
-Base.:*(c::Number, e::TaylorEntry) = _scaled(e, c)
-
-"""
-    evaluate(e::TaylorEntry, τ::Number) -> SiteOperator
-    evaluate(W::TaylorMPO, τ::Number) -> Vector{SparseMatrixCSC{SiteOperator}}
-
-The value at `τ`: of one polynomial entry, or of every entry of a [`TaylorMPO`](@ref) (its bond matrices, the
-form [`irrep_mpo_tensors`](@ref) takes).
-"""
-function evaluate(e::TaylorEntry{I}, τ::Number) where {I}
-    acc = zero(SiteOperator{I})
-    for (p, op) in zip(e.powers, e.ops)
-        acc += op * τ^p
-    end
-    return prune(acc)
-end
-
-function Base.show(io::IO, e::TaylorEntry{I}) where {I}
-    iszero(e) && return print(io, "TaylorEntry{", I, "}(0)")
-    print(io, "TaylorEntry{", I, "}(")
-    for (k, (p, op)) in enumerate(zip(e.powers, e.ops))
-        k > 1 && print(io, " + ")
-        print(io, "τ^", p, "*(", op, ")")
-    end
-    return print(io, ")")
-end
 
 # ---------------------------------------------------------------------------------------------------------
 # The working matrix of one site: a dict of keys by row, with the columns' row sets alongside, so that both

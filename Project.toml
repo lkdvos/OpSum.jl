@@ -28,7 +28,7 @@ MatrixAlgebraKit = "0.6"
 SparseArrays = "1"
 TensorKit = "0.17"
 TensorKitTensors = "0.3"
-VectorInterface = "0.5.0, 0.6"
+VectorInterface = "0.5.0, 0.6, 0.7"
 julia = "1.10"
 
 [workspace]

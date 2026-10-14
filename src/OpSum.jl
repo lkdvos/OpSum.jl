@@ -18,6 +18,8 @@ export mpo, SymbolicMPO
 export irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
+# time evolution
+export taylor_mpo, TaylorMPO
 # exponentially decaying interactions
 export expterm, ExpSum
 # verification
@@ -58,6 +60,7 @@ include("operators/algebra/irrepprojection.jl")
 include("operators/algebra/basis.jl")
 include("operators/algebra/builders.jl")
 include("operators/algebra/products.jl")
+include("operators/algebra/letterproducts.jl")
 include("operators/algebra/stockbases.jl")
 
 include("operators/compression/irreptermtable.jl")
@@ -73,5 +76,8 @@ include("operators/infinite/infinitechain.jl")
 include("operators/infinite/infinitegraph.jl")
 include("operators/compression/irrepmpo.jl")
 include("operators/compression/jordanmpo.jl")
+include("operators/timeevolution/kronpower.jl")
+include("operators/timeevolution/taylormpo.jl")
+include("operators/timeevolution/taylor.jl")
 
 end

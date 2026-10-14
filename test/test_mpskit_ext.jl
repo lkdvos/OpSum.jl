@@ -4,10 +4,11 @@ using OpSum: LocalOperator, mpo_tensormap, irrep_mpo_tensors, jordan_mpo_tensors
 using TensorKit
 using TensorKit: removeunit, numind, BraidingTensor
 using MPSKit: MPSKit, FiniteMPOHamiltonian, InfiniteMPOHamiltonian, FiniteMPS, InfiniteMPS,
-    expectation_value
+    expectation_value, FiniteMPO, InfiniteMPO, TaylorCluster, make_time_mpo
 using TensorKitTensors.HubbardOperators: HubbardOperators as HO
 using TensorKitTensors.FermionOperators: FermionOperators as FO
 using Random: Random
+using LinearAlgebra: norm
 
 include("testutils.jl")
 
@@ -23,7 +24,8 @@ gap3(h2, V) = permute(h2 ⊗ id(V), ((1, 3, 2), (4, 6, 5)))
 centre(secs, b) = sum(dim, secs[b])
 
 @testset "without MPSKit's methods the fallback says what to load" begin
-    @test_throws ArgumentError OpSum._mpskit_hamiltonian(nothing)
+    @test_throws ArgumentError OpSum._mpskit_mpo(nothing)
+    @test_throws ArgumentError OpSum._mpskit_mpo(nothing, 0.1)
 end
 
 # One spinless-fermion site (parity only) shared by the testsets, so each MPSKit method compiles for
@@ -160,4 +162,104 @@ end
     ψ = InfiniteMPS([V], [Vmps])
     @test expectation_value(ψ, Hmps) ≈ expectation_value(ψ, ref) atol = 1.0e-10
     @test abs(expectation_value(ψ, ref)) > 1.0e-3
+end
+
+# `instantiate(W::TaylorMPO, τ)` and `make_time_mpo(::OperatorSum, dt, ::TaylorCluster)` against MPSKit's own
+# TaylorCluster on `instantiate(mpo(H))`, as dense operators on a finite chain.
+dense(O) = plain(convert(TensorMap, O))
+
+function taylor_check(H, Ns, combos, dts)
+    Hm = instantiate(mpo(H))
+    worst = 0.0
+    for N in Ns, (ext, comp) in combos, (dt, imag) in dts
+        alg = TaylorCluster(; N, extension = ext, compression = comp)
+        ref = dense(make_time_mpo(Hm, dt, alg; imaginary_evolution = imag))
+        W = taylor_mpo(H, N; extension = ext, compression = comp)
+        O = instantiate(W, imag ? -dt : -im * dt)
+        @test O isa FiniteMPO
+        O2 = make_time_mpo(H, dt, alg; imaginary_evolution = imag)
+        @test O2 isa FiniteMPO
+        d, d2 = norm(dense(O) - ref) / norm(ref), norm(dense(O2) - ref) / norm(ref)
+        @test d < 1.0e-10
+        @test d2 < 1.0e-10
+        worst = max(worst, d, d2)
+    end
+    return worst
+end
+
+allcombos = [(e, c) for e in (false, true) for c in (false, true)]
+imagonly = [(0.3, true)]
+bothtimes = [(0.3, true), (0.2, false)]
+
+# Every model pays for its own compilation of MPSKit's `make_time_mpo`, so the grid is only on one cheap model (Ising: all
+# four toggles for N = 1..3, imaginary and real time), the other symmetries are one (N, toggle) point each.
+@testset "taylor_mpo against MPSKit's TaylorCluster, finite chains" begin
+    S = spin_ops(Trivial)
+    L = 5
+    Hising = opsum(
+        FiniteChain(spin_basis(Trivial), L),
+        (-S.S_z_S_z[i, i + 1] for i in 1:(L - 1)), ((0.3 * i) * S.S_x[i] for i in 1:L)
+    )
+    @test taylor_check(Hising, 1:3, allcombos, bothtimes) < 1.0e-10
+
+    # parity fermions: the sector the testsets above already compiled MPSKit for
+    F = fermion_ops(Trivial)
+    L = 4
+    Htv = opsum(
+        FiniteChain(fermion_basis(Trivial), L),
+        (F.f_plus_f_min[i, i + 1] + F.f_plus_f_min[i + 1, i] + 2 * F.f_num[i] * F.f_num[i + 1] for i in 1:(L - 1)),
+        ((0.2 * i) * F.f_num[i] for i in 1:L)
+    )
+    @test taylor_check(Htv, 2:2, [(true, true)], imagonly) < 1.0e-10
+
+    site = hubbard_site(U1Irrep, U1Irrep)
+    L = 3
+    # `taylor_mpo` multiplies letters on a site, so it needs a basis closed under products: the unit basis
+    BU = unitbasis(site.V)
+    ehop, ud = project(site.ehop, BU), project(site.ud, BU)
+    Hhub = opsum(FiniteChain(BU, L), (-1.0 * ehop[i] for i in 1:(L - 1)), (4.0 * ud[i] for i in 1:L))
+    @test taylor_check(Hhub, 2:2, [(true, true)], imagonly) < 1.0e-10
+end
+
+@testset "taylor_mpo against MPSKit's TaylorCluster, infinite chains" begin
+    # an infinite MPO has no dense form: compare the leading transfer eigenvalue (`expectation_value`) on a
+    # random two-site MPS, both MPOs repeated to its unit cell
+    function infcheck(H, N, ext, comp, ψ, dt, imag)
+        alg = TaylorCluster(; N, extension = ext, compression = comp)
+        ref = make_time_mpo(instantiate(mpo(H)), dt, alg; imaginary_evolution = imag)
+        O = instantiate(taylor_mpo(H, N; extension = ext, compression = comp), imag ? -dt : -im * dt)
+        O2 = make_time_mpo(H, dt, alg; imaginary_evolution = imag)
+        @test O isa InfiniteMPO && O2 isa InfiniteMPO
+        e, e2, eref = (expectation_value(ψ, repeat(x, 2)) for x in (O, O2, ref))
+        @test abs(eref) > 1.0e-3
+        @test e ≈ eref rtol = 1.0e-9
+        @test e2 ≈ eref rtol = 1.0e-9
+        return nothing
+    end
+
+    U = spin_ops(U1Irrep)
+    Hheis = opsum(
+        InfiniteChain(spin_basis(U1Irrep)),
+        0.5 * (U.S_plus_S_min[1, 2] + U.S_min_S_plus[1, 2]) + 0.8 * U.S_z_S_z[1, 2],
+        0.3 * U.S_z_S_z[1, 3]
+    )
+    Vs = Vect[U1Irrep](1 // 2 => 1, -1 // 2 => 1)
+    ψs = InfiniteMPS(
+        [Vs, Vs],
+        [Vect[U1Irrep](0 => 2, 1 => 2, -1 => 2), Vect[U1Irrep](1 // 2 => 2, -1 // 2 => 2, 3 // 2 => 1, -3 // 2 => 1)]
+    )
+    infcheck(Hheis, 2, true, true, ψs, 0.2, true)
+    infcheck(Hheis, 2, true, false, ψs, 0.2, false)
+
+    # fermions with parity only: with particle-number symmetry a random infinite MPS has no sensible filling
+    # (its transfer matrix is reducible and `expectation_value` is not well defined)
+    F = fermion_ops(Trivial)
+    Htv = opsum(
+        InfiniteChain(fermion_basis(Trivial)),
+        F.f_plus_f_min[1, 2] + F.f_plus_f_min[2, 1] + 2 * F.f_num[1] * F.f_num[2], 0.2 * F.f_num[1]
+    )
+    Vf = FO.fermion_space(Trivial)
+    Vb = Vect[FermionParity](0 => 4, 1 => 4)
+    ψf = InfiniteMPS([Vf, Vf], [Vb, Vb])
+    infcheck(Htv, 2, true, true, ψf, 0.2, true)
 end

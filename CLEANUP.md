@@ -69,7 +69,22 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 
 ## Decisions
 
-(none yet)
+**D1 (convention) Underscore names are rare and never reach tests.** Internal helpers get plain names; `_` only
+for genuinely private pieces (inner methods, scratch helpers). Tests use exported or plain-named internals only.
+Applied per chunk: each chunk renames its `_` functions that tests reach and rewrites those tests.
+
+**D2 (convention) No compatibility constraints.** The package is unreleased; renames of exported names are free.
+
+**D3 (convention) Drop the `irrep`/`ITO` prefixes everywhere** (files, types, functions, exports, docs).
+Names: `IrrepOperator` → `Letter`, `ITOKey` → `Factor`, `ITOTermTable` → `TermTable`, `ITOGraph` → `SweepGraph`,
+`irrep_mpo_tensors` → `mpo_tensors`; the `IrrepTensorOperators` submodule is dissolved.
+
+**D4 Initial reorganisation before chunk 1** (moves separate from renames), covering O1, O3, O4, O5, O6, O8:
+drop `src/operators/`; merge `memo.jl` into `linalg.jl` and `connectedcomponents.jl` into `bipartite.jl` (both in
+`utility/`); `irrepinterning.jl` into the term table; split `irrepalgebra.jl` (terms / couple / instantiate) and
+move `canonicalize!` next to `Terms`; `builders.jl` → `adjoint.jl`; `expterms.jl` out of `infinite/`; output
+files into `mpo/`; tests mirror `src/`; `research/` → `benchmark/n2/`. `kronpower.jl` stays in `timeevolution/`
+(only `taylor.jl` uses it). O7 (algorithm selectors) is deferred to chunk 1.
 
 ## Possible improvements
 

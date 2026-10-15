@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: LocalOperator, mpo_tensormap, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms
+using OpSum: LocalOperator, mpo_tensormap, mpo_tensors, jordan_mpo_tensors, mpo_terms
 using TensorKit
 using TensorKit: removeunit, numind, BraidingTensor
 using MPSKit: MPSKit, FiniteMPOHamiltonian, InfiniteMPOHamiltonian, FiniteMPS, InfiniteMPS,
@@ -140,7 +140,7 @@ end
     @test mpo_terms(W) ≈ H.terms
     _, op = first((Tuple(k), v) for (k, v) in OpSum.storedpairs(W[2]) if !isone(v))
     @test instantiate(op, B) isa AbstractTensorMap
-    @test mpo_tensormap(irrep_mpo_tensors(W)) ≈ instantiate(H)
+    @test mpo_tensormap(mpo_tensors(W)) ≈ instantiate(H)
 
     # decaying channels on a finite chain: compressed, but no Jordan form yet
     Hd = opsum(FiniteChain(B, N), expterm(couple(n[1], n[2]); decay = 0.5))

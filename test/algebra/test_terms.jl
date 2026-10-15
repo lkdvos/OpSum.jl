@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: instantiate, Term, total, passthrough, ispassthrough, bondcharges, scalarop, couple, opsum, tree
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 using TensorKit
 using LinearAlgebra: dot, I as Id
 
@@ -15,7 +15,7 @@ treebonds(t::Term) = bondcharges(tree(t))      # the keys *are* the tree
     pt = passthrough(SU2Irrep)
     @test ispassthrough(pt) && pt.c == unit(SU2Irrep) && pt.n == 1
     V = SU2Space(1 // 2 => 1)
-    @test all(!ispassthrough, instances(IrrepOperator, V))
+    @test all(!ispassthrough, instances(Letter, V))
     @test reshape(convert(Array, instantiate(pt, V)), 2, 2) ≈ Matrix{ComplexF64}(Id, 2, 2)
 end
 
@@ -36,8 +36,8 @@ end
 end
 
 @testset "U(1) hopping term normal form" begin
-    raise = LO(IrrepOperator(U1Irrep(1), 1))
-    lower = LO(IrrepOperator(U1Irrep(-1), 1))
+    raise = LO(Letter(U1Irrep(1), 1))
+    lower = LO(Letter(U1Irrep(-1), 1))
     tk = onlyterm(dot(raise[1], lower[2]))
     @test charges(tk) == [U1Irrep(1), U1Irrep(-1)]
     @test total(tk) == unit(U1Irrep)

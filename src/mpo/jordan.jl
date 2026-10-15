@@ -4,7 +4,6 @@
 using BlockTensorKit: BlockTensorKit, SparseBlockTensorMap, SumSpace, eachspace
 using SparseArrays: SparseMatrixCSC, sparse
 using TensorKit: BraidingTensor, Vect, Sector, unit, tensormaptype
-using .IrrepTensorOperators: IrrepOperator
 
 """
     jordan_mpo_tensors(H::OperatorSum[, alg]) -> Vector{<:SparseBlockTensorMap}
@@ -13,7 +12,7 @@ using .IrrepTensorOperators: IrrepOperator
 site (of the chain or the unit cell), `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, with bond indices ordered
 `(start channel, everything else, finish channel)` and identities at `(1, 1)` and `(end, end)` emitted as
 `BraidingTensor`s. On a finite chain `H` must have total charge `unit(I)`. This is the shape MPSKit's
-`JordanMPOTensor` consumes; use [`irrep_mpo_tensors`](@ref) for dense `TensorMap`s. Not available for
+`JordanMPOTensor` consumes; use [`mpo_tensors`](@ref) for dense `TensorMap`s. Not available for
 decaying channels on a finite chain; a truncating [`SVDBondAlgorithm`](@ref) that empties a bond is rejected.
 """
 jordan_mpo_tensors(H::OperatorSum, args...) = jordan_mpo_tensors(mpo(H, args...))
@@ -189,7 +188,7 @@ function _jordan_tensors(layout::JordanLayout{I}, sites) where {I}
 
         # a unit-coefficient pass-through on a charge-preserving slot is a braiding
         W = SparseBlockTensorMap{TT}(undef, spaces[i] ⊗ V ← V ⊗ spaces[i + 1])
-        blocks = Dictionary{Tuple{IrrepOperator{I}, I, I}, tensormaptype(S, 2, 2, ComplexF64)}()
+        blocks = Dictionary{Tuple{Letter{I}, I, I}, tensormaptype(S, 2, 2, ComplexF64)}()
         for (idx, op) in storedpairs(layout.Ws[i])
             row, col = Tuple(idx)
             bL, bR = secL[row], secR[col]

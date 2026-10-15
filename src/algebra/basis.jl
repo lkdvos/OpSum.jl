@@ -25,7 +25,7 @@ the span. With `complete = true` the basis is extended by matrix units to span e
 struct Basis{I <: Sector, S <: ElementarySpace, T <: AbstractTensorMap}
     space::S
     elements::Vector{T}                        # basis order; `elements[1]` is the identity
-    letters::Vector{IrrepOperator{I}}          # the letter of each element
+    letters::Vector{Letter{I}}          # the letter of each element
     bycharge::Dictionary{I, Vector{Int}}       # element positions per charge, in index order
     pinv::Dictionary{I, Matrix{ComplexF64}}    # per charge: matrix-unit coefficients → basis ones
 end
@@ -48,13 +48,13 @@ scalarop(c::Number, B::Basis) = scalarop(c, sectortype(B))
 _alphabet(B::Basis{I}, ::Type{I}) where {I} = Dict{I, Int}(c => length(ks) for (c, ks) in pairs(B.bycharge))
 
 """
-    instantiate(op::IrrepOperator, B::Basis)
+    instantiate(op::Letter, B::Basis)
     instantiate(O::SiteOperator, B::Basis)
 
 The element of `B` that the letter `op` names, `V ← V ⊗ Vect[I](c => 1)`, or the combination
 `Σ coeff · element` of a symbolic on-site operator (whose letters must share one charge).
 """
-function instantiate(op::IrrepOperator{I}, B::Basis{I}) where {I}
+function instantiate(op::Letter{I}, B::Basis{I}) where {I}
     ks = get(B.bycharge, op.c, nothing)
     (ks === nothing || !(1 <= op.n <= length(ks))) && throw(
         ArgumentError("letter $op does not exist in the basis $B")
@@ -75,7 +75,7 @@ end
 # ----------------
 
 # `elems` followed by every matrix unit on `V`.
-_completed_elements(V, elems) = AbstractTensorMap[elems; [instantiate(mu, V) for mu in instances(IrrepOperator, V)]]
+_completed_elements(V, elems) = AbstractTensorMap[elems; [instantiate(mu, V) for mu in instances(Letter, V)]]
 
 _identityelement(V) = isomorphism(ComplexF64, V ← V ⊗ Vect[sectortype(V)](unit(sectortype(V)) => 1))
 
@@ -132,7 +132,7 @@ function _basis_from_elements(
     first(els) ≈ _identityelement(V) ||
         _invariant("the first element of a basis must be the identity")
     kept = similar(els, 0)
-    letters = IrrepOperator{I}[]
+    letters = Letter{I}[]
     bycharge = Dictionary{I, Vector{Int}}()
     spans = Dict{I, Matrix{ComplexF64}}()    # per charge: orthonormal span of the kept elements
     for e in els
@@ -152,7 +152,7 @@ function _basis_from_elements(
         end
         push!(kept, e)
         push!(ks, length(kept))
-        push!(letters, IrrepOperator{I}(c, length(ks)))
+        push!(letters, Letter{I}(c, length(ks)))
     end
     filter!(!isempty, bycharge)    # a charge whose only candidates were dropped
     pinv = Dictionary{I, Matrix{ComplexF64}}()
@@ -178,7 +178,7 @@ function _basis_from_elements(
 end
 
 # The matrix-unit letters of charge `c` on `V`.
-_chargeunits(V, c) = filter(mu -> mu.c == c, instances(IrrepOperator, V))
+_chargeunits(V, c) = filter(mu -> mu.c == c, instances(Letter, V))
 
 # Rank factorisation of a neutral two-site operator into charged single-site pieces. Per charge `c` of
 # the left factor, `M[a, b]` is the coefficient on the matrix units `eₐ ⊗ e_b` and `M = C R` with `C` the
@@ -268,7 +268,7 @@ function project(h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; kwargs...
     K = length(Bs)
     K == 1 || return LocalOperator{I}(out, K)
     ts = canonicalize!(out).terms
-    return SiteOperator{I}(IrrepOperator{I}[only(t.keys).op for t in ts], ComplexF64[t.coeff for t in ts])
+    return SiteOperator{I}(Letter{I}[only(t.keys).op for t in ts], ComplexF64[t.coeff for t in ts])
 end
 
 # Matrix-unit terms re-expressed letter by letter in `Bs[j]`: `(c, m)` becomes `Σₙ P[n, m] (c, n)`. A
@@ -280,15 +280,15 @@ function _rebasis(mu::AbstractVector{Term{I}}, Bs) where {I}
             key = t.keys[j]
             P = get(Bs[j].pinv, key.op.c, nothing)
             P === nothing && return nothing
-            col = P[:, key.op.n - IrrepTensorOperators._muoffset(key.op.c)]
+            col = P[:, key.op.n - _muoffset(key.op.c)]
             return [
-                (ITOKey{I}(IrrepOperator{I}(key.op.c, n), key.bond, key.vertex), col[n])
+                (Factor{I}(Letter{I}(key.op.c, n), key.bond, key.vertex), col[n])
                     for n in eachindex(col) if !iszero(col[n])
             ]
         end
         any(isnothing, maps) && continue
         for combo in Iterators.product(maps...)
-            keys = ITOKey{I}[first(x) for x in combo]
+            keys = Factor{I}[first(x) for x in combo]
             push!(out, Term{I}(t.sites, keys, t.coeff * prod(last, combo)))
         end
     end

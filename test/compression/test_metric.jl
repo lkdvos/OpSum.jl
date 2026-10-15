@@ -10,7 +10,7 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))
 # A truncating SVD truncates in the basis' Hilbert–Schmidt metric, so the result depends on the span of
 # the basis and not on how it was written.
 
-dense(W) = mpo_tensormap(irrep_mpo_tensors(W))
+dense(W) = mpo_tensormap(mpo_tensors(W))
 pairop(ts, B) = plain(instantiate(opsum(FiniteChain(B, 2), ts)))
 
 @testset "the orthonormal letters carry the operator's norm" begin

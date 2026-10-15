@@ -159,7 +159,7 @@ end
     @test length(secs) == 4
     @test secs[4] == [SU2Irrep(0)]
     # the alternating spaces are what the assembled tensors have to honour
-    Ts = irrep_mpo_tensors(mpo(H))
+    Ts = mpo_tensors(mpo(H))
     @test space(Ts[1], 2) == VSU2
     @test space(Ts[2], 2) == VSU2b
 end

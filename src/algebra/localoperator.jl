@@ -93,7 +93,7 @@ VectorInterface.scale(B::LocalOperator{I}, α::Number) where {I} =
 Add a multiple of the identity (a pass-through in every slot) to a [`LocalOperator`](@ref).
 """
 function Base.:+(B::LocalOperator{I}, α::Number) where {I}
-    key = ITOKey{I}(passthrough(I), unit(I), 1)    # α on every slot, placed as the `K = 0` scalar
+    key = Factor{I}(passthrough(I), unit(I), 1)    # α on every slot, placed as the `K = 0` scalar
     return LocalOperator{I}(B.terms + Term{I}(collect(1:B.nsites), fill(key, B.nsites), ComplexF64(α)), B.nsites)
 end
 Base.:+(α::Number, B::LocalOperator) = B + α
@@ -113,7 +113,7 @@ function _slotterms(O::SiteOperator{I}, offset::Int) where {I}
     out = Term{I}[]
     site = Int[offset + 1]
     for (letter, coeff) in pairs(O)
-        push!(out, Term{I}(site, ITOKey{I}[ITOKey{I}(letter, letter.c, 1)], ComplexF64(coeff)))
+        push!(out, Term{I}(site, Factor{I}[Factor{I}(letter, letter.c, 1)], ComplexF64(coeff)))
     end
     return Terms{I}(out)
 end

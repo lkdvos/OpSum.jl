@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, _scaled, _mul,
+using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, _scaled, _mul,
     _jordan_layout, _mpo_power, _taylor_work, _taylor_mpo, _fold_passive!, _merge_equivalent!, _prune_orphans!,
     _extend!, _compress!, _kron_entry!, _rowbond, _bond_space, _deg_indices
 using TensorKit
@@ -13,7 +13,7 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))
 # merge), Alg. 3 and 4 (the lazy entries of the next power, the closed forms of the paper and of MPSKit's tests),
 # and the order of accuracy against the dense exponential.
 
-taylor_dense(T, τ) = plain(mpo_tensormap(irrep_mpo_tensors(T, τ)))
+taylor_dense(T, τ) = plain(mpo_tensormap(mpo_tensors(T, τ)))
 const NOCOMPRESS = (_fold_passive!,)
 
 # the models by name (see `finite_models` in testutils.jl)
@@ -53,7 +53,7 @@ end
     for N in 1:3
         P = _mpo_power(W, N; closed = true)
         @test length(P.levels[L]) == 2^N
-        Ts = irrep_mpo_tensors(P.mpo)
+        Ts = mpo_tensors(P.mpo)
         sec = P.mpo.bondsectors[L]
         # the finish selects the power of H, the start the identity
         for (k, expected) in ((2^N, D^N), (1, one(D)))
@@ -540,12 +540,12 @@ end
     )
     W = mpo(H)
     L = length(W)
-    Hwin = window_operator(irrep_mpo_tensors(W), W.bondsectors, W.start[L], W.finish[L], cells)
+    Hwin = window_operator(mpo_tensors(W), W.bondsectors, W.start[L], W.finish[L], cells)
     # (the extension adds terms of order N + 2 whose weight can pull the fit below N + 1, never above)
     for N in 1:3, (extension, compression) in ((false, false), (true, true))
         T = taylor_mpo(W, N; extension, compression)
         @test T.bondsectors[L][1] == unit(sectortype(H.lattice))
-        Tw(τ) = window_operator(irrep_mpo_tensors(T, τ), T.bondsectors, 1, 1, cells)
+        Tw(τ) = window_operator(mpo_tensors(T, τ), T.bondsectors, 1, 1, cells)
         @test Tw(0.0) ≈ one(Hwin)
         @test N + 1 - 0.3 <= error_slope(Tw, Hwin, true) <= N + 1 + 0.15
         if N == 2 && extension

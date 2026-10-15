@@ -1,9 +1,9 @@
 using Test
 using OpSum
-using OpSum: ITOTermTable, _op_at_ito, arity, nterms, nvertices, ispassthrough,
+using OpSum: TermTable, _factor_at, arity, nterms, nvertices, ispassthrough,
     Term, Terms, scalarop, couple, nterms_raw, mpo, instantiate,
     canonicalize!, opsum
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 using TensorKit
 using LinearAlgebra: dot
 
@@ -12,11 +12,11 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO
 su2 = SU2Space(1 // 2 => 1)
 u1 = Rep[U₁](0 => 1, 1 => 1)
 
-@testset "ITOTermTable — flat ITO storage" begin
+@testset "TermTable — flat term storage" begin
 
     @testset "construction sanity" begin
         H = opsum((dot(spinvector(unitbasis(su2))[i], spinvector(unitbasis(su2))[i + 1]) for i in 1:3))
-        tt = ITOTermTable(H, 4)
+        tt = TermTable(H, 4)
         @test (nvertices(tt), nterms(tt), arity(tt)) == (4, length(H), 2)
         for t in 1:nterms(tt)
             occ = filter(!=(0), tt.sites[:, t])
@@ -24,12 +24,12 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
         end
     end
 
-    @testset "_op_at_ito reconstructs the running-bond pass-through path" begin
-        tt = ITOTermTable(opsum(dot(spinvector(unitbasis(su2))[1], spinvector(unitbasis(su2))[3])), 4)
+    @testset "_factor_at reconstructs the running-bond pass-through path" begin
+        tt = TermTable(opsum(dot(spinvector(unitbasis(su2))[1], spinvector(unitbasis(su2))[3])), 4)
         @test nterms(tt) == 1
-        path = [_op_at_ito(tt, 1, s) for s in 1:4]
+        path = [_factor_at(tt, 1, s) for s in 1:4]
 
-        # active sites carry the ITO letter and the outgoing (running) bond charge
+        # active sites carry the letter and the outgoing (running) bond charge
         @test !ispassthrough(path[1].op)
         @test path[1].op.c == SU2Irrep(1)
         @test path[1].bond == SU2Irrep(1)          # bond out of site 1 (the coupled pair line)
@@ -42,10 +42,10 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
     end
 
     @testset "U(1) charge threads through idle sites" begin
-        raise = LO(IrrepOperator(U1Irrep(1), 1))
-        lower = LO(IrrepOperator(U1Irrep(-1), 1))
-        tt = ITOTermTable(opsum(dot(raise[1], lower[4])), 5)
-        path = [_op_at_ito(tt, 1, s) for s in 1:5]
+        raise = LO(Letter(U1Irrep(1), 1))
+        lower = LO(Letter(U1Irrep(-1), 1))
+        tt = TermTable(opsum(dot(raise[1], lower[4])), 5)
+        path = [_factor_at(tt, 1, s) for s in 1:5]
         @test all(s -> path[s].bond == U1Irrep(1), 2:3)
         @test path[4].bond == U1Irrep(0)
         @test path[5].bond == U1Irrep(0)
@@ -62,7 +62,7 @@ end
     @test nterms_raw(H) == 2                  # two appended terms …
     @test length(H) == 1                      # … but one term
     @test only(H).coeff ≈ 2 * only(t).coeff
-    @test nterms(ITOTermTable(H, 2)) == 1
+    @test nterms(TermTable(H, 2)) == 1
 
     # canonicalisation is in place and idempotent
     @test nterms_raw(canonicalize!(H)) == 1
@@ -103,7 +103,7 @@ end
         dot(S[1], S[2]),
         couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3])
     )
-    @test arity(ITOTermTable(mixed, 3)) == 3
+    @test arity(TermTable(mixed, 3)) == 3
     @test length(mixed) == 2
 end
 
@@ -113,7 +113,7 @@ end
     sites = fill(unitbasis(su2), 4)
 
     H = opsum(terms)
-    @test nvertices(ITOTermTable(H, length(sites))) == length(sites)
+    @test nvertices(TermTable(H, length(sites))) == length(sites)
     @test mpo(opsum(sites, H)).bondsectors == mpo(opsum(FiniteChain(unitbasis(su2), 4), H)).bondsectors
 
     @test_throws ArgumentError mpo(opsum(fill(unitbasis(su2), 3), H))                 # term past the lattice

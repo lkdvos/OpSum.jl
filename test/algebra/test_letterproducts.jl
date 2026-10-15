@@ -1,7 +1,7 @@
 using Test
 using OpSum
-using OpSum: SiteOperator, IrrepOperator, scalarop, _letter_product, _mul, _written_block, _product_table,
-    ITOKey, ispassthrough
+using OpSum: SiteOperator, Letter, scalarop, _letter_product, _mul, _written_block, _product_table,
+    Factor, ispassthrough
 using TensorKit
 using LinearAlgebra: norm
 using Random: MersenneTwister
@@ -35,7 +35,7 @@ abelian_bases = [
         for x in B.letters, y in B.letters
             P = _letter_product(B, x, y)
             tot = only(x.c ⊗ y.c)
-            keys = ITOKey{I}[ITOKey{I}(x, x.c, 1), ITOKey{I}(y, tot, 1)]
+            keys = Factor{I}[Factor{I}(x, x.c, 1), Factor{I}(y, tot, 1)]
             blk = _written_block(keys, [1, 1], [B])
             sgn = (OpSum._isfermionodd(x.c) && OpSum._isfermionodd(y.c)) ? -1 : 1
             if isempty(P)

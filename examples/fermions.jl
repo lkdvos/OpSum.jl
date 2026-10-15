@@ -1,7 +1,7 @@
 # # Fermions: free chains and the Hubbard model
 #
 # Fermionic models need no special support here: TensorKit's graded (fermionic) sectors carry the
-# anticommutation through the braiding, and the ITO machinery inherits it. In particular
+# anticommutation through the braiding, and the letter machinery inherits it. In particular
 # **no Jordan–Wigner strings appear anywhere** — the odd-parity charge flowing along the virtual
 # bond does that bookkeeping for you.
 #

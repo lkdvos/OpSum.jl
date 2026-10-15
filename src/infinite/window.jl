@@ -7,7 +7,6 @@
 
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Sector, unit, block, oneunit, ncon, removeunit, permute, @tensor
-using .IrrepTensorOperators: IrrepOperator
 
 # --- identity-channel detection ---------------------------------------------------------------
 
@@ -144,8 +143,8 @@ function _infinite_window(
     for attempt in 1:3
         attempt == 1 || (nc *= 2)
         N = nc * L
-        tt = ITOTermTable(window_terms(gen.terms, lat, nc), N)
-        Ws, bondsectors = _irrep_sweep(
+        tt = TermTable(window_terms(gen.terms, lat, nc), N)
+        Ws, bondsectors = _sweep(
             tt, N, VertexCover(); channels = _lower_channels(gen.channels, L)
         )
         c = _fixedpoint_cell(Ws, bondsectors, L, R)

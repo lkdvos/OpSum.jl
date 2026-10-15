@@ -10,7 +10,7 @@
 #
 # | function | tensors | what consumes it |
 # |---|---|---|
-# | [`irrep_mpo_tensors`](@ref OpSum.irrep_mpo_tensors) | one `TensorMap` per site | contraction, dense comparison, `MPSKit.InfiniteMPO` |
+# | [`mpo_tensors`](@ref OpSum.mpo_tensors) | one `TensorMap` per site | contraction, dense comparison, `MPSKit.InfiniteMPO` |
 # | [`jordan_mpo_tensors`](@ref OpSum.jordan_mpo_tensors) | one `SparseBlockTensorMap` per site | `instantiate(W)`, and hence DMRG and VUMPS |
 #
 # `jordan_mpo_tensors` is the one MPSKit's Hamiltonian machinery wants: it reorders the bond indices
@@ -86,7 +86,7 @@ isapprox(E, exact; atol = 1.0e-8)
 
 # ## The dense route, for comparison
 #
-# `irrep_mpo_tensors` gives plain `TensorMap`s, and [`mpo_tensormap`](@ref OpSum.mpo_tensormap)
+# `mpo_tensors` gives plain `TensorMap`s, and [`mpo_tensormap`](@ref OpSum.mpo_tensormap)
 # contracts them into `instantiate`'s convention. This is the check that the *operator* is right,
 # independent of anything MPSKit does with it — and it is exponential in `N`, so it stays small.
 

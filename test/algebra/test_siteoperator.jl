@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: SiteOperator, scalarop, prune, instantiate, passthrough, ispassthrough
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 using TensorKit
 using TensorKit: sectortype, removeunit
 using VectorInterface: scalartype, scale, add, inner
@@ -11,8 +11,8 @@ using LinearAlgebra: norm
 # `prune` removes cancelled letters (an explicit zero would spend a bond index).
 
 const V = SU2Space(1 // 2 => 1)
-const A = IrrepOperator{SU2Irrep}(SU2Irrep(0), 2)   # index 1 is the identity
-const B = IrrepOperator{SU2Irrep}(SU2Irrep(1), 1)
+const A = Letter{SU2Irrep}(SU2Irrep(0), 2)   # index 1 is the identity
+const B = Letter{SU2Irrep}(SU2Irrep(1), 1)
 const SO = SiteOperator{SU2Irrep}
 
 @testset "construction, scalars, container interface" begin

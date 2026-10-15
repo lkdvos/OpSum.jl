@@ -27,7 +27,7 @@ end
 # covers `rfinish` so the pass-through folds in, otherwise whichever the cover takes is read. The
 # sentinel is never covered (see `_force_finish!`); the covered-right case is its unreachable dual.
 function _vc_component(
-        g::ITOGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int
+        g::SweepGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int
     ) where {I}
     LOp = SiteOperator{I}
     N = g.N
@@ -126,7 +126,7 @@ end
 # predecessor is covered-left and forwards `λ·w` instead of landing `λ · pass-through` on the diagonal.
 # Free in the bulk (the state has a pendant predecessor); at most one index in a window's boundary cells.
 function _forced_cover(
-        g::ITOGraph, localadj::Vector{Vector{Int}}, nus::Int, nvs::Int, vs::Vector{Int}
+        g::SweepGraph, localadj::Vector{Vector{Int}}, nus::Int, nvs::Int, vs::Vector{Int}
     )
     forced = BitVector(_iscyclic(g, vs[p]) for p in 1:nvs)
     any(forced) || return min_vertex_cover_bipartite(localadj, nus, nvs)[1:2]
@@ -139,7 +139,7 @@ end
 # Both are translation-invariant given a canonical incoming bond, so bonds `i` and `i+L` of a periodic
 # model get identical bases, not merely isomorphic ones.
 function _canonicalise_bond!(
-        g::ITOGraph{I}, i::Int, nout::Int, site_dict, secW::Vector{I},
+        g::SweepGraph{I}, i::Int, nout::Int, site_dict, secW::Vector{I},
         nextedges_global::Vector{Vector{Tuple{Int, ComplexF64}}},
         origins_global::Vector{Tuple{Int, Int}}
     ) where {I}
@@ -167,7 +167,7 @@ end
 
 # `_bond_basis!` for `VertexCover`: cover each connected component and concatenate the ranks.
 # Returns `(nout, site_dict, secW, nextedges_global)`.
-function _bond_basis!(g::ITOGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) where {I}
+function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) where {I}
     LOp = SiteOperator{I}
     us_of_comp, vs_of_comp = bipartite_connected_components(g.radj, nV)
 

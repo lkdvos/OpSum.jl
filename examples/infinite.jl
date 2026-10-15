@@ -112,11 +112,11 @@ map(length, Hj1j2.bondsectors)
 
 # ## Assembling the tensors
 #
-# [`irrep_mpo_tensors`](@ref OpSum.irrep_mpo_tensors) gives `L` site tensors that **tile**: site 1's
+# [`mpo_tensors`](@ref OpSum.mpo_tensors) gives `L` site tensors that **tile**: site 1's
 # left virtual space is site `L`'s right virtual space. That property is exactly what an infinite
 # MPS algorithm requires of its operator.
 
-T∞ = irrep_mpo_tensors(H∞)
+T∞ = mpo_tensors(H∞)
 space(T∞[1], 1) == space(T∞[end], 4)'
 
 # What you can do with them downstream — `instantiate(H∞)` is an `MPSKit.InfiniteMPOHamiltonian` — is

@@ -1,9 +1,9 @@
 using Test
 using OpSum
 using OpSum: project, instantiate, scalarop, couple, mpo, opsum, FiniteChain,
-    irrep_mpo_tensors, mpo_terms, Term, Terms, total, ops, tree, bondcharges,
+    mpo_tensors, mpo_terms, Term, Terms, total, ops, tree, bondcharges,
     caterpillar_trees, _instantiate_term, _project_units, _instantiate_terms
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 using TensorKit
 using TensorKit: @tensor, insertrightunit, removeunit
 using VectorInterface: inner
@@ -33,12 +33,12 @@ const SPACES = (
 # every candidate basis element for `Vs`/`tot`, as `(ops, tree, E)`
 function candidates(Vs, tot::I) where {I <: Sector}
     K = length(Vs)
-    alphabets = [instances(IrrepOperator, V) for V in Vs]
-    out = Tuple{Vector{IrrepOperator{I}}, FusionTree{I}, Any}[]
+    alphabets = [instances(Letter, V) for V in Vs]
+    out = Tuple{Vector{Letter{I}}, FusionTree{I}, Any}[]
     for opstup in Iterators.product(alphabets...)
         cs = ntuple(k -> opstup[k].c, K)
         for f in caterpillar_trees(cs, tot)
-            letters = collect(IrrepOperator{I}, opstup)
+            letters = collect(Letter{I}, opstup)
             push!(out, (letters, f, _instantiate_term(letters, 1:K, f, Vs)))
         end
     end
@@ -148,8 +148,8 @@ end
 
     # U(1) hopping
     Vu = Rep[U₁](0 => 1, 1 => 1)
-    raise = LO(IrrepOperator(U1Irrep(1), 1))
-    lower = LO(IrrepOperator(U1Irrep(-1), 1))
+    raise = LO(Letter(U1Irrep(1), 1))
+    lower = LO(Letter(U1Irrep(-1), 1))
     H = couple(raise[1], lower[2]; to = U1Irrep(0))
     tk = onlyterm(pu(inst(H, [Vu, Vu]), [1, 2]))
     @test [o.c for o in ops(tk)] == [U1Irrep(1), U1Irrep(-1)]
@@ -320,7 +320,7 @@ end
             @test mpo_terms(Ws, secs) ≈ H
 
             # and the assembled tensors contract to the operator
-            T = irrep_mpo_tensors(Ws, secs, lat)
+            T = mpo_tensors(Ws, secs, lat)
             @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
                 T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
             @test physmatrix(Op, N, d) ≈ physmatrix(instantiate(opsum(lat, H)), N, d)
@@ -332,7 +332,7 @@ end
     V = SU2Space(1 // 2 => 1)
     S = spinvec(V)
     scalarpart = couple(
-        LO(IrrepOperator(SU2Irrep(0), 2))[1], LO(IrrepOperator(SU2Irrep(0), 2))[2];   # a matrix unit
+        LO(Letter(SU2Irrep(0), 2))[1], LO(Letter(SU2Irrep(0), 2))[2];   # a matrix unit
         to = SU2Irrep(0)
     )
     h = inst(dot(S[1], S[2]), [V, V]) + 1.0e-6 * inst(scalarpart, [V, V])

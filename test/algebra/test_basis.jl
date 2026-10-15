@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: SiteOperator, LocalOperator, nsites, passthrough, ispassthrough, scalarop, Terms
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 using TensorKit
 using LinearAlgebra: dot
 
@@ -28,7 +28,7 @@ bonddim(H, b) = densedim(mpo(H).bondsectors, b)
     B = Basis([Imat, Xmat, Ymat, Zmat])
     @test length(B) == 4                         # the explicit identity is the prepended one
     @test space(B) == ℂ^2
-    @test B.letters == [IrrepOperator(Trivial(), n) for n in 1:4]
+    @test B.letters == [Letter(Trivial(), n) for n in 1:4]
     @test first(B.letters) == passthrough(Trivial)
     @test plain(B[1]) ≈ id(ℂ^2)
 
@@ -60,9 +60,9 @@ end
 @testset "project(O, basis) on one space" begin
     B = Basis([Imat, Xmat, Ymat, Zmat])
     X = project(Xmat, B)
-    @test collect(pairs(X)) == [IrrepOperator(Trivial(), 2) => 1]
+    @test collect(pairs(X)) == [Letter(Trivial(), 2) => 1]
     Sp = project(Spmat, B)                                   # (X + iY)/2: two elements
-    @test Sp ≈ 0.5 * IrrepOperator(Trivial(), 2) + 0.5im * IrrepOperator(Trivial(), 3)
+    @test Sp ≈ 0.5 * Letter(Trivial(), 2) + 0.5im * Letter(Trivial(), 3)
     @test plain(instantiate(Sp, B)) ≈ TensorMap(Spmat, ℂ^2 ← ℂ^2)
 
     # the identity is element 1, i.e. a scalar
@@ -73,9 +73,9 @@ end
     # the same operators, atomic in another (non-orthogonal) basis
     A = Basis([Imat, Spmat, Smmat, Zmat + Imat])
     @test length(A) == 4
-    @test collect(pairs(project(Spmat, A))) == [IrrepOperator(Trivial(), 2) => 1]
+    @test collect(pairs(project(Spmat, A))) == [Letter(Trivial(), 2) => 1]
     Z = project(Zmat, A)
-    @test Z ≈ -1 * passthrough(Trivial) + 1 * IrrepOperator(Trivial(), 4)
+    @test Z ≈ -1 * passthrough(Trivial) + 1 * Letter(Trivial(), 4)
 
     # outside the span
     @test_throws ArgumentError project(Xmat, Basis([Zmat]))
@@ -120,7 +120,7 @@ end
     # the pieces are the matrix units S⁺ and S⁻, so the pair keeps its matrix-unit coefficient
     for c in (U1Irrep(1), U1Irrep(-1))
         e = B[only(B.bycharge[c])]
-        @test any(mu -> mu.c == c && e ≈ instantiate(mu, V), instances(IrrepOperator, V))
+        @test any(mu -> mu.c == c && e ≈ instantiate(mu, V), instances(Letter, V))
     end
     pm = project(SpSm, B)
     @test length(pm.terms) == 1 && only(pm.terms).coeff ≈ only(project(SpSm, BU).terms).coeff
@@ -189,7 +189,7 @@ end
     B = Basis([SS])
     @test length(B) == 2                                    # 𝟙 and S⃗ (left and right piece agree)
     # the piece is the spin-1 matrix unit, so the pair keeps its matrix-unit coefficient
-    @test B[2] ≈ instantiate(IrrepOperator(SU2Irrep(1), 1), V)
+    @test B[2] ≈ instantiate(Letter(SU2Irrep(1), 1), V)
     ss = project(SS, B)
     @test length(ss.terms) == 1 && only(ss.terms).coeff ≈ only(project(SS, BU).terms).coeff
     H(N) = opsum(FiniteChain(B, N), (ss[i] for i in 1:(N - 1)))
@@ -198,5 +198,5 @@ end
     @test dense(mpo_terms(mpo(H(2))), fill(B, 2)) ≈ plain(instantiate(Hm(2)))
     # a constant part is an all-identity term, which places as a scalar
     sc = project(SS + 2 * id(V ⊗ V), B)
-    @test sc[1] ≈ ss[1] + 2 * Terms{SU2Irrep}(OpSum.Term{SU2Irrep}[OpSum.Term(Int[], OpSum.ITOKey{SU2Irrep}[], 1)])
+    @test sc[1] ≈ ss[1] + 2 * Terms{SU2Irrep}(OpSum.Term{SU2Irrep}[OpSum.Term(Int[], OpSum.Factor{SU2Irrep}[], 1)])
 end

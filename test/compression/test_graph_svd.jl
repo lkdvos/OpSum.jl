@@ -1,8 +1,8 @@
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, mpo_terms, instantiate, scalarop, couple, opsum
+using OpSum: mpo, mpo_tensors, mpo_terms, instantiate, scalarop, couple, opsum
 using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, IndependentSVD, SequentialSVD
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: dot
@@ -22,8 +22,8 @@ mpo_operator(Ws, secs, sites) = instantiate(opsum(sites, mpo_terms(Ws, secs)))
     Vs = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(Vs))
     Vu = Rep[U₁](0 => 1, 1 => 1)
-    raise, lower = LO(IrrepOperator(U1Irrep(1), 1)), LO(IrrepOperator(U1Irrep(-1), 1))
-    ops = [LO(IrrepOperator(unit(Trivial), n)) for n in 1:4]
+    raise, lower = LO(Letter(U1Irrep(1), 1)), LO(Letter(U1Irrep(-1), 1))
+    ops = [LO(Letter(unit(Trivial), n)) for n in 1:4]
     cases = Any[
         ("SU2 Heisenberg N=$N", unitbasis(Vs), N, opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1)), SU2Irrep(0)) for N in (3, 4, 5)
     ]
@@ -69,7 +69,7 @@ end
     @test densedim(st, 1) < densedim(sb, 1)
     @test length(st[1]) == 1
 
-    Mtrunc = physmatrix(contract3(irrep_mpo_tensors(Wt, st, sites)), N, 2)
+    Mtrunc = physmatrix(contract3(mpo_tensors(Wt, st, sites)), N, 2)
     Mexact = physmatrix(instantiate(opsum(sites, H)), N, 2)
     @test size(Mtrunc) == size(Mexact)
     @test !(Mtrunc ≈ Mexact)

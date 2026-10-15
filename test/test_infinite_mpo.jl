@@ -2,9 +2,9 @@ using Test
 using TensorKit
 using LinearAlgebra: dot
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, mpo_terms_window, window_terms, unitcell_terms,
+using OpSum: mpo, mpo_tensors, mpo_terms_window, window_terms, unitcell_terms,
     translate, maxspan, termspan, couple, scalarop, instantiate
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 
 include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, element, matrixunit, spinvector
 
@@ -112,7 +112,7 @@ end
         @test all(j -> Hinf.start[j] != Hinf.finish[j], 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.start[j]] == unit(I), 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.finish[j]] == unit(I), 1:L)
-        Ts = irrep_mpo_tensors(Hinf)
+        Ts = mpo_tensors(Hinf)
         @test length(Ts) == L
         for j in 1:L
             @test space(Ts[j], 2) == TensorKit.space(spaces[j])
@@ -231,7 +231,7 @@ end
         N = ncells * L
         sites = [spaces[mod1(j, L)] for j in 1:N]
 
-        Ts = irrep_mpo_tensors(Hinf)
+        Ts = mpo_tensors(Hinf)
         tiled = [Ts[mod1(j, L)] for j in 1:N]
         O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.finish[L])
         oracle = instantiate(opsum(sites, mpo_terms_window(Hinf, ncells)))

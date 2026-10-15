@@ -100,10 +100,10 @@ function run(which)
     # different matrix-unit tuples land on the same basis term and cancel to round-off there
     cmax = maximum(t -> abs(t.coeff), rb)
     Hb = opsum(lat, Terms(filter(t -> abs(t.coeff) > 1.0e-12 * cmax, rb)))
-    tt = OpSum.ITOTermTable(terms, N)
+    tt = OpSum.TermTable(terms, N)
     @printf "terms: %d in matrix units, %d in the basis\n" OpSum.nterms(tt) length(Hb.terms)
 
-    secs_m = OpSum._irrep_channels(tt, N, OpSum.VertexCover())[2]
+    secs_m = OpSum._sweep_channels(tt, N, OpSum.VertexCover())[2]
     secs_b = mpo(Hb).bondsectors
     bonds = which == "STO3G" ? [N ÷ 2] : [7, 14, 21]
     for b in bonds

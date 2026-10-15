@@ -49,7 +49,7 @@ function unitbasis(V::ElementarySpace)
         I = sectortype(V)
         idel = isomorphism(ComplexF64, V ← V ⊗ Vect[I](unit(I) => 1))
         units = [
-            instantiate(mu, V) for mu in instances(OpSum.IrrepOperator, V)
+            instantiate(mu, V) for mu in instances(OpSum.Letter, V)
                 if !(mu.c == unit(I) && mu.n <= 2)    # n = 1 is the identity itself
         ]
         OpSum._basis_from_elements(V, [idel; units])
@@ -73,7 +73,7 @@ end
 function spinvector(B::Basis)
     V = TensorKit.space(B)
     s = only(sectors(V)).j
-    mu = instantiate(OpSum.IrrepOperator(TensorKit.SU2Irrep(1), 1), V)   # the spin-1 matrix unit
+    mu = instantiate(OpSum.Letter(TensorKit.SU2Irrep(1), 1), V)   # the spin-1 matrix unit
     return sqrt(s * (s + 1) * (2s + 1)) * project(mu, B)
 end
 

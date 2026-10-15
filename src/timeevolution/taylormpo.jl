@@ -60,7 +60,7 @@ end
     evaluate(W::TaylorMPO, τ::Number) -> Vector{SparseMatrixCSC{SiteOperator}}
 
 The value at `τ`: of one polynomial entry, or of every entry of a [`TaylorMPO`](@ref) (its bond matrices, the
-form [`irrep_mpo_tensors`](@ref) takes).
+form [`mpo_tensors`](@ref) takes).
 """
 function evaluate(e::TaylorEntry{I}, τ::Number) where {I}
     acc = zero(SiteOperator{I})
@@ -88,7 +88,7 @@ bond matrices `Ws[i]` of site `i` hold polynomials in `τ` (`TaylorEntry`s), and
 of each index of the bond right of site `i`, as in [`SymbolicMPO`](@ref) (on an [`InfiniteChain`](@ref) bond
 `L` is the one left of site 1; the right boundary of a finite chain is the single index of charge `unit`).
 Built by [`taylor_mpo`](@ref); [`evaluate`](@ref)`(W, τ)`, or `W(τ)`, gives the bond matrices at a value of `τ`
-and `irrep_mpo_tensors(W, τ)` the symmetric site tensors.
+and `mpo_tensors(W, τ)` the symmetric site tensors.
 """
 struct TaylorMPO{I <: Sector, L <: AbstractLattice}
     lattice::L
@@ -115,8 +115,8 @@ end
 (W::TaylorMPO)(τ::Number) = evaluate(W, τ)
 
 # the evaluated bond matrices carry no identity channels (`start`/`finish` empty: unknown), only the tiling
-irrep_mpo_tensors(W::TaylorMPO, τ::Number) =
-    irrep_mpo_tensors(SymbolicMPO(W.lattice, evaluate(W, τ), W.bondsectors, Int[], Int[]))
+mpo_tensors(W::TaylorMPO, τ::Number) =
+    mpo_tensors(SymbolicMPO(W.lattice, evaluate(W, τ), W.bondsectors, Int[], Int[]))
 
 """
     taylor_mpo(H::OperatorSum, N::Integer; extension = true, compression = false) -> TaylorMPO
@@ -176,7 +176,7 @@ end
 """
     instantiate(W::TaylorMPO, τ::Number)
 
-MPSKit's `FiniteMPO` or `InfiniteMPO` of `exp(τH)` for `W`, evaluated at `τ` (see [`irrep_mpo_tensors`](@ref)).
+MPSKit's `FiniteMPO` or `InfiniteMPO` of `exp(τH)` for `W`, evaluated at `τ` (see [`mpo_tensors`](@ref)).
 Requires MPSKit to be loaded; with it, `make_time_mpo(H::OperatorSum, dt, TaylorCluster(; N, extension,
 compression))` builds `taylor_mpo(H, N; extension, compression)` and instantiates it at `τ = -dt` (imaginary
 evolution) or `τ = -i dt`.

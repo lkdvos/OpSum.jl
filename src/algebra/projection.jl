@@ -1,4 +1,4 @@
-# Dense symmetric `TensorMap` → matrix-unit ITO terms, the inverse of `instantiate`. No linear solve:
+# Dense symmetric `TensorMap` → matrix-unit terms, the inverse of `instantiate`. No linear solve:
 # the candidates `(ops, tree)` are orthogonal and complete with `inner(E_α, E_β) = δ_αβ g`,
 # `g = dim(tot) / Π_k dim(ops[k].c)`, so `c_α = inner(E_α, h) / g`.
 
@@ -29,19 +29,19 @@ function _with_charge_leg(h::AbstractTensorMap, K::Int, ::Type{I}) where {I <: S
 end
 
 # `(ops, tree, coeff)` for every candidate whose norm contribution exceeds `θ`, and the candidate count.
-function _ito_coefficients(
+function _coefficients(
         hc::AbstractTensorMap, Vs::AbstractVector{<:ElementarySpace}, tot::I, θ::Real
     ) where {I <: Sector}
     K = length(Vs)
     bycharge = map(Vs) do V
-        groups = Dictionary{I, Vector{IrrepOperator{I}}}()
-        for op in instances(IrrepOperator, V)
+        groups = Dictionary{I, Vector{Letter{I}}}()
+        for op in instances(Letter, V)
             haskey(groups, op.c) ? push!(groups[op.c], op) : insert!(groups, op.c, [op])
         end
         return groups
     end
 
-    out = Tuple{Vector{IrrepOperator{I}}, FusionTree{I}, ComplexF64}[]
+    out = Tuple{Vector{Letter{I}}, FusionTree{I}, ComplexF64}[]
     ncand = 0
     for cs in Iterators.product(map(collect ∘ keys, bycharge)...)
         trees = caterpillar_trees(cs, tot)
@@ -50,7 +50,7 @@ function _ito_coefficients(
         letters = ntuple(k -> bycharge[k][cs[k]], K)
         for opstup in Iterators.product(letters...), tree in trees
             ncand += 1
-            ops = collect(IrrepOperator{I}, opstup)
+            ops = collect(Letter{I}, opstup)
             E = _instantiate_term(ops, 1:K, tree, Vs)
             c = ComplexF64(inner(E, hc) / g)
             # the norm contribution is `|c| √g`, so bare `abs(c)` would not control the dropped norm
@@ -90,12 +90,12 @@ function _project_units(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _defa
 
     hnorm = norm(hc)
     θ = max(float(atol), float(rtol) * hnorm)
-    coeffs, ncand = _ito_coefficients(hc, Vs, tot, θ)
+    coeffs, ncand = _coefficients(hc, Vs, tot, θ)
 
-    # a caterpillar tree is its running bond charges, i.e. the `ITOKey`s
+    # a caterpillar tree is its running bond charges, i.e. the `Factor`s
     out = Terms{I}(
         Term{I}[
-            Term{I}(collect(1:K), ITOKey{I}[ITOKey{I}(ops[j], bondcharges(tree)[j], 1) for j in 1:K], c)
+            Term{I}(collect(1:K), Factor{I}[Factor{I}(ops[j], bondcharges(tree)[j], 1) for j in 1:K], c)
                 for (ops, tree, c) in coeffs
         ]
     )

@@ -2,7 +2,6 @@
 
 using TensorKit
 using TensorKit: ElementarySpace, FusionTree, unit, dim, id, Vect, domain, permute, insertrightunit
-using .IrrepTensorOperators: IrrepOperator
 
 # The space a site's operators act on: a site is described by its space, or by a `Basis` (basis.jl).
 _space(V::ElementarySpace) = V
@@ -23,7 +22,7 @@ end
 _instantiate_term(t::Term, sites) = _instantiate_term(ops(t), t.sites, tree(t), sites)
 
 # charged field on site `p`, identities elsewhere, charge leg last in the domain
-function _embed_field(op::IrrepOperator, p, sites)
+function _embed_field(op::Letter, p, sites)
     N = length(sites)
     loc = instantiate(op, sites[p])                # V_p ← V_p ⊗ V_c
     full = foldl(⊗, (j == p ? loc : id(_space(sites[j])) for j in 1:N))
@@ -89,4 +88,3 @@ The scalar operator `c·𝟙`: `c` times the identity letter `(unit(I), 1)`, ele
 """
 scalarop(c::Number, ::Type{I}) where {I} = SiteOperator{I}(ComplexF64(c))
 scalarop(c::Number, V::ElementarySpace) = scalarop(c, sectortype(V))
-

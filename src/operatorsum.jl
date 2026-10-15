@@ -110,7 +110,7 @@ end
 function _checkchannels(lat::AbstractLattice, chans)
     for k in keys(chans)
         I = sectortype(k.term)
-        letters = IrrepOperator{I}[l for (l, _) in k.string if l !== nothing]
+        letters = Letter{I}[l for (l, _) in k.string if l !== nothing]
         lat isa FiniteChain && append!(letters, (key.op for key in k.term.keys))
         isempty(letters) && continue
         allequal(lat.sites) || throw(

@@ -31,7 +31,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   (through the internal matrix-unit expansion `_project_units`); `instantiate(letter, B)` is its inverse.
   Stock bases (`spin_basis`, `fermion_basis`, `boson_basis`, `hubbard_basis`, `tj_basis`) and builders
   (`spin_ops`, …, named after TensorKitTensors functions) live in `stockbases.jl` and are memoised.
-* **Terms** (`algebra/terms.jl`, `algebra/letters.jl`): `Term` = ascending sites, one `ITOKey` per site, coefficient; the
+* **Terms** (`algebra/terms.jl`, `algebra/letters.jl`): `Term` = ascending sites, one `Factor` per site, coefficient; the
   running bond charges of the caterpillar *are* the fusion tree. `==`/`hash` ignore the coefficient. `Terms` is a
   bag; `canonicalize!` (`algebra/terms.jl`) is the only normal form and everything observing the set goes through it.
   `≈` compares canonical terms as sparse vectors; `==` is exact.
@@ -39,14 +39,14 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   Non-abelian (`_canrecouple`): written in order, re-coupled by `_recouple` (`products.jl`). Two fermion-odd operands
   pick up the graded sign. `a[i] * b[i]` is a `PendingTerm`, resolved in the sites' bases when added to an
   `OperatorSum` (`_resolve`); a bag with pending products has no normal form.
-* **Sweep** (`compression/graph*.jl`): `ITOGraph` walked site by site (`_at_site!`); the bond basis comes from
+* **Sweep** (`compression/graph*.jl`): `SweepGraph` walked site by site (`_at_site!`); the bond basis comes from
   a `BondStrategy` (`VertexCover` default via Hopcroft–Karp + König in `utility/bipartite.jl`; `IndependentSVD`,
   `SequentialSVD`). Load-bearing invariant: the pending↔started suffix-class collision (`_promote_pending!`), guarded
   in `test/compression/test_graph.jl` in all three sectors. Truncating SVD works in the bases' Hilbert–Schmidt metric (`metric.jl`).
 * **Container and output** (`operatorsum.jl`, `mpo/{symbolicmpo,tensors,jordan}.jl`): `OperatorSum` holds
   lattice + `Terms` + `ExpSum` channels and validates on insertion (`_checkinsert`, `_checkchannels`). `mpo(H[, alg])`
   → `SymbolicMPO`; on a finite chain without channels the finish channel is forced into the cover (`_force_finish!`)
-  so a Jordan form exists. `irrep_mpo_tensors`, `jordan_mpo_tensors` (BlockTensorKit, MPSKit layout) and
+  so a Jordan form exists. `mpo_tensors`, `jordan_mpo_tensors` (BlockTensorKit, MPSKit layout) and
   `instantiate(W)` (MPSKit extension, `ext/`) emit tensors. `H'` goes through dense blocks (`_adjoint_terms`).
 * **Infinite chains** (`infinite/`): `mpo` on an `InfiniteChain` unrolls a window, runs the same sweep and finds the
   translation-invariant cell (`_infinite_window`); the suffix canonicalisation (`_canonicalise_rights!`) is required
@@ -55,7 +55,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
 * **Time evolution** (`timeevolution/{kronpower,taylormpo,taylor}.jl`, `algebra/letterproducts.jl`):
   `taylor_mpo(H|W, N; extension = true, compression = false)` → `TaylorMPO`, the symbolic `exp(τH)` MPO through `τ^N`
   (Van Damme et al., SciPost Phys. 17, 135); entries are `TaylorEntry` τ-polynomials, `evaluate(W, τ)` / `W(τ)` /
-  `irrep_mpo_tensors(W, τ)` fix `τ` (`U ≈ exp(τH)`: imaginary time `τ = -β`, real time `τ = -it`). Abelian only
+  `mpo_tensors(W, τ)` fix `τ` (`U ≈ exp(τH)`: imaginary time `τ = -β`, real time `τ = -it`). Abelian only
   (fermions included), non-abelian throws; the MPSKit extension adds `instantiate(W, τ)` and `make_time_mpo(…,
   TaylorCluster)`. On-site products are coefficient arithmetic on per-basis structure constants (`_letter_product`,
   memoised per letter pair); the `N`-fold Kronecker power of the Jordan form is enumerated depth-first with a word trie
@@ -70,7 +70,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
 
 * Concrete types, no expression trees (on-site products are the one deferred case).
 * Invariant checks are `throw`s via `_invariant`, never `@assert`.
-* Model code uses neutral operators only (builders, `project`); never a hard-coded `IrrepOperator(c, n)`.
+* Model code uses neutral operators only (builders, `project`); never a hard-coded `Letter(c, n)`.
 * Verification: `islossless(H)` (= `mpo_terms(mpo(H)) ≈ chain_terms(H)`) and the dense oracle `instantiate(H)`.
 * Tests: `test/**/test_*.jl` (subfolders mirror `src/`, one file per source file; end-to-end ones sit at the top), discovered automatically; shared helpers in `test/testutils.jl` (`unitbasis`,
   `spinvector`, `matrixunit`, `fermionmode`, `physmatrix`, `reduced`). MPSKit is a weak dependency tracked from

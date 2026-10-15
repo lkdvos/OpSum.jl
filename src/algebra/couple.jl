@@ -4,7 +4,6 @@ using TensorKit
 using TensorKit: Sector, unit, dim, Nsymbol, Rsymbol, FusionStyle, UniqueFusion,
     BraidingStyle, SymmetricBraiding
 using LinearAlgebra: LinearAlgebra
-using .IrrepTensorOperators: IrrepOperator
 
 function Base.getindex(O::SiteOperator{I}, ind::Integer, inds::Integer...) where {I}
     isempty(inds) ||
@@ -14,7 +13,7 @@ function Base.getindex(O::SiteOperator{I}, ind::Integer, inds::Integer...) where
     # the pass-through is the bare identity: a K = 0 term
     return Terms{I}(
         Term{I}[
-            ispassthrough(l) ? Term{I}(Int[], ITOKey{I}[], c) : Term{I}([site], [ITOKey{I}(l, l.c, 1)], c)
+            ispassthrough(l) ? Term{I}(Int[], Factor{I}[], c) : Term{I}([site], [Factor{I}(l, l.c, 1)], c)
                 for (l, c) in pairs(O)
         ]
     )
@@ -83,28 +82,28 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             _isfermionodd(run) && _isfermionodd(opb.c) && (coeff = -coeff)
             if p <= na && !reorder
                 # non-abelian: append in written order, then re-couple into site order
-                keys_w = vcat(ta.keys, ITOKey{I}(opb, tot, 1))
+                keys_w = vcat(ta.keys, Factor{I}(opb, tot, 1))
                 append!(out, _recouple(vcat(ta.sites, sb), keys_w, coeff))
                 continue
             end
             sites = Vector{Int}(undef, na + 1)
-            keys = Vector{ITOKey{I}}(undef, na + 1)
+            keys = Vector{Factor{I}}(undef, na + 1)
             for j in 1:(p - 1)
                 sites[j] = ta.sites[j]
                 keys[j] = ta.keys[j]
             end
             sites[p] = sb
             if p == na + 1
-                keys[p] = ITOKey{I}(opb, tot, 1)
+                keys[p] = Factor{I}(opb, tot, 1)
             else
                 bond = p == 1 ? opb.c : only(ta.keys[p - 1].bond ⊗ opb.c)
-                keys[p] = ITOKey{I}(opb, bond, 1)
+                keys[p] = Factor{I}(opb, bond, 1)
                 for j in p:na
                     op = ta.keys[j].op
                     coeff *= Rsymbol(op.c, opb.c, only(op.c ⊗ opb.c))
                     bond = only(bond ⊗ op.c)
                     sites[j + 1] = ta.sites[j]
-                    keys[j + 1] = ITOKey{I}(op, bond, 1)
+                    keys[j + 1] = Factor{I}(op, bond, 1)
                 end
                 bond == tot ||
                     _invariant("reordered coupling reached $bond, not the total $tot")

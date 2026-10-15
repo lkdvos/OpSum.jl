@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: instantiate, total, bondcharges, tree, opsum
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 using TensorKit
 using LinearAlgebra: dot, norm, eigvals, I as Id
 
@@ -96,8 +96,8 @@ end
 
 @testset "U(1) coupling / charge structure" begin
     V = Rep[U₁](0 => 1, 1 => 1)
-    raise = LO(IrrepOperator(U1Irrep(1), 1))
-    lower = LO(IrrepOperator(U1Irrep(-1), 1))
+    raise = LO(Letter(U1Irrep(1), 1))
+    lower = LO(Letter(U1Irrep(-1), 1))
 
     Hop = inst(dot(raise[1], lower[2]), [V, V])
     @test space(Hop) == ((V ⊗ V) ← (V ⊗ V ⊗ Vect[U1Irrep](U1Irrep(0) => 1)))
@@ -307,7 +307,7 @@ end
     @test dot(F.cd[3], F.c[1]) ≈ -dot(F.c[1], F.cd[3])
 
     # half-integer SU(2) operator charges pick it up too (R(½, ½, 0) = -1)
-    spinor = LO(IrrepOperator(SU2Irrep(1 // 2), 1))
+    spinor = LO(Letter(SU2Irrep(1 // 2), 1))
     @test dot(spinor[3], spinor[1]) ≈ -dot(spinor[1], spinor[3])
 
     @test_throws ArgumentError dot(S[1], S[1])

@@ -2,11 +2,11 @@ using Test
 using TensorKit
 using LinearAlgebra: dot
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
+using OpSum: mpo, mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
     unitcell_terms, maxspan, couple, scalarop, instantiate,
     expterm, expand_channels, chain_terms, channelspan, ExpSum, _lower_channels,
     _entriesequal, _infinite_window, storedpairs, ispassthrough
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 
 const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
@@ -143,7 +143,7 @@ end
 end
 
 @testset "the diagonal is λ times the pass-through letter" begin
-    # `irrep_mpo_tensors` skips letter-less entries, so a bare-scalar diagonal would be silently dropped.
+    # `mpo_tensors` skips letter-less entries, so a bare-scalar diagonal would be silently dropped.
     λ = 0.4
     H = mpo(opsum(InfiniteChain([BSU2]), expterm(dot(S[1], S[2]); decay = λ)))
     W = only(H.Ws)
@@ -254,7 +254,7 @@ end
         @test all(j -> Hinf.bondsectors[j][Hinf.start[j]] == unit(I), 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.finish[j]] == unit(I), 1:L)
 
-        Ts = irrep_mpo_tensors(Hinf)
+        Ts = mpo_tensors(Hinf)
         @test length(Ts) == L
         @test space(Ts[1], 1) == space(Ts[L], 4)'
         @test all(j -> space(Ts[j], 2) == TensorKit.space(spaces[j]), 1:L)
@@ -280,7 +280,7 @@ end
         Hinf = mpo(opsum(InfiniteChain(spaces), H...))
         N = ncells * L
         sites = [spaces[mod1(j, L)] for j in 1:N]
-        Ts = irrep_mpo_tensors(Hinf)
+        Ts = mpo_tensors(Hinf)
         tiled = [Ts[mod1(j, L)] for j in 1:N]
         O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.finish[L])
         oracle = instantiate(opsum(sites, mpo_terms_window(Hinf, ncells)))

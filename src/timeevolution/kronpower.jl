@@ -57,7 +57,7 @@ _levels(n::Int, ::Val{N}) where {N} = vec(collect(Tuple(c) for c in CartesianInd
 
 The `N`-fold Kronecker power of the Jordan form of `W` (`_jordan_layout`): a [`SymbolicMPO`](@ref)
 `mpo` whose bond indices are levels, `NTuple{N,Int}`s of Jordan indices, so that
-`irrep_mpo_tensors(mpo)` contracts to `H^N` for `W` an MPO of `H` (layer 1 leftmost, see the file header).
+`mpo_tensors(mpo)` contracts to `H^N` for `W` an MPO of `H` (layer 1 leftmost, see the file header).
 Throws where `jordan_mpo_tensors` does, and for a non-abelian symmetry.
 
 `levels[i]` lists the levels of the bond right of site `i` (the index of `mpo`'s bond `i` is the position

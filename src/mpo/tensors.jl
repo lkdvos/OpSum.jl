@@ -1,12 +1,11 @@
 # Finite compression behind `mpo`, `mpo_terms` (its inverse on the reduced level) and the dense assembly
-# `irrep_mpo_tensors`.
+# `mpo_tensors`.
 
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Vect, fusiontrees, permute, unit, @tensor, ncon, removeunit
-using .IrrepTensorOperators: IrrepOperator
 
 # Bond matrices, bond sectors and per-bond identity-channel indices (empty with decaying channels, where
-# they are unknown). Without channels `_irrep_channels` forces the finish channel into the cover.
+# they are unknown). Without channels `_sweep_channels` forces the finish channel into the cover.
 function _compress(
         H::OperatorSum{I, <:FiniteChain}, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm}
     ) where {I}
@@ -17,8 +16,8 @@ function _compress(
             out = _compress_in_metric(H.terms, H.lattice, bondstrategy(alg))
             out === nothing || return out
         end
-        tt = ITOTermTable(H.terms, N)
-        return _irrep_channels(tt, nvertices(tt), bondstrategy(alg))
+        tt = TermTable(H.terms, N)
+        return _sweep_channels(tt, nvertices(tt), bondstrategy(alg))
     end
     alg isa SVDBondAlgorithm && throw(
         ArgumentError(
@@ -26,8 +25,8 @@ function _compress(
                 "whole bond coefficient matrix up front. Use BipartiteAlgorithm() (the default)."
         )
     )
-    Ws, secs = _irrep_sweep(
-        ITOTermTable(H.terms, N), N, VertexCover(); channels = _lower_channels(H.channels, 1)
+    Ws, secs = _sweep(
+        TermTable(H.terms, N), N, VertexCover(); channels = _lower_channels(H.channels, 1)
     )
     return Ws, secs, Int[], Int[]
 end
@@ -59,14 +58,14 @@ function mpo_terms(
             l == l0 || continue
             for (letter, c) in pairs(localop)
                 pass = ispassthrough(letter)
-                pass || (push!(sites, i); push!(keys, ITOKey{I}(letter, bondsectors[i][r], 1)))
+                pass || (push!(sites, i); push!(keys, Factor{I}(letter, bondsectors[i][r], 1)))
                 walk(i + 1, r, coeff * c, sites, keys)
                 pass || (pop!(sites); pop!(keys))
             end
         end
         return
     end
-    walk(1, leftidx, ComplexF64(1), Int[], ITOKey{I}[])
+    walk(1, leftidx, ComplexF64(1), Int[], Factor{I}[])
     return Terms{I}(cols)
 end
 
@@ -98,7 +97,7 @@ function _add_coupler_coeff!(κ, f1, f2, dL::Int, dR::Int, coeff)
 end
 
 # One letter's block for a single `(bL, bR)` bond-charge pair (no bond degeneracy), for `jordan_mpo_tensors`.
-function _letter_block(letter::IrrepOperator{I}, site, bL::I, bR::I) where {I}
+function _letter_block(letter::Letter{I}, site, bL::I, bR::I) where {I}
     c = letter.c
     V = _space(site)
     f1 = only(fusiontrees((bL, c), bR, (false, false)))
@@ -111,15 +110,15 @@ function _letter_block(letter::IrrepOperator{I}, site, bL::I, bR::I) where {I}
 end
 
 """
-    irrep_mpo_tensors(W::SymbolicMPO) -> Vector{<:AbstractTensorMap}
-    irrep_mpo_tensors(Ws, bondsectors, lat)
+    mpo_tensors(W::SymbolicMPO) -> Vector{<:AbstractTensorMap}
+    mpo_tensors(Ws, bondsectors, lat)
 
 Dense symmetric site tensors `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit convention) of an [`mpo`](@ref), each
 entry read in its site's basis; the boundary bonds of a finite chain are one-dimensional. On an
 [`InfiniteChain`](@ref) they are the `L` tensors of the unit cell, which tile. The second form takes the
 reduced data `(W.Ws, W.bondsectors)` and the lattice.
 """
-function irrep_mpo_tensors(
+function mpo_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
         bondsectors::Vector{Vector{I}}, sites
     ) where {I}
@@ -145,8 +144,8 @@ function _mpo_tensors(
         W = zeros(ComplexF64, Bleft ⊗ V ← V ⊗ Bright)
 
         # per *letter*: κ collects every coefficient carrying it, so `O(d²)` contractions, not `O(D_L D_R)`
-        ops = Dictionary{IrrepOperator{I}, Any}()
-        couplers = Dictionary{IrrepOperator{I}, Any}()
+        ops = Dictionary{Letter{I}, Any}()
+        couplers = Dictionary{Letter{I}, Any}()
         f1s = Dictionary{Tuple{I, I, I}, Any}()
         f2s = Dictionary{I, Any}()
 
@@ -191,9 +190,9 @@ islossless(::OperatorSum{I, <:InfiniteChain}, args...) where {I} = throw(
 """
     mpo_tensormap(Ts::AbstractVector) -> AbstractTensorMap
 
-Contract MPO site tensors ([`irrep_mpo_tensors`](@ref), or [`jordan_mpo_tensors`](@ref) after
+Contract MPO site tensors ([`mpo_tensors`](@ref), or [`jordan_mpo_tensors`](@ref) after
 `map(TensorMap, ·)`) into the `N`-site operator in [`instantiate`](@ref)'s leg convention, so that
-`mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(H)`. Exponential in `N`.
+`mpo_tensormap(mpo_tensors(mpo(H))) ≈ instantiate(H)`. Exponential in `N`.
 """
 function mpo_tensormap(Ts::AbstractVector)
     N = length(Ts)

@@ -10,10 +10,10 @@ using TensorKit: Sector, unit, Rsymbol, Nsymbol, FusionTree, Vect, id, permute, 
     fusiontrees, BraidingStyle, SymmetricBraiding, FusionStyle, GenericFusion
 
 # The total of a written-order caterpillar.
-_writtentotal(keys::Vector{ITOKey{I}}) where {I} = isempty(keys) ? unit(I) : last(keys).bond
+_writtentotal(keys::Vector{Factor{I}}) where {I} = isempty(keys) ? unit(I) : last(keys).bond
 
 # Push a term written in any order, as `Term`s or a `PendingTerm`.
-function _written!(out::Terms{I}, sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::ComplexF64) where {I}
+function _written!(out::Terms{I}, sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64) where {I}
     allunique(sites) || return push!(out.pending, PendingTerm{I}(sites, keys, coeff))
     issorted(sites) && return push!(out.terms, Term{I}(sites, keys, coeff))
     _canreorder(I) || return append!(out.terms, _recouple(sites, keys, coeff))
@@ -25,12 +25,12 @@ function _written!(out::Terms{I}, sites::Vector{Int}, keys::Vector{ITOKey{I}}, c
         coeff *= Rsymbol(a, b, only(a ⊗ b))
     end
     perm = sortperm(sites)
-    outkeys = Vector{ITOKey{I}}(undef, K)
+    outkeys = Vector{Factor{I}}(undef, K)
     bond = unit(I)
     for (n, j) in enumerate(perm)
         op = keys[j].op
         bond = only(bond ⊗ op.c)
-        outkeys[n] = ITOKey{I}(op, bond, 1)
+        outkeys[n] = Factor{I}(op, bond, 1)
     end
     return push!(out.terms, Term{I}(sites[perm], outkeys, coeff))
 end
@@ -72,7 +72,7 @@ end
 const _RECOUPLE_CACHE = Dict{Any, Any}()
 
 # A written-order caterpillar on distinct sites, as site-order terms.
-function _recouple(sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::ComplexF64) where {I}
+function _recouple(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64) where {I}
     _checkrecouple(I)
     K = length(sites)
     perm = sortperm(sites)
@@ -83,17 +83,17 @@ function _recouple(sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::ComplexF6
     end
     sorted, ops = sites[perm], [keys[j].op for j in perm]
     return Term{I}[
-        Term{I}(sorted, ITOKey{I}[ITOKey{I}(ops[n], b[n], 1) for n in 1:K], coeff * x)
+        Term{I}(sorted, Factor{I}[Factor{I}(ops[n], b[n], 1) for n in 1:K], coeff * x)
             for (b, x) in expansion
     ]
 end
 
 # Two written-order caterpillars fused to `tot`, as `(keys, coeff)` over the concatenated letters. When
 # the first is neutral (or the symmetry abelian) the second's running charges just continue.
-function _concat(ka::Vector{ITOKey{I}}, kb::Vector{ITOKey{I}}, tot::I) where {I}
+function _concat(ka::Vector{Factor{I}}, kb::Vector{Factor{I}}, tot::I) where {I}
     ta = _writtentotal(ka)
     if ta == unit(I) || _canreorder(I)
-        shifted = ITOKey{I}[ITOKey{I}(k.op, only(ta ⊗ k.bond), 1) for k in kb]
+        shifted = Factor{I}[Factor{I}(k.op, only(ta ⊗ k.bond), 1) for k in kb]
         return [(vcat(ka, shifted), 1.0 + 0im)]
     end
     isempty(kb) && return [(ka, 1.0 + 0im)]
@@ -107,7 +107,7 @@ function _concat(ka::Vector{ITOKey{I}}, kb::Vector{ITOKey{I}}, tot::I) where {I}
     end
     ops = vcat([k.op for k in ka], [k.op for k in kb])
     return [
-        (ITOKey{I}[ITOKey{I}(ops[n], b[n], 1) for n in eachindex(ops)], x) for (b, x) in expansion
+        (Factor{I}[Factor{I}(ops[n], b[n], 1) for n in eachindex(ops)], x) for (b, x) in expansion
     ]
 end
 
@@ -171,7 +171,7 @@ _resolve(ps::Vector{PendingTerm{I}}, lat::AbstractLattice) where {I} =
 
 # The written-order caterpillar of letters at positions `pos` of the block over `Bs` (repeats allowed):
 # the embedded tensors multiplied in written order, charge legs kept in that order, then fused by `keys`.
-function _written_block(keys::Vector{ITOKey{I}}, pos::Vector{Int}, Bs) where {I}
+function _written_block(keys::Vector{Factor{I}}, pos::Vector{Int}, Bs) where {I}
     m = length(Bs)
     T = nothing
     for (key, p) in zip(keys, pos)

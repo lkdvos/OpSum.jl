@@ -69,7 +69,7 @@ for spec in selected()
         end
         if WITH_INTERNALS
             g_i["N=$N"] = @benchmarkable(
-                OpSum.ITOTermTable(H.terms, length(H.lattice)),
+                OpSum.TermTable(H.terms, length(H.lattice)),
                 setup = (H = $builder($N)),
                 samples = p.samples, seconds = p.seconds, evals = 1,
             )

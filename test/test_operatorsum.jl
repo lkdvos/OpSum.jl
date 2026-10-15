@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: OperatorSum, opsum!, opsum, mpo, irrep_mpo_tensors, jordan_mpo_tensors,
+using OpSum: OperatorSum, opsum!, opsum, mpo, mpo_tensors, jordan_mpo_tensors,
     instantiate, islossless, mpo_tensormap, chain_terms, expterm, Terms, FiniteChain, InfiniteChain, couple
 using TensorKit
 using LinearAlgebra: dot
@@ -43,7 +43,7 @@ end
 
     Hs = opsum(FiniteChain(BSU2, 3), b[1], expterm(b[1]; decay = 0.4))
     @test instantiate(Hs) ≈ instantiate(opsum(FiniteChain(BSU2, 3), chain_terms(Hs)))
-    @test mpo_tensormap(irrep_mpo_tensors(mpo(Hs))) ≈ instantiate(Hs)
+    @test mpo_tensormap(mpo_tensors(mpo(Hs))) ≈ instantiate(Hs)
 
     # SVD exists on a plain finite chain only; Jordan form everywhere but finite chains with decaying channels
     @test mpo(cells[1][1], SVDBondAlgorithm(truncrank(6))) isa SymbolicMPO

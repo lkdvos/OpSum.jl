@@ -4,7 +4,7 @@ module OpSum
 export Basis
 export spin_basis, fermion_basis, boson_basis, hubbard_basis, tj_basis
 export boson_ops, hubbard_ops, tj_ops
-export IrrepOperator, scalarop, project, spin_ops, fermion_ops
+export Letter, scalarop, project, spin_ops, fermion_ops
 # unplaced K-site operators
 export LocalOperator
 # term algebra (latticeless)
@@ -15,7 +15,7 @@ export OperatorSum, opsum!
 export AbstractLattice, FiniteChain, InfiniteChain
 # MPO construction
 export mpo, SymbolicMPO
-export irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
+export mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
 export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
 # time evolution

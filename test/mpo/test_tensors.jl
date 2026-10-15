@@ -1,7 +1,7 @@
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, instantiate, scalarop, couple, opsum
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: mpo, mpo_tensors, instantiate, scalarop, couple, opsum
+using OpSum: Letter
 using TensorKit
 using TensorKit: @tensor
 
@@ -17,8 +17,8 @@ end
     Vs = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(Vs))
     Vu = Rep[U₁](0 => 1, 1 => 1)
-    raise, lower = LO(IrrepOperator(U1Irrep(1), 1)), LO(IrrepOperator(U1Irrep(-1), 1))
-    ops = [LO(IrrepOperator(unit(Trivial), n)) for n in 1:4]
+    raise, lower = LO(Letter(U1Irrep(1), 1)), LO(Letter(U1Irrep(-1), 1))
+    ops = [LO(Letter(unit(Trivial), n)) for n in 1:4]
     cases = [
         ("SU2 S·S", unitbasis(Vs), 2, opsum(dot(S[1], S[2]))),
         ("SU2 Heisenberg", unitbasis(Vs), 3, opsum(dot(S[1], S[2]), dot(S[2], S[3]))),
@@ -28,7 +28,7 @@ end
     ]
     for (name, B, N, H) in cases
         sites = fill(B, N)
-        T = irrep_mpo_tensors(reduced(mpo(opsum(sites, H)))..., sites)
+        T = mpo_tensors(reduced(mpo(opsum(sites, H)))..., sites)
         M = physmatrix(N == 2 ? contract2(T) : contract3(T), N, 2)
         @test M ≈ physmatrix(instantiate(opsum(sites, H)), N, 2)
         if name == "SU2 S·S"

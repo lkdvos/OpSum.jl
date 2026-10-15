@@ -5,7 +5,6 @@
 # translate weighs `coeff · λ^{string sites}`, the string sitting only on the stretched gap.
 
 using TensorKit: Sector, unit
-using .IrrepTensorOperators: IrrepOperator
 
 export expterm
 
@@ -18,7 +17,7 @@ struct ExpKey{I <: Sector}
     term::Term{I}
     exitsite::Int
     decay::ComplexF64
-    string::Vector{Tuple{Union{Nothing, IrrepOperator{I}}, ComplexF64}}
+    string::Vector{Tuple{Union{Nothing, Letter{I}}, ComplexF64}}
 end
 
 function Base.:(==)(x::ExpKey{I}, y::ExpKey{I}) where {I}
@@ -92,7 +91,7 @@ Base.:-(a::ExpSum, b::ExpSum) = a + (-b)
 
 # Canonical `(letter, coefficient)` list; letters must be neutral, else the loop is not a self-loop.
 function _string_terms(::Type{I}, op) where {I <: Sector}
-    A = IrrepOperator{I}
+    A = Letter{I}
     terms = if op === nothing
         Tuple{Union{Nothing, A}, ComplexF64}[(nothing, one(ComplexF64))]
     else
@@ -217,21 +216,21 @@ function _emit_stretched!(
         (nstr == 0 || !iszero(scalar)) || return d
         wtot = nstr == 0 ? w : w * scalar^nstr
         newsites = Int[entry..., exit_...]
-        newops = IrrepOperator{I}[ops...]
+        newops = Letter{I}[ops...]
         newbonds = eltype(bonds)[bonds...]
         _insert_stretched!(d, newsites, newops, newbonds, wtot)
         return d
     end
     for combo in Iterators.product(ntuple(_ -> string, nstr)...)
         wtot = w
-        strs = Tuple{Int, IrrepOperator{I}}[]
+        strs = Tuple{Int, Letter{I}}[]
         for (s, (letter, c)) in zip(strsites, combo)
             wtot *= c
             letter === nothing || push!(strs, (s, letter))
         end
         iszero(wtot) && continue
         newsites = Int[entry..., first.(strs)..., exit_...]
-        newops = IrrepOperator{I}[ops[1:ne]..., last.(strs)..., ops[(ne + 1):end]...]
+        newops = Letter{I}[ops[1:ne]..., last.(strs)..., ops[(ne + 1):end]...]
         newbonds = eltype(bonds)[
             bonds[1:ne]..., ntuple(_ -> entrybond, length(strs))..., bonds[(ne + 1):end]...,
         ]
@@ -244,7 +243,7 @@ function _insert_stretched!(
         d::Dictionary{Term{I}, ComplexF64}, newsites, newops, newbonds, w
     ) where {I}
     # multiplicity-free fusion: every vertex label is 1
-    keys_ = ITOKey{I}[ITOKey{I}(o, b, 1) for (o, b) in zip(newops, newbonds)]
+    keys_ = Factor{I}[Factor{I}(o, b, 1) for (o, b) in zip(newops, newbonds)]
     # `Term`'s `==`/`hash` ignore the coefficient, so `setwith!` sums coincident terms
     setwith!(+, d, Term{I}(newsites, keys_, one(ComplexF64)), ComplexF64(w))
     return d
@@ -275,14 +274,14 @@ struct ChannelState{I <: Sector}
     bond::I
     minremain::Int
     cyclic::Bool
-    trans::Vector{Tuple{ITOKey{I}, Int, ComplexF64}}
+    trans::Vector{Tuple{Factor{I}, Int, ComplexF64}}
 end
 
 # A lowered `ExpKey`; `coeff` rides on the entry edge so channels differing only there share a class.
 struct ExpChannel{I <: Sector}
     phase::Int
     period::Int
-    entrykey::ITOKey{I}
+    entrykey::Factor{I}
     coeff::ComplexF64
     span::Int
     start::Int
@@ -301,8 +300,8 @@ isentry(c::ExpChannel, s::Int, N::Int) = mod(s - c.phase, c.period) == 0 && s + 
 
 # shared across all channels of a model so that classes which must merge are equal
 mutable struct _ChannelNames{I <: Sector}
-    cons::Dictionary{Tuple{ITOKey{I}, Int}, Int}
-    loop::Dictionary{Tuple{ComplexF64, Vector{Tuple{ITOKey{I}, ComplexF64}}, ITOKey{I}, Int, Int, Int}, Int}
+    cons::Dictionary{Tuple{Factor{I}, Int}, Int}
+    loop::Dictionary{Tuple{ComplexF64, Vector{Tuple{Factor{I}, ComplexF64}}, Factor{I}, Int, Int, Int}, Int}
     n::Int
 end
 _ChannelNames{I}() where {I} = _ChannelNames{I}(Dictionary(), Dictionary(), 0)
@@ -314,7 +313,7 @@ function _intern!(d, names::_ChannelNames, k)
     insert!(d, k, names.n)
     return names.n
 end
-_cons!(names::_ChannelNames{I}, key::ITOKey{I}, succ::Int) where {I} =
+_cons!(names::_ChannelNames{I}, key::Factor{I}, succ::Int) where {I} =
     _intern!(names.cons, names, (key, succ))
 _loopname!(names::_ChannelNames{I}, λ, strs, exitkey, exitname, P, δ) where {I} =
     _intern!(names.loop, names, (λ, strs, exitkey, exitname, P, δ))
@@ -352,7 +351,7 @@ function _build_acyclic_chain!(
         push!(
             states, ChannelState{I}(
                 name, bond, slast - b, false,
-                Tuple{ITOKey{I}, Int, ComplexF64}[(nkey, target, one(ComplexF64))]
+                Tuple{Factor{I}, Int, ComplexF64}[(nkey, target, one(ComplexF64))]
             )
         )
         insert!(idx, b, length(states))
@@ -377,7 +376,7 @@ function _lower_channel(
     # the key applied at site `nb`, and the running charge just left of it
     function stepkey(nb::Int, bond::I)
         j = findfirst(==(nb), sites)
-        return j === nothing ? ITOKey{I}(passthrough(I), bond, 1) : keys_[j]
+        return j === nothing ? Factor{I}(passthrough(I), bond, 1) : keys_[j]
     end
     bondat(b::Int) = keys_[count(<=(b), sites)].bond
 
@@ -390,15 +389,15 @@ function _lower_channel(
     exitkey = keys_[ne + 1]
     # λ rides as an edge weight so the entry carries a letter (a letter-less `SiteOperator` is dropped
     # at tensor assembly); the `cyclic` loop states are forced into the cover, else λ accumulates.
-    strtrans = Tuple{ITOKey{I}, ComplexF64}[
-        (ITOKey{I}(l === nothing ? passthrough(I) : l, cmid, 1), k.decay * c) for (l, c) in k.string
+    strtrans = Tuple{Factor{I}, ComplexF64}[
+        (Factor{I}(l === nothing ? passthrough(I) : l, cmid, 1), k.decay * c) for (l, c) in k.string
     ]
     loopidx = zeros(Int, nloop)
     for δ in 1:nloop
         name = _loopname!(names, k.decay, strtrans, exitkey, exitname, P, δ)
         push!(
             states, ChannelState{I}(
-                name, cmid, δ + (slast - sexit), δ <= P, Tuple{ITOKey{I}, Int, ComplexF64}[]
+                name, cmid, δ + (slast - sexit), δ <= P, Tuple{Factor{I}, Int, ComplexF64}[]
             )
         )
         loopidx[δ] = length(states)

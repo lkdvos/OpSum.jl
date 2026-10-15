@@ -13,7 +13,7 @@ A bag of [`Terms`](@ref OpSum.Terms) carries no lattice; the lattice (one basis 
 Everything is exported except `dot` (`using LinearAlgebra: dot`).
 
 !!! warning "Never write alphabet letters by index"
-    Behind every operator are letters `IrrepOperator(c, n)`, the `n`-th basis element of charge `c`.
+    Behind every operator are letters `Letter(c, n)`, the `n`-th basis element of charge `c`.
     Their order depends on how the basis was built, so hard-coding an `n` silently changes the Hamiltonian when the basis changes.
     Use builder entries or `project` and let OpSum find the letters.
 
@@ -124,7 +124,7 @@ map(length, W.bondsectors)       # reduced bond dimension per bond
 ```
 
 `W.Ws[i]` is the sparse bond matrix at site `i` and `W.bondsectors[i]` the charge of each bond index to its right.
-`irrep_mpo_tensors(W)` assembles symmetric `TensorMap`s.
+`mpo_tensors(W)` assembles symmetric `TensorMap`s.
 The optional second argument picks the bond algorithm: `BipartiteAlgorithm()` (default, lossless minimum vertex cover) or `SVDBondAlgorithm(trunc; sweep)` with a `MatrixAlgebraKit` truncation strategy.
 `sweep = IndependentSVD` (default) keeps `k` indices per bond; `SequentialSVD` keeps `k` after upstream truncation.
 
@@ -141,10 +141,10 @@ Wsj = jordan_mpo_tensors(Hxxz)
 map(W -> size(W, 4), Wsj)
 ```
 
-Checks, cheapest first: `islossless(H)` (symbolic, any `N`, assumes lossless compression); `mpo_tensormap(irrep_mpo_tensors(W)) ≈ instantiate(H)` (dense oracle); and a spectrum comparison of `instantiate(H)` (`examples/common.jl` has helpers).
+Checks, cheapest first: `islossless(H)` (symbolic, any `N`, assumes lossless compression); `mpo_tensormap(mpo_tensors(W)) ≈ instantiate(H)` (dense oracle); and a spectrum comparison of `instantiate(H)` (`examples/common.jl` has helpers).
 
 ```@example ops
-islossless(Hxxz), mpo_tensormap(irrep_mpo_tensors(W)) ≈ instantiate(Hxxz)
+islossless(Hxxz), mpo_tensormap(mpo_tensors(W)) ≈ instantiate(Hxxz)
 ```
 
 ## Infinite chains
@@ -191,11 +191,11 @@ The convention is ``U \approx e^{\tau H}``: imaginary time ``e^{-\beta H}`` is `
 U = taylor_mpo(Hxxz, 2)
 ```
 
-Evaluating at a number gives the numeric bond matrices (sparse matrices of `SiteOperator`s), and `irrep_mpo_tensors(U, τ)` the symmetric site tensors.
+Evaluating at a number gives the numeric bond matrices (sparse matrices of `SiteOperator`s), and `mpo_tensors(U, τ)` the symmetric site tensors.
 
 ```@example ops
 Ws = U(-0.1)                      # = evaluate(U, -0.1): bond matrices at τ = -0.1
-Ts = irrep_mpo_tensors(U, -0.1)
+Ts = mpo_tensors(U, -0.1)
 ```
 
 The error against ``e^{\tau H}`` scales as ``\tau^{N+1}``, with the MPO size-extensive (it contains all disconnected products of terms of `H`).

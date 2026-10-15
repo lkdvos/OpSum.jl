@@ -12,22 +12,22 @@ An unplaced single-site operator `Σₖ coeffs[k] · letters[k]`, from [`project
 and friends or [`scalarop`](@ref); combine with `+ - * /` and place with `A[i]` (a [`Terms`](@ref) bag).
 """
 struct SiteOperator{I <: Sector}
-    letters::Vector{IrrepOperator{I}}
+    letters::Vector{Letter{I}}
     coeffs::Vector{ComplexF64}
-    function SiteOperator{I}(letters::Vector{IrrepOperator{I}}, coeffs::Vector{ComplexF64}) where {I}
+    function SiteOperator{I}(letters::Vector{Letter{I}}, coeffs::Vector{ComplexF64}) where {I}
         @assert length(letters) == length(coeffs) "letters/coeffs length mismatch"
         return new{I}(letters, coeffs)
     end
 end
 
-SiteOperator{I}() where {I <: Sector} = SiteOperator{I}(IrrepOperator{I}[], ComplexF64[])
-SiteOperator(letters::Vector{IrrepOperator{I}}, coeffs::Vector{ComplexF64}) where {I} =
+SiteOperator{I}() where {I <: Sector} = SiteOperator{I}(Letter{I}[], ComplexF64[])
+SiteOperator(letters::Vector{Letter{I}}, coeffs::Vector{ComplexF64}) where {I} =
     SiteOperator{I}(letters, coeffs)
-SiteOperator(op::IrrepOperator{I}) where {I} = SiteOperator{I}([op], ComplexF64[1])
+SiteOperator(op::Letter{I}) where {I} = SiteOperator{I}([op], ComplexF64[1])
 SiteOperator{I}(c::Number) where {I <: Sector} =
     iszero(c) ? SiteOperator{I}() : SiteOperator{I}([passthrough(I)], ComplexF64[c])
 
-Base.convert(::Type{SiteOperator{I}}, op::IrrepOperator{I}) where {I} = SiteOperator(op)
+Base.convert(::Type{SiteOperator{I}}, op::Letter{I}) where {I} = SiteOperator(op)
 Base.convert(::Type{SiteOperator{I}}, c::Number) where {I} = SiteOperator{I}(c)
 
 TensorKit.sectortype(::Type{SiteOperator{I}}) where {I} = I
@@ -72,14 +72,14 @@ Base.:*(a::Number, x::SiteOperator) = x * a
 Base.:/(x::SiteOperator, a::Number) = x * inv(a)
 
 # A bare letter times a scalar promotes (the sweep uses `key.op * coeff`).
-Base.:*(x::IrrepOperator, a::Number) = SiteOperator(x) * a
-Base.:*(a::Number, x::IrrepOperator) = SiteOperator(x) * a
+Base.:*(x::Letter, a::Number) = SiteOperator(x) * a
+Base.:*(a::Number, x::Letter) = SiteOperator(x) * a
 
 VectorInterface.scale(x::SiteOperator, a::Number) = x * a
 
 # orthonormal alphabet: the plain coefficient overlap; a bare letter is accepted on either side
 function VectorInterface.inner(
-        x::Union{IrrepOperator{I}, SiteOperator{I}}, y::Union{IrrepOperator{I}, SiteOperator{I}}
+        x::Union{Letter{I}, SiteOperator{I}}, y::Union{Letter{I}, SiteOperator{I}}
     ) where {I}
     x, y = convert(SiteOperator{I}, x), convert(SiteOperator{I}, y)
     result = zero(ComplexF64)

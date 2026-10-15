@@ -1,7 +1,7 @@
 using Test
 using OpSum
-using OpSum: LocalOperator, mpo_tensormap, irrep_mpo_tensors, jordan_mpo_tensors
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: LocalOperator, mpo_tensormap, mpo_tensors, jordan_mpo_tensors
+using OpSum: Letter
 using TensorKit
 using TensorKit: BraidingTensor
 
@@ -71,7 +71,7 @@ end
     )
     @test instantiate(H) ≈ instantiate(Hm)
     @test islossless(H)
-    @test mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(H)
+    @test mpo_tensormap(mpo_tensors(mpo(H))) ≈ instantiate(H)
     Ws = jordan_mpo_tensors(H)
     @test Ws[2][1, 1, 1, 1] isa BraidingTensor
     @test mpo_tensormap(map(TensorMap, Ws)) ≈ instantiate(H)
@@ -108,7 +108,7 @@ end
     Lm = project(TensorMap(Lz, ℂ^3 ← ℂ^3), U3)
     Hm = opsum(units, Zm[1] * Lm[2], 0.5 * Xm[3])
     @test instantiate(H) ≈ instantiate(Hm)
-    @test mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(H)
+    @test mpo_tensormap(mpo_tensors(mpo(H))) ≈ instantiate(H)
     @test_throws ArgumentError project(ZL, [P2, P2])                 # slot 2 is a qutrit
 end
 
@@ -118,7 +118,7 @@ end
     H = opsum(InfiniteChain(P), (couple(O[1], O[2]) for O in Os))
     Hinf = mpo(H)
     @test sum(dim, Hinf.bondsectors[1]) == 5                       # 3 channels + start + done
-    Ts = irrep_mpo_tensors(Hinf)
+    Ts = mpo_tensors(Hinf)
     @test space(Ts[1], 1) == space(Ts[1], 4)'
 end
 
@@ -135,7 +135,7 @@ end
         (λ^(j - i - 1) * foldl(*, (p[k] for k in (i + 1):(j - 1)); init = f.h[i, j]) for i in 1:N for j in (i + 1):N)
     )
     @test instantiate(H) ≈ instantiate(want)
-    @test mpo_tensormap(irrep_mpo_tensors(mpo(H))) ≈ instantiate(want)
+    @test mpo_tensormap(mpo_tensors(mpo(H))) ≈ instantiate(want)
 
     # the same on an infinite chain, against the explicit window
     Hi = opsum(InfiniteChain(f.B), expterm(f.h[1, 2]; decay = λ, string = p), 0.3 * f.n[1])

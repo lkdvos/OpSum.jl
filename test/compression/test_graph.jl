@@ -4,10 +4,10 @@
 
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, mpo_terms, instantiate, couple, scalarop, opsum
+using OpSum: mpo, mpo_tensors, mpo_terms, instantiate, couple, scalarop, opsum
 using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, VertexCover, IndependentSVD, SequentialSVD
-using OpSum: ITOTermTable, _irrep_sweep, ITOGraph, _at_site!
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: TermTable, _sweep, SweepGraph, _at_site!
+using OpSum: Letter
 using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: dot, norm
@@ -74,8 +74,8 @@ function reference_hamiltonians()
         push!(cases, ("SU2 first active site == N", opsum(S[1], S[4]), FiniteChain(unitbasis(V), 4)))
     end
     let V = Rep[U₁](0 => 1, 1 => 1)
-        raise = LO(IrrepOperator(U1Irrep(1), 1))
-        lower = LO(IrrepOperator(U1Irrep(-1), 1))
+        raise = LO(Letter(U1Irrep(1), 1))
+        lower = LO(Letter(U1Irrep(-1), 1))
         for N in (3, 4)
             H = opsum(
                 (dot(raise[i], lower[i + 1]) for i in 1:(N - 1)),
@@ -93,7 +93,7 @@ function reference_hamiltonians()
             )
         )
         # a charge-0 letter leaves the running bond trivial: like `n̂` colliding with the tail of `n̂ᵢn̂ⱼ`
-        z = LO(IrrepOperator(U1Irrep(0), 2))   # a matrix unit; index 1 is the identity
+        z = LO(Letter(U1Irrep(0), 2))   # a matrix unit; index 1 is the identity
         push!(
             cases, (
                 "U1 charge-0 on-site collides with two-site tail",
@@ -103,7 +103,7 @@ function reference_hamiltonians()
         )
     end
     let V = ℂ^2
-        ops = [IrrepOperator(unit(Trivial), n) for n in 1:4]
+        ops = [Letter(unit(Trivial), n) for n in 1:4]
         H = opsum(couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2)
         push!(cases, ("trivial sector N=3", H, FiniteChain(unitbasis(V), 3)))
         push!(
@@ -157,7 +157,7 @@ const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["I
             # dense oracle; `physmatrix` needs a dim-1 total charge, `contractN` covers N ∈ {2, 3}
             if 2 <= N <= 3 && all(c -> dim(c) == 1, secs[end])
                 d = dim(TensorKit.space(sites[1]))
-                Mmpo = physmatrix(contractN(irrep_mpo_tensors(Ws, secs, sites)), N, d)
+                Mmpo = physmatrix(contractN(mpo_tensors(Ws, secs, sites)), N, d)
                 @test Mmpo ≈ physmatrix(instantiate(opsum(sites, H)), N, d)
             end
         end
@@ -171,7 +171,7 @@ end
     H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
     Wdef, sdef = reduced(mpo(opsum(sites, H)))
     Wsel, ssel = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
-    Wstr, sstr = _irrep_sweep(ITOTermTable(H, N), N, VertexCover())
+    Wstr, sstr = _sweep(TermTable(H, N), N, VertexCover())
     @test bondprofile(sdef) == bondprofile(ssel) == bondprofile(sstr)
     @test mpo_operator(Wdef, sdef, sites) ≈ mpo_operator(Wsel, ssel, sites)
     @test mpo_operator(Wstr, sstr, sites) ≈ mpo_operator(Wsel, ssel, sites)
@@ -186,7 +186,7 @@ end
         Wg, sg = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = SequentialSVD)))
         # needs a dim-1 total charge (excludes the spin-1 field sum)
         all(c -> dim(c) == 1, sg[end]) || continue
-        Mgraph = physmatrix(contractN(irrep_mpo_tensors(Wg, sg, sites)), N, d)
+        Mgraph = physmatrix(contractN(mpo_tensors(Wg, sg, sites)), N, d)
         Mexact = physmatrix(instantiate(opsum(sites, H)), N, d)
         @testset "$name" begin
             @test Mgraph ≈ Mexact
@@ -233,14 +233,14 @@ end
         @testset "$name" begin
             @test bondprofile(secs) == EXPECTED_BONDS[name]
             @test islossless(opsum(sites, H))
-            @test mpo_tensormap(irrep_mpo_tensors(Ws, secs, sites)) ≈ instantiate(opsum(sites, H))
+            @test mpo_tensormap(mpo_tensors(Ws, secs, sites)) ≈ instantiate(opsum(sites, H))
         end
     end
 
     # without the forced finish channel the cover is one index smaller at bond 1
     H = opsum(FiniteChain(sites), scalarop(-1.5, unitbasis(V))[1], dot(S[1], S[2]), dot(S[2], S[3]))
-    tt = OpSum.ITOTermTable(H.terms, 3)
-    Ws, secs = OpSum._irrep_sweep(tt, 3, OpSum.VertexCover())
+    tt = OpSum.TermTable(H.terms, 3)
+    Ws, secs = OpSum._sweep(tt, 3, OpSum.VertexCover())
     @test bondprofile(secs) == [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]]
     @test mpo_terms(Ws, secs) ≈ H.terms
 end
@@ -250,7 +250,7 @@ end
     # share the spin-1 letter at site 4 but reach bond 2 at charge 0 and 1, and trips the sector-purity check.
     # The site has a non-identity charge-0 letter (|½⟩⟨½|) next to the charge-1 one.
     V = SU2Space(0 => 1, 1 // 2 => 1)
-    zl, sl = IrrepOperator(SU2Irrep(0), 2), IrrepOperator(SU2Irrep(1), 1)   # charge-0 and charge-1 letters
+    zl, sl = Letter(SU2Irrep(0), 2), Letter(SU2Irrep(1), 1)   # charge-0 and charge-1 letters
     @test zl.c == SU2Irrep(0) && sl.c == SU2Irrep(1)
     z, s = LO(zl), LO(sl)
     N = 4
@@ -259,11 +259,11 @@ end
         couple(z[1], s[4]; to = SU2Irrep(1)),
         2.0 * couple(s[1], s[4]; to = SU2Irrep(1)),
     )
-    tt = ITOTermTable(H, N)
+    tt = TermTable(H, N)
 
     # the two classes agree on the remaining factors at bond 2 but not on the running charge
-    @test OpSum._op_at_ito(tt, 1, 4) == OpSum._op_at_ito(tt, 2, 4)
-    @test OpSum._op_at_ito(tt, 1, 3) != OpSum._op_at_ito(tt, 2, 3)
+    @test OpSum._factor_at(tt, 1, 4) == OpSum._factor_at(tt, 2, 4)
+    @test OpSum._factor_at(tt, 1, 3) != OpSum._factor_at(tt, 2, 3)
 
     Wg, sg = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     back = mpo_terms(Wg, sg)
@@ -274,20 +274,20 @@ end
     # `A₁B₃` and the on-site `B₃` share a suffix class from site 2 on, so every bond stays 1-dimensional;
     # naive lazy insertion gives [2, 2, 1]. No showcase model triggers this.
     V = ℂ^2
-    ops = [IrrepOperator(unit(Trivial), n) for n in 1:4]
+    ops = [Letter(unit(Trivial), n) for n in 1:4]
     A, B = LO(ops[2]), LO(ops[3])
     N = 3
     sites = fill(unitbasis(V), N)
     H = opsum(couple(A[1], B[3]; to = unit(Trivial)), 0.5 * B[3])
-    tt = ITOTermTable(H, N)
+    tt = TermTable(H, N)
 
-    @test OpSum._op_at_ito(tt, 1, 3) == OpSum._op_at_ito(tt, 2, 3)
+    @test OpSum._factor_at(tt, 1, 3) == OpSum._factor_at(tt, 2, 3)
 
     Wg, sg = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
     @test length.(sg) == [1, 1, 1]
     @test mpo_terms(Wg, sg) ≈ H
     d = dim(V)
-    @test physmatrix(contract3(irrep_mpo_tensors(Wg, sg, sites)), N, d) ≈
+    @test physmatrix(contract3(mpo_tensors(Wg, sg, sites)), N, d) ≈
         physmatrix(instantiate(opsum(sites, H)), N, d)
 end
 
@@ -297,7 +297,7 @@ end
     sizes = (5, 20, 80)
     livecounts = map(sizes) do N
         H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
-        g = ITOGraph(ITOTermTable(H, N), N)
+        g = SweepGraph(TermTable(H, N), N)
         counts = Int[]
         for i in 1:N
             _at_site!(g, i, VertexCover())

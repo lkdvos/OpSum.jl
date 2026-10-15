@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: mpo, scalarop, couple, opsum
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: Letter
 using TensorKit
 using LinearAlgebra: dot
 
@@ -13,8 +13,8 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, islossless
     Vs = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(Vs))
     Vu = Rep[U₁](0 => 1, 1 => 1)
-    raise, lower = LO(IrrepOperator(U1Irrep(1), 1)), LO(IrrepOperator(U1Irrep(-1), 1))
-    ops = [LO(IrrepOperator(unit(Trivial), n)) for n in 1:4]
+    raise, lower = LO(Letter(U1Irrep(1), 1)), LO(Letter(U1Irrep(-1), 1))
+    ops = [LO(Letter(unit(Trivial), n)) for n in 1:4]
     heis(N) = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
     cases = Any[
         ("SU2 Heisenberg N=$N", unitbasis(Vs), N, heis(N), SU2Irrep(0)) for N in (3, 4, 5, 6)

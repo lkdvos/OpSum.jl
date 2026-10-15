@@ -23,18 +23,18 @@ const _LETTER_PRODUCT_CACHE = IdDict{Any, Any}()
 
 function _product_table(B::Basis{I}) where {I}
     return @lock _OPCACHE_LOCK get!(_LETTER_PRODUCT_CACHE, B) do
-        Dict{Tuple{IrrepOperator{I}, IrrepOperator{I}}, SiteOperator{I}}()
+        Dict{Tuple{Letter{I}, Letter{I}}, SiteOperator{I}}()
     end
 end
 
 # `e_x · e_y` (`x` written first, leftmost) in the basis `B`: a `SiteOperator` on letters of charge `x.c ⊗ y.c`.
-function _letter_product(B::Basis{I}, x::IrrepOperator{I}, y::IrrepOperator{I}) where {I}
+function _letter_product(B::Basis{I}, x::Letter{I}, y::Letter{I}) where {I}
     ispassthrough(x) && return SiteOperator(y)
     ispassthrough(y) && return SiteOperator(x)
     return _cached(_product_table(B), (x, y)) do
         _checkkron(I)                    # once per pair, not per product
         tot = only(x.c ⊗ y.c)
-        keys = ITOKey{I}[ITOKey{I}(x, x.c, 1), ITOKey{I}(y, tot, 1)]
+        keys = Factor{I}[Factor{I}(x, x.c, 1), Factor{I}(y, tot, 1)]
         h = _written_block(keys, [1, 1], [B])
         coeff = (_isfermionodd(x.c) && _isfermionodd(y.c)) ? -1.0 : 1.0
         return project(h, B) * coeff
@@ -45,7 +45,7 @@ end
 function _mul(B::Basis{I}, X::SiteOperator{I}, Y::SiteOperator{I}) where {I}
     isone(X) && return Y
     isone(Y) && return X
-    acc = Dict{IrrepOperator{I}, ComplexF64}()
+    acc = Dict{Letter{I}, ComplexF64}()
     for (x, cx) in pairs(X), (y, cy) in pairs(Y)
         for (z, cz) in pairs(_letter_product(B, x, y))
             acc[z] = get(acc, z, zero(ComplexF64)) + cx * cy * cz

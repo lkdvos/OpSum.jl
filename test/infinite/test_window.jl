@@ -3,7 +3,7 @@ using TensorKit
 using LinearAlgebra: dot
 using OpSum
 using OpSum: couple, unitcell_terms, window_terms, maxspan,
-    ITOTermTable, ITOGraph, _rdesc, _entriesequal, _identity_channels, _infinite_window, _at_site!
+    TermTable, SweepGraph, _rdesc, _entriesequal, _identity_channels, _infinite_window, _at_site!
 
 # Translation covariance of the sweep: live suffix-class names repeat with the unit cell, and the result
 # does not depend on the order terms were written in.
@@ -25,8 +25,8 @@ const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter
         gen = unitcell_terms(H, L)
         ncells = 12
         N = ncells * L
-        tt = ITOTermTable(window_terms(gen, InfiniteChain(spaces), ncells), N)
-        g = ITOGraph(tt, N)
+        tt = TermTable(window_terms(gen, InfiniteChain(spaces), ncells), N)
+        g = SweepGraph(tt, N)
         names = map(1:N) do i
             _at_site!(g, i)
             return sort([_rdesc(g, r, i) for r in eachindex(g.rrepr)])
@@ -86,7 +86,7 @@ end
     LOp = OpSum.SiteOperator{SU2Irrep}
     d = OpSum.Dictionary{CartesianIndex{2}, LOp}()
     OpSum.increaseindex!(
-        d, CartesianIndex(1, 1), OpSum.SiteOperator(OpSum.IrrepOperator(SU2Irrep(1), 1))
+        d, CartesianIndex(1, 1), OpSum.SiteOperator(OpSum.Letter(SU2Irrep(1), 1))
     )
     @test_throws ArgumentError _identity_channels(
         [OpSum.sparse_from_dict(d, (1, 1))], [[SU2Irrep(1)]]

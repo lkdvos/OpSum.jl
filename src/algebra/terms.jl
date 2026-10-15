@@ -1,10 +1,9 @@
-# Term algebra over ITOs: `Term` (one term) → `Terms` (a bag, the operator), its normal form
+# Term algebra over letters: `Term` (one term) → `Terms` (a bag, the operator), its normal form
 # (`canonicalize!`), and collecting terms into a bag (`opsum`). Latticeless. Coupling lives in couple.jl.
 
 using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, unit
 import TensorKit: sectortype
-using .IrrepTensorOperators: IrrepOperator
 
 # Inverse of `bondcharges` (multiplicity-free: all vertex labels 1). The 4-arg `FusionTree` form
 # for K = 0: the 3-arg one throws for `MultipleFusion`.
@@ -21,29 +20,29 @@ end
 """
     Term{I<:Sector}
 
-One term: `sites` (ascending, unique), one `ITOKey` each (letter, running bond charge, vertex label)
+One term: `sites` (ascending, unique), one `Factor` each (letter, running bond charge, vertex label)
 and a reduced `coeff`. Multiplicity-free fusion only. Never mutated, so terms share vectors;
 `==`/`hash` ignore the coefficient, which is what makes summing coincident terms well defined.
 """
 struct Term{I <: Sector}
     sites::Vector{Int}
-    keys::Vector{ITOKey{I}}
+    keys::Vector{Factor{I}}
     coeff::ComplexF64
-    function Term{I}(sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::ComplexF64) where {I}
+    function Term{I}(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64) where {I}
         @assert length(sites) == length(keys) "sites/keys arity mismatch"
         @assert issorted(sites) && allunique(sites) "a term's sites must be ascending and unique"
         @assert all(k -> isone(k.vertex), keys) "multiplicity-free fusion only (all vertices == 1)"
         return new{I}(sites, keys, coeff)
     end
 end
-Term(sites::Vector{Int}, keys::Vector{ITOKey{I}}, coeff::Number) where {I} =
+Term(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::Number) where {I} =
     Term{I}(sites, keys, ComplexF64(coeff))
 
 sectortype(::Type{Term{I}}) where {I} = I
 
 arity(t::Term) = length(t.sites)
 
-ops(t::Term{I}) where {I} = IrrepOperator{I}[k.op for k in t.keys]
+ops(t::Term{I}) where {I} = Letter{I}[k.op for k in t.keys]
 
 # running bond charge after the last site
 total(t::Term{I}) where {I} = isempty(t.keys) ? unit(I) : last(t.keys).bond
@@ -52,7 +51,7 @@ total(t::Term{I}) where {I} = isempty(t.keys) ? unit(I) : last(t.keys).bond
 tree(t::Term{I}) where {I} = _tree_from_bonds(I[k.op.c for k in t.keys], I[k.bond for k in t.keys])
 
 Base.:(==)(x::Term{I}, y::Term{I}) where {I} = x.sites == y.sites && x.keys == y.keys
-Base.hash(t::Term, h::UInt) = hash(t.keys, hash(t.sites, hash(:ITOTerm, h)))
+Base.hash(t::Term, h::UInt) = hash(t.keys, hash(t.sites, hash(:Term, h)))
 
 # Total order for the normal form; the keys distinguish letters *and* couplings.
 function Base.isless(x::Term{I}, y::Term{I}) where {I}
@@ -72,14 +71,14 @@ end
 # caterpillar; the operator is `coeff` times that caterpillar's product.
 struct PendingTerm{I <: Sector}
     sites::Vector{Int}
-    keys::Vector{ITOKey{I}}
+    keys::Vector{Factor{I}}
     coeff::ComplexF64
 end
 
 """
     Terms{I<:Sector}
 
-The compressible ITO operator: a lattice-free bag of [`Term`](@ref)s, returned by placement (`A[i]`),
+The compressible operator: a lattice-free bag of [`Term`](@ref)s, returned by placement (`A[i]`),
 [`couple`](@ref) and `dot`, and combined by `+ - * /`. Terms are appended as given;
 [`canonicalize!`](@ref) normalises in place, and `length`, iteration, indexing and `≈` go through it.
 """
@@ -117,7 +116,7 @@ VectorInterface.scale(ts::Terms{I}, α::Number) where {I} = Terms{I}(
 
 # `one` is the term with no active sites; `zero` is the empty bag
 Base.one(::Union{Terms{I}, Type{Terms{I}}}) where {I} =
-    Terms{I}(Term{I}[Term{I}(Int[], ITOKey{I}[], ComplexF64(1))])
+    Terms{I}(Term{I}[Term{I}(Int[], Factor{I}[], ComplexF64(1))])
 Base.zero(::Union{Terms{I}, Type{Terms{I}}}) where {I} = Terms{I}()
 Base.empty(::Terms{I}) where {I} = Terms{I}()
 

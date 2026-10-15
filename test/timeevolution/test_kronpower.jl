@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, opsum, expterm, SiteOperator, storedpairs, _jordan_layout, _mpo_power, _mul
+using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, _jordan_layout, _mpo_power, _mul
 using TensorKit
 using SparseArrays: nnz
 
@@ -9,7 +9,7 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))
 # The Kronecker power of an MPO tensor, built from structure constants alone: `mpo_tensormap` of the power MPO
 # must be the dense `H^N`. Fermionic models are where a wrong braiding sign shows up.
 
-power_dense(P) = plain(mpo_tensormap(irrep_mpo_tensors(P.mpo)))
+power_dense(P) = plain(mpo_tensormap(mpo_tensors(P.mpo)))
 
 # the bosonic oracle on Ising (N = 2, 3); the fermionic sign rule on the U1 fermions (N = 2, 3), the parity fermions with
 # a next-nearest hop (N = 2) and Hubbard U1 x U1 (N = 2). Every further model only adds compilation.
@@ -77,7 +77,7 @@ end
             @test J.bondsectors[i][1] == J.bondsectors[i][end] == unit(sectortype(H.lattice))
         end
         # nothing instantiated, yet the same operator
-        T = irrep_mpo_tensors(J.Ws, J.bondsectors[2:end], H.lattice)
+        T = mpo_tensors(J.Ws, J.bondsectors[2:end], H.lattice)
         @test plain(mpo_tensormap(T)) ≈ densify(H)
     end
 end
@@ -158,11 +158,11 @@ end
 @testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models("t-V fermions (U1)")
     W = mpo(H)
     L = length(W)
-    Ts = irrep_mpo_tensors(W)
+    Ts = mpo_tensors(W)
     Hwin = window_operator(Ts, W.bondsectors, W.start[L], W.finish[L], cells)
     for N in 2:3
         P = _mpo_power(W, N)
-        TP = irrep_mpo_tensors(P.mpo)
+        TP = mpo_tensors(P.mpo)
         @test P.mpo.start[L] == 1
         @test P.mpo.finish[L] == length(P.levels[L])
         Pwin = window_operator(TP, P.mpo.bondsectors, P.mpo.start[L], P.mpo.finish[L], cells)

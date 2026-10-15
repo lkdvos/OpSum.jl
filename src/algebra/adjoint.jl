@@ -17,7 +17,7 @@ function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
     for t in h
         K = arity(t)
         if iszero(K)
-            push!(out, Term{I}(Int[], ITOKey{I}[], conj(t.coeff)))
+            push!(out, Term{I}(Int[], Factor{I}[], conj(t.coeff)))
             continue
         end
         total(t) == unit(I) || throw(

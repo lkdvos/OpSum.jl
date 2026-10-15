@@ -86,6 +86,10 @@ move `canonicalize!` next to `Terms`; `builders.jl` → `adjoint.jl`; `expterms.
 files into `mpo/`; tests mirror `src/`; `research/` → `benchmark/n2/`. `kronpower.jl` stays in `timeevolution/`
 (only `taylor.jl` uses it). O7 (algorithm selectors) is deferred to chunk 1.
 
+**D5 (process) Verification cadence.** During a chunk: only the test files mirroring the touched `src` files plus
+the old-vs-new equivalence script, run through a persistent Revise session (`julia-daemon` skill). Once per chunk:
+one full `Pkg.test()` in the background. At the finish: full suite, strict docs build, Julia 1.10 (`min`).
+
 ## Possible improvements
 
 ## Open items

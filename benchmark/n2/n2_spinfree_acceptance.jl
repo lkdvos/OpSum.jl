@@ -15,8 +15,8 @@
 #   Not the coefficients: that script's two-site strings have the opposite sign of `a†_p a_q`, so `E`
 #   is minus its two-site string (which makes `E[p, p] = n_p`).
 #
-#     jld --test run research/n2_spinfree_acceptance.jl             # STO-3G
-#     N2_BASIS=CCPVDZ jld --test run research/n2_spinfree_acceptance.jl
+#     jld --test run benchmark/n2/n2_spinfree_acceptance.jl             # STO-3G
+#     N2_BASIS=CCPVDZ jld --test run benchmark/n2/n2_spinfree_acceptance.jl
 
 ENV["N2_NORUN"] = "1"
 include(joinpath(@__DIR__, "n2_basis_acceptance.jl"))

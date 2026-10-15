@@ -6,8 +6,8 @@
 #
 # Run from OpSum's test environment (it has MPSKit), with the #38 material checked out next to it:
 #
-#     jld --test run research/n2_basis_acceptance.jl            # STO-3G
-#     N2_BASIS=CCPVDZ jld --test run research/n2_basis_acceptance.jl
+#     jld --test run benchmark/n2/n2_basis_acceptance.jl            # STO-3G
+#     N2_BASIS=CCPVDZ jld --test run benchmark/n2/n2_basis_acceptance.jl
 #
 # The terms come from `opsum_qchem_su2.jl` (MPSKitExperimental.jl, PR maartenvd/MPSKitExperimental.jl#1),
 # which writes them in matrix-unit letters on its own site space `U₁ ⊠ SU₂ ⊠ fℤ₂`. The basis is built on

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repository. Design history lives in git (the `research/` notes were removed).
+Guidance for Claude Code in this repository. Design history lives in git.
 
 ## Commands
 
@@ -75,5 +75,5 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
 * Tests: `test/**/test_*.jl` (subfolders mirror `src/`, one file per source file; end-to-end ones sit at the top), discovered automatically; shared helpers in `test/testutils.jl` (`unitbasis`,
   `spinvector`, `matrixunit`, `fermionmode`, `physmatrix`, `reduced`). MPSKit is a weak dependency tracked from
   `main` (`url` + `rev` source); TensorKitTensors is a full dependency.
-* `research/n2_*_acceptance.jl` reproduce the #38 N₂ numbers (centre bond 102/192 vs 347/677 in matrix units) and
+* `benchmark/n2/n2_*_acceptance.jl` reproduce the #38 N₂ numbers (centre bond 102/192 vs 347/677 in matrix units) and
   check the spin-free Hamiltonian against an exact spectrum.

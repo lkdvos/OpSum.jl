@@ -51,7 +51,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 
 | # | Chunk | Files | Status |
 |---|-------|-------|--------|
-| 0 | Top-down tour of the main path | — | pending |
+| 0 | Top-down tour of the main path | — | presented |
 | 1 | Foundations | utility/, datastructures/, compression/algorithms.jl, lattices.jl | pending |
 | 2 | Letters | irreptensoroperators, irrepkey, siteoperator, irrepinstantiate | pending |
 | 3 | Terms | irrepalgebra.jl, canonicalize! (irreptermtable.jl) | pending |
@@ -85,6 +85,11 @@ drop `src/operators/`; merge `memo.jl` into `linalg.jl` and `connectedcomponents
 move `canonicalize!` next to `Terms`; `builders.jl` → `adjoint.jl`; `expterms.jl` out of `infinite/`; output
 files into `mpo/`; tests mirror `src/`; `research/` → `benchmark/n2/`. `kronpower.jl` stays in `timeevolution/`
 (only `taylor.jl` uses it). O7 (algorithm selectors) is deferred to chunk 1.
+As applied: `40b562c` (src moves), `9928b09` (tests mirror src in subfolders; `find_tests` recurses),
+`5cf798c` (D3 renames; also `_op_at_ito` → `_factor_at`, `_irrep_channels` → `_sweep_channels`, `_irrep_sweep` →
+`_sweep`, `_ito_coefficients` → `_coefficients`), `f263073` (research → benchmark/n2). Full suite 139411/139411,
+strict docs build clean (runs every example), 321 `using OpSum:` names all resolve. `algorithms.jl` sits just before
+`mpo/symbolicmpo.jl` (needs `BipartiteAlgorithm`).
 
 **D5 (process) Verification cadence.** During a chunk: only the test files mirroring the touched `src` files plus
 the old-vs-new equivalence script, run through a persistent Revise session (`julia-daemon` skill). Once per chunk:
@@ -94,6 +99,18 @@ one full `Pkg.test()` in the background. At the finish: full suite, strict docs 
 
 ## Open items
 
+- Tour findings, to decide in their chunks: `mpo(H)` canonicalises `H.terms` in place (7); `TermTable.nvertices` is
+  really `N` (7); four-way `_compress` branching + silent `nothing` fallback from the metric path (1/8, with O7);
+  `_sweep` = `_sweep_channels(; jordan=false)[1:2]` (7); 35-field `SweepGraph` with positional constructor (7);
+  tri-state `start`/`finish` (9); `mpo_tensors(Ws, secs, sites)` / `mpo_terms(Ws, secs)` public raw forms (9);
+  `_invariant` defined in graph.jl but used across layers → utility (1); `ComplexF64` everywhere (question).
+- Stale refs to removed design notes: `src/infinite/window.jl:3` (research/infinite-mpo.md), `src/algebra/basis.jl:3`
+  (research/operator-bases.md).
+- `benchmark/n2` includes `MPSKitExperimental.jl/examples/opsum_qchem_su2.jl` (outside this repo), which still uses
+  `OpSum.IrrepOperator` → needs `Letter` there; and an out-of-repo include is fragile (chunk 14).
+- `scalarop` landed in `algebra/instantiate.jl`; `siteoperator.jl` may be its home (chunk 2).
+- `test/utility/test_bipartite_components.jl` could merge into `test_bipartite.jl` (chunk 13).
+
 ## Resume here
 
-Setup done; global map presented. Next: user feedback on chunk plan and organisation proposals O1–O8, then chunk 0.
+D1–D5 decided; initial reorg applied. Chunk 0 presented; awaiting answer on ComplexF64 question, then chunk 1.

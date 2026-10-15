@@ -31,26 +31,26 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   (through the internal matrix-unit expansion `_project_units`); `instantiate(letter, B)` is its inverse.
   Stock bases (`spin_basis`, `fermion_basis`, `boson_basis`, `hubbard_basis`, `tj_basis`) and builders
   (`spin_ops`, …, named after TensorKitTensors functions) live in `stockbases.jl` and are memoised.
-* **Terms** (`irrepalgebra.jl`, `irrepkey.jl`): `Term` = ascending sites, one `ITOKey` per site, coefficient; the
+* **Terms** (`algebra/terms.jl`, `algebra/letters.jl`): `Term` = ascending sites, one `ITOKey` per site, coefficient; the
   running bond charges of the caterpillar *are* the fusion tree. `==`/`hash` ignore the coefficient. `Terms` is a
-  bag; `canonicalize!` (`irreptermtable.jl`) is the only normal form and everything observing the set goes through it.
+  bag; `canonicalize!` (`algebra/terms.jl`) is the only normal form and everything observing the set goes through it.
   `≈` compares canonical terms as sparse vectors; `==` is exact.
-* **`couple`/`dot`/`*`** are order-free. Abelian (`_canreorder`): legs inserted with R-symbols (fermionic signs).
+* **`couple`/`dot`/`*`** (`algebra/couple.jl`) are order-free. Abelian (`_canreorder`): legs inserted with R-symbols (fermionic signs).
   Non-abelian (`_canrecouple`): written in order, re-coupled by `_recouple` (`products.jl`). Two fermion-odd operands
   pick up the graded sign. `a[i] * b[i]` is a `PendingTerm`, resolved in the sites' bases when added to an
   `OperatorSum` (`_resolve`); a bag with pending products has no normal form.
-* **Sweep** (`compression/irrepgraph*.jl`): `ITOGraph` walked site by site (`_at_site!`); the bond basis comes from
-  a `BondStrategy` (`VertexCover` default via Hopcroft–Karp + König in `bipartite.jl`; `IndependentSVD`,
+* **Sweep** (`compression/graph*.jl`): `ITOGraph` walked site by site (`_at_site!`); the bond basis comes from
+  a `BondStrategy` (`VertexCover` default via Hopcroft–Karp + König in `utility/bipartite.jl`; `IndependentSVD`,
   `SequentialSVD`). Load-bearing invariant: the pending↔started suffix-class collision (`_promote_pending!`), guarded
   in `test_irrep_graph.jl` in all three sectors. Truncating SVD works in the bases' Hilbert–Schmidt metric (`metric.jl`).
-* **Container and output** (`operatorsum.jl`, `irrepmpo.jl`, `symbolicmpo.jl`, `jordanmpo.jl`): `OperatorSum` holds
+* **Container and output** (`operatorsum.jl`, `mpo/{symbolicmpo,tensors,jordan}.jl`): `OperatorSum` holds
   lattice + `Terms` + `ExpSum` channels and validates on insertion (`_checkinsert`, `_checkchannels`). `mpo(H[, alg])`
   → `SymbolicMPO`; on a finite chain without channels the finish channel is forced into the cover (`_force_finish!`)
   so a Jordan form exists. `irrep_mpo_tensors`, `jordan_mpo_tensors` (BlockTensorKit, MPSKit layout) and
   `instantiate(W)` (MPSKit extension, `ext/`) emit tensors. `H'` goes through dense blocks (`_adjoint_terms`).
 * **Infinite chains** (`infinite/`): `mpo` on an `InfiniteChain` unrolls a window, runs the same sweep and finds the
   translation-invariant cell (`_infinite_window`); the suffix canonicalisation (`_canonicalise_rights!`) is required
-  for the cell to close. `expterm` channels (`expterms.jl`) lower to weighted automata: cyclic states are forced into
+  for the cell to close. `expterm` channels (`src/expterms.jl`) lower to weighted automata: cyclic states are forced into
   the cover, and λ rides as an edge weight so every emitted entry carries a letter.
 * **Time evolution** (`timeevolution/{kronpower,taylormpo,taylor}.jl`, `algebra/letterproducts.jl`):
   `taylor_mpo(H|W, N; extension = true, compression = false)` → `TaylorMPO`, the symbolic `exp(τH)` MPO through `τ^N`

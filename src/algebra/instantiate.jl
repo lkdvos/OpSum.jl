@@ -70,3 +70,23 @@ function _embed_caterpillar(ops, positions, tree, sites)
     p_dom = (ntuple(j -> site_global(j), N)..., charge_global)
     return permute(full, (p_cod, p_dom))
 end
+
+"""
+    instantiate(O::SiteOperator, V::ElementarySpace)
+
+The coefficient-weighted sum of `O`'s letters' tensors, `V ← V ⊗ Vect[I](c => 1)`.
+"""
+function instantiate(O::SiteOperator{I}, V::ElementarySpace) where {I}
+    isempty(O) && throw(ArgumentError("cannot instantiate an empty SiteOperator without a space"))
+    return sum(((l, c),) -> c * instantiate(l, V), pairs(O))
+end
+
+"""
+    scalarop(c::Number, B::Basis)
+    scalarop(c::Number, ::Type{I<:Sector})
+
+The scalar operator `c·𝟙`: `c` times the identity letter `(unit(I), 1)`, element 1 of every basis.
+"""
+scalarop(c::Number, ::Type{I}) where {I} = SiteOperator{I}(ComplexF64(c))
+scalarop(c::Number, V::ElementarySpace) = scalarop(c, sectortype(V))
+

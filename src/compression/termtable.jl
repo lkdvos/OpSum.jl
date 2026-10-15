@@ -1,3 +1,54 @@
+# `ITOTermTable`, the `K × M` matrices the sweeps index into, and the interning of their columns.
+
+using TensorKit: Sector, unit
+
+# Flat storage of a canonical operator: each term's active `(site, ITOKey)` factors in `K×M` matrices
+# (`sites` zero-padded, ascending) plus `coeffs`. The caterpillar's bond charges are its fusion tree.
+struct ITOTermTable{I <: Sector}
+    sites::Matrix{Int}
+    keys::Matrix{ITOKey{I}}
+    coeffs::Vector{ComplexF64}
+    nvertices::Int
+end
+
+arity(tt::ITOTermTable) = size(tt.sites, 1)
+nterms(tt::ITOTermTable) = length(tt.coeffs)
+nvertices(tt::ITOTermTable) = tt.nvertices
+
+function ITOTermTable(ts::Terms{I}, N::Integer) where {I}
+    canonicalize!(ts)
+    terms = ts.terms
+    M = length(terms)
+    K = max(1, maximum(arity, terms; init = 0))   # the sweeps index row 1 unconditionally
+    sitemat = zeros(Int, K, M)
+    keymat = fill(ITOKey{I}(passthrough(I), unit(I), 1), K, M)
+    for (t, term) in enumerate(terms)
+        for j in 1:arity(term)
+            sitemat[j, t] = term.sites[j]
+            keymat[j, t] = term.keys[j]
+        end
+    end
+    return ITOTermTable{I}(sitemat, keymat, ComplexF64[t.coeff for t in terms], Int(N))
+end
+
+# `ITOKey` at site `s` of term `t`: the stored key on an active site, else the pass-through carrying
+# the running bond charge to its left (which preserves block-diagonality).
+function _op_at_ito(tt::ITOTermTable{I}, t::Int, s::Int) where {I}
+    lastbond = unit(I)
+    @inbounds for j in 1:size(tt.sites, 1)
+        st = tt.sites[j, t]
+        st == 0 && break
+        if st == s
+            return tt.keys[j, t]
+        elseif st < s
+            lastbond = tt.keys[j, t].bond
+        else
+            break
+        end
+    end
+    return ITOKey{I}(passthrough(I), lastbond, 1)
+end
+
 # Interning of the term table's contiguous column suffixes/prefixes, shared by every sweep backend.
 
 # Walk/insert-on-miss behind the three id matrices. `dir = -1` walks columns `K:-1:1` writing

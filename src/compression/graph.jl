@@ -1,5 +1,5 @@
 # Reduced-MPO sweeps for the ITO automaton. `VertexCover`/`SequentialSVD` run the persistent
-# bipartite-graph sweep here (cost `Θ(M·K) + Θ(Σ_terms span)`); `IndependentSVD` is in irrepgraph_svd.jl.
+# bipartite-graph sweep here (cost `Θ(M·K) + Θ(Σ_terms span)`); `IndependentSVD` is in graph_svd.jl.
 # Fermionic sectors need no Jordan-Wigner strings: the odd-parity bond charge carries the braiding.
 #
 # Invariant to keep in mind: a started term whose running charge fused back to `unit` is

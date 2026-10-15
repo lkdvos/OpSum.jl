@@ -32,15 +32,10 @@ using MatrixAlgebraKit
 using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
 using LinearAlgebra: LinearAlgebra
 
-include("operators/compression/algorithms.jl")
-
 include("utility/linalg.jl")
-include("utility/memo.jl")
+include("utility/bipartite.jl")
 
-include("datastructures/bipartite.jl")
-include("datastructures/connectedcomponents.jl")
-
-include("operators/lattices.jl")
+include("lattices.jl")
 
 """
     instantiate(op, V)
@@ -49,35 +44,34 @@ Materialize a symbolic operator as a `TensorMap` on the physical space `V`.
 """
 function instantiate end
 
-include("operators/algebra/irreptensoroperators.jl")
-using .IrrepTensorOperators: IrrepOperator
-include("operators/algebra/irrepkey.jl")
-include("operators/algebra/siteoperator.jl")
-include("operators/algebra/irrepalgebra.jl")
-include("operators/algebra/irrepinstantiate.jl")
-include("operators/algebra/localoperator.jl")
-include("operators/algebra/irrepprojection.jl")
-include("operators/algebra/basis.jl")
-include("operators/algebra/builders.jl")
-include("operators/algebra/products.jl")
-include("operators/algebra/letterproducts.jl")
-include("operators/algebra/stockbases.jl")
+include("algebra/letters.jl")
+include("algebra/siteoperator.jl")
+include("algebra/terms.jl")
+include("algebra/couple.jl")
+include("algebra/instantiate.jl")
+include("algebra/localoperator.jl")
+include("algebra/projection.jl")
+include("algebra/basis.jl")
+include("algebra/adjoint.jl")
+include("algebra/products.jl")
+include("algebra/letterproducts.jl")
+include("algebra/stockbases.jl")
 
-include("operators/compression/irreptermtable.jl")
-include("operators/infinite/expterms.jl")
-include("operators/operatorsum.jl")
-include("operators/compression/symbolicmpo.jl")
-include("operators/compression/irrepinterning.jl")
-include("operators/compression/irrepgraph.jl")
-include("operators/compression/irrepgraph_vc.jl")
-include("operators/compression/irrepgraph_svd.jl")
-include("operators/compression/metric.jl")
-include("operators/infinite/infinitechain.jl")
-include("operators/infinite/infinitegraph.jl")
-include("operators/compression/irrepmpo.jl")
-include("operators/compression/jordanmpo.jl")
-include("operators/timeevolution/kronpower.jl")
-include("operators/timeevolution/taylormpo.jl")
-include("operators/timeevolution/taylor.jl")
+include("compression/termtable.jl")
+include("expterms.jl")
+include("operatorsum.jl")
+include("compression/algorithms.jl")
+include("mpo/symbolicmpo.jl")
+include("compression/graph.jl")
+include("compression/graph_vc.jl")
+include("compression/graph_svd.jl")
+include("compression/metric.jl")
+include("infinite/unitcell.jl")
+include("infinite/window.jl")
+include("mpo/tensors.jl")
+include("mpo/jordan.jl")
+include("timeevolution/kronpower.jl")
+include("timeevolution/taylormpo.jl")
+include("timeevolution/taylor.jl")
 
 end

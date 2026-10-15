@@ -5,7 +5,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, norm, eigvals, I as Id
 
-include(joinpath(@__DIR__, "testutils.jl"))
+include(joinpath(@__DIR__, "..", "testutils.jl"))
 
 # dense oracle of a latticeless bag over a list of sites; a bare space stands for its `unitbasis`
 sitebasis(V::ElementarySpace) = unitbasis(V)
@@ -269,7 +269,7 @@ end
     @test_throws ArgumentError couple(F.cd[2], F.c[2])        # same site, whichever order
     @test_throws ArgumentError couple(couple(F.cd[1], F.c[3]), F.n[3])
 
-    # non-abelian: re-coupled into site order (test_products.jl checks it against the dense product);
+    # non-abelian: re-coupled into site order (algebra/test_products.jl checks it against the dense product);
     # to a singlet, three spin-½ vectors leave only j₁₂ = 1
     Vs = SU2Space(1 // 2 => 1)
     S2 = spinvector(unitbasis(Vs))

@@ -1,4 +1,4 @@
-# Maximum matching + minimum vertex cover (src/datastructures/bipartite.jl). The cover size is the bond
+# Maximum matching + minimum vertex cover (src/utility/bipartite.jl). The cover size is the bond
 # dimension; König's theorem (|min cover| == |max matching|) is the oracle, plus an edge-cover check.
 
 using Test

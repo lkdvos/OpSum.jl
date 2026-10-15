@@ -1,4 +1,4 @@
-# Tests for the reduced-MPO sweeps (irrepgraph.jl): VertexCover, SequentialSVD and IndependentSVD.
+# Tests for the reduced-MPO sweeps (compression/graph.jl): VertexCover, SequentialSVD and IndependentSVD.
 # Checks: `mpo_terms` round-trip, dense agreement with `instantiate`, pinned per-bond sector profiles,
 # the pending-versus-started suffix-class collision, and the scaling guard.
 
@@ -12,7 +12,7 @@ using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: dot, norm
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix, islossless
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, physmatrix, islossless
 
 # densified operator check, unaffected by the per-bond rotation of the SVD (`mpo_terms` is not reliable there)
 contract2(T) = @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]

@@ -5,7 +5,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: @tensor
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, physmatrix
 
 contract2(T) = @tensor Op[o1 o2 bL; bR i1 i2] := T[1][bL o1; i1 bm] * T[2][bm o2; i2 bR]
 function contract3(T)

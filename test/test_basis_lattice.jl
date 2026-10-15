@@ -5,7 +5,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using TensorKit: BraidingTensor
 
-include("testutils.jl")
+include(joinpath(@__DIR__, "testutils.jl"))
 
 # Chains of per-site bases; the oracle is the same Hamiltonian in the matrix-unit basis `unitbasis(V)`.
 

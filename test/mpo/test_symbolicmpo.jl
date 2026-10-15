@@ -5,10 +5,10 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO, islossless
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, islossless
 
 # Default-algorithm `mpo` is lossless and ends on the term's total charge. The pinned bond profiles of
-# the same models live in test_irrep_graph.jl.
+# the same models live in compression/test_graph.jl.
 @testset "mpo is lossless with the right boundary at the total charge" begin
     Vs = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(Vs))
@@ -44,7 +44,7 @@ include(joinpath(@__DIR__, "testutils.jl"))   # LO, islossless
         end
     end
 
-    # charge content of inner bonds not pinned in test_irrep_graph.jl
+    # charge content of inner bonds not pinned in compression/test_graph.jl
     _, secs = reduced(mpo(opsum(fill(unitbasis(Vs), 6), heis(6))))
     @test count(==(SU2Irrep(0)), secs[3]) == 2      # identity-in + identity-out
     @test count(==(SU2Irrep(1)), secs[3]) == 1      # one open spin multiplet

@@ -6,10 +6,10 @@ using TensorKit
 using LinearAlgebra: norm
 using Random: MersenneTwister
 
-include("testutils.jl")
+include(joinpath(@__DIR__, "..", "testutils.jl"))
 
 # The structure constants of a basis (the product of operators on one site; the fermion sign of a product of
-# operators on a chain is pinned against dense oracles in test_mpo_power.jl): `e_x · e_y` with the charge legs fused to the unique channel
+# operators on a chain is pinned against dense oracles in timeevolution/test_kronpower.jl): `e_x · e_y` with the charge legs fused to the unique channel
 # `x.c ⊗ y.c`, from the memoised table. The oracle is the dense written-order block and dense products.
 
 const SU2 = SU2Irrep

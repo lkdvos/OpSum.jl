@@ -8,7 +8,7 @@ using TensorKit: @tensor
 using LinearAlgebra: dot
 using MatrixAlgebraKit: truncrank
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO, physmatrix, densedim
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, physmatrix, densedim
 
 function contract3(T)
     return @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=

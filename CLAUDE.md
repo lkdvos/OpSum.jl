@@ -8,7 +8,7 @@ No `Manifest.toml` is checked in; instantiate first (`julia --project -e 'using 
 
 ```bash
 julia --project -e 'using Pkg; Pkg.test()'          # all tests (ParallelTestRunner)
-julia --project=test test/test_irrep_graph.jl        # one file; each is standalone
+julia --project=test test/compression/test_graph.jl  # one file; each is standalone
 julia --project=/tmp/runic -e 'using Pkg; Pkg.add("Runic"); using Runic; Runic.format_file("src/file.jl"; inplace=true)'
 julia --project=benchmark benchmark/run.jl --sweep ci                       # scaling benchmarks
 julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full --figure all
@@ -42,7 +42,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
 * **Sweep** (`compression/graph*.jl`): `ITOGraph` walked site by site (`_at_site!`); the bond basis comes from
   a `BondStrategy` (`VertexCover` default via Hopcroft–Karp + König in `utility/bipartite.jl`; `IndependentSVD`,
   `SequentialSVD`). Load-bearing invariant: the pending↔started suffix-class collision (`_promote_pending!`), guarded
-  in `test_irrep_graph.jl` in all three sectors. Truncating SVD works in the bases' Hilbert–Schmidt metric (`metric.jl`).
+  in `test/compression/test_graph.jl` in all three sectors. Truncating SVD works in the bases' Hilbert–Schmidt metric (`metric.jl`).
 * **Container and output** (`operatorsum.jl`, `mpo/{symbolicmpo,tensors,jordan}.jl`): `OperatorSum` holds
   lattice + `Terms` + `ExpSum` channels and validates on insertion (`_checkinsert`, `_checkchannels`). `mpo(H[, alg])`
   → `SymbolicMPO`; on a finite chain without channels the finish channel is forced into the cover (`_force_finish!`)
@@ -72,7 +72,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
 * Invariant checks are `throw`s via `_invariant`, never `@assert`.
 * Model code uses neutral operators only (builders, `project`); never a hard-coded `IrrepOperator(c, n)`.
 * Verification: `islossless(H)` (= `mpo_terms(mpo(H)) ≈ chain_terms(H)`) and the dense oracle `instantiate(H)`.
-* Tests: `test/test_*.jl`, discovered automatically; shared helpers in `test/testutils.jl` (`unitbasis`,
+* Tests: `test/**/test_*.jl` (subfolders mirror `src/`, one file per source file; end-to-end ones sit at the top), discovered automatically; shared helpers in `test/testutils.jl` (`unitbasis`,
   `spinvector`, `matrixunit`, `fermionmode`, `physmatrix`, `reduced`). MPSKit is a weak dependency tracked from
   `main` (`url` + `rev` source); TensorKitTensors is a full dependency.
 * `research/n2_*_acceptance.jl` reproduce the #38 N₂ numbers (centre bond 102/192 vs 347/677 in matrix units) and

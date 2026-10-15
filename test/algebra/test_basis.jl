@@ -5,7 +5,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot
 
-include("testutils.jl")
+include(joinpath(@__DIR__, "..", "testutils.jl"))
 
 const Imat = ComplexF64[1 0; 0 1]
 const Xmat = ComplexF64[0 1; 1 0]

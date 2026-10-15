@@ -5,7 +5,7 @@ using TensorKit
 using LinearAlgebra: norm
 import TensorKitTensors.FermionOperators as FO
 
-include("testutils.jl")
+include(joinpath(@__DIR__, "..", "testutils.jl"))
 
 # A truncating SVD truncates in the basis' Hilbert–Schmidt metric, so the result depends on the span of
 # the basis and not on how it was written.

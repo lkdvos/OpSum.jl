@@ -10,7 +10,7 @@ using TensorKitTensors.FermionOperators: FermionOperators as FO
 using Random: Random
 using LinearAlgebra: norm
 
-include("testutils.jl")
+include(joinpath(@__DIR__, "testutils.jl"))
 
 # `instantiate(W::SymbolicMPO)` (ext/OpSumMPSKitExt.jl) against MPSKit's own construction from local
 # operators, compared on random states. Models use TensorKitTensors operators projected into bases built from them.

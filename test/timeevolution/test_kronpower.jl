@@ -4,7 +4,7 @@ using OpSum: mpo, irrep_mpo_tensors, opsum, expterm, SiteOperator, storedpairs, 
 using TensorKit
 using SparseArrays: nnz
 
-include(joinpath(@__DIR__, "testutils.jl"))
+include(joinpath(@__DIR__, "..", "testutils.jl"))
 
 # The Kronecker power of an MPO tensor, built from structure constants alone: `mpo_tensormap` of the power MPO
 # must be the dense `H^N`. Fermionic models are where a wrong braiding sign shows up.

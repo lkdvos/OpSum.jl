@@ -5,7 +5,7 @@ using OpSum: LocalOperator, nsites, project, instantiate, couple, couple_channel
 using TensorKit
 using LinearAlgebra: dot
 
-include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, spinvector, matrixunit, fermionmode
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # unitbasis, spinvector, matrixunit, fermionmode
 
 densop(h, lat) = plain(instantiate(opsum(lat, h)))
 

@@ -9,7 +9,7 @@ using TensorKit: @tensor, insertrightunit, removeunit
 using VectorInterface: inner
 using LinearAlgebra: dot, norm
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm, physmatrix, unitbasis, spinvector, ...
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, onlyterm, physmatrix, unitbasis, spinvector, ...
 
 # The basis-free expansion in matrix units is internal (`_project_units`); the tests of its mechanics
 # call it through these two helpers: expand and place on `sites`, and rebuild densely on spaces `Vs`.
@@ -49,7 +49,7 @@ end
 gram(ops, tot) = dim(tot) / prod(op -> dim(op.c), ops)
 
 # The projection is `c_α = inner(E_α, h) / g`, correct because the candidate basis is orthogonal with
-# that diagonal and complete (derived in `irrepprojection.jl`); pinned numerically here, fermionic
+# that diagonal and complete (derived in `projection.jl`); pinned numerically here, fermionic
 # sectors included. Returns the worst deviation of the Gram matrix from `δ_αβ · g(ops, tot)`.
 function gram_error(Vs, tot)
     cands = candidates(Vs, tot)

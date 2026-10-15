@@ -7,7 +7,7 @@ using TensorKitTensors.HubbardOperators: HubbardOperators as HO
 using TensorKitTensors.FermionOperators: FermionOperators as FO
 using TensorKitTensors.SpinOperators: SpinOperators as SO
 
-include("testutils.jl")
+include(joinpath(@__DIR__, "..", "testutils.jl"))
 
 # `a * b` across sites is `couple` with the forced channel; a product sharing a site is resolved in the
 # site's basis when it enters an `OperatorSum`. The oracle is the dense operator product.

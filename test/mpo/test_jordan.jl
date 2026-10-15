@@ -7,7 +7,7 @@ using MPSKit
 using MPSKit: JordanMPOTensor, FiniteMPOHamiltonian, FiniteMPS, expectation_value
 using TensorKitTensors.SpinOperators: SpinOperators
 
-include(joinpath(@__DIR__, "testutils.jl"))                                   # LO
+include(joinpath(@__DIR__, "..", "testutils.jl"))                                   # LO
 
 # Reference models, one per sector kind, at N = 4 (the 3-body one at 3): a dense contraction costs a
 # fresh `ncon` specialization per (length, sectortype). Structural checks run on all, the dense oracle

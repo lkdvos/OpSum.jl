@@ -5,7 +5,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot, I as Id
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO, onlyterm
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, onlyterm
 
 charges(t::Term) = [k.op.c for k in t.keys]
 termbonds(t::Term) = [k.bond for k in t.keys]

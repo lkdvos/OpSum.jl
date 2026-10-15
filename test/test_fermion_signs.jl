@@ -4,7 +4,7 @@ using OpSum: instantiate, couple, opsum, _isfermionodd
 using TensorKit
 using LinearAlgebra
 
-include("testutils.jl")
+include(joinpath(@__DIR__, "testutils.jl"))
 
 # `couple(cd[i], c[j])` is the physical `c†ᵢcⱼ` (Jordan–Wigner `c_j = Z₁⋯Z_{j-1} σ⁻_j`, sites 1..N);
 # the hop sign is physical on odd loops. Pinned against a dense oracle written independently of OpSum.

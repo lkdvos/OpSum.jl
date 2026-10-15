@@ -11,7 +11,7 @@ using OpSum: couple, unitcell_terms, window_terms, maxspan,
 const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
 
-include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, matrixunit, spinvector
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # unitbasis, matrixunit, spinvector
 const BSU2 = unitbasis(VSU2)
 const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter
 

@@ -7,7 +7,7 @@ using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: norm
 
-include(joinpath(@__DIR__, "testutils.jl"))
+include(joinpath(@__DIR__, "..", "testutils.jl"))
 
 # The Taylor MPO (`taylor_mpo`): Alg. 1 and 2 (the structure against the paper's tables, the exactness of the
 # merge), Alg. 3 and 4 (the lazy entries of the next power, the closed forms of the paper and of MPSKit's tests),

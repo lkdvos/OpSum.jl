@@ -7,7 +7,7 @@ using OpSum.IrrepTensorOperators: IrrepOperator
 using TensorKit
 using LinearAlgebra: dot
 
-include(joinpath(@__DIR__, "testutils.jl"))   # LO
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO
 
 su2 = SU2Space(1 // 2 => 1)
 u1 = Rep[U₁](0 => 1, 1 => 1)

@@ -3,7 +3,7 @@
 
 using Test
 using Random
-using OpSum: hopcroft_karp, min_vertex_cover_bipartite
+using OpSum: hopcroft_karp, minimum_vertex_cover, connected_components
 
 function covers_all_edges(adjU, coverU, coverV)
     for u in eachindex(adjU), v in adjU[u]
@@ -27,13 +27,13 @@ end
     @testset "small hand-checked graphs" begin
         # a star: the minimum cover is the centre, never the leaves
         adjU = [[1, 2, 3, 4]]
-        cU, cV, _, _, m = min_vertex_cover_bipartite(adjU, 1, 4)
-        @test m == 1
+        cU, cV = minimum_vertex_cover(adjU, 1, 4)
+        @test hopcroft_karp(adjU, 1, 4)[3] == 1
         @test cU == [true]
         @test !any(cV)
 
-        cU, cV, _, _, m = min_vertex_cover_bipartite([Int[], Int[]], 2, 3)
-        @test m == 0
+        cU, cV = minimum_vertex_cover([Int[], Int[]], 2, 3)
+        @test hopcroft_karp([Int[], Int[]], 2, 3)[3] == 0
         @test !any(cU) && !any(cV)
     end
 
@@ -41,7 +41,8 @@ end
         # a path of length 2n-1; pins that a deep component does not overflow the stack
         n = 20_000
         adjU = [k == 1 ? [1] : [k - 1, k] for k in 1:n]
-        cU, cV, pairU, pairV, matching = min_vertex_cover_bipartite(adjU, n, n)
+        cU, cV = minimum_vertex_cover(adjU, n, n)
+        pairU, pairV, matching = hopcroft_karp(adjU, n, n)
         @test matching == n
         @test count(cU) + count(cV) == matching
         @test covers_all_edges(adjU, cU, cV)
@@ -56,7 +57,8 @@ end
             p = rand(rng, (0.1, 0.3, 0.6, 0.9))
             adjU = [findall(<(p), rand(rng, m)) for _ in 1:n]
 
-            cU, cV, pairU, pairV, matching = min_vertex_cover_bipartite(adjU, n, m)
+            cU, cV = minimum_vertex_cover(adjU, n, m)
+            pairU, pairV, matching = hopcroft_karp(adjU, n, m)
             @test is_matching(adjU, m, pairU, pairV, matching)
             @test covers_all_edges(adjU, cU, cV)
             @test count(cU) + count(cV) == matching   # König's theorem
@@ -102,5 +104,36 @@ end
             # Berge, not König: a cover from the same call would be circular
             @test !has_augmenting_path(adjU, m, pairU, pairV)
         end
+    end
+end
+
+@testset "connected_components" begin
+    @testset "two disjoint components" begin
+        # A: U1-V1, U1-V2, U2-V2, U3-V2; B: U4-V3
+        adjU = [[1, 2], [2], [2], [3]]
+        us, vs = connected_components(adjU, 3)
+        @test length(us) == 2
+
+        idxA = findfirst(u -> 4 ∉ u, us)
+        idxB = findfirst(u -> 4 ∈ u, us)
+        @test !isnothing(idxA) && !isnothing(idxB) && idxA != idxB
+        @test us[idxA] == [1, 2, 3]
+        @test vs[idxA] == [1, 2]
+        @test us[idxB] == [4]
+        @test vs[idxB] == [3]
+    end
+
+    @testset "right vertex with no incident edge is dropped" begin
+        adjU = [[1]]
+        us, vs = connected_components(adjU, 3)
+        @test length(us) == 1
+        @test only(us) == [1]
+        @test only(vs) == [1]     # vertices 2, 3 have no edges and belong to no component
+    end
+
+    @testset "no left vertices" begin
+        us, vs = connected_components(Vector{Int}[], 0)
+        @test isempty(us)
+        @test isempty(vs)
     end
 end

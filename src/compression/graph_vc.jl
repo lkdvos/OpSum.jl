@@ -129,9 +129,9 @@ function _forced_cover(
         g::SweepGraph, localadj::Vector{Vector{Int}}, nus::Int, nvs::Int, vs::Vector{Int}
     )
     forced = BitVector(_iscyclic(g, vs[p]) for p in 1:nvs)
-    any(forced) || return min_vertex_cover_bipartite(localadj, nus, nvs)[1:2]
+    any(forced) || return minimum_vertex_cover(localadj, nus, nvs)
     residual = [filter(p -> !forced[p], adj) for adj in localadj]
-    cUbits, cVbits = min_vertex_cover_bipartite(residual, nus, nvs)
+    cUbits, cVbits = minimum_vertex_cover(residual, nus, nvs)
     return cUbits, cVbits .| forced
 end
 
@@ -169,7 +169,7 @@ end
 # Returns `(nout, site_dict, secW, nextedges_global)`.
 function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) where {I}
     LOp = SiteOperator{I}
-    us_of_comp, vs_of_comp = bipartite_connected_components(g.radj, nV)
+    us_of_comp, vs_of_comp = connected_components(g.radj, nV)
 
     secW = I[]
     nextedges_global = Vector{Tuple{Int, ComplexF64}}[]

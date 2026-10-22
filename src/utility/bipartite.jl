@@ -103,9 +103,9 @@ function hopcroft_karp(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
     return pairU, pairV, matching
 end
 
-# `(coverU, coverV, pairU, pairV, matching_size)`, the covers being boolean masks.
-function min_vertex_cover_bipartite(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
-    pairU, pairV, matching = hopcroft_karp(adjU, nU, nV)
+# `(coverU, coverV)`, boolean masks of a minimum vertex cover (König).
+function minimum_vertex_cover(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
+    pairU, pairV, _ = hopcroft_karp(adjU, nU, nV)
 
     # reachable by alternating paths from unmatched U's
     visitedU = falses(nU)
@@ -133,7 +133,7 @@ function min_vertex_cover_bipartite(adjU::Vector{Vector{Int}}, nU::Int, nV::Int)
     end
 
     # König: cover = (U \ Z_L) ∪ Z_R
-    return .!visitedU, visitedV, pairU, pairV, matching
+    return .!visitedU, visitedV
 end
 
 # Connected components of a bipartite graph (union-find); a minimum cover is the union of the
@@ -149,7 +149,7 @@ end
 
 # `(us, vs)` per component: global left/right ids in ascending order. A right vertex with no edge
 # belongs to no component; every left vertex is assumed to have an edge.
-function bipartite_connected_components(adjU::Vector{Vector{Int}}, nV::Int)
+function connected_components(adjU::Vector{Vector{Int}}, nV::Int)
     nU = length(adjU)
     parent = collect(1:(nU + nV))
     for u in 1:nU, v in adjU[u]

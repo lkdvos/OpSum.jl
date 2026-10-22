@@ -52,8 +52,8 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | # | Chunk | Files | Status |
 |---|-------|-------|--------|
 | 0 | Top-down tour of the main path | — | done |
-| 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | implementing |
-| 2 | Letters | irreptensoroperators, irrepkey, siteoperator, irrepinstantiate | pending |
+| 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done (full suite pending) |
+| 2 | Letters | letters, siteoperator, instantiate | presented |
 | 3 | Terms | irrepalgebra.jl, canonicalize! (irreptermtable.jl) | pending |
 | 4 | Bases and projection | basis, irrepprojection, stockbases, builders (adjoint) | pending |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |
@@ -112,6 +112,11 @@ utility); `_lattice_sectortype` deleted (use `sectortype`); `_tolattice` deleted
 (e) `min_vertex_cover_bipartite` → `minimum_vertex_cover` returning `(coverU, coverV)`;
 `bipartite_connected_components` → `connected_components`.
 (f) merge `test_bipartite_components.jl` into `test_bipartite.jl`; drop unused `AbstractAlgorithm` import.
+As applied: `8d90b7c` (a; `truncates(strategy)`, `_compress_channels` for channel errors), `fa2d8c7` (b–d;
+`OPCACHE_LOCK` shared with letterproducts.jl; `lattices.jl` now included after `algebra/basis.jl`, `_checklattice`
+moved to operatorsum.jl; `OperatorSum(::Vector{<:Basis})` only, non-lattice input is a MethodError), `1ed3d91`
+(e, f). Equivalence: 23 models / 95 results (default + both SVD sweeps lossless and `truncrank(2)`) bitwise equal to
+base. Targeted tests and the two affected examples pass.
 
 ## Possible improvements
 
@@ -131,4 +136,5 @@ utility); `_lattice_sectortype` deleted (use `sectortype`); `_tolattice` deleted
 
 ## Resume here
 
-D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 decided (D7, D8); implementation delegated.
+D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 applied; full suite running in background. Chunk 2 presented (P2.1–P2.6), awaiting answers.
+Equivalence harness: scratchpad/equiv/{equiv,compare}.jl, base result scratchpad/equiv/base.jls, base worktree scratchpad/base.

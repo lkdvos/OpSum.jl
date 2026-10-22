@@ -13,7 +13,7 @@ site (of the chain or the unit cell), `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, w
 `(start channel, everything else, finish channel)` and identities at `(1, 1)` and `(end, end)` emitted as
 `BraidingTensor`s. On a finite chain `H` must have total charge `unit(I)`. This is the shape MPSKit's
 `JordanMPOTensor` consumes; use [`mpo_tensors`](@ref) for dense `TensorMap`s. Not available for
-decaying channels on a finite chain; a truncating [`SVDBondAlgorithm`](@ref) that empties a bond is rejected.
+decaying channels on a finite chain; a truncating SVD [`BondStrategy`](@ref) that empties a bond is rejected.
 """
 jordan_mpo_tensors(H::OperatorSum, args...) = jordan_mpo_tensors(mpo(H, args...))
 jordan_mpo_tensors(W::SymbolicMPO) = _jordan_tensors(_jordan_layout(W), W.lattice)
@@ -25,7 +25,7 @@ function _jordan_bond(sec::Vector{I}, s::Int, f::Int) where {I}
     iszero(n) && throw(
         ArgumentError(
             "a bond of the reduced MPO is zero-dimensional, so it cannot carry the Jordan identity " *
-                "corners; this only happens under a truncating `SVDBondAlgorithm`"
+                "corners; this only happens under a truncating SVD strategy"
         )
     )
     (iszero(s) || sec[s] == unit(I)) ||

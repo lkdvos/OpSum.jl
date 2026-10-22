@@ -187,7 +187,7 @@ end
     # per-term rules are checked on insertion; `Σ_n c·𝟙` does not converge
     @test_throws ArgumentError opsum(lat, dot(S[1], S[2]) + scalarop(1.0, BSU2)[1])
     @test_throws ArgumentError opsum(lat, couple(S[1], S[2]; to = SU2Irrep(1)))
-    @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[2])), SVDBondAlgorithm())
+    @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[2])), IndependentSVD())
 
     @test_throws ArgumentError InfiniteChain(typeof(BSU2)[])
 end

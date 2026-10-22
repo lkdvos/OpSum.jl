@@ -137,7 +137,7 @@ end
     cell = jordan_mpo_tensors(opsum(InfiniteChain(B), b[1]))
     @test length(cell) == 1 && cell[1][1, 1, 1, 1] isa BraidingTensor
     H = opsum(FiniteChain(B, 4), b[i] for i in 1:3)
-    alg = SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD)
+    alg = SequentialSVD(truncrank(1))
     @test_throws ArgumentError jordan_mpo_tensors(H, alg)
 end
 

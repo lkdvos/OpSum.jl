@@ -46,24 +46,21 @@ set: it represents `Σ_{n ∈ ℤ} translate(H, n·L)`, so each translation clas
 The two identity channels of every bond are identified (the Jordan form needs them); on a finite chain the
 finish channel is forced into the cover for that, except with decaying channels.
 
-`alg` is `BipartiteAlgorithm()` (default, lossless minimum vertex cover) or `SVDBondAlgorithm(trunc; sweep)`
-(finite chains without channels only).
+`alg` is a [`BondStrategy`](@ref): [`VertexCover`](@ref) (default, lossless minimum vertex cover),
+[`IndependentSVD`](@ref) or [`SequentialSVD`](@ref) (finite chains without channels only).
 """
-function mpo(
-        H::OperatorSum{I, <:FiniteChain},
-        alg::Union{BipartiteAlgorithm, SVDBondAlgorithm} = BipartiteAlgorithm()
-    ) where {I}
+function mpo(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy = VertexCover()) where {I}
     return SymbolicMPO(H.lattice, _compress(H, alg)...)
 end
 
-mpo(H::OperatorSum{I, <:InfiniteChain}, ::BipartiteAlgorithm = BipartiteAlgorithm()) where {I} =
+mpo(H::OperatorSum{I, <:InfiniteChain}, ::VertexCover = VertexCover()) where {I} =
     _infinite_window(unitcell_terms(H))
 
-mpo(::OperatorSum{I, <:InfiniteChain}, ::SVDBondAlgorithm) where {I} = throw(
+mpo(::OperatorSum{I, <:InfiniteChain}, ::Union{IndependentSVD, SequentialSVD}) where {I} = throw(
     ArgumentError(
-        "SVDBondAlgorithm does not extend to infinite chains: it compresses each bond " *
+        "SVD strategies do not extend to infinite chains: they compress each bond " *
             "independently against a vacuum-terminated layout, with no bond basis that closes " *
-            "on itself. Use BipartiteAlgorithm() (the default)."
+            "on itself. Use VertexCover() (the default)."
     )
 )
 

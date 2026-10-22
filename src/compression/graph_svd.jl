@@ -17,7 +17,11 @@ function _class!(dense, Qs, deg, mult, key, q)
     return c
 end
 
-# SVD a charge-graded block `C : Ppre ← Psuf` (truncated by `trunc`, `nothing` = lossless) and flatten the
+# `NoTruncation` is lossless up to machine precision.
+_svd_trunc(trunc::TruncationStrategy) = trunc
+_svd_trunc(::NoTruncation) = trunctol(rtol = eps(Float64))
+
+# SVD a charge-graded block `C : Ppre ← Psuf` (truncated by `trunc`) and flatten the
 # retained `U` into a dense `Umat[p, col]` with column charges `secs`. With `colQ`/`coldeg`/`colactive`
 # it also flattens `R = S · Vᴴ` into `Rmat` (what `SequentialSVD` forwards).
 function _svd_flatten_block(
@@ -25,8 +29,7 @@ function _svd_flatten_block(
         colQ::Union{Nothing, Vector{I}} = nothing, coldeg::Union{Nothing, Vector{Int}} = nothing,
         colactive::Union{Nothing, BitVector} = nothing
     ) where {I}
-    trunc = something(trunc, trunctol(rtol = eps(Float64)))   # `nothing` is the lossless default
-    U, S, Vt = svd_trunc(C; trunc)
+    U, S, Vt = svd_trunc(C; trunc = _svd_trunc(trunc))
     Wb = space(S, 1)   # retained bond space
     T = eltype(U)
     nrow = length(rowQ)

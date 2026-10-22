@@ -358,10 +358,10 @@ end
     ) isa SymbolicMPO
     # the SVD backend has no notion of a bond index with a diagonal
     @test_throws ArgumentError mpo(
-        opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5)), SVDBondAlgorithm()
+        opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5)), IndependentSVD()
     )
     @test_throws ArgumentError mpo(
-        opsum(FiniteChain(BSU2, 4), expterm(dot(S[1], S[2]); decay = 0.5)), SVDBondAlgorithm()
+        opsum(FiniteChain(BSU2, 4), expterm(dot(S[1], S[2]); decay = 0.5)), IndependentSVD()
     )
 end
 

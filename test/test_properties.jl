@@ -61,7 +61,7 @@ end
         @test secs[N] == [unit(sectortype(V))]
         @test all(length(s) <= nterms_raw(H) + 1 for s in secs)
         # the lossless SVD rank is bounded by the cover (`islossless` does not apply to SVD bases; see below)
-        for alg in (SVDBondAlgorithm(), SVDBondAlgorithm(; sweep = SequentialSVD))
+        for alg in (IndependentSVD(), SequentialSVD())
             _, ssvd = reduced(mpo(opsum(sites, H), alg))
             @test all(densedim(ssvd, b) <= densedim(secs, b) for b in 1:N)
         end
@@ -97,7 +97,7 @@ end
     Ws, secs = reduced(mpo(opsum(sites, H)))
     @test mpo_tensormap(mpo_tensors(Ws, secs, fill(B, N))) ≈ exact
     @test mpo_tensormap(map(TensorMap, jordan_mpo_tensors(opsum(sites, H)))) ≈ exact
-    for alg in (SVDBondAlgorithm(), SVDBondAlgorithm(; sweep = SequentialSVD))
+    for alg in (IndependentSVD(), SequentialSVD())
         Wsv, ssv = reduced(mpo(opsum(sites, H), alg))
         @test mpo_tensormap(mpo_tensors(Wsv, ssv, fill(B, N))) ≈ exact
     end
@@ -129,27 +129,27 @@ end
 nondecreasing(xs) = all(xs[i + 1] <= xs[i] + 1.0e-12 for i in 1:(length(xs) - 1))
 
 @testset "truncation error decreases with the retained rank" begin
-    errs = [mpo_relerror(SVDBondAlgorithm(truncrank(k))) for k in 1:6]
+    errs = [mpo_relerror(IndependentSVD(truncrank(k))) for k in 1:6]
     @test nondecreasing(errs)
     # `truncrank` counts quantum dimensions, so rank 1 cannot hold a spin-1 channel and the MPO collapses to zero
     @test errs[1] ≈ 1
     @test errs[end] < 0.1
-    @test mpo_relerror(SVDBondAlgorithm(truncrank(1000))) < 1.0e-10
+    @test mpo_relerror(IndependentSVD(truncrank(1000))) < 1.0e-10
 end
 
 @testset "trunctol at the API level" begin
-    _, sfull = reduced(mpo(opsum(TRUNC_LAT, TRUNC_H), SVDBondAlgorithm()))
+    _, sfull = reduced(mpo(opsum(TRUNC_LAT, TRUNC_H), IndependentSVD()))
 
-    _, stight = reduced(mpo(opsum(TRUNC_LAT, TRUNC_H), SVDBondAlgorithm(trunctol(; rtol = 1.0e-14))))
+    _, stight = reduced(mpo(opsum(TRUNC_LAT, TRUNC_H), IndependentSVD(trunctol(; rtol = 1.0e-14))))
     @test [length(s) for s in stight] == [length(s) for s in sfull]
-    @test mpo_relerror(SVDBondAlgorithm(trunctol(; rtol = 1.0e-14))) < 1.0e-10
+    @test mpo_relerror(IndependentSVD(trunctol(; rtol = 1.0e-14))) < 1.0e-10
 
     # a loose tolerance drops channels with error of the tolerance's order
-    alg = SVDBondAlgorithm(trunctol(; rtol = 0.1))
+    alg = IndependentSVD(trunctol(; rtol = 0.1))
     _, sloose = reduced(mpo(opsum(TRUNC_LAT, TRUNC_H), alg))
     @test any(length(sloose[b]) < length(sfull[b]) for b in 1:(TRUNC_N - 1))
     @test all(length(sloose[b]) <= length(sfull[b]) for b in 1:TRUNC_N)
     @test mpo_relerror(alg) < 0.1
 
-    @test mpo_relerror(SVDBondAlgorithm(truncrank(1000) & trunctol(; rtol = 1.0e-14))) < 1.0e-10
+    @test mpo_relerror(IndependentSVD(truncrank(1000) & trunctol(; rtol = 1.0e-14))) < 1.0e-10
 end

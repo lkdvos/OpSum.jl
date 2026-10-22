@@ -16,7 +16,6 @@ export AbstractLattice, FiniteChain, InfiniteChain
 # MPO construction
 export mpo, SymbolicMPO
 export mpo_tensors, jordan_mpo_tensors, mpo_terms, instantiate
-export BipartiteAlgorithm, SVDBondAlgorithm
 export BondStrategy, VertexCover, IndependentSVD, SequentialSVD
 # time evolution
 export taylor_mpo, TaylorMPO
@@ -29,7 +28,7 @@ using Dictionaries
 using SparseArrays: SparseMatrixCSC, sparse, nonzeros, nzrange, rowvals
 using VectorInterface
 using MatrixAlgebraKit
-using MatrixAlgebraKit: AbstractAlgorithm, TruncationStrategy, NoTruncation
+using MatrixAlgebraKit: TruncationStrategy, NoTruncation
 using LinearAlgebra: LinearAlgebra
 
 include("utility/linalg.jl")

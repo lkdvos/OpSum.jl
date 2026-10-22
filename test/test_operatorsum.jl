@@ -46,13 +46,13 @@ end
     @test mpo_tensormap(mpo_tensors(mpo(Hs))) ≈ instantiate(Hs)
 
     # SVD exists on a plain finite chain only; Jordan form everywhere but finite chains with decaying channels
-    @test mpo(cells[1][1], SVDBondAlgorithm(truncrank(6))) isa SymbolicMPO
+    @test mpo(cells[1][1], IndependentSVD(truncrank(6))) isa SymbolicMPO
     @test length(jordan_mpo_tensors(cells[1][1])) == 4
     @test length(jordan_mpo_tensors(cells[2][1])) == 1
     @test_throws ArgumentError jordan_mpo_tensors(cells[3][1])
     @test length(jordan_mpo_tensors(cells[4][1])) == 1
     for i in 2:4
-        @test_throws ArgumentError mpo(cells[i][1], SVDBondAlgorithm(truncrank(6)))
+        @test_throws ArgumentError mpo(cells[i][1], IndependentSVD(truncrank(6)))
     end
     @test_throws ArgumentError instantiate(cells[2][1])
 end

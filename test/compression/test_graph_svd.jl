@@ -1,12 +1,12 @@
 using Test
 using OpSum
 using OpSum: mpo, mpo_tensors, mpo_terms, instantiate, scalarop, couple, opsum
-using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, IndependentSVD, SequentialSVD
+using OpSum: VertexCover, IndependentSVD, SequentialSVD
 using OpSum: Letter
 using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: dot
-using MatrixAlgebraKit: truncrank
+using MatrixAlgebraKit: MatrixAlgebraKit, truncrank, NoTruncation
 
 include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, physmatrix, densedim
 
@@ -42,8 +42,8 @@ mpo_operator(Ws, secs, sites) = instantiate(opsum(sites, mpo_terms(Ws, secs)))
     for (name, B, N, H, total) in cases
         @testset "$name" begin
             sites = fill(B, N)
-            Wb, sb = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
-            Ws, ss = reduced(mpo(opsum(sites, H), SVDBondAlgorithm()))
+            Wb, sb = reduced(mpo(opsum(sites, H), VertexCover()))
+            Ws, ss = reduced(mpo(opsum(sites, H), IndependentSVD()))
             @test mpo_operator(Ws, ss, sites) ≈ instantiate(opsum(sites, H))
             @test ss[N] == [total]
             @test all(densedim(ss, b) <= densedim(sb, b) for b in 1:N)
@@ -60,12 +60,12 @@ end
     sites = fill(unitbasis(V), N)
     H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
 
-    _, sb = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
-    _, sfull = reduced(mpo(opsum(sites, H), SVDBondAlgorithm()))
-    _, sbig = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(truncrank(100))))
+    _, sb = reduced(mpo(opsum(sites, H), VertexCover()))
+    _, sfull = reduced(mpo(opsum(sites, H), IndependentSVD()))
+    _, sbig = reduced(mpo(opsum(sites, H), IndependentSVD(truncrank(100))))
     @test [length(s) for s in sbig] == [length(s) for s in sfull]
 
-    Wt, st = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(truncrank(1))))
+    Wt, st = reduced(mpo(opsum(sites, H), IndependentSVD(truncrank(1))))
     @test densedim(st, 1) < densedim(sb, 1)
     @test length(st[1]) == 1
 
@@ -82,16 +82,15 @@ end
     sites = fill(unitbasis(V), N)
     H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
 
-    @test SVDBondAlgorithm().strategy isa IndependentSVD
-    @test SVDBondAlgorithm().strategy.trunc === nothing
-    @test SVDBondAlgorithm(truncrank(2)).strategy isa IndependentSVD
-    @test SVDBondAlgorithm(; sweep = SequentialSVD).strategy isa SequentialSVD
+    @test IndependentSVD().trunc isa NoTruncation
+    @test SequentialSVD().trunc isa NoTruncation
+    @test IndependentSVD(truncrank(2)).trunc isa MatrixAlgebraKit.TruncationStrategy
 
     # `truncrank(1)` is one index per bond for the independent sweep, whereas the sequential sweep
     # truncates in the basis it was handed, so an early truncation starves every bond downstream.
-    _, sti = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(truncrank(1))))
+    _, sti = reduced(mpo(opsum(sites, H), IndependentSVD(truncrank(1))))
     @test all(length(s) == 1 for s in sti)
-    _, sts = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(truncrank(1); sweep = SequentialSVD)))
+    _, sts = reduced(mpo(opsum(sites, H), SequentialSVD(truncrank(1))))
     @test [length(s) for s in sts] != [length(s) for s in sti]
     @test all(length(s) <= 1 for s in sts)
 end

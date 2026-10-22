@@ -67,9 +67,9 @@ end
 
     @test_throws ArgumentError _tolattice([1, 2, 3])           # wrong element type
     @test_throws ArgumentError _tolattice(3)                   # not iterable at all
-    @test_throws ArgumentError _tolattice(BipartiteAlgorithm())
+    @test_throws ArgumentError _tolattice(VertexCover())
     h = opsum(dot(spinvector(BSU2)[1], spinvector(BSU2)[2]))
-    @test_throws ArgumentError mpo(h, SVDBondAlgorithm())
+    @test_throws ArgumentError mpo(h, IndependentSVD())
 end
 
 @testset "SymbolicMPO surface" begin

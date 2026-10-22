@@ -125,12 +125,12 @@ map(length, W.bondsectors)       # reduced bond dimension per bond
 
 `W.Ws[i]` is the sparse bond matrix at site `i` and `W.bondsectors[i]` the charge of each bond index to its right.
 `mpo_tensors(W)` assembles symmetric `TensorMap`s.
-The optional second argument picks the bond algorithm: `BipartiteAlgorithm()` (default, lossless minimum vertex cover) or `SVDBondAlgorithm(trunc; sweep)` with a `MatrixAlgebraKit` truncation strategy.
-`sweep = IndependentSVD` (default) keeps `k` indices per bond; `SequentialSVD` keeps `k` after upstream truncation.
+The optional second argument picks the bond algorithm: `VertexCover()` (default, lossless minimum vertex cover) or `IndependentSVD(trunc)` / `SequentialSVD(trunc)` with a `MatrixAlgebraKit` truncation strategy.
+`IndependentSVD` keeps `k` indices per bond; `SequentialSVD` keeps `k` after upstream truncation.
 
 ```julia
-mpo(H, SVDBondAlgorithm(truncrank(8)))
-mpo(H, SVDBondAlgorithm(truncrank(8); sweep = SequentialSVD))
+mpo(H, IndependentSVD(truncrank(8)))
+mpo(H, SequentialSVD(truncrank(8)))
 ```
 
 [`jordan_mpo_tensors`](@ref OpSum.jordan_mpo_tensors) emits one `BlockTensorKit.SparseBlockTensorMap` per site in Jordan form, and with MPSKit loaded `instantiate(mpo(H))` builds its `FiniteMPOHamiltonian` / `InfiniteMPOHamiltonian` (see the MPSKit example page).
@@ -151,7 +151,7 @@ islossless(Hxxz), mpo_tensormap(mpo_tensors(W)) ≈ instantiate(Hxxz)
 
 On an `InfiniteChain` the same terms give an infinite MPO with a unit cell of `length(chain)` sites.
 The terms are a generating set, one representative per translation class: the operator is ``\sum_n \mathrm{translate}(H, nL)``.
-Terms must be neutral and non-empty (`K ≥ 1`), and `SVDBondAlgorithm` is not available.
+Terms must be neutral and non-empty (`K ≥ 1`), and the SVD strategies are not available.
 
 ```@example ops
 chain = InfiniteChain(Bu)

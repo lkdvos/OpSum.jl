@@ -5,7 +5,7 @@
 using Test
 using OpSum
 using OpSum: mpo, mpo_tensors, mpo_terms, instantiate, couple, scalarop, opsum
-using OpSum: BipartiteAlgorithm, SVDBondAlgorithm, VertexCover, IndependentSVD, SequentialSVD
+using OpSum: VertexCover, IndependentSVD, SequentialSVD
 using OpSum: TermTable, _sweep, SweepGraph, _at_site!
 using OpSum: Letter
 using TensorKit
@@ -150,7 +150,7 @@ const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["I
 @testset "VertexCover sweep — lossless, dense-exact, pinned bond sectors" begin
     for (name, H, sites) in reference_hamiltonians()
         N = length(sites)
-        Ws, secs = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
+        Ws, secs = reduced(mpo(opsum(sites, H), VertexCover()))
         @testset "$name" begin
             @test mpo_terms(Ws, secs) ≈ H
             @test bondprofile(secs) == EXPECTED_BONDS[name]
@@ -164,13 +164,13 @@ const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["I
     end
 end
 
-@testset "the default selector is BipartiteAlgorithm / VertexCover" begin
+@testset "the default strategy is VertexCover" begin
     V = SU2Space(1 // 2 => 1)
     N = 4
     sites = fill(unitbasis(V), N)
     H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
     Wdef, sdef = reduced(mpo(opsum(sites, H)))
-    Wsel, ssel = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
+    Wsel, ssel = reduced(mpo(opsum(sites, H), VertexCover()))
     Wstr, sstr = _sweep(TermTable(H, N), N, VertexCover())
     @test bondprofile(sdef) == bondprofile(ssel) == bondprofile(sstr)
     @test mpo_operator(Wdef, sdef, sites) ≈ mpo_operator(Wsel, ssel, sites)
@@ -183,7 +183,7 @@ end
         N = length(sites)
         2 <= N <= 3 || continue
         d = dim(TensorKit.space(sites[1]))
-        Wg, sg = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = SequentialSVD)))
+        Wg, sg = reduced(mpo(opsum(sites, H), SequentialSVD()))
         # needs a dim-1 total charge (excludes the spin-1 field sum)
         all(c -> dim(c) == 1, sg[end]) || continue
         Mgraph = physmatrix(contractN(mpo_tensors(Wg, sg, sites)), N, d)
@@ -199,8 +199,8 @@ end
     for (name, H, sites) in reference_hamiltonians()
         N = length(sites)
         N >= 2 || continue
-        _, si = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = IndependentSVD)))
-        _, ss = reduced(mpo(opsum(sites, H), SVDBondAlgorithm(; sweep = SequentialSVD)))
+        _, si = reduced(mpo(opsum(sites, H), IndependentSVD()))
+        _, ss = reduced(mpo(opsum(sites, H), SequentialSVD()))
         @testset "$name" begin
             @test bondprofile(si[1:(N - 1)]) == bondprofile(ss[1:(N - 1)])
         end
@@ -212,7 +212,7 @@ end
     N = 8
     sites = fill(unitbasis(V), N)
     H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
-    Ws, secs = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
+    Ws, secs = reduced(mpo(opsum(sites, H), VertexCover()))
     @test bondprofile(secs) == HEISENBERG8_BONDS
     @test islossless(opsum(sites, H))
 end
@@ -229,7 +229,7 @@ end
                 opsum(scalarop(-1.5, unitbasis(V))[1], dot(S[1], S[2]), dot(S[2], S[3])),
             ),
         )
-        Ws, secs = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
+        Ws, secs = reduced(mpo(opsum(sites, H), VertexCover()))
         @testset "$name" begin
             @test bondprofile(secs) == EXPECTED_BONDS[name]
             @test islossless(opsum(sites, H))
@@ -265,7 +265,7 @@ end
     @test OpSum._factor_at(tt, 1, 4) == OpSum._factor_at(tt, 2, 4)
     @test OpSum._factor_at(tt, 1, 3) != OpSum._factor_at(tt, 2, 3)
 
-    Wg, sg = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
+    Wg, sg = reduced(mpo(opsum(sites, H), VertexCover()))
     back = mpo_terms(Wg, sg)
     @test back ≈ H
 end
@@ -283,7 +283,7 @@ end
 
     @test OpSum._factor_at(tt, 1, 3) == OpSum._factor_at(tt, 2, 3)
 
-    Wg, sg = reduced(mpo(opsum(sites, H), BipartiteAlgorithm()))
+    Wg, sg = reduced(mpo(opsum(sites, H), VertexCover()))
     @test length.(sg) == [1, 1, 1]
     @test mpo_terms(Wg, sg) ≈ H
     d = dim(V)

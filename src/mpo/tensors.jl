@@ -6,30 +6,33 @@ using TensorKit: Vect, fusiontrees, permute, unit, @tensor, ncon, removeunit
 
 # Bond matrices, bond sectors and per-bond identity-channel indices (empty with decaying channels, where
 # they are unknown). Without channels `_sweep_channels` forces the finish channel into the cover.
-function _compress(
-        H::OperatorSum{I, <:FiniteChain}, alg::Union{BipartiteAlgorithm, SVDBondAlgorithm}
-    ) where {I}
+function _compress(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy) where {I}
     N = length(H.lattice)
     if isempty(H.channels)
         # a truncation has to see the basis' own inner product (metric.jl)
-        if alg isa SVDBondAlgorithm && alg.strategy.trunc !== nothing
-            out = _compress_in_metric(H.terms, H.lattice, bondstrategy(alg))
+        if truncates(alg)
+            out = _compress_in_metric(H.terms, H.lattice, alg)
             out === nothing || return out
         end
         tt = TermTable(H.terms, N)
-        return _sweep_channels(tt, nvertices(tt), bondstrategy(alg))
+        return _sweep_channels(tt, nvertices(tt), alg)
     end
-    alg isa SVDBondAlgorithm && throw(
-        ArgumentError(
-            "SVDBondAlgorithm cannot compress an exponentially decaying interaction: it needs the " *
-                "whole bond coefficient matrix up front. Use BipartiteAlgorithm() (the default)."
-        )
-    )
+    return _compress_channels(H, alg)
+end
+
+function _compress_channels(H::OperatorSum{I, <:FiniteChain}, ::VertexCover) where {I}
+    N = length(H.lattice)
     Ws, secs = _sweep(
         TermTable(H.terms, N), N, VertexCover(); channels = _lower_channels(H.channels, 1)
     )
     return Ws, secs, Int[], Int[]
 end
+_compress_channels(::OperatorSum, ::Union{IndependentSVD, SequentialSVD}) = throw(
+    ArgumentError(
+        "SVD strategies cannot compress an exponentially decaying interaction: they need the " *
+            "whole bond coefficient matrix up front. Use VertexCover() (the default)."
+    )
+)
 
 """
     mpo_terms(Ws, bondsectors; leftidx = 1, rightidx = nothing) -> Terms
@@ -122,7 +125,7 @@ function mpo_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
         bondsectors::Vector{Vector{I}}, sites
     ) where {I}
-    return _mpo_tensors(Ws, vcat([I[unit(I)]], bondsectors), _tolattice(sites))
+    return _mpo_tensors(Ws, vcat([I[unit(I)]], bondsectors), FiniteChain(sites))
 end
 
 # `bsecs[i]` is the bond to the *left* of site i (length N+1); finite and infinite differ in `bsecs[1]`.
@@ -177,7 +180,7 @@ end
     islossless(H::OperatorSum[, alg]) -> Bool
 
 Whether the compressed MPO reproduces `H` exactly: `mpo_terms(mpo(H)) ≈ chain_terms(H)`. Purely symbolic,
-finite chains only; after a truncating [`SVDBondAlgorithm`](@ref) `false` is expected.
+finite chains only; after a truncating SVD [`BondStrategy`](@ref) `false` is expected.
 """
 function islossless(H::OperatorSum{I, <:FiniteChain}, args...) where {I}
     return mpo_terms(mpo(H, args...)) ≈ chain_terms(H)

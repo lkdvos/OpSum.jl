@@ -124,12 +124,12 @@ space(T∞[1], 1) == space(T∞[end], 4)'
 
 # ## What is not available here
 #
-# `SVDBondAlgorithm` is finite-only. It compresses each bond independently against a
+# The SVD strategies are finite-only. It compresses each bond independently against a
 # vacuum-terminated layout, and there is no bond basis that closes on itself, so there is nothing for
 # the fixed point to converge to:
 
 try
-    mpo(opsum(cell1, ex[1, 2]), SVDBondAlgorithm(truncrank(2)))
+    mpo(opsum(cell1, ex[1, 2]), IndependentSVD(truncrank(2)))
 catch e
     println(first(sprint(showerror, e), 160))
 end

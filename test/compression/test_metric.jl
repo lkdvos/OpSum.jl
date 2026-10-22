@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: SVDBondAlgorithm, IndependentSVD, SequentialSVD, Terms
+using OpSum: IndependentSVD, SequentialSVD, Terms
 using TensorKit
 using LinearAlgebra: norm
 import TensorKitTensors.FermionOperators as FO
@@ -55,12 +55,12 @@ end
     D = instantiate(H1)
     @test instantiate(H2) ≈ D
     for sweep in (IndependentSVD, SequentialSVD)
-        alg = SVDBondAlgorithm(truncrank(2); sweep)
+        alg = sweep(truncrank(2))
         A1, A2 = dense(mpo(H1, alg)), dense(mpo(H2, alg))
         @test norm(A1 - D) / norm(D) > 0.05                     # a real truncation
         @test A2 ≈ A1
     end
-    @test dense(mpo(H2, SVDBondAlgorithm())) ≈ D               # lossless is unchanged
+    @test dense(mpo(H2, IndependentSVD())) ≈ D               # lossless is unchanged
 
     # fermions, with `n` against the traceless `n - 1/2`
     V = FO.fermion_space(Trivial)
@@ -77,7 +77,7 @@ end
     F1, F2 = chain(Basis([hop, hop′, num])), chain(Basis([hop, hop′, num - 0.5 * id(V)]))
     Df = instantiate(F1)
     @test instantiate(F2) ≈ Df
-    alg = SVDBondAlgorithm(truncrank(2))
+    alg = IndependentSVD(truncrank(2))
     A1, A2 = dense(mpo(F1, alg)), dense(mpo(F2, alg))
     @test norm(A1 - Df) / norm(Df) > 0.01
     @test A2 ≈ A1

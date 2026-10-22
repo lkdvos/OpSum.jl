@@ -51,8 +51,8 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 
 | # | Chunk | Files | Status |
 |---|-------|-------|--------|
-| 0 | Top-down tour of the main path | — | presented |
-| 1 | Foundations | utility/, datastructures/, compression/algorithms.jl, lattices.jl | pending |
+| 0 | Top-down tour of the main path | — | done |
+| 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | presented |
 | 2 | Letters | irreptensoroperators, irrepkey, siteoperator, irrepinstantiate | pending |
 | 3 | Terms | irrepalgebra.jl, canonicalize! (irreptermtable.jl) | pending |
 | 4 | Bases and projection | basis, irrepprojection, stockbases, builders (adjoint) | pending |
@@ -95,6 +95,8 @@ strict docs build clean (runs every example), 321 `using OpSum:` names all resol
 the old-vs-new equivalence script, run through a persistent Revise session (`julia-daemon` skill). Once per chunk:
 one full `Pkg.test()` in the background. At the finish: full suite, strict docs build, Julia 1.10 (`min`).
 
+**D6 Coefficients stay `ComplexF64`** for this review; making them parametric is wanted later: https://github.com/lkdvos/OpSum.jl/issues/43.
+
 ## Possible improvements
 
 ## Open items
@@ -113,4 +115,4 @@ one full `Pkg.test()` in the background. At the finish: full suite, strict docs 
 
 ## Resume here
 
-D1–D5 decided; initial reorg applied. Chunk 0 presented; awaiting answer on ComplexF64 question, then chunk 1.
+D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 presented; awaiting decisions.

@@ -31,10 +31,8 @@ using MatrixAlgebraKit
 using MatrixAlgebraKit: TruncationStrategy, NoTruncation
 using LinearAlgebra: LinearAlgebra
 
-include("utility/linalg.jl")
+include("utility/helpers.jl")
 include("utility/bipartite.jl")
-
-include("lattices.jl")
 
 """
     instantiate(op, V)
@@ -51,6 +49,7 @@ include("algebra/instantiate.jl")
 include("algebra/localoperator.jl")
 include("algebra/projection.jl")
 include("algebra/basis.jl")
+include("lattices.jl")
 include("algebra/adjoint.jl")
 include("algebra/products.jl")
 include("algebra/letterproducts.jl")

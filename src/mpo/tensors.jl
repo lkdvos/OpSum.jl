@@ -123,9 +123,15 @@ reduced data `(W.Ws, W.bondsectors)` and the lattice.
 """
 function mpo_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
-        bondsectors::Vector{Vector{I}}, sites
+        bondsectors::Vector{Vector{I}}, lat::AbstractLattice
     ) where {I}
-    return _mpo_tensors(Ws, vcat([I[unit(I)]], bondsectors), FiniteChain(sites))
+    return _mpo_tensors(Ws, vcat([I[unit(I)]], bondsectors), lat)
+end
+function mpo_tensors(
+        Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
+        bondsectors::Vector{Vector{I}}, sites::AbstractVector{<:Basis}
+    ) where {I}
+    return mpo_tensors(Ws, bondsectors, FiniteChain(sites))
 end
 
 # `bsecs[i]` is the bond to the *left* of site i (length N+1); finite and infinite differ in `bsecs[1]`.

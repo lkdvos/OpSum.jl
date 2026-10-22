@@ -130,14 +130,14 @@ function _basis_from_elements(
         return x
     end
     first(els) ≈ _identityelement(V) ||
-        _invariant("the first element of a basis must be the identity")
+        invariant_violation("the first element of a basis must be the identity")
     kept = similar(els, 0)
     letters = Letter{I}[]
     bycharge = Dictionary{I, Vector{Int}}()
     spans = Dict{I, Matrix{ComplexF64}}()    # per charge: orthonormal span of the kept elements
     for e in els
         space(e) == (V ← V ⊗ domain(e)[2]) && numin(e) == 2 ||
-            _invariant("a basis element must be `V ← V ⊗ Vect[I](c => 1)`, got $(space(e))")
+            invariant_violation("a basis element must be `V ← V ⊗ Vect[I](c => 1)`, got $(space(e))")
         c = only(sectors(domain(e)[2]))
         ks = get!(bycharge, c, Int[])
         any(ks) do k

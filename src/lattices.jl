@@ -19,46 +19,45 @@ An open chain with one operator [`Basis`](@ref) per site (all of one symmetry); 
 site `i` index into `bases[i]`. `getindex` does not wrap. `FiniteChain(B, N)` is the uniform chain; a bare
 vector of bases is accepted anywhere a `FiniteChain` is.
 """
-struct FiniteChain{S} <: AbstractLattice
-    sites::Vector{S}
-    FiniteChain{S}(sites::Vector{S}) where {S} = new{S}(_checksites(sites))
+struct FiniteChain{B <: Basis} <: AbstractLattice
+    sites::Vector{B}
+    FiniteChain{B}(sites::Vector{B}) where {B <: Basis} = new{B}(_checksites(sites))
 end
-FiniteChain(sites::AbstractVector) = (v = _sitevector(sites); FiniteChain{eltype(v)}(v))
+FiniteChain(sites::AbstractVector{<:Basis}) = (v = _sitevector(sites); FiniteChain{eltype(v)}(v))
+FiniteChain(sites::AbstractVector) = _notbases(sites)
 FiniteChain(V, N::Integer) = FiniteChain(fill(V, Int(N)))
 FiniteChain(lat::FiniteChain) = lat
 
 """
-    InfiniteChain(bases::AbstractVector)
+    InfiniteChain(bases::AbstractVector{<:Basis})
     InfiniteChain(B::Basis)
 
 An infinite chain with a repeating unit cell of `L = length(bases)` sites; site `i ∈ ℤ` has basis
 `bases[mod1(i, L)]`. An operator on it is a generating set (see [`mpo`](@ref)); terms may reach past the
 cell.
 """
-struct InfiniteChain{S} <: AbstractLattice
-    sites::Vector{S}
-    function InfiniteChain{S}(sites::Vector{S}) where {S}
+struct InfiniteChain{B <: Basis} <: AbstractLattice
+    sites::Vector{B}
+    function InfiniteChain{B}(sites::Vector{B}) where {B <: Basis}
         isempty(sites) &&
             throw(ArgumentError("an InfiniteChain needs at least one site per unit cell"))
-        return new{S}(_checksites(sites))
+        return new{B}(_checksites(sites))
     end
 end
-InfiniteChain(sites::AbstractVector) = (v = _sitevector(sites); InfiniteChain{eltype(v)}(v))
+InfiniteChain(sites::AbstractVector{<:Basis}) = (v = _sitevector(sites); InfiniteChain{eltype(v)}(v))
+InfiniteChain(sites::AbstractVector) = _notbases(sites)
 InfiniteChain(V) = InfiniteChain([V])
 InfiniteChain(lat::InfiniteChain) = lat
 
-_sitevector(sites) = collect(map(identity, sites))
+_sitevector(sites) = isempty(sites) ? Vector{eltype(sites)}(sites) : collect(map(identity, sites))
 
-# every site a `Basis`, all of one symmetry
+_notbases(sites) = throw(
+    ArgumentError("a lattice needs one operator `Basis` per site, got $(unique(typeof.(sites)))")
+)
+
+# all sites of one symmetry
 function _checksites(sites::Vector)
     isempty(sites) && return sites
-    all(s -> s isa Basis, sites) || throw(
-        ArgumentError(
-            "a lattice is described by one operator `Basis` per site (a stock basis such as " *
-                "`spin_basis(SU2Irrep)`, or `Basis(ops)`), got $(unique(typeof.(sites))); a bare " *
-                "space no longer names an operator alphabet"
-        )
-    )
     I = sectortype(_space(first(sites)))
     all(s -> sectortype(_space(s)) === I, sites) || throw(
         ArgumentError(
@@ -70,8 +69,8 @@ end
 
 Base.length(lat::AbstractLattice) = length(lat.sites)
 Base.isempty(lat::AbstractLattice) = isempty(lat.sites)
-Base.eltype(::Type{FiniteChain{S}}) where {S} = S
-Base.eltype(::Type{InfiniteChain{S}}) where {S} = S
+Base.eltype(::Type{FiniteChain{B}}) where {B} = B
+Base.eltype(::Type{InfiniteChain{B}}) where {B} = B
 Base.iterate(lat::AbstractLattice, args...) = iterate(lat.sites, args...)
 Base.firstindex(::AbstractLattice) = 1
 Base.lastindex(lat::AbstractLattice) = length(lat)
@@ -81,13 +80,12 @@ Base.:(==)(a::AbstractLattice, b::AbstractLattice) =
 Base.getindex(lat::FiniteChain, i::Integer) = lat.sites[i]
 Base.getindex(lat::InfiniteChain, i::Integer) = lat.sites[mod1(Int(i), length(lat))]
 
-TensorKit.sectortype(lat::AbstractLattice) = _lattice_sectortype(lat)
-_lattice_sectortype(lat::AbstractLattice) =
+TensorKit.sectortype(lat::AbstractLattice) =
     isempty(lat.sites) ? Trivial : sectortype(_space(first(lat.sites)))
 
 Base.show(io::IO, lat::FiniteChain) = print(io, "FiniteChain(", lat.sites, ")")
 Base.show(io::IO, lat::InfiniteChain) = print(io, "InfiniteChain(", lat.sites, ")")
 
 # last valid site, `nothing` if unbounded
-_maxsite(lat::FiniteChain) = length(lat)
-_maxsite(::InfiniteChain) = nothing
+maxsite(lat::FiniteChain) = length(lat)
+maxsite(::InfiniteChain) = nothing

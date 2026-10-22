@@ -22,7 +22,7 @@ end
 const _LETTER_PRODUCT_CACHE = IdDict{Any, Any}()
 
 function _product_table(B::Basis{I}) where {I}
-    return @lock _OPCACHE_LOCK get!(_LETTER_PRODUCT_CACHE, B) do
+    return @lock OPCACHE_LOCK get!(_LETTER_PRODUCT_CACHE, B) do
         Dict{Tuple{Letter{I}, Letter{I}}, SiteOperator{I}}()
     end
 end
@@ -31,7 +31,7 @@ end
 function _letter_product(B::Basis{I}, x::Letter{I}, y::Letter{I}) where {I}
     ispassthrough(x) && return SiteOperator(y)
     ispassthrough(y) && return SiteOperator(x)
-    return _cached(_product_table(B), (x, y)) do
+    return cached(_product_table(B), (x, y)) do
         _checkkron(I)                    # once per pair, not per product
         tot = only(x.c ⊗ y.c)
         keys = Factor{I}[Factor{I}(x, x.c, 1), Factor{I}(y, tot, 1)]

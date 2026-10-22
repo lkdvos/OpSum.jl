@@ -29,10 +29,10 @@ function _jordan_bond(sec::Vector{I}, s::Int, f::Int) where {I}
         )
     )
     (iszero(s) || sec[s] == unit(I)) ||
-        _invariant("the start channel carries the non-trivial charge $(sec[s])")
+        invariant_violation("the start channel carries the non-trivial charge $(sec[s])")
     (iszero(f) || sec[f] == unit(I)) ||
-        _invariant("the finish channel carries the non-trivial charge $(sec[f])")
-    (iszero(s) || s != f) || _invariant("the start and finish channels are the same bond index")
+        invariant_violation("the finish channel carries the non-trivial charge $(sec[f])")
+    (iszero(s) || s != f) || invariant_violation("the start and finish channels are the same bond index")
 
     pos = Vector{Int}(undef, n)
     newsec = I[unit(I)]                       # slot 1 — the start channel, live or padded
@@ -129,9 +129,9 @@ function _jordan_layout(W::SymbolicMPO{I, L}; closed::Bool = false) where {I, L}
         # 2. the structural invariants, then the identity corners (padded where missing)
         for (row, col) in keys(entries)
             (ncols > 1 && col == 1 && row != 1) &&
-                _invariant("row $row of site $i enters the Jordan start channel")
+                invariant_violation("row $row of site $i enters the Jordan start channel")
             (nrows > 1 && row == nrows && col != ncols) &&
-                _invariant("the Jordan finish channel of site $i emits into column $col")
+                invariant_violation("the Jordan finish channel of site $i emits into column $col")
         end
         for (row, col, needed) in ((1, 1, ncols > 1), (nrows, ncols, nrows > 1))
             needed || continue
@@ -139,7 +139,7 @@ function _jordan_layout(W::SymbolicMPO{I, L}; closed::Bool = false) where {I, L}
             if op === nothing
                 insert!(entries, (row, col), one(SiteOperator{I}))
             elseif !isone(op)
-                _invariant("the Jordan corner ($row, $col) of site $i is not the identity")
+                invariant_violation("the Jordan corner ($row, $col) of site $i is not the identity")
             end
         end
         rows = Int[first(k) for k in keys(entries)]
@@ -194,7 +194,7 @@ function _jordan_tensors(layout::JordanLayout{I}, sites) where {I}
             bL, bR = secL[row], secR[col]
             if isone(op)
                 bL == bR ||
-                    _invariant("a pass-through bond entry connects charge $bL to charge $bR")
+                    invariant_violation("a pass-through bond entry connects charge $bL to charge $bR")
                 W[row, 1, 1, col] = BraidingTensor{ComplexF64, S, Vector{ComplexF64}}(
                     eachspace(W)[row, 1, 1, col]
                 )

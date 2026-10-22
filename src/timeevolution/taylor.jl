@@ -164,7 +164,7 @@ function _fold_passive!(w::TaylorWork{I, L, N}) where {I, L, N}
     removed = 0
     for j in 1:nsites(w)
         n = w.top[j]
-        w.levels[j][1] == ntuple(_ -> 1, Val(N)) || _invariant("the start level is not first on bond $j")
+        w.levels[j][1] == ntuple(_ -> 1, Val(N)) || invariant_violation("the start level is not first on bond $j")
         for (k, t) in enumerate(w.levels[j])
             a = count(==(n), t)
             (a > 0 && all(l -> l == 1 || l == n, t)) || continue
@@ -199,7 +199,7 @@ function _merge_equivalent!(w::TaylorWork; left::Bool = true, right::Bool = true
             (leftmerge ? left : right) || continue
             s = leftmerge ? _gather(t, 1, true) : _gather(t, n, false)
             s == t && continue
-            nxt == 0 && _invariant("level $t on the right boundary has to be merged: fold the passive levels first")
+            nxt == 0 && invariant_violation("level $t on the right boundary has to be merged: fold the passive levels first")
             target = w.index[j][s]
             leftmerge ? _addrow!(w.Ms[nxt], target, k) : _addcol!(M, target, k)
             _remove!(w, j, k)
@@ -291,7 +291,7 @@ function _compress!(w::TaylorWork{I, L, N}) where {I, L, N}
             a = count(==(n), t)
             (a > 0 && all(>(1), t)) || continue
             target = w.index[j][_gather(map(l -> l == n ? 1 : l, t), 1, true)]
-            w.alive[j][target] || _invariant("the target of the compression of $t has been removed")
+            w.alive[j][target] || invariant_violation("the target of the compression of $t has been removed")
             _addcol!(w.Ms[j], target, k, factorial(N - a) / factorial(N), a)
             _remove!(w, j, k)
             removed += 1
@@ -336,7 +336,7 @@ function _prune_orphans!(w::TaylorWork)
     for j in 1:nsites(w), k in eachindex(w.alive[j])
         w.alive[j][k] || continue
         (fwd[j][k] && bwd[j][k]) && continue
-        k == 1 && _invariant("the start level of bond $j has no path through the chain")
+        k == 1 && invariant_violation("the start level of bond $j has no path through the chain")
         _remove!(w, j, k)
         removed += 1
     end
@@ -352,8 +352,8 @@ function _taylor_finish(w::TaylorWork{I}, order::Int) where {I}
         nr = rb == 0 ? 1 : count(w.alive[rb])
         dict = Dictionary{CartesianIndex{2}, TaylorEntry{I}}()
         for (r, row) in enumerate(w.Ms[i].rows), (c, e) in row
-            (rb == 0 || w.alive[rb][r]) || _invariant("an entry survives in a removed row")
-            w.alive[cb][c] || _invariant("an entry survives in a removed column")
+            (rb == 0 || w.alive[rb][r]) || invariant_violation("an entry survives in a removed row")
+            w.alive[cb][c] || invariant_violation("an entry survives in a removed column")
             insert!(dict, CartesianIndex(rb == 0 ? 1 : newidx[rb][r], newidx[cb][c]), e)
         end
         return sparse_from_dict(dict, (nr, count(w.alive[cb])))

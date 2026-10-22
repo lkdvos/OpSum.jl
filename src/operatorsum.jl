@@ -17,10 +17,10 @@ struct OperatorSum{I <: Sector, L <: AbstractLattice}
 end
 
 function OperatorSum(lat::AbstractLattice)
-    I = _lattice_sectortype(lat)
+    I = sectortype(lat)
     return OperatorSum{I, typeof(lat)}(lat, Terms{I}(), ExpSum{I}())
 end
-OperatorSum(sites) = OperatorSum(_tolattice(sites))
+OperatorSum(sites::AbstractVector{<:Basis}) = OperatorSum(FiniteChain(sites))
 
 Base.length(H::OperatorSum) = length(H.terms)
 Base.isempty(H::OperatorSum) = isempty(H.terms) && isempty(H.channels)
@@ -98,6 +98,38 @@ end
 _wrongsector_op(I, J) = throw(
     ArgumentError("cannot add an operator over $J to an OperatorSum on a lattice of sector type $I")
 )
+
+# Checks letters against the lattice's bases when terms enter an `OperatorSum`; no site range on an
+# `InfiniteChain`.
+function _checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) where {I}
+    isempty(terms) && return nothing
+    J = sectortype(lat)
+    J === I || throw(
+        ArgumentError("cannot compress an operator over $I on a lattice of sector type $J")
+    )
+    N = maxsite(lat)
+    seen = Dict{eltype(lat), Dict{I, Int}}()
+    for t in terms
+        for (s, key) in zip(t.sites, t.keys)
+            (N === nothing || 1 <= s <= N) || throw(
+                ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
+            )
+            V = lat[s]
+            info = get!(() -> _alphabet(V, I), seen, V)
+            op = key.op
+            nmax = get(info, op.c, 0)
+            1 <= op.n <= nmax || throw(
+                ArgumentError(
+                    "letter $op does not exist on site $s ($V): that site carries " *
+                        "$nmax operator(s) of charge $(op.c)"
+                )
+            )
+        end
+    end
+    return nothing
+end
+
+_checklattice(ts::Terms, lat::AbstractLattice) = _checklattice(ts.terms, lat)
 
 function _checkinsert(lat::AbstractLattice, terms::Vector{Term{I}}, chans) where {I}
     _checklattice(terms, lat)

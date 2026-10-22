@@ -199,45 +199,6 @@ function _termsapprox(
     return sqrt(sum(abs2, values(diff); init = 0.0)) <= max(atol, rtol * max(nrm(ta), nrm(tb)))
 end
 
-_tolattice(lat::AbstractLattice) = lat
-function _tolattice(sites)
-    applicable(iterate, sites) ||
-        throw(ArgumentError("a lattice must be a `FiniteChain`, an `InfiniteChain`, or an iterable of operator `Basis`es, got $(typeof(sites))"))
-    return FiniteChain(vec(collect(sites)))
-end
-
-# Checks letters against the lattice's bases when terms enter an `OperatorSum`; no site range on an
-# `InfiniteChain`.
-function _checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) where {I}
-    isempty(terms) && return nothing
-    J = _lattice_sectortype(lat)
-    J === I || throw(
-        ArgumentError("cannot compress an operator over $I on a lattice of sector type $J")
-    )
-    N = _maxsite(lat)
-    seen = Dict{eltype(lat), Dict{I, Int}}()
-    for t in terms
-        for (s, key) in zip(t.sites, t.keys)
-            (N === nothing || 1 <= s <= N) || throw(
-                ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
-            )
-            V = lat[s]
-            info = get!(() -> _alphabet(V, I), seen, V)
-            op = key.op
-            nmax = get(info, op.c, 0)
-            1 <= op.n <= nmax || throw(
-                ArgumentError(
-                    "letter $op does not exist on site $s ($V): that site carries " *
-                        "$nmax operator(s) of charge $(op.c)"
-                )
-            )
-        end
-    end
-    return nothing
-end
-
-_checklattice(ts::Terms, lat::AbstractLattice) = _checklattice(ts.terms, lat)
-
 """
     opsum(terms...) -> Terms
 

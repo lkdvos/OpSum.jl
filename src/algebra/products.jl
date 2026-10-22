@@ -78,7 +78,7 @@ function _recouple(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF6
     perm = sortperm(sites)
     charges = I[k.op.c for k in keys]
     bonds = I[k.bond for k in keys]
-    expansion = _cached(_RECOUPLE_CACHE, (:permute, charges, bonds, perm)) do
+    expansion = cached(_RECOUPLE_CACHE, (:permute, charges, bonds, perm)) do
         return _expand(permute(_treetensor(charges, bonds), (Tuple(perm), (K + 1,))))
     end
     sorted, ops = sites[perm], [keys[j].op for j in perm]
@@ -100,7 +100,7 @@ function _concat(ka::Vector{Factor{I}}, kb::Vector{Factor{I}}, tot::I) where {I}
     _checkrecouple(I)
     ca, cb = I[k.op.c for k in ka], I[k.op.c for k in kb]
     ba, bb = I[k.bond for k in ka], I[k.bond for k in kb]
-    expansion = _cached(_RECOUPLE_CACHE, (:concat, ca, ba, cb, bb, tot)) do
+    expansion = cached(_RECOUPLE_CACHE, (:concat, ca, ba, cb, bb, tot)) do
         tb = last(bb)
         Y = _treetensor([ta, tb], [ta, tot])
         return _expand((_treetensor(ca, ba) ⊗ _treetensor(cb, bb)) * Y)
@@ -160,7 +160,7 @@ function _resolve(p::PendingTerm{I}, lat::AbstractLattice) where {I}
     U = sort!(unique(p.sites))
     pos = Int[searchsortedfirst(U, s) for s in p.sites]
     Bs = [lat[u] for u in U]
-    local_op = _cached(_PRODUCT_CACHE, (pos, p.keys, Bs)) do
+    local_op = cached(_PRODUCT_CACHE, (pos, p.keys, Bs)) do
         return _project_local(_written_block(p.keys, pos, Bs), Bs)
     end
     return scale(local_op[U...], p.coeff).terms

@@ -69,7 +69,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
 ## Conventions
 
 * Concrete types, no expression trees (on-site products are the one deferred case).
-* Invariant checks are `throw`s via `_invariant`, never `@assert`.
+* Invariant checks are `throw`s via `invariant_violation`, never `@assert`.
 * Model code uses neutral operators only (builders, `project`); never a hard-coded `Letter(c, n)`.
 * Verification: `islossless(H)` (= `mpo_terms(mpo(H)) ≈ chain_terms(H)`) and the dense oracle `instantiate(H)`.
 * Tests: `test/**/test_*.jl` (subfolders mirror `src/`, one file per source file; end-to-end ones sit at the top), discovered automatically; shared helpers in `test/testutils.jl` (`unitbasis`,

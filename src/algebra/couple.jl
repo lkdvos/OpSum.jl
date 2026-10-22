@@ -106,7 +106,7 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
                     keys[j + 1] = Factor{I}(op, bond, 1)
                 end
                 bond == tot ||
-                    _invariant("reordered coupling reached $bond, not the total $tot")
+                    invariant_violation("reordered coupling reached $bond, not the total $tot")
             end
             push!(out, Term{I}(sites, keys, coeff))
         end

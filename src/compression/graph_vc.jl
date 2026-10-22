@@ -70,7 +70,7 @@ function _vc_component(
         iu == g.startleft && (startidx = m)
         iu == g.finishleft && (finishidx = m)
         if i == N
-            iszero(g.rsent) || _invariant("the sentinel must be gone by the last site")
+            iszero(g.rsent) || invariant_violation("the sentinel must be gone by the last site")
             push!(blocks, (lv.link, m, lv.key.op * sum(g.wadj[iu]; init = zero(ComplexF64))))
         else
             push!(blocks, (lv.link, m, convert(LOp, lv.key.op)))
@@ -93,11 +93,11 @@ function _vc_component(
         secs[m] = g.lefts[g.firstleft[iv]].key.bond
         if iv == g.rfinish
             iszero(finishidx) ||
-                _invariant("finish channel covered on both sides (the cover is not minimum)")
+                invariant_violation("finish channel covered on both sides (the cover is not minimum)")
             finishidx = m
         end
         if iv == g.rsent
-            iszero(startidx) || _invariant("start channel covered on both sides")
+            iszero(startidx) || invariant_violation("start channel covered on both sides")
             startidx = m                        # the sentinel *is* the start channel here
         elseif i != N
             push!(nextedges[m], (iv, one(ComplexF64)))
@@ -114,7 +114,7 @@ function _vc_component(
         for (rid, w) in zip(g.radj[iu], g.wadj[iu])
             iszero(w) && continue
             m = bondof[vlocal[rid]]
-            iszero(m) && _invariant("edge left uncovered by the minimum vertex cover")
+            iszero(m) && invariant_violation("edge left uncovered by the minimum vertex cover")
             push!(blocks, (lv.link, m, lv.key.op * w))
         end
     end
@@ -189,12 +189,12 @@ function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover)
         end
         if !iszero(startidx)
             iszero(g.startidx) ||
-                _invariant("the start channel appeared in more than one component")
+                invariant_violation("the start channel appeared in more than one component")
             g.startidx = offset + startidx
         end
         if !iszero(finishidx)
             iszero(g.finishidx) ||
-                _invariant("the finish channel appeared in more than one component")
+                invariant_violation("the finish channel appeared in more than one component")
             g.finishidx = offset + finishidx
         end
         offset += rank
@@ -204,6 +204,6 @@ function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover)
         g, i, nout, site_dict, secW, nextedges_global, origins_global
     )
     (iszero(g.startidx) || g.startidx != g.finishidx) ||
-        _invariant("the start and finish channels resolved to the same bond index")
+        invariant_violation("the start and finish channels resolved to the same bond index")
     return nout, site_dict, secW, nextedges_global
 end

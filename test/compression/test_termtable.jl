@@ -124,9 +124,9 @@ end
     @test nterms_raw(H2) == 4
     @test_throws ArgumentError mpo(opsum(sites, H2))
 
-    # `lat` need not already be a `FiniteChain` or a `Vector{<:Basis}`
-    @test mpo(opsum!(OperatorSum(unitbasis(su2) for _ in 1:4), H)).bondsectors == mpo(opsum(sites, H)).bondsectors
-    @test_throws ArgumentError mpo(opsum!(OperatorSum([1, 2, 3, 4]), H))
+    # `OperatorSum` takes a lattice or a `Vector{<:Basis}`
+    @test mpo(opsum!(OperatorSum(sites), H)).bondsectors == mpo(opsum(sites, H)).bondsectors
+    @test_throws MethodError OperatorSum([1, 2, 3, 4])
 end
 
 @testset "container and display surface" begin

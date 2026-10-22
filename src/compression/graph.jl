@@ -10,11 +10,6 @@ using TensorKit: Sector, Vect, block, sectors, space, dim
 using MatrixAlgebraKit: svd_trunc, trunctol
 using SparseArrays: SparseMatrixCSC
 
-# Cold, non-inlined so each check is one never-taken branch (a real `throw`, not a strippable `@assert`).
-@noinline function _invariant(msg::AbstractString)
-    return error("OpSum internal invariant violated: ", msg, ". This is a bug in OpSum; the reduced MPO would be wrong.")
-end
-
 # The strategies with a `_bond_basis!` method (`IndependentSVD` has its own sweep).
 const GraphStrategy = Union{VertexCover, SequentialSVD}
 
@@ -275,7 +270,7 @@ end
 function _promote_pending!(g::SweepGraph{I}, i::Int) where {I}
     (g.nremaining > 0 && !isempty(g.pendbysig)) || return g
     lv = g.startleft
-    iszero(lv) && _invariant("pending terms with no start channel to inject them on")
+    iszero(lv) && invariant_violation("pending terms with no start channel to inject them on")
     promoted = false
     for r in eachindex(g.rrepr)
         iszero(g.rchan[r]) || continue     # geometric classes have no factor list to collide with
@@ -361,7 +356,7 @@ function _prepare_bond!(g::SweepGraph{I}, i::Int) where {I}
                 firstleft[rid] = iu
             else
                 g.lefts[firstleft[rid]].key.bond == bond ||
-                    _invariant("bond index not sector-pure (block-diagonality violated)")
+                    invariant_violation("bond index not sector-pure (block-diagonality violated)")
             end
         end
     end
@@ -432,7 +427,7 @@ function _build_next_graph!(
     if g.lazy
         startidx = g.startidx
         ((iszero(g.nremaining) && i + 1 > g.lastentry) || !iszero(startidx)) ||
-            _invariant("terms remain to the right of site $i with no start channel to enter on")
+            invariant_violation("terms remain to the right of site $i with no start channel to enter on")
         for t in g.pend_at[i + 1]
             g.inserted[t] && continue         # already promoted into a colliding class
             g.inserted[t] = true
@@ -459,7 +454,7 @@ function _build_next_graph!(
     if !iszero(g.finishidx)
         g.finishleft = get(buckets, (g.finishidx, Factor{I}(passthrough(I), unit(I), 1)), 0)
         iszero(g.finishleft) &&
-            _invariant("the finish channel at bond $i forwards nothing to site $(i + 1)")
+            invariant_violation("the finish channel at bond $i forwards nothing to site $(i + 1)")
     end
 
     g.lefts = next_lefts

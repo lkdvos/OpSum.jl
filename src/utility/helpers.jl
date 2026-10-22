@@ -1,3 +1,5 @@
+# Small helpers shared across files: sparse accumulation, memoisation, internal invariant checks.
+
 # The sweeps accumulate into `Dictionary{CartesianIndex{2}, T}` and materialise a sparse matrix at
 # the end (entries kept verbatim, including explicit zeros).
 function sparse_from_dict(
@@ -31,6 +33,11 @@ end
 
 # Memoisation of pure functions (stock bases, adjoints); the lock guards threads.
 
-const _OPCACHE_LOCK = ReentrantLock()
+const OPCACHE_LOCK = ReentrantLock()
 
-_cached(f, cache, key) = @lock _OPCACHE_LOCK get!(f, cache, key)
+cached(f, cache, key) = @lock OPCACHE_LOCK get!(f, cache, key)
+
+# Cold, non-inlined so each check is one never-taken branch (a real `throw`, not a strippable `@assert`).
+@noinline function invariant_violation(msg::AbstractString)
+    return error("OpSum internal invariant violated: ", msg, ". This is a bug in OpSum; the reduced MPO would be wrong.")
+end

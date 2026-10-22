@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: AbstractLattice, FiniteChain, InfiniteChain,
-    _tolattice, mpo, opsum, couple,
+    mpo, opsum, couple,
     jordan_mpo_tensors, instantiate, Terms
 using TensorKit
 using TensorKit: sectortype
@@ -61,13 +61,17 @@ end
     @test_throws ArgumentError InfiniteChain(typeof(BSU2)[])
 end
 
-@testset "_tolattice accepts anything naming one space per site" begin
+@testset "lattice constructors take one Basis per site" begin
     ref = FiniteChain(BSU2, 3)
-    @test _tolattice([BSU2, BSU2, BSU2]) == ref                # vector
+    @test FiniteChain([BSU2, BSU2, BSU2]) == ref                # vector of bases
+    @test OperatorSum([BSU2, BSU2, BSU2]).lattice == ref
+    @test opsum([BSU2, BSU2, BSU2]).lattice == ref
+    @test InfiniteChain([BSU2, BSU2b]) isa InfiniteChain
 
-    @test_throws ArgumentError _tolattice([1, 2, 3])           # wrong element type
-    @test_throws ArgumentError _tolattice(3)                   # not iterable at all
-    @test_throws ArgumentError _tolattice(VertexCover())
+    @test_throws ArgumentError FiniteChain([1, 2, 3])           # wrong element type
+    @test_throws ArgumentError InfiniteChain([VSU2])            # a bare space is not an alphabet
+    @test_throws ArgumentError FiniteChain(VSU2, 3)
+    @test_throws ArgumentError FiniteChain([BSU2, BU1])         # two symmetries
     h = opsum(dot(spinvector(BSU2)[1], spinvector(BSU2)[2]))
     @test_throws ArgumentError mpo(h, IndependentSVD())
 end

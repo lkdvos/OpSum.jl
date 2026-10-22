@@ -28,7 +28,7 @@ function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
             )
         )
         Vs = [lat[s] for s in t.sites]
-        local_adj = _cached(_ADJOINT_CACHE, (t.keys, Vs)) do
+        local_adj = cached(_ADJOINT_CACHE, (t.keys, Vs)) do
             blk = _instantiate_term(Term{I}(collect(1:K), t.keys, ComplexF64(1)), Vs)
             return _project_local(removeunit(blk, 2K + 1)', Vs)
         end

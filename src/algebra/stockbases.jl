@@ -56,13 +56,13 @@ end
 # The basis defined by `names` on `spacefn(args...; kwargs...)`; `args`/`kwargs` are also those of every
 # TensorKitTensors call.
 function _stock_basis(kind::Symbol, M::Module, spacefn, names, args, kwargs)
-    return _cached(_STOCK_CACHE, (kind, args..., values(kwargs)...)) do
+    return cached(_STOCK_CACHE, (kind, args..., values(kwargs)...)) do
         V = spacefn(args...; kwargs...)
         elems = AbstractTensorMap[_identityelement(V)]
         for name in names
             t = _tkt_operator(M, name, args, kwargs)
             t === nothing && continue
-            codomain(t)[1] == V || _invariant("TensorKitTensors operator $name does not act on $V")
+            codomain(t)[1] == V || invariant_violation("TensorKitTensors operator $name does not act on $V")
             numout(t) == 1 ? push!(elems, insertrightunit(t)) : append!(elems, _factorise_pair(t))
         end
         _basis_from_elements(V, _completed_elements(V, elems); skipdependent = true)
@@ -71,7 +71,7 @@ end
 
 # Every operator of `names` the symmetry admits, projected into `basisfn(args...; kwargs...)`.
 function _stock_ops(kind::Symbol, M::Module, basisfn, names, args, kwargs)
-    return _cached(_STOCK_CACHE, (kind, args..., values(kwargs)...)) do
+    return cached(_STOCK_CACHE, (kind, args..., values(kwargs)...)) do
         B = basisfn(args...; kwargs...)
         ts = [name => _tkt_operator(M, name, args, kwargs) for name in names]
         filter!(p -> p.second !== nothing, ts)

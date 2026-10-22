@@ -12,7 +12,7 @@ function _class!(dense, Qs, deg, mult, key, q)
         c = length(Qs)
         insert!(dense, key, c)
     elseif Qs[c] != q
-        _invariant("class not sector-pure")
+        invariant_violation("class not sector-pure")
     end
     return c
 end
@@ -58,7 +58,7 @@ function _svd_flatten_block(
             end
         end
     end
-    col == r || _invariant("retained bond space does not match its per-sector dimensions")
+    col == r || invariant_violation("retained bond space does not match its per-sector dimensions")
     return (; U = Umat, secs, R = Rmat)
 end
 
@@ -84,7 +84,7 @@ function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Sequ
         isempty(conn) && continue
         q = vCharge[v] = uCharge[first(conn)]
         all(uCharge[u] == q for u in conn) ||
-            _invariant("bond index not sector-pure (block-diagonality violated)")
+            invariant_violation("bond index not sector-pure (block-diagonality violated)")
         vactive[v] = true
     end
 

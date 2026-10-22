@@ -311,9 +311,9 @@ end
     @test allequal(maximum.(livecounts))       # the peak is independent of the chain length
 end
 
-@testset "_invariant is a real throw, not a strippable assert" begin
+@testset "invariant_violation is a real throw, not a strippable assert" begin
     err = try
-        OpSum._invariant("the widget is not sector-pure")
+        OpSum.invariant_violation("the widget is not sector-pure")
     catch e
         e
     end

@@ -52,7 +52,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | # | Chunk | Files | Status |
 |---|-------|-------|--------|
 | 0 | Top-down tour of the main path | — | done |
-| 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | presented |
+| 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | implementing |
 | 2 | Letters | irreptensoroperators, irrepkey, siteoperator, irrepinstantiate | pending |
 | 3 | Terms | irrepalgebra.jl, canonicalize! (irreptermtable.jl) | pending |
 | 4 | Bases and projection | basis, irrepprojection, stockbases, builders (adjoint) | pending |
@@ -97,6 +97,22 @@ one full `Pkg.test()` in the background. At the finish: full suite, strict docs 
 
 **D6 Coefficients stay `ComplexF64`** for this review; making them parametric is wanted later: https://github.com/lkdvos/OpSum.jl/issues/43.
 
+**D7 (convention, sharpens D1) Underscore rule.** No `_` on anything called from another file or from a test; `_`
+only for helpers used within their own file. Applied chunk by chunk.
+
+**D8 Chunk 1 (foundations).**
+(a) O7: one algorithm argument, `mpo(H, alg::BondStrategy = VertexCover())`; `IndependentSVD(trunc)` /
+`SequentialSVD(trunc)` used directly; `BipartiteAlgorithm`, `SVDBondAlgorithm`, `bondstrategy` deleted; lossless
+default `trunc = notrunc()` (no `nothing`), `T <: TruncationStrategy`; infinite-chain / channel errors by dispatch.
+(b) D7 renames: `_cached` → `cached`, `_maxsite` → `maxsite`, `_invariant` → `invariant_violation` (moved to
+utility); `_lattice_sectortype` deleted (use `sectortype`); `_tolattice` deleted (`OperatorSum(sites)` →
+`FiniteChain(sites)`).
+(c) `FiniteChain{B<:Basis}` / `InfiniteChain{B<:Basis}`; migration error text dropped, one-symmetry check kept.
+(d) `utility/linalg.jl` → `utility/helpers.jl` (sparse helpers, `cached`, `invariant_violation`).
+(e) `min_vertex_cover_bipartite` → `minimum_vertex_cover` returning `(coverU, coverV)`;
+`bipartite_connected_components` → `connected_components`.
+(f) merge `test_bipartite_components.jl` into `test_bipartite.jl`; drop unused `AbstractAlgorithm` import.
+
 ## Possible improvements
 
 ## Open items
@@ -115,4 +131,4 @@ one full `Pkg.test()` in the background. At the finish: full suite, strict docs 
 
 ## Resume here
 
-D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 presented; awaiting decisions.
+D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 decided (D7, D8); implementation delegated.

@@ -52,7 +52,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | # | Chunk | Files | Status |
 |---|-------|-------|--------|
 | 0 | Top-down tour of the main path | — | done |
-| 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done (full suite pending) |
+| 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done |
 | 2 | Letters | letters, siteoperator, instantiate | presented |
 | 3 | Terms | irrepalgebra.jl, canonicalize! (irreptermtable.jl) | pending |
 | 4 | Bases and projection | basis, irrepprojection, stockbases, builders (adjoint) | pending |
@@ -136,5 +136,5 @@ base. Targeted tests and the two affected examples pass.
 
 ## Resume here
 
-D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 applied; full suite running in background. Chunk 2 presented (P2.1–P2.6), awaiting answers.
+D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 applied; full suite green at 1ed3d91. Chunk 2 presented (P2.1–P2.6), awaiting answers.
 Equivalence harness: scratchpad/equiv/{equiv,compare}.jl, base result scratchpad/equiv/base.jls, base worktree scratchpad/base.

@@ -55,7 +55,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done |
 | 2 | Letters | letters, siteoperator, instantiate | implementing |
 | 3 | Terms | terms, couple | decided (waits for chunk 2) |
-| 4 | Bases and projection | basis, irrepprojection, stockbases, builders (adjoint) | pending |
+| 4 | Bases and projection | basis, projection, stockbases, adjoint | decided (after chunk 3) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |
 | 6 | Container and channels | operatorsum, infinite/expterms | pending |
 | 7 | The sweep | irreptermtable (table), irrepinterning, irrepgraph | pending |
@@ -143,6 +143,21 @@ equivalence harness and a construction-time check (largest showcase model, N₂ 
 (d) `Term` checks → `ArgumentError`; `via` keyword deleted; one GenericFusion entry check for both `couple` forms
 (removes the `@assert`); `_spaceaslattice` deleted.
 (e) Latticeless `opsum(args...)` → `Terms(args...)`; `opsum` always builds an `OperatorSum`; `append!` stays.
+
+**D11 Chunk 4 (bases, projection, stock bases, adjoint).**
+(a) `Basis` equality is identity (`==` is `===`, `hash` by `objectid`), documented; stock bases memoised so repeated
+calls are identical.
+(b) Bases are always complete: `complete` keyword removed, `Basis(ops)` completes with matrix units.
+(c) `project` = overlaps with precomputed dual elements `ẽ_k = Σ_m (G⁻¹)_km e_m` (coefficient `⟨Ẽ, h⟩ / g` per
+letter tuple and tree); `_rebasis`, the `pinv` chop and the per-projection residual check go (residual stays in
+tests); matrix units only used inside basis construction. Equivalence harness decides round-off handling (chop on
+`⟨Ẽ, h⟩` at the old tolerance if tiny letters appear).
+(d) `Basis` owns all basis-dependent precomputed data: dual elements, the letter metric (now `_lettermetric` in
+metric.jl), the letter product table (now the global `IdDict` in letterproducts.jl, filled lazily per basis), and
+anything per-basis the adjoint needs; global per-basis caches go.
+(e) Narrow `_tkt_operator`'s `catch`; files split by concern (basis.jl = construction + instantiate,
+projection.jl = `project`); header fixed; D7 renames; adjoint and stock caches kept, documented.
+(f) Issue: `project` builds each candidate densely; overlaps factorise site by site.
 
 ## Possible improvements
 

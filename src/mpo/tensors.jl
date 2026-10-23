@@ -61,7 +61,7 @@ function mpo_terms(
             l == l0 || continue
             for (letter, c) in pairs(localop)
                 pass = ispassthrough(letter)
-                pass || (push!(sites, i); push!(keys, Factor{I}(letter, bondsectors[i][r], 1)))
+                pass || (push!(sites, i); push!(keys, Factor{I}(letter, bondsectors[i][r])))
                 walk(i + 1, r, coeff * c, sites, keys)
                 pass || (pop!(sites); pop!(keys))
             end

@@ -30,15 +30,15 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
         path = [_factor_at(tt, 1, s) for s in 1:4]
 
         # active sites carry the letter and the outgoing (running) bond charge
-        @test !ispassthrough(path[1].op)
-        @test path[1].op.c == SU2Irrep(1)
+        @test !ispassthrough(path[1].letter)
+        @test path[1].letter.c == SU2Irrep(1)
         @test path[1].bond == SU2Irrep(1)          # bond out of site 1 (the coupled pair line)
-        @test !ispassthrough(path[3].op)
+        @test !ispassthrough(path[3].letter)
         @test path[3].bond == SU2Irrep(0)          # total (singlet) out of site 3
 
         # idle sites are pass-through, carrying the running bond charge to their left
-        @test ispassthrough(path[2].op) && path[2].bond == SU2Irrep(1)
-        @test ispassthrough(path[4].op) && path[4].bond == SU2Irrep(0)
+        @test ispassthrough(path[2].letter) && path[2].bond == SU2Irrep(1)
+        @test ispassthrough(path[4].letter) && path[4].bond == SU2Irrep(0)
     end
 
     @testset "U(1) charge threads through idle sites" begin

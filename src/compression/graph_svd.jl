@@ -63,7 +63,7 @@ function _svd_flatten_block(
 end
 
 # `_bond_basis!` for `SequentialSVD`: the whole bond's coefficient matrix is a charge-graded
-# `C : Ppre ← Psuf`; its truncated `U` is the compressed basis (index `m` emits `key.op * U[u, m]`) and
+# `C : Ppre ← Psuf`; its truncated `U` is the compressed basis (index `m` emits `key.letter * U[u, m]`) and
 # `R = S·Vᴴ` becomes the forwarded edge weights (folded into the block at the last site).
 function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::SequentialSVD) where {I}
     LOp = SiteOperator{I}
@@ -116,7 +116,7 @@ function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Sequ
             iszero(w) && continue
             lv = g.lefts[u]
             # last site: the single trivial suffix folds R into the block
-            increaseindex!(site_dict, CartesianIndex(lv.link, m), lv.key.op * (i == N ? w * Rmat[m, 1] : w))
+            increaseindex!(site_dict, CartesianIndex(lv.link, m), lv.key.letter * (i == N ? w * Rmat[m, 1] : w))
         end
         if i < N
             for v in 1:nV
@@ -208,7 +208,7 @@ function _sweep_channels(tt::TermTable{I}, N::Int, strategy::IndependentSVD) whe
             jcur = jprev + (active ? 1 : 0)
             cursor[t] = jcur
             key = active ? tt.keys[jcur, t] :
-                Factor{I}(passthrough(I), iszero(jprev) ? unit(I) : tt.keys[jprev, t].bond, 1)
+                Factor{I}(passthrough(I), iszero(jprev) ? unit(I) : tt.keys[jprev, t].bond)
             j = i > 1 ? predense[i - 1][preid[jprev + 1, t]] : 1
             l = i < N ? predense[i][preid[jcur + 1, t]] : 1
             Cmat = get!(() -> zeros(T, nL, nR), op_coeffs, key)
@@ -221,7 +221,7 @@ function _sweep_channels(tt::TermTable{I}, N::Int, strategy::IndependentSVD) whe
 
         for (key, C_op) in pairs(op_coeffs)
             W_op = U_left' * C_op * U_right
-            lop = convert(LOp, key.op)
+            lop = convert(LOp, key.letter)
             for col in 1:size(W_op, 2), row in 1:size(W_op, 1)
                 iszero(W_op[row, col]) && continue
                 increaseindex!(dicts[i], CartesianIndex(row, col), lop * W_op[row, col])

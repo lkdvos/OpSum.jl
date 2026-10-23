@@ -128,22 +128,22 @@ end
     J = SU2Irrep
     B1 = unitbasis(SU2Space(1 // 2 => 1))
     S1 = spinvector(B1)
-    letter(x) = only(only(x).keys).op
+    letter(x) = only(only(x).keys).letter
     Vs = fill(B1, 4)
     for j in (0, 1, 2), tot in J(j) ⊗ J(1)                       # every channel, three sites
         a = only(couple(S1[1], S1[3]; to = J(j)))
-        keys = vcat(a.keys, OpSum.Factor{J}(letter(S1[2]), tot, 1))
+        keys = vcat(a.keys, OpSum.Factor{J}(letter(S1[2]), tot))
         @test recouples([1, 3, 2], keys, 0.7, Vs)
         @test recouples([3, 2, 1], keys, 1.0, Vs)
     end
     a = only(couple(couple(S1[1], S1[3]; to = J(2)), S1[4]; to = J(1)))   # four sites, two orders
-    keys = vcat(a.keys, OpSum.Factor{J}(letter(S1[2]), J(1), 1))
+    keys = vcat(a.keys, OpSum.Factor{J}(letter(S1[2]), J(1)))
     @test recouples([1, 3, 4, 2], keys, 0.7, Vs)
     @test recouples([4, 1, 3, 2], keys, 1.0, Vs)
     # `couple` out of order gives the same terms
     a = only(couple(S1[1], S1[3]; to = J(1)))
     x = couple(Terms{J}([a]), S1[2]; to = J(1))
-    keys = vcat(a.keys, OpSum.Factor{J}(letter(S1[2]), J(1), 1))
+    keys = vcat(a.keys, OpSum.Factor{J}(letter(S1[2]), J(1)))
     @test OpSum._instantiate_terms(x, Vs) ≈
         a.coeff * only(S1[2]).coeff * OpSum._written_block(keys, [1, 3, 2], Vs)
 

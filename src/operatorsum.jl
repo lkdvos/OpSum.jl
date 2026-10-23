@@ -116,7 +116,7 @@ function _checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) whe
             )
             V = lat[s]
             info = get!(() -> _alphabet(V, I), seen, V)
-            op = key.op
+            op = key.letter
             nmax = get(info, op.c, 0)
             1 <= op.n <= nmax || throw(
                 ArgumentError(
@@ -143,7 +143,7 @@ function _checkchannels(lat::AbstractLattice, chans)
     for k in keys(chans)
         I = sectortype(k.term)
         letters = Letter{I}[l for (l, _) in k.string if l !== nothing]
-        lat isa FiniteChain && append!(letters, (key.op for key in k.term.keys))
+        lat isa FiniteChain && append!(letters, (key.letter for key in k.term.keys))
         isempty(letters) && continue
         allequal(lat.sites) || throw(
             ArgumentError(

@@ -184,7 +184,7 @@ function SweepGraph(
 
     # the start channel's left vertex, which the sentinel and every injected term or entry hangs off
     startleft = (nremaining > 0 || 1 < lastent) ?
-        _bucket!(buckets, lefts, radj, wadj, 1, Factor{I}(passthrough(I), unit(I), 1)) : 0
+        _bucket!(buckets, lefts, radj, wadj, 1, Factor{I}(passthrough(I), unit(I))) : 0
 
     cap = length(rrepr) + 1   # right-vertex ids are at most one sentinel beyond the live ones
     return SweepGraph{I}(
@@ -380,7 +380,7 @@ function _build_next_graph!(
         t = g.rrepr[r]
         j = g.rcur[r]
         (j <= g.K && g.tt.sites[j, t] == i + 1) && return g.tt.keys[j, t]
-        return Factor{I}(passthrough(I), g.rbond[r], 1)
+        return Factor{I}(passthrough(I), g.rbond[r])
     end
     buckets = Dictionary{Tuple{Int, Factor{I}}, Int}()
     next_lefts = LeftVertex{I}[]
@@ -446,13 +446,13 @@ function _build_next_graph!(
         end
         # the start channel must survive even when it forwards nothing (the next sentinel hangs off it)
         g.startleft = (g.nremaining > 0 || i + 1 < g.lastentry) ?
-            bucket!(startidx, Factor{I}(passthrough(I), unit(I), 1)) : 0
+            bucket!(startidx, Factor{I}(passthrough(I), unit(I))) : 0
     end
 
     # the finish channel forwards one edge, to the exhausted class, via the trivial pass-through
     g.finishleft = 0
     if !iszero(g.finishidx)
-        g.finishleft = get(buckets, (g.finishidx, Factor{I}(passthrough(I), unit(I), 1)), 0)
+        g.finishleft = get(buckets, (g.finishidx, Factor{I}(passthrough(I), unit(I))), 0)
         iszero(g.finishleft) &&
             invariant_violation("the finish channel at bond $i forwards nothing to site $(i + 1)")
     end

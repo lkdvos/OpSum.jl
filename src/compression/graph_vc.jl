@@ -71,9 +71,9 @@ function _vc_component(
         iu == g.finishleft && (finishidx = m)
         if i == N
             iszero(g.rsent) || invariant_violation("the sentinel must be gone by the last site")
-            push!(blocks, (lv.link, m, lv.key.op * sum(g.wadj[iu]; init = zero(ComplexF64))))
+            push!(blocks, (lv.link, m, lv.key.letter * sum(g.wadj[iu]; init = zero(ComplexF64))))
         else
-            push!(blocks, (lv.link, m, convert(LOp, lv.key.op)))
+            push!(blocks, (lv.link, m, convert(LOp, lv.key.letter)))
             edges = nextedges[m]
             for (rid, w) in zip(g.radj[iu], g.wadj[iu])
                 (rid == g.rsent || iszero(w)) && continue   # the sentinel is regenerated, not carried
@@ -115,7 +115,7 @@ function _vc_component(
             iszero(w) && continue
             m = bondof[vlocal[rid]]
             iszero(m) && invariant_violation("edge left uncovered by the minimum vertex cover")
-            push!(blocks, (lv.link, m, lv.key.op * w))
+            push!(blocks, (lv.link, m, lv.key.letter * w))
         end
     end
 

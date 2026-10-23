@@ -190,15 +190,15 @@ function _factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = 1.0e
     I = sectortype(V)
     bych = Dictionary{I, Vector{Term{I}}}()
     for t in _project_units(h; atol).terms.terms
-        push!(get!(bych, t.keys[1].op.c, Term{I}[]), t)
+        push!(get!(bych, t.keys[1].letter.c, Term{I}[]), t)
     end
     blocks = map(sort!(collect(keys(bych)))) do c
         ts = bych[c]
-        L = sort!(unique!([t.keys[1].op for t in ts]))
-        R = sort!(unique!([t.keys[2].op for t in ts]))
+        L = sort!(unique!([t.keys[1].letter for t in ts]))
+        R = sort!(unique!([t.keys[2].letter for t in ts]))
         M = zeros(ComplexF64, length(L), length(R))
         for t in ts
-            M[searchsortedfirst(L, t.keys[1].op), searchsortedfirst(R, t.keys[2].op)] += t.coeff
+            M[searchsortedfirst(L, t.keys[1].letter), searchsortedfirst(R, t.keys[2].letter)] += t.coeff
         end
         return (L, R, M)
     end
@@ -268,7 +268,7 @@ function project(h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; kwargs...
     K = length(Bs)
     K == 1 || return LocalOperator{I}(out, K)
     ts = canonicalize!(out).terms
-    return SiteOperator{I}(Letter{I}[only(t.keys).op for t in ts], ComplexF64[t.coeff for t in ts])
+    return SiteOperator{I}(Letter{I}[only(t.keys).letter for t in ts], ComplexF64[t.coeff for t in ts])
 end
 
 # Matrix-unit terms re-expressed letter by letter in `Bs[j]`: `(c, m)` becomes `Σₙ P[n, m] (c, n)`. A
@@ -278,11 +278,11 @@ function _rebasis(mu::AbstractVector{Term{I}}, Bs) where {I}
     for t in mu
         maps = map(eachindex(t.keys)) do j
             key = t.keys[j]
-            P = get(Bs[j].pinv, key.op.c, nothing)
+            P = get(Bs[j].pinv, key.letter.c, nothing)
             P === nothing && return nothing
-            col = P[:, key.op.n - _muoffset(key.op.c)]
+            col = P[:, key.letter.n - _muoffset(key.letter.c)]
             return [
-                (Factor{I}(Letter{I}(key.op.c, n), key.bond, key.vertex), col[n])
+                (Factor{I}(Letter{I}(key.letter.c, n), key.bond), col[n])
                     for n in eachindex(col) if !iszero(col[n])
             ]
         end
@@ -315,7 +315,7 @@ function _project_terms(
     mu = _project_units(h; atol = 0, rtol = 0).terms.terms
     summed = canonicalize!(_rebasis(mu, Bs)).terms
     # drop round-off: a coefficient whose term, at the scale of its elements, is below the tolerance
-    weight(t) = prod(j -> norm(instantiate(t.keys[j].op, Bs[j])), 1:K)
+    weight(t) = prod(j -> norm(instantiate(t.keys[j].letter, Bs[j])), 1:K)
     out = Terms{I}(filter(t -> abs(t.coeff) * weight(t) > θ, summed))
 
     resid = isempty(out.terms) ? hnorm : norm(hc - _instantiate_terms(out, Bs))

@@ -5,7 +5,7 @@ using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, unit
 import TensorKit: sectortype
 
-# Inverse of `bondcharges` (multiplicity-free: all vertex labels 1). The 4-arg `FusionTree` form
+# Inverse of `bondcharges` (multiplicity-free: all vertex labels are 1). The 4-arg `FusionTree` form
 # for K = 0: the 3-arg one throws for `MultipleFusion`.
 function _tree_from_bonds(charges::AbstractVector{I}, bonds::AbstractVector{I}) where {I <: Sector}
     K = length(charges)
@@ -20,7 +20,7 @@ end
 """
     Term{I<:Sector}
 
-One term: `sites` (ascending, unique), one `Factor` each (letter, running bond charge, vertex label)
+One term: `sites` (ascending, unique), one `Factor` each (letter, running bond charge)
 and a reduced `coeff`. Multiplicity-free fusion only. Never mutated, so terms share vectors;
 `==`/`hash` ignore the coefficient, which is what makes summing coincident terms well defined.
 """
@@ -31,7 +31,6 @@ struct Term{I <: Sector}
     function Term{I}(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64) where {I}
         @assert length(sites) == length(keys) "sites/keys arity mismatch"
         @assert issorted(sites) && allunique(sites) "a term's sites must be ascending and unique"
-        @assert all(k -> isone(k.vertex), keys) "multiplicity-free fusion only (all vertices == 1)"
         return new{I}(sites, keys, coeff)
     end
 end
@@ -42,13 +41,13 @@ sectortype(::Type{Term{I}}) where {I} = I
 
 arity(t::Term) = length(t.sites)
 
-ops(t::Term{I}) where {I} = Letter{I}[k.op for k in t.keys]
+ops(t::Term{I}) where {I} = Letter{I}[k.letter for k in t.keys]
 
 # running bond charge after the last site
 total(t::Term{I}) where {I} = isempty(t.keys) ? unit(I) : last(t.keys).bond
 
 # the caterpillar coupling tree, rebuilt from the running bond charges
-tree(t::Term{I}) where {I} = _tree_from_bonds(I[k.op.c for k in t.keys], I[k.bond for k in t.keys])
+tree(t::Term{I}) where {I} = _tree_from_bonds(I[k.letter.c for k in t.keys], I[k.bond for k in t.keys])
 
 Base.:(==)(x::Term{I}, y::Term{I}) where {I} = x.sites == y.sites && x.keys == y.keys
 Base.hash(t::Term, h::UInt) = hash(t.keys, hash(t.sites, hash(:Term, h)))

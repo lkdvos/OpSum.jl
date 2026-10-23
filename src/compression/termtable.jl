@@ -21,7 +21,7 @@ function TermTable(ts::Terms{I}, N::Integer) where {I}
     M = length(terms)
     K = max(1, maximum(arity, terms; init = 0))   # the sweeps index row 1 unconditionally
     sitemat = zeros(Int, K, M)
-    keymat = fill(Factor{I}(passthrough(I), unit(I), 1), K, M)
+    keymat = fill(Factor{I}(passthrough(I), unit(I)), K, M)
     for (t, term) in enumerate(terms)
         for j in 1:arity(term)
             sitemat[j, t] = term.sites[j]
@@ -46,7 +46,7 @@ function _factor_at(tt::TermTable{I}, t::Int, s::Int) where {I}
             break
         end
     end
-    return Factor{I}(passthrough(I), lastbond, 1)
+    return Factor{I}(passthrough(I), lastbond)
 end
 
 # Interning of the term table's contiguous column suffixes/prefixes, shared by every sweep backend.

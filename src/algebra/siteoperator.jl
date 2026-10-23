@@ -71,7 +71,7 @@ Base.:*(x::SiteOperator{I}, a::Number) where {I} = SiteOperator{I}(copy(x.letter
 Base.:*(a::Number, x::SiteOperator) = x * a
 Base.:/(x::SiteOperator, a::Number) = x * inv(a)
 
-# A bare letter times a scalar promotes (the sweep uses `key.op * coeff`).
+# A bare letter times a scalar promotes (the sweep uses `key.letter * coeff`).
 Base.:*(x::Letter, a::Number) = SiteOperator(x) * a
 Base.:*(a::Number, x::Letter) = SiteOperator(x) * a
 

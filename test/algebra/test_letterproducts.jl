@@ -35,7 +35,7 @@ abelian_bases = [
         for x in B.letters, y in B.letters
             P = _letter_product(B, x, y)
             tot = only(x.c ⊗ y.c)
-            keys = Factor{I}[Factor{I}(x, x.c, 1), Factor{I}(y, tot, 1)]
+            keys = Factor{I}[Factor{I}(x, x.c), Factor{I}(y, tot)]
             blk = _written_block(keys, [1, 1], [B])
             sgn = (OpSum._isfermionodd(x.c) && OpSum._isfermionodd(y.c)) ? -1 : 1
             if isempty(P)

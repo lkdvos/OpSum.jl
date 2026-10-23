@@ -21,16 +21,16 @@ function _written!(out::Terms{I}, sites::Vector{Int}, keys::Vector{Factor{I}}, c
     K = length(sites)
     for j in 1:K, k in (j + 1):K
         sites[j] > sites[k] || continue
-        a, b = keys[j].op.c, keys[k].op.c
+        a, b = keys[j].letter.c, keys[k].letter.c
         coeff *= Rsymbol(a, b, only(a ⊗ b))
     end
     perm = sortperm(sites)
     outkeys = Vector{Factor{I}}(undef, K)
     bond = unit(I)
     for (n, j) in enumerate(perm)
-        op = keys[j].op
+        op = keys[j].letter
         bond = only(bond ⊗ op.c)
-        outkeys[n] = Factor{I}(op, bond, 1)
+        outkeys[n] = Factor{I}(op, bond)
     end
     return push!(out.terms, Term{I}(sites[perm], outkeys, coeff))
 end
@@ -76,14 +76,14 @@ function _recouple(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF6
     _checkrecouple(I)
     K = length(sites)
     perm = sortperm(sites)
-    charges = I[k.op.c for k in keys]
+    charges = I[k.letter.c for k in keys]
     bonds = I[k.bond for k in keys]
     expansion = cached(_RECOUPLE_CACHE, (:permute, charges, bonds, perm)) do
         return _expand(permute(_treetensor(charges, bonds), (Tuple(perm), (K + 1,))))
     end
-    sorted, ops = sites[perm], [keys[j].op for j in perm]
+    sorted, ops = sites[perm], [keys[j].letter for j in perm]
     return Term{I}[
-        Term{I}(sorted, Factor{I}[Factor{I}(ops[n], b[n], 1) for n in 1:K], coeff * x)
+        Term{I}(sorted, Factor{I}[Factor{I}(ops[n], b[n]) for n in 1:K], coeff * x)
             for (b, x) in expansion
     ]
 end
@@ -93,21 +93,21 @@ end
 function _concat(ka::Vector{Factor{I}}, kb::Vector{Factor{I}}, tot::I) where {I}
     ta = _writtentotal(ka)
     if ta == unit(I) || _canreorder(I)
-        shifted = Factor{I}[Factor{I}(k.op, only(ta ⊗ k.bond), 1) for k in kb]
+        shifted = Factor{I}[Factor{I}(k.letter, only(ta ⊗ k.bond)) for k in kb]
         return [(vcat(ka, shifted), 1.0 + 0im)]
     end
     isempty(kb) && return [(ka, 1.0 + 0im)]
     _checkrecouple(I)
-    ca, cb = I[k.op.c for k in ka], I[k.op.c for k in kb]
+    ca, cb = I[k.letter.c for k in ka], I[k.letter.c for k in kb]
     ba, bb = I[k.bond for k in ka], I[k.bond for k in kb]
     expansion = cached(_RECOUPLE_CACHE, (:concat, ca, ba, cb, bb, tot)) do
         tb = last(bb)
         Y = _treetensor([ta, tb], [ta, tot])
         return _expand((_treetensor(ca, ba) ⊗ _treetensor(cb, bb)) * Y)
     end
-    ops = vcat([k.op for k in ka], [k.op for k in kb])
+    ops = vcat([k.letter for k in ka], [k.letter for k in kb])
     return [
-        (Factor{I}[Factor{I}(ops[n], b[n], 1) for n in eachindex(ops)], x) for (b, x) in expansion
+        (Factor{I}[Factor{I}(ops[n], b[n]) for n in eachindex(ops)], x) for (b, x) in expansion
     ]
 end
 
@@ -175,7 +175,7 @@ function _written_block(keys::Vector{Factor{I}}, pos::Vector{Int}, Bs) where {I}
     m = length(Bs)
     T = nothing
     for (key, p) in zip(keys, pos)
-        E = _embed_field(key.op, p, Bs)                                 # W ← W ⊗ C
+        E = _embed_field(key.letter, p, Bs)                                 # W ← W ⊗ C
         if T === nothing
             T = E
         else
@@ -186,7 +186,7 @@ function _written_block(keys::Vector{Factor{I}}, pos::Vector{Int}, Bs) where {I}
             T = permute(R, (ntuple(identity, m), dom))                  # W ← W ⊗ Cs ⊗ C
         end
     end
-    X = _treetensor(I[k.op.c for k in keys], I[k.bond for k in keys])
+    X = _treetensor(I[k.letter.c for k in keys], I[k.bond for k in keys])
     W = foldl(⊗, (_space(B) for B in Bs))
     return T * (id(W) ⊗ X)                                              # W ← W ⊗ C_tot
 end

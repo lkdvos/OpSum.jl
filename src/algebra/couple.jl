@@ -13,7 +13,7 @@ function Base.getindex(O::SiteOperator{I}, ind::Integer, inds::Integer...) where
     # the pass-through is the bare identity: a K = 0 term
     return Terms{I}(
         Term{I}[
-            ispassthrough(l) ? Term{I}(Int[], Factor{I}[], c) : Term{I}([site], [Factor{I}(l, l.c, 1)], c)
+            ispassthrough(l) ? Term{I}(Int[], Factor{I}[], c) : Term{I}([site], [Factor{I}(l, l.c)], c)
                 for (l, c) in pairs(O)
         ]
     )
@@ -25,7 +25,7 @@ function _single_site_term(b::Terms, ctx)
     length(b) == 1 || throw(ArgumentError("$ctx must be a single-term operator"))
     t = only(b.terms)
     arity(t) == 1 || throw(ArgumentError("$ctx must be a single-site charged operator"))
-    return only(t.sites), only(t.keys).op
+    return only(t.sites), only(t.keys).letter
 end
 
 # Whether a leg may be *inserted* left of others: `UniqueFusion` forces every invalidated running
@@ -60,7 +60,7 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
         run = last(ta.keys).bond
         for tb in b.terms
             sb = only(tb.sites)
-            opb = only(tb.keys).op
+            opb = only(tb.keys).letter
 
             # position of the first of `a`'s sites strictly right of `b`'s
             p = na + 1
@@ -82,7 +82,7 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             _isfermionodd(run) && _isfermionodd(opb.c) && (coeff = -coeff)
             if p <= na && !reorder
                 # non-abelian: append in written order, then re-couple into site order
-                keys_w = vcat(ta.keys, Factor{I}(opb, tot, 1))
+                keys_w = vcat(ta.keys, Factor{I}(opb, tot))
                 append!(out, _recouple(vcat(ta.sites, sb), keys_w, coeff))
                 continue
             end
@@ -94,16 +94,16 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             end
             sites[p] = sb
             if p == na + 1
-                keys[p] = Factor{I}(opb, tot, 1)
+                keys[p] = Factor{I}(opb, tot)
             else
                 bond = p == 1 ? opb.c : only(ta.keys[p - 1].bond ⊗ opb.c)
-                keys[p] = Factor{I}(opb, bond, 1)
+                keys[p] = Factor{I}(opb, bond)
                 for j in p:na
-                    op = ta.keys[j].op
+                    op = ta.keys[j].letter
                     coeff *= Rsymbol(op.c, opb.c, only(op.c ⊗ opb.c))
                     bond = only(bond ⊗ op.c)
                     sites[j + 1] = ta.sites[j]
-                    keys[j + 1] = Factor{I}(op, bond, 1)
+                    keys[j + 1] = Factor{I}(op, bond)
                 end
                 bond == tot ||
                     invariant_violation("reordered coupling reached $bond, not the total $tot")
@@ -165,7 +165,7 @@ function _legcharges(b::Terms{I}, which::Int) where {I}
                 "couple: operand $which must be a single-site charged operator in every term"
             )
         )
-        c = only(t.keys).op.c
+        c = only(t.keys).letter.c
         c in cs || push!(cs, c)
     end
     return cs

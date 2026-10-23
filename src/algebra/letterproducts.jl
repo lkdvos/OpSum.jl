@@ -34,7 +34,7 @@ function _letter_product(B::Basis{I}, x::Letter{I}, y::Letter{I}) where {I}
     return cached(_product_table(B), (x, y)) do
         _checkkron(I)                    # once per pair, not per product
         tot = only(x.c ⊗ y.c)
-        keys = Factor{I}[Factor{I}(x, x.c, 1), Factor{I}(y, tot, 1)]
+        keys = Factor{I}[Factor{I}(x, x.c), Factor{I}(y, tot)]
         h = _written_block(keys, [1, 1], [B])
         coeff = (_isfermionodd(x.c) && _isfermionodd(y.c)) ? -1.0 : 1.0
         return project(h, B) * coeff

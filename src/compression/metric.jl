@@ -33,15 +33,15 @@ function _orthonormal_terms(ts::Terms{I}, metrics) where {I}
         choices = map(t.sites, t.keys) do s, key
             m = metrics[s]
             m === nothing && return [(key, one(ComplexF64))]
-            A = first(m[key.op.c])
-            n = key.op.n
+            A = first(m[key.letter.c])
+            n = key.letter.n
             return [
-                (Factor{I}(Letter(key.op.c, k), key.bond, key.vertex), A[k, n])
+                (Factor{I}(Letter(key.letter.c, k), key.bond), A[k, n])
                     for k in 1:n if !iszero(A[k, n])
             ]
         end
         for pick in Iterators.product(choices...)
-            keep = Bool[!ispassthrough(key.op) for (key, _) in pick]
+            keep = Bool[!ispassthrough(key.letter) for (key, _) in pick]
             push!(
                 out, Term{I}(
                     t.sites[keep], Factor{I}[key for (key, _) in pick][keep],

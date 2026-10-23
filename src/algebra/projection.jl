@@ -95,7 +95,7 @@ function _project_units(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _defa
     # a caterpillar tree is its running bond charges, i.e. the `Factor`s
     out = Terms{I}(
         Term{I}[
-            Term{I}(collect(1:K), Factor{I}[Factor{I}(ops[j], bondcharges(tree)[j], 1) for j in 1:K], c)
+            Term{I}(collect(1:K), Factor{I}[Factor{I}(ops[j], bondcharges(tree)[j]) for j in 1:K], c)
                 for (ops, tree, c) in coeffs
         ]
     )

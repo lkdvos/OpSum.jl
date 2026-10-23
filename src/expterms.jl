@@ -177,7 +177,7 @@ function _expand_channel!(
         d::Dictionary{Term{I}, ComplexF64}, k::ExpKey{I}, coeff, P::Int, N::Int
     ) where {I}
     sites = k.term.sites
-    ops = [key.op for key in k.term.keys]
+    ops = [key.letter for key in k.term.keys]
     bonds = [key.bond for key in k.term.keys]
     ne = count(<(k.exitsite), sites)                     # size of the entry block
     entry, exit_ = sites[1:ne], sites[(ne + 1):end]
@@ -243,7 +243,7 @@ function _insert_stretched!(
         d::Dictionary{Term{I}, ComplexF64}, newsites, newops, newbonds, w
     ) where {I}
     # multiplicity-free fusion: every vertex label is 1
-    keys_ = Factor{I}[Factor{I}(o, b, 1) for (o, b) in zip(newops, newbonds)]
+    keys_ = Factor{I}[Factor{I}(o, b) for (o, b) in zip(newops, newbonds)]
     # `Term`'s `==`/`hash` ignore the coefficient, so `setwith!` sums coincident terms
     setwith!(+, d, Term{I}(newsites, keys_, one(ComplexF64)), ComplexF64(w))
     return d
@@ -323,7 +323,7 @@ function _channelorder(k::ExpKey)
     return (
         Int.(k.term.sites),
         Int(k.exitsite),
-        [(key.op.c, key.op.n) for key in k.term.keys],
+        [(key.letter.c, key.letter.n) for key in k.term.keys],
         [key.bond for key in k.term.keys],
         (real(k.decay), imag(k.decay)),
         [(l === nothing, l === nothing ? 0 : l.n, real(c), imag(c)) for (l, c) in k.string],
@@ -376,7 +376,7 @@ function _lower_channel(
     # the key applied at site `nb`, and the running charge just left of it
     function stepkey(nb::Int, bond::I)
         j = findfirst(==(nb), sites)
-        return j === nothing ? Factor{I}(passthrough(I), bond, 1) : keys_[j]
+        return j === nothing ? Factor{I}(passthrough(I), bond) : keys_[j]
     end
     bondat(b::Int) = keys_[count(<=(b), sites)].bond
 
@@ -390,7 +390,7 @@ function _lower_channel(
     # λ rides as an edge weight so the entry carries a letter (a letter-less `SiteOperator` is dropped
     # at tensor assembly); the `cyclic` loop states are forced into the cover, else λ accumulates.
     strtrans = Tuple{Factor{I}, ComplexF64}[
-        (Factor{I}(l === nothing ? passthrough(I) : l, cmid, 1), k.decay * c) for (l, c) in k.string
+        (Factor{I}(l === nothing ? passthrough(I) : l, cmid), k.decay * c) for (l, c) in k.string
     ]
     loopidx = zeros(Int, nloop)
     for δ in 1:nloop

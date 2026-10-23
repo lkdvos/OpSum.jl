@@ -1,5 +1,5 @@
-# The letter: operator charge and index into the site's `Basis`, plus the `Factor` (letter, running bond charge,
-# vertex) a `Term` stores per site. Letters are interpreted by `instantiate` only.
+# The letter: operator charge and index into the site's `Basis`, plus the `Factor` (letter, running bond
+# charge) a `Term` stores per site. Letters are interpreted by `instantiate` only.
 
 using TensorKit
 
@@ -69,7 +69,7 @@ import TensorKit: sectortype
 # sector type of the letter alphabet
 sectortype(::Type{Letter{I}}) where {I} = I
 
-# `Factor = (op, bond_charge_out, vertex)`. `Term` stores keys, not a fusion tree: for a caterpillar the
+# `Factor = (letter, bond_charge_out)`. `Term` stores keys, not a fusion tree: for a caterpillar the
 # keys *are* the tree (`bondcharges` projects onto them, `_tree_from_bonds` inverts it). The total alone
 # would not do: for K ≥ 3 non-abelian several channels reach the same total.
 
@@ -81,24 +81,22 @@ passthrough(::Type{I}) where {I <: Sector} = Letter{I}(unit(I), 1)
 
 ispassthrough(op::Letter) = op.n == 1 && op.c == unit(op.c)
 
-# `bond` is the running fusion charge out of the site, `vertex` the multiplicity label (1: multiplicity-free)
+# `bond` is the running fusion charge out of the site (multiplicity-free fusion: no vertex label)
 struct Factor{I <: Sector}
-    op::Letter{I}
+    letter::Letter{I}
     bond::I
-    vertex::Int
 end
 
 function Base.isless(x::Factor{I}, y::Factor{I}) where {I}
-    x.op == y.op || return isless(x.op, y.op)
-    x.bond == y.bond || return isless(x.bond, y.bond)
-    return isless(x.vertex, y.vertex)
+    x.letter == y.letter || return isless(x.letter, y.letter)
+    return isless(x.bond, y.bond)
 end
 Base.:(==)(x::Factor{I}, y::Factor{I}) where {I} =
-    x.op == y.op && x.bond == y.bond && x.vertex == y.vertex
-Base.hash(x::Factor, h::UInt) = hash(x.vertex, hash(x.bond, hash(x.op, hash(:Factor, h))))
+    x.letter == y.letter && x.bond == y.bond
+Base.hash(x::Factor, h::UInt) = hash(x.bond, hash(x.letter, hash(:Factor, h)))
 
 function Base.show(io::IO, k::Factor)
-    return print(io, "Factor(", k.op, ", bond=", k.bond, ", μ=", k.vertex, ")")
+    return print(io, "Factor(", k.letter, ", bond=", k.bond, ")")
 end
 
 # all left-nested fusion trees of `charges` fusing to `total`, in TensorKit's canonical order

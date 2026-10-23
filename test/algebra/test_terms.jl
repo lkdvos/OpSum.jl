@@ -7,7 +7,7 @@ using LinearAlgebra: dot, I as Id
 
 include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, onlyterm
 
-charges(t::Term) = [k.op.c for k in t.keys]
+charges(t::Term) = [k.letter.c for k in t.keys]
 termbonds(t::Term) = [k.bond for k in t.keys]
 treebonds(t::Term) = bondcharges(tree(t))      # the keys *are* the tree
 

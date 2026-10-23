@@ -53,7 +53,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 |---|-------|-------|--------|
 | 0 | Top-down tour of the main path | — | done |
 | 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done |
-| 2 | Letters | letters, siteoperator, instantiate | applied; perf check open |
+| 2 | Letters | letters, siteoperator, instantiate | applied (stored-entry change awaiting OK) |
 | 3 | Terms | terms, couple | decided (waits for chunk 2) |
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | decided (after chunk 3) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |
@@ -131,6 +131,13 @@ delete `isreal(Letter)`; default `==`/`hash` for `Letter`/`Factor`, tuple `isles
 `dense(t::Term, sites)`, `_embed_field` → `embed_letter`; drop it if `_embed_caterpillar` at `K=1` agrees.
 (f) `scalarop` and `instantiate(::SiteOperator, …)` into `siteoperator.jl`; `ispassthrough(op) = op ==
 passthrough(sectortype(op))`.
+As applied: `7ea21d0` (a), `ca8d3a0` (b, f; `scalarop(c, ::ElementarySpace)` deleted; file-local `_space` kept for
+the dense oracle on bare spaces; this commit alone breaks that oracle, fixed in `0907daf`), `72fd2f7` (c, alone),
+`0907daf` (d, e; `_embed_caterpillar` at K=1 equals `embed_letter` to 1.5e-14 on 450 cases, so `dense` has no K=1
+case; `embed_letter` kept for products.jl), `4b54d6f` (field-wise `hash` for `Letter`/`Factor` restored: the default
+struct hash made `mpo` 25–30% slower on product-sector models; interleaved timings now within 2–4% of `ca8d3a0`,
+scripts in scratchpad/perf). Equivalence: 6/95 cases differ bitwise, all operator-identical (exact-zero letters no
+longer stored in 17 entries; letters sorted); same stored entries and bond sectors. `SiteOperator` `+` 25% faster.
 
 **D10 Chunk 3 (terms and coupling).**
 (a) `Terms` is canonical at all times: every producer returns normal form (`+` merges sorted lists, constructors and

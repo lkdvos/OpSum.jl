@@ -58,10 +58,10 @@ _notbases(sites) = throw(
 # all sites of one symmetry
 function _checksites(sites::Vector)
     isempty(sites) && return sites
-    I = sectortype(_space(first(sites)))
-    all(s -> sectortype(_space(s)) === I, sites) || throw(
+    I = sectortype(space(first(sites)))
+    all(s -> sectortype(space(s)) === I, sites) || throw(
         ArgumentError(
-            "all sites of a lattice must share one symmetry, got $(unique(sectortype.(_space.(sites))))"
+            "all sites of a lattice must share one symmetry, got $(unique(sectortype.(space.(sites))))"
         )
     )
     return sites
@@ -81,7 +81,7 @@ Base.getindex(lat::FiniteChain, i::Integer) = lat.sites[i]
 Base.getindex(lat::InfiniteChain, i::Integer) = lat.sites[mod1(Int(i), length(lat))]
 
 TensorKit.sectortype(lat::AbstractLattice) =
-    isempty(lat.sites) ? Trivial : sectortype(_space(first(lat.sites)))
+    isempty(lat.sites) ? Trivial : sectortype(space(first(lat.sites)))
 
 Base.show(io::IO, lat::FiniteChain) = print(io, "FiniteChain(", lat.sites, ")")
 Base.show(io::IO, lat::InfiniteChain) = print(io, "InfiniteChain(", lat.sites, ")")

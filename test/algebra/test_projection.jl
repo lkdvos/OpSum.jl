@@ -33,7 +33,7 @@ const SPACES = (
 # every candidate basis element for `Vs`/`tot`, as `(ops, tree, E)`
 function candidates(Vs, tot::I) where {I <: Sector}
     K = length(Vs)
-    alphabets = [instances(Letter, V) for V in Vs]
+    alphabets = [OpSum.matrixunits(V) for V in Vs]
     out = Tuple{Vector{Letter{I}}, FusionTree{I}, Any}[]
     for opstup in Iterators.product(alphabets...)
         cs = ntuple(k -> opstup[k].c, K)

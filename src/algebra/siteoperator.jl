@@ -1,7 +1,7 @@
 # On-site operators: a sparse combination of alphabet letters, the element type of the reduced MPO's
 # bond matrices. Two parallel vectors, not a `Dict`: one or two letters in practice, deterministic order.
 
-using TensorKit: Sector, sectortype
+using TensorKit: Sector, ElementarySpace, sectortype
 using LinearAlgebra: LinearAlgebra
 using VectorInterface: VectorInterface, inner
 
@@ -76,6 +76,24 @@ Base.:*(x::Letter, a::Number) = SiteOperator(x) * a
 Base.:*(a::Number, x::Letter) = SiteOperator(x) * a
 
 VectorInterface.scale(x::SiteOperator, a::Number) = x * a
+
+"""
+    scalarop(c::Number, B::Basis)
+    scalarop(c::Number, ::Type{I<:Sector})
+
+The scalar operator `c·𝟙`: `c` times the identity letter `(unit(I), 1)`, element 1 of every basis.
+"""
+scalarop(c::Number, ::Type{I}) where {I} = SiteOperator{I}(ComplexF64(c))
+
+"""
+    matrixunit(O::SiteOperator, V::ElementarySpace)
+
+The coefficient-weighted sum of `O`'s letters' matrix-unit tensors on `V`, `V ← V ⊗ Vect[I](c => 1)`.
+"""
+function matrixunit(O::SiteOperator, V::ElementarySpace)
+    isempty(O) && throw(ArgumentError("cannot take the matrix units of an empty SiteOperator without a charge"))
+    return sum(((l, c),) -> c * matrixunit(l, V), pairs(O))
+end
 
 # orthonormal alphabet: the plain coefficient overlap; a bare letter is accepted on either side
 function VectorInterface.inner(

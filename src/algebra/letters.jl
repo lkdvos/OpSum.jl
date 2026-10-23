@@ -16,12 +16,19 @@ struct Letter{I <: Sector}
 end
 
 # `n` is the flat 1-based index over the scalar entries of the blocks of `O : V ← V ⊗ Vect[I](c => 1)`
-# in TensorKit's block order (`dim(fuse(V ⊗ V'), c)` of them); `instantiate` and `instances` are the two
+# in TensorKit's block order (`dim(fuse(V ⊗ V'), c)` of them); `matrixunit` and `matrixunits` are the two
 # sides. The trivial charge is offset by one: element 1 is the identity.
 _muoffset(c::Sector) = c == unit(c) ? 1 : 0
 
 # the single nonzero entry is `1 / sqrt(dim(s))` in block `s`, so the alphabet is `inner`-orthonormal
-function instantiate(op::Letter{I}, V::TensorKit.ElementarySpace) where {I <: Sector}
+"""
+    matrixunit(op::Letter, V::ElementarySpace)
+
+The matrix-unit tensor `V ← V ⊗ Vect[I](c => 1)` of the letter `op` on the space `V`: the single nonzero
+entry is `1 / sqrt(dim(s))` in block `s`. A [`Basis`](@ref OpSum.Basis) interprets letters through
+[`instantiate`](@ref) instead.
+"""
+function matrixunit(op::Letter{I}, V::TensorKit.ElementarySpace) where {I <: Sector}
     sectortype(V) === I ||
         throw(ArgumentError("Letter sector $I incompatible with space sector $(sectortype(V))"))
     T = scalartype(Letter{I})
@@ -41,7 +48,7 @@ function instantiate(op::Letter{I}, V::TensorKit.ElementarySpace) where {I <: Se
 end
 
 # the matrix-unit alphabet spanning `End(V)` (the identity is not among them: trivial letters start at n = 2)
-function Base.instances(::Type{<:Letter}, V::TensorKit.ElementarySpace)
+function matrixunits(V::TensorKit.ElementarySpace)
     I = sectortype(V)
     W = fuse(V ⊗ V')
     return Letter{I}[Letter{I}(c, n + _muoffset(c)) for c in sectors(W) for n in 1:dim(W, c)]
@@ -79,7 +86,7 @@ using TensorKit: Sector, FusionTree, fusiontrees, unit
 # the identity letter, element 1 of every `Basis`; fills idle sites, and placement drops it
 passthrough(::Type{I}) where {I <: Sector} = Letter{I}(unit(I), 1)
 
-ispassthrough(op::Letter) = op.n == 1 && op.c == unit(op.c)
+ispassthrough(op::Letter) = op == passthrough(sectortype(op))
 
 # `bond` is the running fusion charge out of the site (multiplicity-free fusion: no vertex label)
 struct Factor{I <: Sector}

@@ -102,7 +102,7 @@ end
 # One letter's block for a single `(bL, bR)` bond-charge pair (no bond degeneracy), for `jordan_mpo_tensors`.
 function _letter_block(letter::Letter{I}, site, bL::I, bR::I) where {I}
     c = letter.c
-    V = _space(site)
+    V = space(site)
     f1 = only(fusiontrees((bL, c), bR, (false, false)))
     f2 = only(fusiontrees((bR,), bR, (false,)))
     κ = zeros(ComplexF64, Vect[I](bL => 1) ⊗ Vect[I](c => 1) ← Vect[I](bR => 1))
@@ -145,7 +145,7 @@ function _mpo_tensors(
 
     return map(1:N) do i
         site = sites[i]
-        V = _space(site)
+        V = space(site)
         secL, secR = bsecs[i], bsecs[i + 1]
         Bleft, Bright = bspaces[i], bspaces[i + 1]
         degL, degR = bdegs[i], bdegs[i + 1]

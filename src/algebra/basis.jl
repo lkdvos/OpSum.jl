@@ -41,7 +41,6 @@ function Base.show(io::IO, B::Basis)
     return print(io, ")")
 end
 
-_space(B::Basis) = B.space
 scalarop(c::Number, B::Basis) = scalarop(c, sectortype(B))
 
 # `charge => number of letters`, what `_checklattice` validates letters against
@@ -62,6 +61,8 @@ function instantiate(op::Letter{I}, B::Basis{I}) where {I}
     return B.elements[ks[op.n]]
 end
 
+_lettertensor(letter::Letter, B::Basis) = instantiate(letter, B)
+
 function instantiate(O::SiteOperator{I}, B::Basis{I}) where {I}
     isempty(O) && throw(ArgumentError("instantiate: the operator is zero, so it has no charge"))
     c = first(keys(O)).c
@@ -75,7 +76,7 @@ end
 # ----------------
 
 # `elems` followed by every matrix unit on `V`.
-_completed_elements(V, elems) = AbstractTensorMap[elems; [instantiate(mu, V) for mu in instances(Letter, V)]]
+_completed_elements(V, elems) = AbstractTensorMap[elems; [matrixunit(mu, V) for mu in matrixunits(V)]]
 
 _identityelement(V) = isomorphism(ComplexF64, V ← V ⊗ Vect[sectortype(V)](unit(sectortype(V)) => 1))
 
@@ -144,7 +145,7 @@ function _basis_from_elements(
             return abs2(inner(kept[k], e)) >= (1 - rtol) * real(inner(kept[k], kept[k])) * real(inner(e, e))
         end && continue
         if skipdependent
-            a = ComplexF64[inner(instantiate(mu, V), e) for mu in _chargeunits(V, c)]
+            a = ComplexF64[inner(matrixunit(mu, V), e) for mu in _chargeunits(V, c)]
             Q = get(spans, c, zeros(ComplexF64, length(a), 0))
             r = a - Q * (Q' * a)
             norm(r) > sqrt(rtol) * norm(a) || continue
@@ -159,7 +160,7 @@ function _basis_from_elements(
     for (c, ks) in pairs(bycharge)
         mus = _chargeunits(V, c)
         # `A[m, k]`: coefficient of element `k` on matrix unit `m` (the matrix units are orthonormal)
-        A = ComplexF64[inner(instantiate(mu, V), kept[k]) for mu in mus, k in ks]
+        A = ComplexF64[inner(matrixunit(mu, V), kept[k]) for mu in mus, k in ks]
         G = A' * A
         λ = eigvals(Hermitian(G))
         minimum(λ) > rtol * maximum(λ) || throw(
@@ -178,7 +179,7 @@ function _basis_from_elements(
 end
 
 # The matrix-unit letters of charge `c` on `V`.
-_chargeunits(V, c) = filter(mu -> mu.c == c, instances(Letter, V))
+_chargeunits(V, c) = filter(mu -> mu.c == c, matrixunits(V))
 
 # Rank factorisation of a neutral two-site operator into charged single-site pieces. Per charge `c` of
 # the left factor, `M[a, b]` is the coefficient on the matrix units `eₐ ⊗ e_b` and `M = C R` with `C` the
@@ -208,8 +209,8 @@ function _factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = 1.0e
         C, E = _echelon_factors(M, θ)
         for k in axes(C, 2)
             l, r = _leadingone(C[:, k], rtol), _leadingone(E[k, :], rtol)
-            push!(pieces, sum(l[m] * instantiate(L[m], V) for m in eachindex(L) if !iszero(l[m])))
-            push!(pieces, sum(r[m] * instantiate(R[m], V) for m in eachindex(R) if !iszero(r[m])))
+            push!(pieces, sum(l[m] * matrixunit(L[m], V) for m in eachindex(L) if !iszero(l[m])))
+            push!(pieces, sum(r[m] * matrixunit(R[m], V) for m in eachindex(R) if !iszero(r[m])))
         end
     end
     return pieces

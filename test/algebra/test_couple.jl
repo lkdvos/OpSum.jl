@@ -25,11 +25,11 @@ const σZ = ComplexF64[1 0; 0 -1]
     V = SU2Space(1 // 2 => 1)
 
     Vu = Vect[SU2Irrep](SU2Irrep(0) => 1)
-    Osc = instantiate(scalarop(2.0, V), V)
+    Osc = OpSum.matrixunit(scalarop(2.0, SU2Irrep), V)
     @test space(Osc) == (V ← V ⊗ Vu)
     @test reshape(convert(Array, Osc), 2, 2) ≈ 2 * Matrix{ComplexF64}(Id, 2, 2)
 
-    @test space(instantiate(scalarop(1, SU2Irrep), V)) == (V ← V ⊗ Vu)
+    @test space(OpSum.matrixunit(scalarop(1, SU2Irrep), V)) == (V ← V ⊗ Vu)
 
     B = unitbasis(V)
     S = spinvector(B)
@@ -101,8 +101,8 @@ end
 
     Hop = inst(dot(raise[1], lower[2]), [V, V])
     @test space(Hop) == ((V ⊗ V) ← (V ⊗ V ⊗ Vect[U1Irrep](U1Irrep(0) => 1)))
-    rd = dropdims(convert(Array, instantiate(raise, V)); dims = 3)
-    ld = dropdims(convert(Array, instantiate(lower, V)); dims = 3)
+    rd = dropdims(convert(Array, OpSum.matrixunit(raise, V)); dims = 3)
+    ld = dropdims(convert(Array, OpSum.matrixunit(lower, V)); dims = 3)
     Hd = dropdims(convert(Array, Hop); dims = 5)
     orc = [-rd[o1, i1] * ld[o2, i2] for o1 in 1:2, o2 in 1:2, i1 in 1:2, i2 in 1:2]
     @test Hd ≈ orc
@@ -126,7 +126,7 @@ end
         sprint(showerror, e)
     end
     @test err isa String && occursin("genuine choice", err) && occursin("couple_channels", err)
-    @test_throws ArgumentError inst(couple(scalarop(1, V)[1], b; to = SU2Irrep(0)), [V, V, V])
+    @test_throws ArgumentError inst(couple(scalarop(1, sectortype(V))[1], b; to = SU2Irrep(0)), [V, V, V])
 end
 
 @testset "`to` defaults to the unit sector" begin
@@ -332,7 +332,7 @@ end
     for T2 in (
             0.5im * couple(F.cd[1], F.c[3]),
             (1.0 + 0.5im) * couple(F.cd[1], F.cd[2], F.c[3], F.c[4]),
-            2.0im * F.n[2] + scalarop(1.0 + 1.0im, Vf)[1],
+            2.0im * F.n[2] + scalarop(1.0 + 1.0im, sectortype(Vf))[1],
         )
         Tl = opsum(T2)
         Tld = opsum(sites, Tl)'

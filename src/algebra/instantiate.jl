@@ -3,8 +3,8 @@
 using TensorKit
 using TensorKit: ElementarySpace, FusionTree, unit, dim, id, Vect, domain, permute, insertrightunit
 
-# The space a site's operators act on: a site is described by its space, or by a `Basis` (basis.jl).
-_space(V::ElementarySpace) = V
+# The tensor of a letter on a site, given as a bare space (matrix units) or as a `Basis` (basis.jl).
+_lettertensor(letter::Letter, V::ElementarySpace) = matrixunit(letter, V)
 
 function _instantiate_terms(h::Terms, spaces)
     return sum(t -> t.coeff * _instantiate_term(t, spaces), canonicalize!(h).terms)
@@ -14,7 +14,7 @@ end
 function _instantiate_term(ops, positions, tree, sites)
     K = length(ops)
     # a K = 0 term needs the trailing charge leg too, or it cannot be summed with the others
-    K == 0 && return insertrightunit(foldl(⊗, (id(_space(V)) for V in sites)))
+    K == 0 && return insertrightunit(foldl(⊗, (id(space(V)) for V in sites)))
     K == 1 && return _embed_field(only(ops), only(positions), sites)
     return _embed_caterpillar(ops, positions, tree, sites)
 end
@@ -24,8 +24,8 @@ _instantiate_term(t::Term, sites) = _instantiate_term(ops(t), t.sites, tree(t), 
 # charged field on site `p`, identities elsewhere, charge leg last in the domain
 function _embed_field(op::Letter, p, sites)
     N = length(sites)
-    loc = instantiate(op, sites[p])                # V_p ← V_p ⊗ V_c
-    full = foldl(⊗, (j == p ? loc : id(_space(sites[j])) for j in 1:N))
+    loc = _lettertensor(op, sites[p])                # V_p ← V_p ⊗ V_c
+    full = foldl(⊗, (j == p ? loc : id(space(sites[j])) for j in 1:N))
     cod = ntuple(identity, N)
     charge_global = N + (p + 1)
     dom_wo_charge = (ntuple(m -> N + m, p)..., ntuple(m -> N + p + 1 + m, N - p)...)
@@ -37,7 +37,7 @@ end
 function _embed_caterpillar(ops, positions, tree, sites)
     K = length(ops)
     I = typeof(tree.coupled)
-    Os = [instantiate(ops[k], sites[positions[k]]) for k in 1:K]   # V ← V ⊗ Vc_k
+    Os = [_lettertensor(ops[k], sites[positions[k]]) for k in 1:K]   # V ← V ⊗ Vc_k
     Vcs = [domain(Os[k])[2] for k in 1:K]
     tot = tree.coupled
     X = zeros(ComplexF64, foldl(⊗, Vcs) ← Vect[I](tot => 1))       # (Vc_1⊗…⊗Vc_K) ← Vect[tot]
@@ -56,7 +56,7 @@ function _embed_caterpillar(ops, positions, tree, sites)
     # order, total-charge leg last
     N = length(sites)
     idle = [k for k in 1:N if !(k in positions)]
-    full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(_space(sites[k])) for k in idle))
+    full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(space(sites[k])) for k in idle))
 
     cod_src = (positions..., idle...)
     p_cod = ntuple(j -> findfirst(==(j), cod_src), N)
@@ -69,22 +69,3 @@ function _embed_caterpillar(ops, positions, tree, sites)
     p_dom = (ntuple(j -> site_global(j), N)..., charge_global)
     return permute(full, (p_cod, p_dom))
 end
-
-"""
-    instantiate(O::SiteOperator, V::ElementarySpace)
-
-The coefficient-weighted sum of `O`'s letters' tensors, `V ← V ⊗ Vect[I](c => 1)`.
-"""
-function instantiate(O::SiteOperator{I}, V::ElementarySpace) where {I}
-    isempty(O) && throw(ArgumentError("cannot instantiate an empty SiteOperator without a space"))
-    return sum(((l, c),) -> c * instantiate(l, V), pairs(O))
-end
-
-"""
-    scalarop(c::Number, B::Basis)
-    scalarop(c::Number, ::Type{I<:Sector})
-
-The scalar operator `c·𝟙`: `c` times the identity letter `(unit(I), 1)`, element 1 of every basis.
-"""
-scalarop(c::Number, ::Type{I}) where {I} = SiteOperator{I}(ComplexF64(c))
-scalarop(c::Number, V::ElementarySpace) = scalarop(c, sectortype(V))

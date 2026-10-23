@@ -177,13 +177,13 @@ end
 # Step 3 of the emission: the tensors of a layout.
 function _jordan_tensors(layout::JordanLayout{I}, sites) where {I}
     N = length(layout)
-    S = typeof(_space(first(sites)))
+    S = typeof(space(first(sites)))
     TT = AbstractTensorMap{ComplexF64, S, 2, 2}     # abstract: `BraidingTensor`s stay braidings
     spaces = map(sec -> SumSpace([Vect[I](c => 1) for c in sec]), layout.bondsectors)
 
     return map(1:N) do i
         site = sites[i]
-        V = _space(site)
+        V = space(site)
         secL, secR = layout.bondsectors[i], layout.bondsectors[i + 1]
 
         # a unit-coefficient pass-through on a charge-preserving slot is a braiding

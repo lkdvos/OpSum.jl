@@ -187,6 +187,6 @@ function _written_block(keys::Vector{Factor{I}}, pos::Vector{Int}, Bs) where {I}
         end
     end
     X = _treetensor(I[k.letter.c for k in keys], I[k.bond for k in keys])
-    W = foldl(⊗, (_space(B) for B in Bs))
+    W = foldl(⊗, (space(B) for B in Bs))
     return T * (id(W) ⊗ X)                                              # W ← W ⊗ C_tot
 end

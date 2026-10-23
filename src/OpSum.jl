@@ -35,9 +35,10 @@ include("utility/helpers.jl")
 include("utility/bipartite.jl")
 
 """
-    instantiate(op, V)
+    instantiate(op, B)
 
-Materialize a symbolic operator as a `TensorMap` on the physical space `V`.
+Materialize a symbolic operator as a `TensorMap`: a letter or on-site operator in a [`Basis`](@ref OpSum.Basis),
+or an `OperatorSum` on its lattice.
 """
 function instantiate end
 

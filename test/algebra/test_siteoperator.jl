@@ -26,7 +26,7 @@ const SO = SiteOperator{SU2Irrep}
     s = SO(2.5)
     @test only(keys(s)) == passthrough(SU2Irrep) && ispassthrough(only(keys(s)))
     @test only(values(s)) == 2.5
-    @test convert(SO, 2.5) == s == scalarop(2.5, V) == scalarop(2.5, SU2Irrep)
+    @test convert(SO, 2.5) == s == scalarop(2.5, sectortype(V)) == scalarop(2.5, SU2Irrep)
 
     op = 2 * A + 3 * B
     @test length(op) == 2 && keys(op) == [A, B] && values(op) == ComplexF64[2, 3]
@@ -39,10 +39,10 @@ end
 @testset "zero, one, isone" begin
     @test iszero(zero(SO)) && isempty(zero(2 * A)) && isempty(zero(SO))
     @test one(SO) == SO(1) == one(2 * A)
-    @test isone(one(SO)) && isone(scalarop(1, V))
-    @test !isone(scalarop(2, V))
+    @test isone(one(SO)) && isone(scalarop(1, sectortype(V)))
+    @test !isone(scalarop(2, sectortype(V)))
     @test !isone(SiteOperator(A))           # trivial charge, but a matrix unit, not the identity
-    @test !isone(scalarop(1, V) + SiteOperator(A)) && !isone(zero(SO))
+    @test !isone(scalarop(1, sectortype(V)) + SiteOperator(A)) && !isone(zero(SO))
 end
 
 @testset "equality, hashing, arithmetic" begin
@@ -85,7 +85,7 @@ end
 end
 
 @testset "instantiation" begin
-    @test removeunit(instantiate(scalarop(2.0, V), V), 3) ≈ 2 * id(V)
-    @test instantiate(2 * B, V) ≈ 2 * instantiate(B, V)
-    @test_throws ArgumentError instantiate(zero(SO), V)
+    @test removeunit(OpSum.matrixunit(scalarop(2.0, sectortype(V)), V), 3) ≈ 2 * id(V)
+    @test OpSum.matrixunit(2 * B, V) ≈ 2 * OpSum.matrixunit(B, V)
+    @test_throws ArgumentError OpSum.matrixunit(zero(SO), V)
 end

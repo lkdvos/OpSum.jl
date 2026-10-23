@@ -15,8 +15,8 @@ treebonds(t::Term) = bondcharges(tree(t))      # the keys *are* the tree
     pt = passthrough(SU2Irrep)
     @test ispassthrough(pt) && pt.c == unit(SU2Irrep) && pt.n == 1
     V = SU2Space(1 // 2 => 1)
-    @test all(!ispassthrough, instances(Letter, V))
-    @test reshape(convert(Array, instantiate(pt, V)), 2, 2) ≈ Matrix{ComplexF64}(Id, 2, 2)
+    @test all(!ispassthrough, OpSum.matrixunits(V))
+    @test reshape(convert(Array, OpSum.matrixunit(pt, V)), 2, 2) ≈ Matrix{ComplexF64}(Id, 2, 2)
 end
 
 @testset "SU(2) Sᵢ·Sⱼ term normal form" begin
@@ -51,7 +51,7 @@ end
 end
 
 @testset "scalar field is a K = 0 term" begin
-    tk0 = onlyterm(scalarop(2.0, ℂ^2)[1])
+    tk0 = onlyterm(scalarop(2.0, Trivial)[1])
     @test isempty(tk0.sites) && tk0.coeff ≈ 2.0 && total(tk0) == unit(Trivial)
 end
 

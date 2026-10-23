@@ -120,7 +120,7 @@ end
     # the pieces are the matrix units S⁺ and S⁻, so the pair keeps its matrix-unit coefficient
     for c in (U1Irrep(1), U1Irrep(-1))
         e = B[only(B.bycharge[c])]
-        @test any(mu -> mu.c == c && e ≈ instantiate(mu, V), instances(Letter, V))
+        @test any(mu -> mu.c == c && e ≈ OpSum.matrixunit(mu, V), OpSum.matrixunits(V))
     end
     pm = project(SpSm, B)
     @test length(pm.terms) == 1 && only(pm.terms).coeff ≈ only(project(SpSm, BU).terms).coeff
@@ -189,7 +189,7 @@ end
     B = Basis([SS])
     @test length(B) == 2                                    # 𝟙 and S⃗ (left and right piece agree)
     # the piece is the spin-1 matrix unit, so the pair keeps its matrix-unit coefficient
-    @test B[2] ≈ instantiate(Letter(SU2Irrep(1), 1), V)
+    @test B[2] ≈ OpSum.matrixunit(Letter(SU2Irrep(1), 1), V)
     ss = project(SS, B)
     @test length(ss.terms) == 1 && only(ss.terms).coeff ≈ only(project(SS, BU).terms).coeff
     H(N) = opsum(FiniteChain(B, N), (ss[i] for i in 1:(N - 1)))

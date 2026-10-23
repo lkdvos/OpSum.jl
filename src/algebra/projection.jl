@@ -35,7 +35,7 @@ function _coefficients(
     K = length(Vs)
     bycharge = map(Vs) do V
         groups = Dictionary{I, Vector{Letter{I}}}()
-        for op in instances(Letter, V)
+        for op in matrixunits(V)
             haskey(groups, op.c) ? push!(groups[op.c], op) : insert!(groups, op.c, [op])
         end
         return groups

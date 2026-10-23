@@ -14,7 +14,6 @@ struct TaylorEntry{I <: Sector}
 end
 TaylorEntry{I}() where {I} = TaylorEntry{I}(Int[], SiteOperator{I}[])
 function TaylorEntry(op::SiteOperator{I}, power::Integer = 0) where {I}
-    op = prune(op)
     return isempty(op) ? TaylorEntry{I}() : TaylorEntry{I}([Int(power)], [op])
 end
 
@@ -41,7 +40,6 @@ function Base.:+(x::TaylorEntry{I}, y::TaylorEntry{I}) where {I}
         end
         i += px == p
         j += py == p
-        op = prune(op)
         isempty(op) && continue
         push!(powers, p)
         push!(ops, op)
@@ -52,7 +50,7 @@ end
 # `c τ^k e`
 function _scaled(e::TaylorEntry{I}, c::Number, k::Integer = 0) where {I}
     iszero(c) && return TaylorEntry{I}()
-    return TaylorEntry{I}(e.powers .+ Int(k), [prune(op * c) for op in e.ops])
+    return TaylorEntry{I}(e.powers .+ Int(k), [op * c for op in e.ops])
 end
 
 """
@@ -67,7 +65,7 @@ function evaluate(e::TaylorEntry{I}, τ::Number) where {I}
     for (p, op) in zip(e.powers, e.ops)
         acc += op * τ^p
     end
-    return prune(acc)
+    return acc
 end
 
 function Base.show(io::IO, e::TaylorEntry{I}) where {I}

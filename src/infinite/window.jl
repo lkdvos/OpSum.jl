@@ -93,15 +93,11 @@ end
 
 # --- the window construction ------------------------------------------------------------------
 
-# Reduced entry as a `letter => coefficient` list sorted by letter: `SiteOperator`'s `==` is
-# order-sensitive, and entries built at different points of the sweep may differ in letter order.
-_canonform(op::SiteOperator) = sort!(collect(pairs(op)); by = first)
-
 # Entry-for-entry equality of two reduced bond matrices.
 function _entriesequal(A::SparseMatrixCSC, B::SparseMatrixCSC)
     size(A) == size(B) || return false
-    pa = Dict(idx => _canonform(op) for (idx, op) in storedpairs(A))
-    pb = Dict(idx => _canonform(op) for (idx, op) in storedpairs(B))
+    pa = Dict(storedpairs(A))
+    pb = Dict(storedpairs(B))
     keys(pa) == keys(pb) || return false
     return all(pa[k] == pb[k] for k in keys(pa))
 end

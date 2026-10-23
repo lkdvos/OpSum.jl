@@ -1,5 +1,6 @@
 # On-site operators: a sparse combination of alphabet letters, the element type of the reduced MPO's
-# bond matrices. Two parallel vectors, not a `Dict`: one or two letters in practice, deterministic order.
+# bond matrices. Two parallel vectors, not a `Dict`: one or two letters in practice. Canonical: letters
+# strictly ascending, no zero coefficients, so `==` is operator equality and zero is the empty operator.
 
 using TensorKit: Sector, ElementarySpace, sectortype
 using LinearAlgebra: LinearAlgebra
@@ -10,14 +11,36 @@ using VectorInterface: VectorInterface, inner
 
 An unplaced single-site operator `Σₖ coeffs[k] · letters[k]`, from [`project`](@ref), [`spin_ops`](@ref)
 and friends or [`scalarop`](@ref); combine with `+ - * /` and place with `A[i]` (a [`Terms`](@ref) bag).
+The constructor sorts the letters, sums duplicates and drops zero coefficients.
 """
 struct SiteOperator{I <: Sector}
     letters::Vector{Letter{I}}
     coeffs::Vector{ComplexF64}
     function SiteOperator{I}(letters::Vector{Letter{I}}, coeffs::Vector{ComplexF64}) where {I}
-        @assert length(letters) == length(coeffs) "letters/coeffs length mismatch"
+        length(letters) == length(coeffs) || invariant_violation("SiteOperator: letters/coeffs length mismatch")
+        _iscanonical(letters, coeffs) || ((letters, coeffs) = _normalise(letters, coeffs))
         return new{I}(letters, coeffs)
     end
+end
+
+_iscanonical(letters, coeffs) =
+    all(!iszero, coeffs) && all(k -> isless(letters[k], letters[k + 1]), 1:(length(letters) - 1))
+
+# sorted by letter, duplicates summed, zeros dropped
+function _normalise(letters::Vector{Letter{I}}, coeffs::Vector{ComplexF64}) where {I}
+    perm = sortperm(letters)
+    outl = Letter{I}[]
+    outc = ComplexF64[]
+    for k in perm
+        if !isempty(outl) && outl[end] == letters[k]
+            outc[end] += coeffs[k]
+        else
+            push!(outl, letters[k])
+            push!(outc, coeffs[k])
+        end
+    end
+    keep = findall(!iszero, outc)
+    return outl[keep], outc[keep]
 end
 
 SiteOperator{I}() where {I <: Sector} = SiteOperator{I}(Letter{I}[], ComplexF64[])
@@ -38,7 +61,7 @@ Base.keys(op::SiteOperator) = op.letters
 Base.values(op::SiteOperator) = op.coeffs
 Base.length(op::SiteOperator) = length(op.letters)
 Base.isempty(op::SiteOperator) = isempty(op.letters)
-Base.iszero(op::SiteOperator) = all(iszero, op.coeffs)
+Base.iszero(op::SiteOperator) = isempty(op.letters)
 
 Base.zero(::Union{SiteOperator{I}, Type{SiteOperator{I}}}) where {I} = SiteOperator{I}()
 Base.one(::Union{SiteOperator{I}, Type{SiteOperator{I}}}) where {I} = SiteOperator{I}(1)
@@ -48,17 +71,23 @@ Base.isone(op::SiteOperator) = length(op) == 1 && ispassthrough(only(op.letters)
 Base.:(==)(x::SiteOperator{I}, y::SiteOperator{I}) where {I} = x.letters == y.letters && x.coeffs == y.coeffs
 Base.hash(x::SiteOperator, h::UInt) = hash(x.coeffs, hash(x.letters, hash(:SiteOperator, h)))
 
-# accumulates onto matching letters (two bond entries sharing a slot)
+# merge of the two sorted letter lists; coefficients on a shared letter add (two bond entries sharing a slot)
 function Base.:+(x::SiteOperator{I}, y::SiteOperator{I}) where {I}
-    letters = copy(x.letters)
-    coeffs = copy(x.coeffs)
-    for (l, c) in zip(y.letters, y.coeffs)
-        k = findfirst(==(l), letters)
-        if k === nothing
-            push!(letters, l)
-            push!(coeffs, c)
+    n, m = length(x), length(y)
+    letters = Letter{I}[]
+    coeffs = ComplexF64[]
+    sizehint!(letters, n + m)
+    sizehint!(coeffs, n + m)
+    i = j = 1
+    while i <= n || j <= m
+        if j > m || (i <= n && isless(x.letters[i], y.letters[j]))
+            push!(letters, x.letters[i]); push!(coeffs, x.coeffs[i]); i += 1
+        elseif i > n || isless(y.letters[j], x.letters[i])
+            push!(letters, y.letters[j]); push!(coeffs, y.coeffs[j]); j += 1
         else
-            coeffs[k] += c
+            c = x.coeffs[i] + y.coeffs[j]
+            iszero(c) || (push!(letters, x.letters[i]); push!(coeffs, c))
+            i += 1; j += 1
         end
     end
     return SiteOperator{I}(letters, coeffs)
@@ -110,12 +139,6 @@ LinearAlgebra.norm(x::SiteOperator) = sqrt(abs(inner(x, x)))
 
 function Base.isapprox(x::SiteOperator{I}, y::SiteOperator{I}; kwargs...) where {I}
     return isapprox(norm(x - y), 0; atol = max(norm(x), norm(y)) * 1.0e-12, kwargs...)
-end
-
-# drop letters whose coefficient cancelled (a zero-weight edge would spend a bond index)
-function prune(op::SiteOperator{I}) where {I}
-    keep = findall(!iszero, op.coeffs)
-    return SiteOperator{I}(op.letters[keep], op.coeffs[keep])
 end
 
 function Base.show(io::IO, op::SiteOperator{I}) where {I}

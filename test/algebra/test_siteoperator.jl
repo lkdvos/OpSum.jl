@@ -1,14 +1,15 @@
 using Test
 using OpSum
-using OpSum: SiteOperator, scalarop, prune, instantiate, passthrough, ispassthrough
+using OpSum: SiteOperator, scalarop, instantiate, passthrough, ispassthrough
 using OpSum: Letter
 using TensorKit
 using TensorKit: sectortype, removeunit
 using VectorInterface: scalartype, scale, add, inner
 using LinearAlgebra: norm
 
-# `SiteOperator` is the entry type of the bond matrices: `+` accumulates onto a matching letter and
-# `prune` removes cancelled letters (an explicit zero would spend a bond index).
+# `SiteOperator` is the entry type of the bond matrices: canonical (letters sorted, duplicates summed, no
+# zero coefficients), so `+` accumulates onto a matching letter, cancellation leaves the empty operator and
+# `==` is operator equality.
 
 const V = SU2Space(1 // 2 => 1)
 const A = Letter{SU2Irrep}(SU2Irrep(0), 2)   # index 1 is the identity
@@ -20,7 +21,7 @@ const SO = SiteOperator{SU2Irrep}
     @test collect(pairs(SiteOperator(A))) == [A => ComplexF64(1)]
     @test convert(SO, A) == SiteOperator(A)
     @test sectortype(SO) === SU2Irrep && scalartype(SO) === ComplexF64
-    @test_throws AssertionError SO([A], ComplexF64[1, 2])
+    @test_throws ErrorException SO([A], ComplexF64[1, 2])
 
     # a scalar is the pass-through (identity) letter
     s = SO(2.5)
@@ -32,8 +33,11 @@ const SO = SiteOperator{SU2Irrep}
     @test length(op) == 2 && keys(op) == [A, B] && values(op) == ComplexF64[2, 3]
     @test collect(pairs(op)) == [A => 2, B => 3]
     z = 1 * A - 1 * A
-    @test iszero(z) && !isempty(z) && isempty(prune(z))
-    @test prune(2 * A + 0 * B) == 2 * A
+    @test iszero(z) && isempty(z) && z == zero(SO)
+    @test 2 * A + 0 * B == 2 * A
+    @test SO([B, A, B], ComplexF64[1, 2, 3]) == 2 * A + 4 * B      # sorted, duplicates summed
+    @test SO([A, B], ComplexF64[1, 0]) == SiteOperator(A)
+    @test hash(SO([B, A], ComplexF64[3, 2])) == hash(2 * A + 3 * B)
 end
 
 @testset "zero, one, isone" begin

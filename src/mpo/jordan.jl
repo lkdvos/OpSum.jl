@@ -121,9 +121,8 @@ function _jordan_layout(W::SymbolicMPO{I, L}; closed::Bool = false) where {I, L}
         entries = Dictionary{Tuple{Int, Int}, SiteOperator{I}}()
         for (idx, localop) in storedpairs(W.Ws[i])
             l, r = Tuple(idx)
-            op = prune(localop)
-            isempty(op) && continue
-            insert!(entries, (posL[l], posR[r]), op)
+            isempty(localop) && continue
+            insert!(entries, (posL[l], posR[r]), localop)
         end
 
         # 2. the structural invariants, then the identity corners (padded where missing)

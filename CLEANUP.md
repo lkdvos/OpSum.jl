@@ -53,7 +53,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 |---|-------|-------|--------|
 | 0 | Top-down tour of the main path | — | done |
 | 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done |
-| 2 | Letters | letters, siteoperator, instantiate | presented |
+| 2 | Letters | letters, siteoperator, instantiate | implementing |
 | 3 | Terms | irrepalgebra.jl, canonicalize! (irreptermtable.jl) | pending |
 | 4 | Bases and projection | basis, irrepprojection, stockbases, builders (adjoint) | pending |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |
@@ -118,6 +118,20 @@ moved to operatorsum.jl; `OperatorSum(::Vector{<:Basis})` only, non-lattice inpu
 (e, f). Equivalence: 23 models / 95 results (default + both SVD sweeps lossless and `truncrank(2)`) bitwise equal to
 base. Targeted tests and the two affected examples pass.
 
+**D9 Chunk 2 (letters, SiteOperator, instantiation).**
+(a) `Factor(letter, bond)`: drop the always-1 `vertex` field; field `op` → `letter`; vertex 1 only in `_tree_from_bonds`.
+(b) Explicit matrix-unit alphabet: `instances(Letter, V)` → `matrixunits(V)`, `instantiate(::Letter|::SiteOperator,
+::ElementarySpace)` → `matrixunit(x, V)`; `instantiate` on letters means "in this `Basis`" only.
+(c) Canonical `SiteOperator`: letters sorted, no zero coefficients, `+` merges sorted lists; `==`/`hash` are operator
+equality; `_canonform` and redundant `prune` calls removed. Any change in stored MPO entries is reported before
+keeping it.
+(d) `@assert` → `invariant_violation`/`ArgumentError`; `scalartype(::Type{<:Letter}) = ComplexF64` (one method);
+delete `isreal(Letter)`; default `==`/`hash` for `Letter`/`Factor`, tuple `isless`; one import block per file.
+(e) Dense oracle: `_instantiate_terms` → `dense(h::Terms, sites)` (no mutation of `h`), `_instantiate_term` →
+`dense(t::Term, sites)`, `_embed_field` → `embed_letter`; drop it if `_embed_caterpillar` at `K=1` agrees.
+(f) `scalarop` and `instantiate(::SiteOperator, …)` into `siteoperator.jl`; `ispassthrough(op) = op ==
+passthrough(sectortype(op))`.
+
 ## Possible improvements
 
 ## Open items
@@ -136,5 +150,5 @@ base. Targeted tests and the two affected examples pass.
 
 ## Resume here
 
-D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 applied; full suite green at 1ed3d91. Chunk 2 presented (P2.1–P2.6), awaiting answers.
+D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 applied; full suite green at 1ed3d91. Chunk 2 decided (D9); implementation delegated.
 Equivalence harness: scratchpad/equiv/{equiv,compare}.jl, base result scratchpad/equiv/base.jls, base worktree scratchpad/base.

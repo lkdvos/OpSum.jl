@@ -55,7 +55,8 @@ function matrixunits(V::TensorKit.ElementarySpace)
     return Letter{I}[Letter{I}(c, n + _muoffset(c)) for c in sectors(W) for n in 1:dim(W, c)]
 end
 
-# `==` and `hash` are the struct defaults: the fields are isbits sectors and Ints
+# `==` is the struct default; `hash` is field-wise (the default goes through `objectid`, slow for product sectors)
+Base.hash(x::Letter, h::UInt) = hash(x.n, hash(x.c, hash(:Letter, h)))
 Base.isless(x::Letter{I}, y::Letter{I}) where {I <: Sector} = isless((x.c, x.n), (y.c, y.n))
 
 VectorInterface.scalartype(::Type{<:Letter}) = ComplexF64
@@ -87,7 +88,7 @@ struct Factor{I <: Sector}
     bond::I
 end
 
-# `==` and `hash` are the struct defaults (isbits fields)
+Base.hash(x::Factor, h::UInt) = hash(x.bond, hash(x.letter, hash(:Factor, h)))
 Base.isless(x::Factor{I}, y::Factor{I}) where {I} = isless((x.letter, x.bond), (y.letter, y.bond))
 
 function Base.show(io::IO, k::Factor)

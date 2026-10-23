@@ -54,7 +54,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 0 | Top-down tour of the main path | — | done |
 | 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done |
 | 2 | Letters | letters, siteoperator, instantiate | implementing |
-| 3 | Terms | irrepalgebra.jl, canonicalize! (irreptermtable.jl) | pending |
+| 3 | Terms | terms, couple | decided (waits for chunk 2) |
 | 4 | Bases and projection | basis, irrepprojection, stockbases, builders (adjoint) | pending |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |
 | 6 | Container and channels | operatorsum, infinite/expterms | pending |
@@ -131,6 +131,18 @@ delete `isreal(Letter)`; default `==`/`hash` for `Letter`/`Factor`, tuple `isles
 `dense(t::Term, sites)`, `_embed_field` → `embed_letter`; drop it if `_embed_caterpillar` at `K=1` agrees.
 (f) `scalarop` and `instantiate(::SiteOperator, …)` into `siteoperator.jl`; `ispassthrough(op) = op ==
 passthrough(sectortype(op))`.
+
+**D10 Chunk 3 (terms and coupling).**
+(a) `Terms` is canonical at all times: every producer returns normal form (`+` merges sorted lists, constructors and
+`opsum` canonicalise once); pending products kept apart (no normal form, as now). Reading never mutates;
+`canonicalize!` becomes internal; `nterms_raw` removed; `mpo(H)` no longer touches `H`. Verify with the
+equivalence harness and a construction-time check (largest showcase model, N₂ terms).
+(b) `Term` `==`/`hash` include the coefficient; canonicalisation keys on an internal `support(t)`.
+(c) Renames: `Term.keys` → `factors`, `ops(t)` → `letters(t)`; D7: `tree_from_bonds`, `isfermionodd`,
+`canreorder`, `couple_terms`.
+(d) `Term` checks → `ArgumentError`; `via` keyword deleted; one GenericFusion entry check for both `couple` forms
+(removes the `@assert`); `_spaceaslattice` deleted.
+(e) Latticeless `opsum(args...)` → `Terms(args...)`; `opsum` always builds an `OperatorSum`; `append!` stays.
 
 ## Possible improvements
 

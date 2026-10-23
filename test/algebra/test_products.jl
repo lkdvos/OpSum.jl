@@ -121,7 +121,7 @@ end
 function recouples(sites, keys, coeff, Vs)
     out = Terms{sectortype(first(Vs))}()
     OpSum._written!(out, sites, keys, ComplexF64(coeff))
-    return OpSum._instantiate_terms(out, Vs) ≈ coeff * OpSum._written_block(keys, sites, Vs)
+    return OpSum.dense(out, Vs) ≈ coeff * OpSum._written_block(keys, sites, Vs)
 end
 
 @testset "non-abelian re-coupling against the written-order product" begin
@@ -144,7 +144,7 @@ end
     a = only(couple(S1[1], S1[3]; to = J(1)))
     x = couple(Terms{J}([a]), S1[2]; to = J(1))
     keys = vcat(a.keys, OpSum.Factor{J}(letter(S1[2]), J(1)))
-    @test OpSum._instantiate_terms(x, Vs) ≈
+    @test OpSum.dense(x, Vs) ≈
         a.coeff * only(S1[2]).coeff * OpSum._written_block(keys, [1, 3, 2], Vs)
 
     # under an abelian symmetry the re-coupling is the R-symbol bookkeeping

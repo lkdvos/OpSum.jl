@@ -61,6 +61,7 @@ function instantiate(op::Letter{I}, B::Basis{I}) where {I}
     return B.elements[ks[op.n]]
 end
 
+_space(B::Basis) = space(B)
 _lettertensor(letter::Letter, B::Basis) = instantiate(letter, B)
 
 function instantiate(O::SiteOperator{I}, B::Basis{I}) where {I}
@@ -319,7 +320,7 @@ function _project_terms(
     weight(t) = prod(j -> norm(instantiate(t.keys[j].letter, Bs[j])), 1:K)
     out = Terms{I}(filter(t -> abs(t.coeff) * weight(t) > θ, summed))
 
-    resid = isempty(out.terms) ? hnorm : norm(hc - _instantiate_terms(out, Bs))
+    resid = isempty(out.terms) ? hnorm : norm(hc - dense(out, Bs))
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, length(mu))) * hnorm
     resid <= θ + slack || throw(
         ArgumentError(

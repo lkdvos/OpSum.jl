@@ -3,7 +3,6 @@
 
 using TensorKit
 using TensorKit: Sector, ElementarySpace, FusionTree, unit
-import TensorKit: sectortype
 
 # Inverse of `bondcharges` (multiplicity-free: all vertex labels are 1). The 4-arg `FusionTree` form
 # for K = 0: the 3-arg one throws for `MultipleFusion`.
@@ -37,7 +36,7 @@ end
 Term(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::Number) where {I} =
     Term{I}(sites, keys, ComplexF64(coeff))
 
-sectortype(::Type{Term{I}}) where {I} = I
+TensorKit.sectortype(::Type{Term{I}}) where {I} = I
 
 arity(t::Term) = length(t.sites)
 
@@ -90,7 +89,7 @@ Terms{I}() where {I <: Sector} = Terms{I}(Term{I}[])
 Terms(terms::Vector{Term{I}}) where {I} = Terms{I}(terms)
 Terms(t::Term{I}) where {I} = Terms{I}(Term{I}[t])
 
-sectortype(::Type{Terms{I}}) where {I} = I
+TensorKit.sectortype(::Type{Terms{I}}) where {I} = I
 
 # the appended count, before coincident terms are summed (tests)
 nterms_raw(ts::Terms) = length(ts.terms)

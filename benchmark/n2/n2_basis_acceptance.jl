@@ -63,7 +63,7 @@ function strings_terms(strings)
     end
     return opsum(Q.build_term(k..., c) for (k, c) in acc if abs(c) > 1.0e-14)
 end
-densen(ts, n) = (t = OpSum._instantiate_terms(ts, fill(Vh, n)); removeunit(t, numind(t)))
+densen(ts, n) = (t = OpSum.dense(ts, fill(Vh, n)); removeunit(t, numind(t)))
 
 # The Hubbard site spanned by neutral operators: `n`, `nꜛꜜ` on one site, and pairs whose pieces are
 # `a†`, `a` (hopping), `S⃗` (exchange), `Δ†`, `Δ` (pair hopping) and `n·a†`, `n·a` (correlated hopping).

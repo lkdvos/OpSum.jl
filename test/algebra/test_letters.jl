@@ -69,5 +69,4 @@ end
     @test Letter(SU2Irrep(0), 1) != Letter(SU2Irrep(1), 1)
     @test hash(Letter(SU2Irrep(0), 1)) == hash(Letter(SU2Irrep(0), 1))
     @test scalartype(Letter) == ComplexF64
-    @test !isreal(Letter)
 end

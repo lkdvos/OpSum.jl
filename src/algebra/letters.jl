@@ -1,14 +1,15 @@
 # The letter: operator charge and index into the site's `Basis`, plus the `Factor` (letter, running bond
-# charge) a `Term` stores per site. Letters are interpreted by `instantiate` only.
+# charge) a `Term` stores per site. Letters are interpreted by `matrixunit` (on a bare space) or `instantiate` (in a `Basis`) only.
 
 using TensorKit
+using TensorKit: Sector, FusionTree, fusiontrees, unit
 
 """
     Letter{I<:Sector}
 
 An irreducible tensor operator letter: operator charge `c::I` and index `n` among the operators of
-that charge, interpreted relative to a physical space supplied by context. [`instantiate`](@ref)
-gives `O_{c,n} : V ← V ⊗ Vect[I](c => 1)`. `(unit, 1)` is the identity, element 1 of a [`Basis`](@ref OpSum.Basis).
+that charge, interpreted relative to a site's operator [`Basis`](@ref OpSum.Basis): [`instantiate`](@ref)
+gives the element `O_{c,n} : V ← V ⊗ Vect[I](c => 1)`. `(unit, 1)` is the identity, element 1 of a `Basis`.
 """
 struct Letter{I <: Sector}
     c::I     # operator charge (the coupled leg)
@@ -54,14 +55,10 @@ function matrixunits(V::TensorKit.ElementarySpace)
     return Letter{I}[Letter{I}(c, n + _muoffset(c)) for c in sectors(W) for n in 1:dim(W, c)]
 end
 
-_key(x::Letter) = (x.c, x.n)
-Base.isless(x::Letter{I}, y::Letter{I}) where {I <: Sector} = isless(_key(x), _key(y))
-Base.:(==)(x::Letter{I}, y::Letter{I}) where {I} = _key(x) == _key(y)
-Base.hash(x::Letter, h::UInt) = hash(_key(x), hash(:Letter, h))
+# `==` and `hash` are the struct defaults: the fields are isbits sectors and Ints
+Base.isless(x::Letter{I}, y::Letter{I}) where {I <: Sector} = isless((x.c, x.n), (y.c, y.n))
 
-VectorInterface.scalartype(::Type{Letter{I}}) where {I <: Sector} = complex(float(sectorscalartype(I)))
 VectorInterface.scalartype(::Type{<:Letter}) = ComplexF64
-Base.isreal(::Type{<:Letter}) = false
 
 function VectorInterface.inner(x::Letter{I}, y::Letter{I}) where {I <: Sector}
     T = scalartype(Letter{I})
@@ -72,16 +69,12 @@ function Base.show(io::IO, x::Letter)
     return print(io, "Letter(", x.c, ", n=", x.n, ")")
 end
 
-import TensorKit: sectortype
 # sector type of the letter alphabet
-sectortype(::Type{Letter{I}}) where {I} = I
+TensorKit.sectortype(::Type{Letter{I}}) where {I} = I
 
 # `Factor = (letter, bond_charge_out)`. `Term` stores keys, not a fusion tree: for a caterpillar the
 # keys *are* the tree (`bondcharges` projects onto them, `_tree_from_bonds` inverts it). The total alone
 # would not do: for K ≥ 3 non-abelian several channels reach the same total.
-
-using TensorKit
-using TensorKit: Sector, FusionTree, fusiontrees, unit
 
 # the identity letter, element 1 of every `Basis`; fills idle sites, and placement drops it
 passthrough(::Type{I}) where {I <: Sector} = Letter{I}(unit(I), 1)
@@ -94,13 +87,8 @@ struct Factor{I <: Sector}
     bond::I
 end
 
-function Base.isless(x::Factor{I}, y::Factor{I}) where {I}
-    x.letter == y.letter || return isless(x.letter, y.letter)
-    return isless(x.bond, y.bond)
-end
-Base.:(==)(x::Factor{I}, y::Factor{I}) where {I} =
-    x.letter == y.letter && x.bond == y.bond
-Base.hash(x::Factor, h::UInt) = hash(x.bond, hash(x.letter, hash(:Factor, h)))
+# `==` and `hash` are the struct defaults (isbits fields)
+Base.isless(x::Factor{I}, y::Factor{I}) where {I} = isless((x.letter, x.bond), (y.letter, y.bond))
 
 function Base.show(io::IO, k::Factor)
     return print(io, "Factor(", k.letter, ", bond=", k.bond, ")")

@@ -234,7 +234,7 @@ Materialize `H` on its finite lattice as a `TensorMap`; decaying channels are tr
 function instantiate(H::OperatorSum{I, <:FiniteChain}) where {I}
     isempty(H.lattice) && throw(ArgumentError("cannot instantiate over an empty lattice"))
     isempty(H) && throw(ArgumentError("cannot instantiate an empty operator"))
-    return _instantiate_terms(chain_terms(H), H.lattice.sites)
+    return dense(chain_terms(H), H.lattice.sites)
 end
 instantiate(::OperatorSum{I, <:InfiniteChain}) where {I} = throw(
     ArgumentError("cannot instantiate an operator on an infinite chain")

@@ -1,31 +1,32 @@
-# The dense-tensor correctness oracle behind `instantiate(::OperatorSum)`, the inverse of `project`.
+# The dense-tensor correctness oracle behind `instantiate(::OperatorSum)`, the inverse of `project`
+# (`OpSum.dense`, internal).
 
 using TensorKit
 using TensorKit: ElementarySpace, FusionTree, unit, dim, id, Vect, domain, permute, insertrightunit
 
-# The tensor of a letter on a site, given as a bare space (matrix units) or as a `Basis` (basis.jl).
+# The dense oracle takes each site as a bare space (matrix-unit letters, as in `project`) or as a `Basis`.
+_space(V::ElementarySpace) = V
 _lettertensor(letter::Letter, V::ElementarySpace) = matrixunit(letter, V)
 
-function _instantiate_terms(h::Terms, spaces)
-    return sum(t -> t.coeff * _instantiate_term(t, spaces), canonicalize!(h).terms)
+# The sum of the terms of `h` on `sites` (spaces or bases); `h` itself is left untouched.
+function dense(h::Terms, sites)
+    return sum(t -> t.coeff * dense(t, sites), canonicalize!(copy(h)).terms)
 end
 
 # The term with letters `ops` at `positions` and fusion `tree`, on `sites` (spaces or bases).
-function _instantiate_term(ops, positions, tree, sites)
-    K = length(ops)
+function dense(ops, positions, tree, sites)
     # a K = 0 term needs the trailing charge leg too, or it cannot be summed with the others
-    K == 0 && return insertrightunit(foldl(⊗, (id(space(V)) for V in sites)))
-    K == 1 && return _embed_field(only(ops), only(positions), sites)
+    isempty(ops) && return insertrightunit(foldl(⊗, (id(_space(V)) for V in sites)))
     return _embed_caterpillar(ops, positions, tree, sites)
 end
 
-_instantiate_term(t::Term, sites) = _instantiate_term(ops(t), t.sites, tree(t), sites)
+dense(t::Term, sites) = dense(ops(t), t.sites, tree(t), sites)
 
-# charged field on site `p`, identities elsewhere, charge leg last in the domain
-function _embed_field(op::Letter, p, sites)
+# charged letter on site `p`, identities elsewhere, charge leg last in the domain (one factor of a written product)
+function embed_letter(op::Letter, p, sites)
     N = length(sites)
     loc = _lettertensor(op, sites[p])                # V_p ← V_p ⊗ V_c
-    full = foldl(⊗, (j == p ? loc : id(space(sites[j])) for j in 1:N))
+    full = foldl(⊗, (j == p ? loc : id(_space(sites[j])) for j in 1:N))
     cod = ntuple(identity, N)
     charge_global = N + (p + 1)
     dom_wo_charge = (ntuple(m -> N + m, p)..., ntuple(m -> N + p + 1 + m, N - p)...)
@@ -56,7 +57,7 @@ function _embed_caterpillar(ops, positions, tree, sites)
     # order, total-charge leg last
     N = length(sites)
     idle = [k for k in 1:N if !(k in positions)]
-    full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(space(sites[k])) for k in idle))
+    full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(_space(sites[k])) for k in idle))
 
     cod_src = (positions..., idle...)
     p_cod = ntuple(j -> findfirst(==(j), cod_src), N)

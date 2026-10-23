@@ -2,7 +2,7 @@ using Test
 using OpSum
 using OpSum: project, instantiate, scalarop, couple, mpo, opsum, FiniteChain,
     mpo_tensors, mpo_terms, Term, Terms, total, ops, tree, bondcharges,
-    caterpillar_trees, _instantiate_term, _project_units, _instantiate_terms
+    caterpillar_trees, _project_units
 using OpSum: Letter
 using TensorKit
 using TensorKit: @tensor, insertrightunit, removeunit
@@ -14,7 +14,7 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, onlyterm, physmatrix, 
 # The basis-free expansion in matrix units is internal (`_project_units`); the tests of its mechanics
 # call it through these two helpers: expand and place on `sites`, and rebuild densely on spaces `Vs`.
 pu(h, sites; kw...) = _project_units(h; kw...)[sites...]
-inst(ts, Vs) = _instantiate_terms(ts, Vs)
+inst(ts, Vs) = OpSum.dense(ts, Vs)
 spinvec(V) = spinvector(unitbasis(V))
 # dense operator of `H` (letters in `unitbasis(V)`) on `N` sites of `V`
 dense(H, V, N) = instantiate(opsum(FiniteChain(unitbasis(V), N), H))
@@ -39,7 +39,7 @@ function candidates(Vs, tot::I) where {I <: Sector}
         cs = ntuple(k -> opstup[k].c, K)
         for f in caterpillar_trees(cs, tot)
             letters = collect(Letter{I}, opstup)
-            push!(out, (letters, f, _instantiate_term(letters, 1:K, f, Vs)))
+            push!(out, (letters, f, OpSum.dense(letters, 1:K, f, Vs)))
         end
     end
     return out

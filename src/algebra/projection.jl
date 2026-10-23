@@ -51,7 +51,7 @@ function _coefficients(
         for opstup in Iterators.product(letters...), tree in trees
             ncand += 1
             ops = collect(Letter{I}, opstup)
-            E = _instantiate_term(ops, 1:K, tree, Vs)
+            E = dense(ops, 1:K, tree, Vs)
             c = ComplexF64(inner(E, hc) / g)
             # the norm contribution is `|c| √g`, so bare `abs(c)` would not control the dropped norm
             abs(c) * sqrt(g) > θ || continue
@@ -101,7 +101,7 @@ function _project_units(h::AbstractTensorMap; atol::Real = 0, rtol::Real = _defa
     )
 
     # faithfulness: recompute the operator from the emitted terms (also catches a wrong `g` or tree)
-    resid = isempty(coeffs) ? hnorm : norm(hc - _instantiate_terms(out, Vs))
+    resid = isempty(coeffs) ? hnorm : norm(hc - dense(out, Vs))
     slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, ncand)) * hnorm
     resid <= θ + slack || throw(
         ArgumentError(

@@ -175,7 +175,7 @@ function _written_block(keys::Vector{Factor{I}}, pos::Vector{Int}, Bs) where {I}
     m = length(Bs)
     T = nothing
     for (key, p) in zip(keys, pos)
-        E = _embed_field(key.letter, p, Bs)                                 # W ← W ⊗ C
+        E = embed_letter(key.letter, p, Bs)                                 # W ← W ⊗ C
         if T === nothing
             T = E
         else

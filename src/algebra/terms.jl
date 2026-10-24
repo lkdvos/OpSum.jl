@@ -6,7 +6,7 @@ using TensorKit: Sector, ElementarySpace, FusionTree, unit
 
 # Inverse of `bondcharges` (multiplicity-free: all vertex labels are 1). The 4-arg `FusionTree` form
 # for K = 0: the 3-arg one throws for `MultipleFusion`.
-function _tree_from_bonds(charges::AbstractVector{I}, bonds::AbstractVector{I}) where {I <: Sector}
+function tree_from_bonds(charges::AbstractVector{I}, bonds::AbstractVector{I}) where {I <: Sector}
     K = length(charges)
     K == 0 && return FusionTree{I}((), unit(I), (), ())
     unc = ntuple(i -> charges[i], K)
@@ -25,43 +25,43 @@ and a reduced `coeff`. Multiplicity-free fusion only. Never mutated, so terms sh
 """
 struct Term{I <: Sector}
     sites::Vector{Int}
-    keys::Vector{Factor{I}}
+    factors::Vector{Factor{I}}
     coeff::ComplexF64
-    function Term{I}(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64) where {I}
-        @assert length(sites) == length(keys) "sites/keys arity mismatch"
+    function Term{I}(sites::Vector{Int}, factors::Vector{Factor{I}}, coeff::ComplexF64) where {I}
+        @assert length(sites) == length(factors) "sites/factors arity mismatch"
         @assert issorted(sites) && allunique(sites) "a term's sites must be ascending and unique"
-        return new{I}(sites, keys, coeff)
+        return new{I}(sites, factors, coeff)
     end
 end
-Term(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::Number) where {I} =
-    Term{I}(sites, keys, ComplexF64(coeff))
+Term(sites::Vector{Int}, factors::Vector{Factor{I}}, coeff::Number) where {I} =
+    Term{I}(sites, factors, ComplexF64(coeff))
 
 TensorKit.sectortype(::Type{Term{I}}) where {I} = I
 
 arity(t::Term) = length(t.sites)
 
-ops(t::Term{I}) where {I} = Letter{I}[k.letter for k in t.keys]
+letters(t::Term{I}) where {I} = Letter{I}[k.letter for k in t.factors]
 
 # running bond charge after the last site
-total(t::Term{I}) where {I} = isempty(t.keys) ? unit(I) : last(t.keys).bond
+total(t::Term{I}) where {I} = isempty(t.factors) ? unit(I) : last(t.factors).bond
 
 # the caterpillar coupling tree, rebuilt from the running bond charges
-tree(t::Term{I}) where {I} = _tree_from_bonds(I[k.letter.c for k in t.keys], I[k.bond for k in t.keys])
+tree(t::Term{I}) where {I} = tree_from_bonds(I[k.letter.c for k in t.factors], I[k.bond for k in t.factors])
 
-Base.:(==)(x::Term{I}, y::Term{I}) where {I} = x.sites == y.sites && x.keys == y.keys
-Base.hash(t::Term, h::UInt) = hash(t.keys, hash(t.sites, hash(:Term, h)))
+Base.:(==)(x::Term{I}, y::Term{I}) where {I} = x.sites == y.sites && x.factors == y.factors
+Base.hash(t::Term, h::UInt) = hash(t.factors, hash(t.sites, hash(:Term, h)))
 
-# Total order for the normal form; the keys distinguish letters *and* couplings.
+# Total order for the normal form; the factors distinguish letters *and* couplings.
 function Base.isless(x::Term{I}, y::Term{I}) where {I}
     x.sites == y.sites || return isless(x.sites, y.sites)
-    return isless(x.keys, y.keys)
+    return isless(x.factors, y.factors)
 end
 
 VectorInterface.scale(t::Term{I}, α::Number) where {I} =
-    Term{I}(t.sites, t.keys, t.coeff * ComplexF64(α))
+    Term{I}(t.sites, t.factors, t.coeff * ComplexF64(α))
 
 function Base.show(io::IO, t::Term)
-    return print(io, "Term(sites=", t.sites, ", ops=", ops(t), ", total=", total(t), ", coeff=", t.coeff, ")")
+    return print(io, "Term(sites=", t.sites, ", ops=", letters(t), ", total=", total(t), ", coeff=", t.coeff, ")")
 end
 
 # A product acting more than once on one site (`a[i] * b[i]`), unevaluated until it enters an
@@ -69,7 +69,7 @@ end
 # caterpillar; the operator is `coeff` times that caterpillar's product.
 struct PendingTerm{I <: Sector}
     sites::Vector{Int}
-    keys::Vector{Factor{I}}
+    factors::Vector{Factor{I}}
     coeff::ComplexF64
 end
 
@@ -109,7 +109,7 @@ Base.:+(a::Terms{I}, t::Term{I}) where {I} = Terms{I}(vcat(a.terms, [t]), copy(a
 Base.:+(t::Term{I}, a::Terms{I}) where {I} = Terms{I}(vcat([t], a.terms), copy(a.pending))
 VectorInterface.scale(ts::Terms{I}, α::Number) where {I} = Terms{I}(
     Term{I}[scale(t, α) for t in ts.terms],
-    PendingTerm{I}[PendingTerm{I}(p.sites, p.keys, p.coeff * ComplexF64(α)) for p in ts.pending]
+    PendingTerm{I}[PendingTerm{I}(p.sites, p.factors, p.coeff * ComplexF64(α)) for p in ts.pending]
 )
 
 # `one` is the term with no active sites; `zero` is the empty bag
@@ -133,7 +133,7 @@ function Base.show(io::IO, ts::Terms{I}) where {I}
     )
     canonicalize!(ts)
     print(io, "Terms(")
-    join(io, ("$(t.coeff) * [sites=$(t.sites), ops=$(ops(t)), total=$(total(t))]" for t in ts.terms), " + ")
+    join(io, ("$(t.coeff) * [sites=$(t.sites), ops=$(letters(t)), total=$(total(t))]" for t in ts.terms), " + ")
     return print(io, ")")
 end
 
@@ -168,7 +168,7 @@ function _canonicalize!(terms::Vector{Term{I}}) where {I}
         t = terms[i]
         if out >= 1 && terms[out] == t
             prev = terms[out]
-            terms[out] = Term{I}(prev.sites, prev.keys, prev.coeff + t.coeff)
+            terms[out] = Term{I}(prev.sites, prev.factors, prev.coeff + t.coeff)
         else
             out += 1
             terms[out] = t
@@ -227,10 +227,10 @@ end
 _collect_any(::Nothing, t::Term{I}) where {I} = Terms{I}(Term{I}[t])
 _collect_any(::Nothing, ts::Terms) = copy(ts)
 _collect_any(::Nothing, itr) = foldl(_collect_any, itr; init = nothing)
-_collect_any(out::Terms{I}, a) where {I} = _collect_terms!(out, a, I)
+_collect_any(out::Terms{I}, a) where {I} = collect_terms!(out, a, I)
 # a bare space is iterable, so a vector of them would otherwise be read as a nest of terms
 _collect_any(::Nothing, ::ElementarySpace) = _spaceaslattice()
-_collect_terms!(::Terms{I}, ::ElementarySpace, ::Type{I}) where {I} = _spaceaslattice()
+collect_terms!(::Terms{I}, ::ElementarySpace, ::Type{I}) where {I} = _spaceaslattice()
 _spaceaslattice() = throw(
     ArgumentError(
         "opsum: got an ElementarySpace where an operator was expected; a lattice is one operator " *
@@ -238,21 +238,21 @@ _spaceaslattice() = throw(
     )
 )
 
-_collect_terms!(out::Terms{I}, t::Term{I}, ::Type{I}) where {I} = (push!(out.terms, t); out)
-function _collect_terms!(out::Terms{I}, ts::Terms{I}, ::Type{I}) where {I}
+collect_terms!(out::Terms{I}, t::Term{I}, ::Type{I}) where {I} = (push!(out.terms, t); out)
+function collect_terms!(out::Terms{I}, ts::Terms{I}, ::Type{I}) where {I}
     append!(out.terms, ts.terms)
     append!(out.pending, ts.pending)
     return out
 end
-function _collect_terms!(out::Terms{I}, itr, ::Type{I}) where {I}
+function collect_terms!(out::Terms{I}, itr, ::Type{I}) where {I}
     for a in itr
-        _collect_terms!(out, a, I)
+        collect_terms!(out, a, I)
     end
     return out
 end
 # A term over a different symmetry than the one already accumulated is a mistake worth naming.
-_collect_terms!(::Terms{I}, ::Term{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
-_collect_terms!(::Terms{I}, ::Terms{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
+collect_terms!(::Terms{I}, ::Term{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
+collect_terms!(::Terms{I}, ::Terms{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
 _wrongsector(I, J) = throw(
     ArgumentError("cannot combine an operator over $J with one over $I")
 )
@@ -264,7 +264,7 @@ Append terms to `ts` in place; the arguments are as for [`opsum`](@ref).
 """
 function Base.append!(ts::Terms{I}, args...) where {I}
     for a in args
-        _collect_terms!(ts, a, I)
+        collect_terms!(ts, a, I)
     end
     return ts
 end

@@ -35,7 +35,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   running bond charges of the caterpillar *are* the fusion tree. `==`/`hash` ignore the coefficient. `Terms` is a
   bag; `canonicalize!` (`algebra/terms.jl`) is the only normal form and everything observing the set goes through it.
   `≈` compares canonical terms as sparse vectors; `==` is exact.
-* **`couple`/`dot`/`*`** (`algebra/couple.jl`) are order-free. Abelian (`_canreorder`): legs inserted with R-symbols (fermionic signs).
+* **`couple`/`dot`/`*`** (`algebra/couple.jl`) are order-free. Abelian (`canreorder`): legs inserted with R-symbols (fermionic signs).
   Non-abelian (`_canrecouple`): written in order, re-coupled by `_recouple` (`products.jl`). Two fermion-odd operands
   pick up the graded sign. `a[i] * b[i]` is a `PendingTerm`, resolved in the sites' bases when added to an
   `OperatorSum` (`_resolve`); a bag with pending products has no normal form.

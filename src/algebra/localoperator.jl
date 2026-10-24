@@ -68,11 +68,11 @@ function Base.getindex(B::LocalOperator{I}, ind::Integer, inds::Integer...) wher
     increasing = issorted(sites; lt = <=)    # strictly increasing
     out = Terms{I}()
     for t in canonicalize!(B.terms).terms
-        keep = findall(k -> !ispassthrough(k.letter), t.keys)
+        keep = findall(k -> !ispassthrough(k.letter), t.factors)
         if increasing    # a pure relabelling
-            push!(out.terms, Term{I}(sites[keep], t.keys[keep], t.coeff))
+            push!(out.terms, Term{I}(sites[keep], t.factors[keep], t.coeff))
         else    # a product in slot order
-            _written!(out, sites[keep], t.keys[keep], t.coeff)
+            _written!(out, sites[keep], t.factors[keep], t.coeff)
         end
     end
     return out
@@ -122,7 +122,7 @@ function _slotterms(B::LocalOperator{I}, offset::Int) where {I}
     ts = canonicalize!(B.terms).terms
     offset == 0 && return Terms{I}(copy(ts))
     sites = collect((offset + 1):(offset + B.nsites))
-    return Terms{I}(Term{I}[Term{I}(sites, t.keys, t.coeff) for t in ts])
+    return Terms{I}(Term{I}[Term{I}(sites, t.factors, t.coeff) for t in ts])
 end
 
 function _slotoperands(ops::Tuple{UnplacedOperator{I}, Vararg{UnplacedOperator{I}}}) where {I}

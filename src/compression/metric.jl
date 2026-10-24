@@ -30,7 +30,7 @@ end
 function _orthonormal_terms(ts::Terms{I}, metrics) where {I}
     out = Term{I}[]
     for t in ts
-        choices = map(t.sites, t.keys) do s, key
+        choices = map(t.sites, t.factors) do s, key
             m = metrics[s]
             m === nothing && return [(key, one(ComplexF64))]
             A = first(m[key.letter.c])

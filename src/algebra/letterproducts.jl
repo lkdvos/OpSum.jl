@@ -8,7 +8,7 @@
 using TensorKit: Sector, FusionStyle, BraidingStyle
 
 function _checkkron(::Type{I}) where {I <: Sector}
-    _canreorder(I) || throw(
+    canreorder(I) || throw(
         ArgumentError(
             "on-site products of letters need an abelian symmetry (unique fusion, symmetric braiding), " *
                 "got $I with $(FusionStyle(I)) fusion and $(BraidingStyle(I)) braiding"
@@ -36,7 +36,7 @@ function _letter_product(B::Basis{I}, x::Letter{I}, y::Letter{I}) where {I}
         tot = only(x.c ⊗ y.c)
         keys = Factor{I}[Factor{I}(x, x.c), Factor{I}(y, tot)]
         h = _written_block(keys, [1, 1], [B])
-        coeff = (_isfermionodd(x.c) && _isfermionodd(y.c)) ? -1.0 : 1.0
+        coeff = (isfermionodd(x.c) && isfermionodd(y.c)) ? -1.0 : 1.0
         return project(h, B) * coeff
     end
 end

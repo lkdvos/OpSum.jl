@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate, couple, opsum, _isfermionodd
+using OpSum: instantiate, couple, opsum, isfermionodd
 using TensorKit
 using LinearAlgebra
 
@@ -61,9 +61,9 @@ dense(h, N) = densemat(instantiate(opsum(FiniteChain(Bf, N), h)))
 
     @testset "parity of product sectors" begin
         Hub = ProductSector{Tuple{U1Irrep, SU2Irrep, FermionParity}}
-        @test _isfermionodd(Hub((1, 1 // 2, 1)))
-        @test !_isfermionodd(Hub((2, 0, 0)))
-        @test _isfermionodd(FermionNumber(1)) && !_isfermionodd(FermionNumber(2))
-        @test !_isfermionodd(SU2Irrep(1 // 2)) && !_isfermionodd(U1Irrep(1))
+        @test isfermionodd(Hub((1, 1 // 2, 1)))
+        @test !isfermionodd(Hub((2, 0, 0)))
+        @test isfermionodd(FermionNumber(1)) && !isfermionodd(FermionNumber(2))
+        @test !isfermionodd(SU2Irrep(1 // 2)) && !isfermionodd(U1Irrep(1))
     end
 end

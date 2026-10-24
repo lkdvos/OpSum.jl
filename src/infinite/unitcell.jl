@@ -3,7 +3,7 @@
 
 using TensorKit: Sector, ElementarySpace, unit
 
-translate(t::Term{I}, Δ) where {I} = Term{I}(t.sites .+ Int(Δ), t.keys, t.coeff)
+translate(t::Term{I}, Δ) where {I} = Term{I}(t.sites .+ Int(Δ), t.factors, t.coeff)
 translate(ts::Terms{I}, Δ) where {I} =
     iszero(Δ) ? ts : Terms{I}([translate(t, Δ) for t in ts.terms])
 

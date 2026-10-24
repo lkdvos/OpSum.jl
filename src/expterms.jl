@@ -39,7 +39,7 @@ channelspan(k::ExpKey) = Int(maximum(k.term.sites) - minimum(k.term.sites))
 
 function translate(k::ExpKey{I}, Δ) where {I}
     iszero(Δ) && return k
-    term = Term{I}(k.term.sites .+ Int(Δ), k.term.keys, k.term.coeff)
+    term = Term{I}(k.term.sites .+ Int(Δ), k.term.factors, k.term.coeff)
     return ExpKey{I}(term, k.exitsite + Int(Δ), k.decay, k.string)
 end
 
@@ -146,7 +146,7 @@ function expterm(
     d = Dictionary{ExpKey{I}, ComplexF64}()
     for term in t.terms
         # the coefficient rides in the dictionary, so the stored representative is normalised to 1
-        k = Term{I}(term.sites, term.keys, one(ComplexF64))
+        k = Term{I}(term.sites, term.factors, one(ComplexF64))
         v = term.coeff
         length(k.sites) >= 2 || throw(
             ArgumentError(
@@ -177,8 +177,8 @@ function _expand_channel!(
         d::Dictionary{Term{I}, ComplexF64}, k::ExpKey{I}, coeff, P::Int, N::Int
     ) where {I}
     sites = k.term.sites
-    ops = [key.letter for key in k.term.keys]
-    bonds = [key.bond for key in k.term.keys]
+    ops = [key.letter for key in k.term.factors]
+    bonds = [key.bond for key in k.term.factors]
     ne = count(<(k.exitsite), sites)                     # size of the entry block
     entry, exit_ = sites[1:ne], sites[(ne + 1):end]
     entrybond = bonds[ne]                                # running charge along the string
@@ -256,7 +256,7 @@ function expand_channels(es::ExpSum{I}, P::Int, N::Int) where {I}
         _expand_channel!(d, k, v, P, N)
     end
     filter!(!iszero, d)
-    return Terms{I}([Term{I}(t.sites, t.keys, v) for (t, v) in pairs(d)])
+    return Terms{I}([Term{I}(t.sites, t.factors, v) for (t, v) in pairs(d)])
 end
 
 # --- lowering to a weighted automaton -------------------------------------------------------------
@@ -323,8 +323,8 @@ function _channelorder(k::ExpKey)
     return (
         Int.(k.term.sites),
         Int(k.exitsite),
-        [(key.letter.c, key.letter.n) for key in k.term.keys],
-        [key.bond for key in k.term.keys],
+        [(key.letter.c, key.letter.n) for key in k.term.factors],
+        [key.bond for key in k.term.factors],
         (real(k.decay), imag(k.decay)),
         [(l === nothing, l === nothing ? 0 : l.n, real(c), imag(c)) for (l, c) in k.string],
     )
@@ -363,7 +363,7 @@ function _lower_channel(
         k::ExpKey{I}, coeff::ComplexF64, P::Int, names::_ChannelNames{I}
     ) where {I}
     sites = k.term.sites
-    keys_ = k.term.keys
+    keys_ = k.term.factors
     K = length(sites)
     ne = count(<(k.exitsite), sites)
     slast = sites[K]

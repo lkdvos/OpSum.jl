@@ -175,7 +175,7 @@ function _sweep_channels(tt::TermTable{I}, N::Int, strategy::IndependentSVD) whe
                 j += 1
             end
             cursor[t] = j
-            q = iszero(j) ? unit(I) : tt.keys[j, t].bond
+            q = iszero(j) ? unit(I) : tt.factors[j, t].bond
             pterm[t] = _class!(pd, preQ, pre_deg, pre_mult, preid[j + 1, t], q)
             sterm[t] = _class!(sufdense, sufQ, suf_deg, suf_mult, (sufid[j + 1, t], q), q)
         end
@@ -207,8 +207,8 @@ function _sweep_channels(tt::TermTable{I}, N::Int, strategy::IndependentSVD) whe
             active = jprev < K && tt.sites[jprev + 1, t] == i
             jcur = jprev + (active ? 1 : 0)
             cursor[t] = jcur
-            key = active ? tt.keys[jcur, t] :
-                Factor{I}(passthrough(I), iszero(jprev) ? unit(I) : tt.keys[jprev, t].bond)
+            key = active ? tt.factors[jcur, t] :
+                Factor{I}(passthrough(I), iszero(jprev) ? unit(I) : tt.factors[jprev, t].bond)
             j = i > 1 ? predense[i - 1][preid[jprev + 1, t]] : 1
             l = i < N ? predense[i][preid[jcur + 1, t]] : 1
             Cmat = get!(() -> zeros(T, nL, nR), op_coeffs, key)

@@ -1,7 +1,7 @@
 # Helpers shared by the test files (not a test file: runtests.jl excludes it; each test file includes it).
 
 using OpSum
-using OpSum: Term, Terms, SiteOperator, ops, tree, total, arity
+using OpSum: Term, Terms, SiteOperator, letters, tree, total, arity
 using TensorKit: dim
 
 # The reduced data of an `mpo(H)`: `Ws, secs = reduced(mpo(H))`.

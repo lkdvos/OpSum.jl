@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: project, instantiate, scalarop, couple, mpo, opsum, FiniteChain,
-    mpo_tensors, mpo_terms, Term, Terms, total, ops, tree, bondcharges,
+    mpo_tensors, mpo_terms, Term, Terms, total, letters, tree, bondcharges,
     caterpillar_trees, _project_units
 using OpSum: Letter
 using TensorKit
@@ -108,7 +108,7 @@ end
             ts = pu(O, (1,); rtol = 0)
             @test length(ts) == count(v -> !iszero(v), values(expected))
             for t in ts
-                op = only(ops(t))
+                op = only(letters(t))
                 @test op.c == c
                 @test t.coeff ≈ expected[op.n - (c == unit(I))]   # trivial charge: 1 is the identity
             end
@@ -152,7 +152,7 @@ end
     lower = LO(Letter(U1Irrep(-1), 1))
     H = couple(raise[1], lower[2]; to = U1Irrep(0))
     tk = onlyterm(pu(inst(H, [Vu, Vu]), [1, 2]))
-    @test [o.c for o in ops(tk)] == [U1Irrep(1), U1Irrep(-1)]
+    @test [o.c for o in letters(tk)] == [U1Irrep(1), U1Irrep(-1)]
     @test tk.coeff ≈ 1
 
     # charged total
@@ -241,7 +241,7 @@ end
             # the basis is complete, so a random symmetric operator uses all of it ...
             @test length(ts) == dim(space(hc))
             # ... and orthogonality gives Parseval
-            @test norm(hc)^2 ≈ sum(abs2(t.coeff) * gram(ops(t), total(t)) for t in ts)
+            @test norm(hc)^2 ≈ sum(abs2(t.coeff) * gram(letters(t), total(t)) for t in ts)
         end
     end
 
@@ -266,7 +266,7 @@ end
         )
         ts = pu(unit_of(M) ⊗ unit_of(M), [1, 2])
         @test length(ts) == length(expected)
-        got = Dict((ops(t)[1].n, ops(t)[2].n) => t.coeff for t in ts)
+        got = Dict((letters(t)[1].n, letters(t)[2].n) => t.coeff for t in ts)
         for (idx, c) in expected
             @test got[idx] ≈ c
         end

@@ -28,7 +28,7 @@ end
 mutable struct SweepGraph{I <: Sector}
     tt::TermTable{I}
     N::Int
-    K::Int                 # arity(tt): rows of tt.sites / tt.keys
+    K::Int                 # arity(tt): rows of tt.sites / tt.factors
     sufid::Matrix{Int}     # (K+1) × M interned id of the column suffix j:K (0 == exhausted)
     relsufid::Matrix{Int}  # (K+1) × M same, interned by shape instead of position (`_rel_suffix_ids`)
     channels::Vector{ExpChannel{I}}   # lowered exponentially decaying interactions (may be empty)
@@ -84,7 +84,7 @@ function _signature!(g::SweepGraph{I}, r::Int, i::Int) where {I}
     c == -1 && return (0, g.rbond[r])
     c > 0 && return (-g.channels[c].states[g.rstate[r]].name, g.rbond[r])
     t = g.rrepr[r]
-    sites, keys = g.tt.sites, g.tt.keys
+    sites, keys = g.tt.sites, g.tt.factors
     j = g.rcur[r]
     @inbounds while j <= g.K
         s = sites[j, t]
@@ -379,7 +379,7 @@ function _build_next_graph!(
     nextkeys = map(eachindex(g.rrepr)) do r
         t = g.rrepr[r]
         j = g.rcur[r]
-        (j <= g.K && g.tt.sites[j, t] == i + 1) && return g.tt.keys[j, t]
+        (j <= g.K && g.tt.sites[j, t] == i + 1) && return g.tt.factors[j, t]
         return Factor{I}(passthrough(I), g.rbond[r])
     end
     buckets = Dictionary{Tuple{Int, Factor{I}}, Int}()
@@ -432,7 +432,7 @@ function _build_next_graph!(
             g.inserted[t] && continue         # already promoted into a colliding class
             g.inserted[t] = true
             g.nremaining -= 1
-            b = bucket!(startidx, g.tt.keys[1, t])
+            b = bucket!(startidx, g.tt.factors[1, t])
             push!(next_radj[b], _push_right!(g, t, 1, unit(I), 0, 0))
             push!(next_wadj[b], g.tt.coeffs[t])
         end

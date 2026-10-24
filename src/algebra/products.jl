@@ -16,7 +16,7 @@ _writtentotal(keys::Vector{Factor{I}}) where {I} = isempty(keys) ? unit(I) : las
 function _written!(out::Terms{I}, sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64) where {I}
     allunique(sites) || return push!(out.pending, PendingTerm{I}(sites, keys, coeff))
     issorted(sites) && return push!(out.terms, Term{I}(sites, keys, coeff))
-    _canreorder(I) || return append!(out.terms, _recouple(sites, keys, coeff))
+    canreorder(I) || return append!(out.terms, _recouple(sites, keys, coeff))
     # abelian: one R-symbol per pair that swaps, then the running charges in site order
     K = length(sites)
     for j in 1:K, k in (j + 1):K
@@ -52,7 +52,7 @@ function _checkrecouple(::Type{I}) where {I}
 end
 
 function _treetensor(charges::Vector{I}, bonds::Vector{I}) where {I}
-    f = _tree_from_bonds(charges, bonds)
+    f = tree_from_bonds(charges, bonds)
     tot = f.coupled
     X = zeros(ComplexF64, foldl(⊗, (Vect[I](c => 1) for c in charges)) ← Vect[I](tot => 1))
     X[f, FusionTree{I}((tot,), tot, (false,), ())] .= 1
@@ -92,7 +92,7 @@ end
 # the first is neutral (or the symmetry abelian) the second's running charges just continue.
 function _concat(ka::Vector{Factor{I}}, kb::Vector{Factor{I}}, tot::I) where {I}
     ta = _writtentotal(ka)
-    if ta == unit(I) || _canreorder(I)
+    if ta == unit(I) || canreorder(I)
         shifted = Factor{I}[Factor{I}(k.letter, only(ta ⊗ k.bond)) for k in kb]
         return [(vcat(ka, shifted), 1.0 + 0im)]
     end
@@ -134,7 +134,7 @@ function Base.:*(a::Terms{I}, b::Terms{I}) where {I}
             )
         )
         coeff = ca * cb
-        _isfermionodd(ta) && _isfermionodd(tb) && (coeff = -coeff)
+        isfermionodd(ta) && isfermionodd(tb) && (coeff = -coeff)
         for (keys, x) in _concat(ka, kb, only(cs))
             _written!(out, vcat(sa, sb), keys, coeff * x)
         end
@@ -144,8 +144,8 @@ end
 
 _factors(ts::Terms) = Iterators.flatten(
     (
-        ((t.sites, t.keys, t.coeff) for t in ts.terms),
-        ((p.sites, p.keys, p.coeff) for p in ts.pending),
+        ((t.sites, t.factors, t.coeff) for t in ts.terms),
+        ((p.sites, p.factors, p.coeff) for p in ts.pending),
     )
 )
 
@@ -160,8 +160,8 @@ function _resolve(p::PendingTerm{I}, lat::AbstractLattice) where {I}
     U = sort!(unique(p.sites))
     pos = Int[searchsortedfirst(U, s) for s in p.sites]
     Bs = [lat[u] for u in U]
-    local_op = cached(_PRODUCT_CACHE, (pos, p.keys, Bs)) do
-        return _project_local(_written_block(p.keys, pos, Bs), Bs)
+    local_op = cached(_PRODUCT_CACHE, (pos, p.factors, Bs)) do
+        return _project_local(_written_block(p.factors, pos, Bs), Bs)
     end
     return scale(local_op[U...], p.coeff).terms
 end

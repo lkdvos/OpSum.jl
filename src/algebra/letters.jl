@@ -74,7 +74,7 @@ end
 TensorKit.sectortype(::Type{Letter{I}}) where {I} = I
 
 # `Factor = (letter, bond_charge_out)`. `Term` stores keys, not a fusion tree: for a caterpillar the
-# keys *are* the tree (`bondcharges` projects onto them, `_tree_from_bonds` inverts it). The total alone
+# keys *are* the tree (`bondcharges` projects onto them, `tree_from_bonds` inverts it). The total alone
 # would not do: for K ≥ 3 non-abelian several channels reach the same total.
 
 # the identity letter, element 1 of every `Basis`; fills idle sites, and placement drops it

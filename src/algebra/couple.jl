@@ -25,28 +25,28 @@ function _single_site_term(b::Terms, ctx)
     length(b) == 1 || throw(ArgumentError("$ctx must be a single-term operator"))
     t = only(b.terms)
     arity(t) == 1 || throw(ArgumentError("$ctx must be a single-site charged operator"))
-    return only(t.sites), only(t.keys).letter
+    return only(t.sites), only(t.factors).letter
 end
 
 # Whether a leg may be *inserted* left of others: `UniqueFusion` forces every invalidated running
 # charge and makes a transposition one scalar `Rsymbol(x, y, x ⊗ y)`; `SymmetricBraiding` makes
 # over/under irrelevant.
-_canreorder(::Type{I}) where {I <: Sector} =
+canreorder(::Type{I}) where {I <: Sector} =
     FusionStyle(I) isa UniqueFusion && BraidingStyle(I) isa SymmetricBraiding
 
 # Fermion-odd: a fermionic sector whose twist is -1 (not SU(2)'s half-integer spin, which is bosonic).
-_isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(c)) < 0
+isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(c)) < 0
 
 # Extend every term of `a` by every single-site term of `b`, fusing to `target(running total, b's
 # letter)` (`nothing` drops the pair). A leg right of all of `a` is appended; otherwise it is inserted
-# at its site position (`_canreorder`), the running charges after it recomputed and one R-symbol
+# at its site position (`canreorder`), the running charges after it recomputed and one R-symbol
 # picked up per leg it braids past (for fermions, the anticommutation sign). Under a non-abelian
 # symmetry it is appended in written order and re-coupled into site order (`_recouple`), which may
 # give several terms.
-function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
+function couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
     out = Term{I}[]
     sizehint!(out, length(a) * length(b))
-    reorder = _canreorder(I)
+    reorder = canreorder(I)
     for tb in b.terms
         arity(tb) == 1 || throw(
             ArgumentError("couple: every term of the second operand must be a single-site charged operator")
@@ -57,10 +57,10 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
         na >= 1 || throw(
             ArgumentError("couple: every term of the first operand must carry at least one charged operator")
         )
-        run = last(ta.keys).bond
+        run = last(ta.factors).bond
         for tb in b.terms
             sb = only(tb.sites)
-            opb = only(tb.keys).letter
+            opb = only(tb.factors).letter
 
             # position of the first of `a`'s sites strictly right of `b`'s
             p = na + 1
@@ -79,10 +79,10 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
 
             coeff = ta.coeff * tb.coeff
             # graded tensor product: -1 iff both are fermion-odd
-            _isfermionodd(run) && _isfermionodd(opb.c) && (coeff = -coeff)
+            isfermionodd(run) && isfermionodd(opb.c) && (coeff = -coeff)
             if p <= na && !reorder
                 # non-abelian: append in written order, then re-couple into site order
-                keys_w = vcat(ta.keys, Factor{I}(opb, tot))
+                keys_w = vcat(ta.factors, Factor{I}(opb, tot))
                 append!(out, _recouple(vcat(ta.sites, sb), keys_w, coeff))
                 continue
             end
@@ -90,16 +90,16 @@ function _couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             keys = Vector{Factor{I}}(undef, na + 1)
             for j in 1:(p - 1)
                 sites[j] = ta.sites[j]
-                keys[j] = ta.keys[j]
+                keys[j] = ta.factors[j]
             end
             sites[p] = sb
             if p == na + 1
                 keys[p] = Factor{I}(opb, tot)
             else
-                bond = p == 1 ? opb.c : only(ta.keys[p - 1].bond ⊗ opb.c)
+                bond = p == 1 ? opb.c : only(ta.factors[p - 1].bond ⊗ opb.c)
                 keys[p] = Factor{I}(opb, bond)
                 for j in p:na
-                    op = ta.keys[j].letter
+                    op = ta.factors[j].letter
                     coeff *= Rsymbol(op.c, opb.c, only(op.c ⊗ opb.c))
                     bond = only(bond ⊗ op.c)
                     sites[j + 1] = ta.sites[j]
@@ -135,7 +135,7 @@ function couple(a::Terms{I}, b::Terms{I}; to = unit(I), via = nothing) where {I}
     isempty(b) && throw(ArgumentError("couple: second operand has no terms"))
     tot = to::I
 
-    out = _couple_terms(a, b, (_, _) -> tot)
+    out = couple_terms(a, b, (_, _) -> tot)
     isempty(out) &&
         throw(ArgumentError("couple: no pair of terms of the operands fuses to $tot"))
     return out
@@ -165,7 +165,7 @@ function _legcharges(b::Terms{I}, which::Int) where {I}
                 "couple: operand $which must be a single-site charged operator in every term"
             )
         )
-        c = only(t.keys).letter.c
+        c = only(t.factors).letter.c
         c in cs || push!(cs, c)
     end
     return cs
@@ -247,7 +247,7 @@ function couple(
 
     acc = a
     for i in 1:(length(others) - 1)
-        acc = _couple_terms(
+        acc = couple_terms(
             acc, others[i],
             (run, opb) -> _forcedchannel(run, opb.c, legs, i + 1, tot, starts, memo)
         )

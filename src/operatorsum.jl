@@ -63,7 +63,7 @@ opsum(lat::AbstractLattice, args...) = opsum!(OperatorSum(lat), args...)
 opsum(sites::AbstractVector{<:Basis}, args...) = opsum!(OperatorSum(sites), args...)
 
 _collect_op!(out, ch, t::Term{I}, ::Type{I}) where {I} = push!(out.terms, t)
-_collect_op!(out, ch, ts::Terms{I}, ::Type{I}) where {I} = _collect_terms!(out, ts, I)
+_collect_op!(out, ch, ts::Terms{I}, ::Type{I}) where {I} = collect_terms!(out, ts, I)
 function _collect_op!(out, ch, es::ExpSum{I}, ::Type{I}) where {I}
     for (k, v) in pairs(es.channels)
         setwith!(+, ch, k, v)
@@ -110,7 +110,7 @@ function _checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) whe
     N = maxsite(lat)
     seen = Dict{eltype(lat), Dict{I, Int}}()
     for t in terms
-        for (s, key) in zip(t.sites, t.keys)
+        for (s, key) in zip(t.sites, t.factors)
             (N === nothing || 1 <= s <= N) || throw(
                 ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
             )
@@ -143,7 +143,7 @@ function _checkchannels(lat::AbstractLattice, chans)
     for k in keys(chans)
         I = sectortype(k.term)
         letters = Letter{I}[l for (l, _) in k.string if l !== nothing]
-        lat isa FiniteChain && append!(letters, (key.letter for key in k.term.keys))
+        lat isa FiniteChain && append!(letters, (key.letter for key in k.term.factors))
         isempty(letters) && continue
         allequal(lat.sites) || throw(
             ArgumentError(

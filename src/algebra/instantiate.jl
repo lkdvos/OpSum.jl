@@ -20,7 +20,7 @@ function dense(ops, positions, tree, sites)
     return _embed_caterpillar(ops, positions, tree, sites)
 end
 
-dense(t::Term, sites) = dense(ops(t), t.sites, tree(t), sites)
+dense(t::Term, sites) = dense(letters(t), t.sites, tree(t), sites)
 
 # charged letter on site `p`, identities elsewhere, charge leg last in the domain (one factor of a written product)
 function embed_letter(op::Letter, p, sites)

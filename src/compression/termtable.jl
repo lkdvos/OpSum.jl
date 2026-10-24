@@ -6,7 +6,7 @@ using TensorKit: Sector, unit
 # (`sites` zero-padded, ascending) plus `coeffs`. The caterpillar's bond charges are its fusion tree.
 struct TermTable{I <: Sector}
     sites::Matrix{Int}
-    keys::Matrix{Factor{I}}
+    factors::Matrix{Factor{I}}
     coeffs::Vector{ComplexF64}
     nvertices::Int
 end
@@ -25,7 +25,7 @@ function TermTable(ts::Terms{I}, N::Integer) where {I}
     for (t, term) in enumerate(terms)
         for j in 1:arity(term)
             sitemat[j, t] = term.sites[j]
-            keymat[j, t] = term.keys[j]
+            keymat[j, t] = term.factors[j]
         end
     end
     return TermTable{I}(sitemat, keymat, ComplexF64[t.coeff for t in terms], Int(N))
@@ -39,9 +39,9 @@ function _factor_at(tt::TermTable{I}, t::Int, s::Int) where {I}
         st = tt.sites[j, t]
         st == 0 && break
         if st == s
-            return tt.keys[j, t]
+            return tt.factors[j, t]
         elseif st < s
-            lastbond = tt.keys[j, t].bond
+            lastbond = tt.factors[j, t].bond
         else
             break
         end
@@ -79,7 +79,7 @@ function _suffix_ids(tt::TermTable{I}) where {I}
     K, M = arity(tt), nterms(tt)
     sufid = zeros(Int, K + 1, M)      # row K+1 and every padded position stay 0 == exhausted
     intern = Dictionary{Tuple{Int, Factor{I}, Int}, Int}()
-    _intern_columns!(intern, sufid, tt, M, K, -1, (j, t, s) -> (s, tt.keys[j, t], sufid[j + 1, t]))
+    _intern_columns!(intern, sufid, tt, M, K, -1, (j, t, s) -> (s, tt.factors[j, t], sufid[j + 1, t]))
     return sufid
 end
 
@@ -89,7 +89,7 @@ function _prefix_ids(tt::TermTable{I}) where {I}
     K, M = arity(tt), nterms(tt)
     preid = zeros(Int, K + 1, M)      # row 1 stays 0 == the empty prefix
     intern = Dictionary{Tuple{Int, Int, Factor{I}}, Int}()
-    _intern_columns!(intern, preid, tt, M, K, 1, (j, t, s) -> (preid[j, t], s, tt.keys[j, t]))
+    _intern_columns!(intern, preid, tt, M, K, 1, (j, t, s) -> (preid[j, t], s, tt.factors[j, t]))
     return preid
 end
 
@@ -103,7 +103,7 @@ function _rel_suffix_ids(tt::TermTable{I}) where {I}
         intern, relid, tt, M, K, -1,
         function (j, t, s)
             nxt = j < K ? tt.sites[j + 1, t] : 0
-            return (iszero(nxt) ? 0 : nxt - s, tt.keys[j, t], relid[j + 1, t])   # gap 0 == last factor
+            return (iszero(nxt) ? 0 : nxt - s, tt.factors[j, t], relid[j + 1, t])   # gap 0 == last factor
         end
     )
     return relid

@@ -27,8 +27,9 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   `Basis` of one symmetry (`_checksites`). Operators are latticeless; the lattice enters only in `OperatorSum`.
   The sweep needs only `N`; letter validation, `adjoint`, `instantiate` and tensor assembly need the sites.
 * **Letters and bases** (`algebra/`): a letter `(c, n)` is the `n`-th element of charge `c` of the site's `Basis`;
-  `(unit, 1)` is the identity/pass-through (`ispassthrough`). `project(O, B)` expresses operators in a basis
-  (through the internal matrix-unit expansion `_project_units`); `instantiate(letter, B)` is its inverse.
+  `(unit, 1)` is the identity/pass-through (`ispassthrough`). A `Basis` is always complete, compared by identity, and owns its
+  dual elements, letter metric and letter-product table; `project(O, B)` takes overlaps with the dual elements
+  (`project_units` is the matrix-unit expansion used only in basis construction); `instantiate(letter, B)` is its inverse.
   Stock bases (`spin_basis`, `fermion_basis`, `boson_basis`, `hubbard_basis`, `tj_basis`) and builders
   (`spin_ops`, …, named after TensorKitTensors functions) live in `stockbases.jl` and are memoised.
 * **Terms** (`algebra/terms.jl`, `algebra/letters.jl`): `Term` = ascending sites, one `Factor` per site, coefficient; the
@@ -48,7 +49,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   lattice + `Terms` + `ExpSum` channels and validates on insertion (`_checkinsert`, `_checkchannels`). `mpo(H[, alg])`
   → `SymbolicMPO`; on a finite chain without channels the finish channel is forced into the cover (`_force_finish!`)
   so a Jordan form exists. `mpo_tensors`, `jordan_mpo_tensors` (BlockTensorKit, MPSKit layout) and
-  `instantiate(W)` (MPSKit extension, `ext/`) emit tensors. `H'` goes through dense blocks (`_adjoint_terms`).
+  `instantiate(W)` (MPSKit extension, `ext/`) emit tensors. `H'` goes through dense blocks (`adjoint_terms`).
 * **Infinite chains** (`infinite/`): `mpo` on an `InfiniteChain` unrolls a window, runs the same sweep and finds the
   translation-invariant cell (`_infinite_window`); the suffix canonicalisation (`_canonicalise_rights!`) is required
   for the cell to close. `expterm` channels (`src/expterms.jl`) lower to weighted automata: cyclic states are forced into
@@ -58,7 +59,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   (Van Damme et al., SciPost Phys. 17, 135); entries are `TaylorEntry` τ-polynomials, `evaluate(W, τ)` / `W(τ)` /
   `mpo_tensors(W, τ)` fix `τ` (`U ≈ exp(τH)`: imaginary time `τ = -β`, real time `τ = -it`). Abelian only
   (fermions included), non-abelian throws; the MPSKit extension adds `instantiate(W, τ)` and `make_time_mpo(…,
-  TaylorCluster)`. On-site products are coefficient arithmetic on per-basis structure constants (`_letter_product`,
+  TaylorCluster)`. On-site products are coefficient arithmetic on per-basis structure constants (`letter_product`,
   memoised per letter pair); the `N`-fold Kronecker power of the Jordan form is enumerated depth-first with a word trie
   so each distinct ordered product is computed once. Load-bearing: (1) the sign rule, each entry carries
   `∏_{k<m} R(q_k, bR_m)` (the `R(q_k, q_m)` part cancels the graded sign of the on-site product, the rest reorders

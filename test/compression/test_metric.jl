@@ -28,13 +28,13 @@ pairop(ts, B) = plain(instantiate(opsum(FiniteChain(B, 2), ts)))
     h, n = project(hop, F), project(num, F)
     Hf = opsum(FiniteChain(F, 3), h[1, 2], 0.5 * h[3, 1], 0.7 * n[2], -0.2 * n[1] * n[3])
     for (H, d) in ((Hs, 2), (Hf, 2))
-        metrics = [OpSum._lettermetric(H.lattice[s]) for s in 1:3]
-        ts = OpSum._orthonormal_terms(H.terms, metrics)
+        metrics = [H.lattice[s].metric for s in 1:3]
+        ts = OpSum.orthonormal_terms(H.terms, metrics)
         @test sum(t -> abs2(t.coeff), ts) ≈ norm(instantiate(H))^2 / d^3
     end
     # an orthonormal basis (the Paulis: dot(σ, σ) = dot(𝟙, 𝟙)) is left alone
     Xm, Ym, Zm = ComplexF64[0 1; 1 0], ComplexF64[0 -im; im 0], ComplexF64[1 0; 0 -1]
-    @test OpSum._lettermetric(Basis([Xm, Ym, Zm])) === nothing
+    @test Basis([Xm, Ym, Zm]).metric === nothing
 end
 
 @testset "a truncation does not depend on how the basis is written" begin

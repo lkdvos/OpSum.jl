@@ -161,7 +161,7 @@ function _resolve(p::PendingTerm{I}, lat::AbstractLattice) where {I}
     pos = Int[searchsortedfirst(U, s) for s in p.sites]
     Bs = [lat[u] for u in U]
     local_op = cached(_PRODUCT_CACHE, (pos, p.factors, Bs)) do
-        return _project_local(_written_block(p.factors, pos, Bs), Bs)
+        return project_local(_written_block(p.factors, pos, Bs), Bs)
     end
     return scale(local_op[U...], p.coeff).terms
 end

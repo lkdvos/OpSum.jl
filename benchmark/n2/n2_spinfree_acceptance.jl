@@ -69,7 +69,7 @@ end
 
 function basis_terms(lat, h, eri)
     terms, _ = Q.qchem_opsum_su2(h, eri)
-    rb = _rebasis(terms.terms, (t, j) -> lat[t.sites[j]]; placed = true).terms
+    rb = rebasis(terms, lat)
     cmax = maximum(t -> abs(t.coeff), rb)
     return opsum(lat, Terms(filter(t -> abs(t.coeff) > 1.0e-12 * cmax, rb)))
 end

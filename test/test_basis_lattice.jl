@@ -44,13 +44,14 @@ end
 end
 
 @testset "letters are checked against the site's basis" begin
-    small = Basis([Zmat])                                     # 𝟙, Z
-    big = Basis([Xmat, Ymat, Zmat])                           # 𝟙, X, Y, Z
+    small = Basis([Zmat])                                     # a qubit: 4 letters
+    big = Basis([ComplexF64[1 0 0; 0 0 0; 0 0 -1]])           # a qutrit: 9 letters
     @test opsum(FiniteChain(small, 2), project(Zmat, small)[1]) isa OperatorSum
-    # the letter of Y in `big` is (Trivial, 3), which `small` does not have
-    @test_throws ArgumentError opsum(FiniteChain(small, 2), project(Ymat, big)[1])
-    # a mismatch within range is not caught: X of `big`, (Trivial, 2), reads as Z
-    @test opsum(FiniteChain(small, 2), project(Xmat, big)[1]) isa OperatorSum
+    # the letter of |1⟩⟨3| in `big` is (Trivial, 8), which `small` does not have
+    E13 = ComplexF64[0 0 1; 0 0 0; 0 0 0]
+    @test_throws ArgumentError opsum(FiniteChain(small, 2), project(E13, big)[1])
+    # a mismatch within range is not caught: the letter (Trivial, 2) of `Basis([Xmat])` reads as Z
+    @test opsum(FiniteChain(small, 2), project(Xmat, Basis([Xmat]))[1]) isa OperatorSum
 end
 
 @testset "fermions on a chain of bases: dense, tensors and Jordan form" begin
@@ -85,9 +86,10 @@ end
     @test H' ≈ opsum(lat, -f.h′[1, 2], (0.3 - 0.2im) * f.n[2])
     @test plain(instantiate(H')) ≈ plain(instantiate(H))'
 
-    # a basis that is not closed under adjoints: S⁺ is atomic, S⁻ is not in the span
+    # bases are complete, so adjoints never leave them: S⁺ is atomic, S⁻ is a matrix-unit element
     A = Basis([Spmat])
-    @test_throws ArgumentError opsum(FiniteChain(A, 1), project(Spmat, A)[1])'
+    HA = opsum(FiniteChain(A, 1), project(Spmat, A)[1])
+    @test plain(instantiate(HA')) ≈ plain(instantiate(HA))'
 end
 
 @testset "mixed sites: vcat of bases on different spaces" begin
@@ -146,13 +148,13 @@ end
     @test all(haskey(got, t) for t in keys(exact) if maximum(first(t)) <= 4)
 
     # a channel's letters land on sites it does not name: they must mean the same operator there
-    Q = Basis([Xmat, Zmat])
-    x, z = project(Xmat, Q), project(Zmat, Q)
-    Z1 = Basis([Zmat])
+    Q = Basis([ComplexF64[1 0 0; 0 0 0; 0 0 -1]])                # a qutrit: 9 letters
+    z = project(ComplexF64[0 0 1; 0 0 0; 0 0 0], Q)             # |1⟩⟨3|: the letter (Trivial, 8)
+    Z1 = Basis([Zmat])                                          # a qubit: 4 letters
     @test_throws ArgumentError opsum(FiniteChain(vcat(Q, Z1, Q)), expterm(z[1] * z[2]; decay = λ))
     z1 = project(Zmat, Z1)
     @test opsum(InfiniteChain([Q, Z1]), expterm(z[1] * z1[2]; decay = λ)) isa OperatorSum
     @test_throws ArgumentError opsum(InfiniteChain([Q, Z1]), expterm(z[1] * z[3]; decay = λ, string = z))
-    # `z` is letter (unit, 3) of `Q`, which `Z1` lacks
+    # `z` is letter (unit, 8) of `Q`, which `Z1` lacks
     @test_throws ArgumentError opsum(InfiniteChain(Z1), expterm(z1[1] * z1[2]; decay = λ, string = z))
 end

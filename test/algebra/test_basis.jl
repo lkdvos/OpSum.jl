@@ -34,14 +34,29 @@ bonddim(H, b) = densedim(mpo(H).bondsectors, b)
 
     # without the identity given, it is still element 1
     B2 = Basis([Zmat, Xmat])
-    @test length(B2) == 3
+    @test length(B2) == 4                        # completed by matrix units
     @test plain(B2[1]) ≈ id(ℂ^2)
     @test plain(B2[2]) ≈ TensorMap(Zmat, ℂ^2 ← ℂ^2)
 
     @test_throws ArgumentError Basis([Xmat, Ymat, Xmat + Ymat])   # dependent
     @test_throws ArgumentError Basis([Xmat, 2Imat + Zmat, Imat - Zmat])
-    @test length(Basis([Xmat, 2Xmat])) == 2                        # parallel: deduplicated
+    @test length(Basis([Xmat, 2Xmat])) == 4                        # parallel: deduplicated, then completed
+    B3 = Basis([Xmat])
+    @test B3 == B3 && hash(B3) == hash(B3)
+    @test B3 != Basis([Xmat])                                      # equality is identity
     @test_throws ArgumentError Basis(Any[])
+end
+
+@testset "a basis is complete and stores its dual elements" begin
+    V = ℂ^2
+    # the elements alone span 𝟙 and Z only
+    idel = OpSum.identityelement(V)
+    @test_throws ArgumentError OpSum.basis_from_elements(V, [idel])
+    for B in (Basis([Xmat, Zmat]), Basis([Imat, Spmat, Smmat, Zmat + Imat]), spin_basis(U1Irrep; spin = 1), spin_basis(SU2Irrep; spin = 3 // 2))
+        for (c, ks) in pairs(B.bycharge), (n, k) in enumerate(ks), (m, j) in enumerate(ks)
+            @test dot(OpSum.dualelement(Letter(c, n), B), B[j]) ≈ (k == j ? 1 : 0) atol = 1.0e-12
+        end
+    end
 end
 
 @testset "factorising a pair is canonical, also for equal singular values" begin
@@ -50,7 +65,7 @@ end
     V = ℂ^2
     XXYY = TensorMap(kron(Xmat, Xmat) + kron(Ymat, Ymat), V ⊗ V ← V ⊗ V)
     B = Basis([XXYY])
-    @test length(B) == 3
+    @test length(B) == 4                         # 𝟙, S⁺, S⁻ and a matrix unit to complete it
     @test plain(B[2]) ≈ TensorMap(Spmat, V ← V)
     @test plain(B[3]) ≈ TensorMap(Smmat, V ← V)
     xy = project(XXYY, B)
@@ -77,8 +92,10 @@ end
     Z = project(Zmat, A)
     @test Z ≈ -1 * passthrough(Trivial) + 1 * Letter(Trivial(), 4)
 
-    # outside the span
-    @test_throws ArgumentError project(Xmat, Basis([Zmat]))
+    # a basis is complete, so there is no "outside the span"
+    Zb = Basis([Zmat])
+    @test plain(instantiate(project(Xmat, Zb), Zb)) ≈ TensorMap(Xmat, ℂ^2 ← ℂ^2)
+    # (but the space and size must fit)
     @test_throws ArgumentError project(ones(3, 3), B)
     @test_throws ArgumentError project(TensorMap(Xmat, ℂ^2 ← ℂ^2), Basis([Xmat[1:1, 1:1]]))
 end

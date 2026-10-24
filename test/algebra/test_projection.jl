@@ -2,7 +2,7 @@ using Test
 using OpSum
 using OpSum: project, instantiate, scalarop, couple, mpo, opsum, FiniteChain,
     mpo_tensors, mpo_terms, Term, Terms, total, letters, tree, bondcharges,
-    caterpillar_trees, _project_units
+    caterpillar_trees, project_units
 using OpSum: Letter
 using TensorKit
 using TensorKit: @tensor, insertrightunit, removeunit
@@ -11,9 +11,9 @@ using LinearAlgebra: dot, norm
 
 include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, onlyterm, physmatrix, unitbasis, spinvector, ...
 
-# The basis-free expansion in matrix units is internal (`_project_units`); the tests of its mechanics
+# The basis-free expansion in matrix units is internal (`project_units`); the tests of its mechanics
 # call it through these two helpers: expand and place on `sites`, and rebuild densely on spaces `Vs`.
-pu(h, sites; kw...) = _project_units(h; kw...)[sites...]
+pu(h, sites; kw...) = project_units(h; kw...)[sites...]
 inst(ts, Vs) = OpSum.dense(ts, Vs)
 spinvec(V) = spinvector(unitbasis(V))
 # dense operator of `H` (letters in `unitbasis(V)`) on `N` sites of `V`
@@ -341,9 +341,9 @@ end
     @test length(pu(h, [1, 2]; rtol = 1.0e-4)) == 1    # truncated away
     @test length(pu(h, [1, 2]; atol = 1.0e-4)) == 1
 
-    # dropping enough weight that the reconstruction is unfaithful is an error
+    # a tolerance is the caller's choice: a large one drops real weight, and nothing checks the result
     hrand = randn(ComplexF64, ℂ^2 ⊗ ℂ^2 ← ℂ^2 ⊗ ℂ^2)
-    @test_throws ArgumentError pu(hrand, [1, 2]; rtol = 0.5)
+    @test length(pu(hrand, [1, 2]; rtol = 0.5)) < length(pu(hrand, [1, 2]))
 
     # a zero operator projects to an empty term bag rather than throwing
     @test isempty(pu(zero(h), [1, 2]))
@@ -361,9 +361,9 @@ end
     @test convert(Array, instantiate(opsum(FiniteChain(B, 1), project(h, B)[1, 1])))[:, :, 1] ≈
         0.75 * ComplexF64[1 0; 0 1]
     @test_throws ArgumentError project(h, B)[1, 2, 3]            # wrong index count
-    @test_throws ArgumentError _project_units(randn(ComplexF64, V ← V ⊗ V ⊗ V))   # numin ∉ (K, K+1)
-    @test_throws ArgumentError _project_units(randn(ComplexF64, V ← V ⊗ Vect[SU2Irrep](SU2Irrep(1) => 2)))
-    @test_throws ArgumentError _project_units(randn(ComplexF64, V ← V ⊗ Vect[SU2Irrep](SU2Irrep(0) => 1, SU2Irrep(1) => 1)))
-    @test_throws ArgumentError _project_units(randn(ComplexF64, V ← V'))          # domain ≠ codomain
-    @test_throws ArgumentError _project_units(zeros(Float64, ℝ^2 ← ℝ^2))          # wrong space type
+    @test_throws ArgumentError project_units(randn(ComplexF64, V ← V ⊗ V ⊗ V))   # numin ∉ (K, K+1)
+    @test_throws ArgumentError project_units(randn(ComplexF64, V ← V ⊗ Vect[SU2Irrep](SU2Irrep(1) => 2)))
+    @test_throws ArgumentError project_units(randn(ComplexF64, V ← V ⊗ Vect[SU2Irrep](SU2Irrep(0) => 1, SU2Irrep(1) => 1)))
+    @test_throws ArgumentError project_units(randn(ComplexF64, V ← V'))          # domain ≠ codomain
+    @test_throws ArgumentError project_units(zeros(Float64, ℝ^2 ← ℝ^2))          # wrong space type
 end

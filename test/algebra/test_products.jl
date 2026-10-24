@@ -113,8 +113,8 @@ end
 
     # the SU(2) Hubbard site: Σσ a†σ aσ on one site is n
     @test dense(lath, E[1, 1]) ≈ dense(lath, nh[1])
-    # a·n on one site is the second spinor element, which this basis lacks: resolving it throws
-    @test_throws ArgumentError opsum(lath, E[1, 2] * E[2, 2])
+    # a·n on one site is an element the defining operators lack, but the basis is complete: it resolves
+    @test dense(lath, E[1, 2] * E[2, 2]) ≈ dense(lath, E[1, 2]) * dense(lath, E[2, 2])
 end
 
 # Re-coupling oracle: the written-order caterpillar materialised by `_written_block`, against the site-order terms.

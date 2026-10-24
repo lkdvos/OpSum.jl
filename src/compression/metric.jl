@@ -1,21 +1,21 @@
 # Metric of a truncating SVD. The SVD backends treat a site's letters as orthonormal, which a `Basis`
 # need not satisfy, so terms are rewritten over per-charge orthonormalised letters, compressed, and
 # each site entry mapped back. The Hilbert–Schmidt norm of a caterpillar term factorises per site, so the
-# per-charge Gram matrix is `G_c[n, m] = dot(eₙ, eₘ) / (dim(c) · dot(𝟙, 𝟙))`. With `G_c = A'A` (Cholesky),
-# letter `(c, n)` is `Σ_{m ≤ n} A[m, n] (c, m)` and the orthonormal `(c, m)` is `Σ_{n ≤ m} A⁻¹[n, m] (c, n)`;
-# the identity is element 1 with `A[1, 1] = 1`, so pass-throughs are untouched.
+# per-charge Gram matrix is `G_c[n, m] = dot(eₙ, eₘ) / (dim(c) · dot(𝟙, 𝟙))` (`lettermetric`, stored in
+# the `Basis`). With `G_c = A'A` (Cholesky), letter `(c, n)` is `Σ_{m ≤ n} A[m, n] (c, m)` and the
+# orthonormal `(c, m)` is `Σ_{n ≤ m} A⁻¹[n, m] (c, n)`; the identity is element 1 with `A[1, 1] = 1`, so
+# pass-throughs are untouched.
 
 using LinearAlgebra: cholesky, Hermitian, UpperTriangular
 
-# Per charge of one site: `(A, A⁻¹)`, or `nothing` when the letters are already orthonormal.
-function _lettermetric(B::Basis{I}) where {I}
-    T1 = instantiate(passthrough(I), B)
-    z = real(dot(T1, T1))
+# Per charge of one site: `(A, A⁻¹)`, or `nothing` when the letters are already orthonormal. Computed from
+# the per-charge Gram matrices when a `Basis` is built, and stored in it (`B.metric`).
+function lettermetric(grams::Dictionary{I, Matrix{ComplexF64}}) where {I}
+    z = real(grams[unit(I)][1, 1])    # ⟨𝟙, 𝟙⟩, the identity being element 1
     out = Dictionary{I, NTuple{2, Matrix{ComplexF64}}}()
     trivial = true
-    for (c, idx) in pairs(B.bycharge)
-        Ts = [instantiate(Letter(c, n), B) for n in eachindex(idx)]
-        G = ComplexF64[dot(a, b) for a in Ts, b in Ts] ./ (dim(c) * z)
+    for (c, Gc) in pairs(grams)
+        G = Gc ./ (dim(c) * z)
         # exact zeros where elements are orthogonal, so `A` keeps their structure
         θ = 1.0e-13 * maximum(abs, G)
         G[abs.(G) .< θ] .= 0
@@ -27,7 +27,7 @@ function _lettermetric(B::Basis{I}) where {I}
 end
 
 # `ts` over the orthonormal letters (`metrics[s]` for site `s`); identity components are dropped.
-function _orthonormal_terms(ts::Terms{I}, metrics) where {I}
+function orthonormal_terms(ts::Terms{I}, metrics) where {I}
     out = Term{I}[]
     for t in ts
         choices = map(t.sites, t.factors) do s, key
@@ -73,12 +73,11 @@ end
 
 # `_sweep_channels` in the orthonormal letters, entries mapped back to each site's basis; `nothing`
 # when every site is already orthonormal.
-function _compress_in_metric(tt_terms::Terms{I}, lat::FiniteChain, strategy) where {I}
+function compress_in_metric(tt_terms::Terms{I}, lat::FiniteChain, strategy) where {I}
     N = length(lat)
-    bymetric = IdDict{Any, Any}()
-    metrics = [get!(() -> _lettermetric(lat[s]), bymetric, lat[s]) for s in 1:N]
+    metrics = [lat[s].metric for s in 1:N]
     all(isnothing, metrics) && return nothing
-    tt = TermTable(_orthonormal_terms(tt_terms, metrics), N)
+    tt = TermTable(orthonormal_terms(tt_terms, metrics), N)
     Ws, secs, start, finish = _sweep_channels(tt, nvertices(tt), strategy)
     for (s, W) in enumerate(Ws)
         metrics[s] === nothing && continue

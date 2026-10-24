@@ -12,12 +12,13 @@
 # The terms come from `opsum_qchem_su2.jl` (MPSKitExperimental.jl, PR maartenvd/MPSKitExperimental.jl#1),
 # which writes them in matrix-unit letters on its own site space `U₁ ⊠ SU₂ ⊠ fℤ₂`. The basis is built on
 # that same space from neutral pairs written with the same machinery, so both share its conventions,
-# and the terms are re-expressed in it letter by letter (`OpSum._rebasis`), which is exact because the
+# and the terms are re-expressed in it letter by letter (`rebasis` below), which is exact because the
 # basis spans every operator on the site.
 
 using OpSum, TensorKit, LinearAlgebra, Printf
-using OpSum: Term, Terms, _rebasis
+using OpSum: Term, Terms
 using TensorKit: removeunit, numind
+using VectorInterface: scale
 
 const EXP = get(ENV, "MPSKITEXPERIMENTAL", "/mnt/home/ldevos/Projects/MPSKitExperimental.jl")
 include(joinpath(EXP, "examples", "opsum_qchem_su2.jl"))
@@ -84,6 +85,23 @@ function qchem_basis()
     )
 end
 
+# `terms` (matrix-unit letters on the site spaces) re-expressed in the bases of `lat`: each distinct block of
+# letters is materialised and projected once (the basis is complete, so it is exact).
+function rebasis(terms::Terms{I}, lat) where {I}
+    cache = Dict{Any, Any}()
+    out = Term{I}[]
+    for t in terms.terms
+        K = length(t.sites)
+        Bs = [lat[s] for s in t.sites]
+        loc = get!(cache, (t.factors, Bs)) do
+            blk = OpSum.dense(Term{I}(collect(1:K), t.factors, one(ComplexF64)), [TensorKit.space(B) for B in Bs])
+            return OpSum.project_local(blk, Bs)
+        end
+        append!(out, scale(loc[t.sites...], t.coeff).terms)
+    end
+    return out
+end
+
 centre(secs, b) = (length(secs[b]), sum(dim, secs[b]))
 
 function run(which)
@@ -96,7 +114,7 @@ function run(which)
     B = qchem_basis()
     @printf "basis: %s\n" B
     lat = FiniteChain(B, N)
-    rb = _rebasis(terms.terms, (t, j) -> lat[t.sites[j]]; placed = true).terms
+    rb = rebasis(terms, lat)
     # different matrix-unit tuples land on the same basis term and cancel to round-off there
     cmax = maximum(t -> abs(t.coeff), rb)
     Hb = opsum(lat, Terms(filter(t -> abs(t.coeff) > 1.0e-12 * cmax, rb)))

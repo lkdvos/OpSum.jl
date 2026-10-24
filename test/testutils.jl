@@ -52,7 +52,7 @@ function unitbasis(V::ElementarySpace)
             OpSum.matrixunit(mu, V) for mu in OpSum.matrixunits(V)
                 if !(mu.c == unit(I) && mu.n <= 2)    # n = 1 is the identity itself
         ]
-        OpSum._basis_from_elements(V, [idel; units])
+        OpSum.basis_from_elements(V, [idel; units])
     end
 end
 

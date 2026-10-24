@@ -4,15 +4,13 @@ using TensorKit: ElementarySpace, Sector, sectortype, dual, removeunit
 
 # No symbolic adjoint (a letter's adjoint carries the dual charge; the caterpillar coupler over dual
 # charges is B-symbol data): materialise the term's `K`-site block, adjoint it, `project` it back.
-# Memoised per distinct `(keys, spaces)`.
+# Memoised per distinct `(factors, bases)`: the key is the shape of a term together with the bases of its sites,
+# so it is per term and lattice, not per basis, and stays here rather than in the `Basis`.
 
 const _ADJOINT_CACHE = Dict{Any, Any}()
 
-# a `K`-site block projected slot-wise into the sites' bases (throws outside their span)
-_project_local(h, Bs::AbstractVector{<:Basis{I}}) where {I} = LocalOperator{I}(_project_terms(h, Bs), length(Bs))
-
 # Behind `adjoint(::OperatorSum)`; total charge must be `unit(I)`, since a charged adjoint carries the dual.
-function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
+function adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
     out = Term{I}[]
     for t in h
         K = arity(t)
@@ -30,7 +28,7 @@ function _adjoint_terms(h::Terms{I}, lat::AbstractLattice) where {I}
         Vs = [lat[s] for s in t.sites]
         local_adj = cached(_ADJOINT_CACHE, (t.factors, Vs)) do
             blk = dense(Term{I}(collect(1:K), t.factors, ComplexF64(1)), Vs)
-            return _project_local(removeunit(blk, 2K + 1)', Vs)
+            return project_local(removeunit(blk, 2K + 1)', Vs)
         end
         # placement drops the identity slots a basis projection can produce
         append!(out, scale(local_adj[t.sites...], conj(t.coeff)).terms)

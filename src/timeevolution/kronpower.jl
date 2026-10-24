@@ -1,6 +1,6 @@
 # The N-fold Kronecker power of an MPO tensor, entirely symbolic. An entry of `W^{⊗N}` is the ordered
 # on-site product of the `N` layer entries it stacks, so the power is built from structure constants
-# (`_mul`) and never contracts a tensor. With the layers read as `H · H ⋯ H` the power MPO represents `H^N`.
+# (`site_product`) and never contracts a tensor. With the layers read as `H · H ⋯ H` the power MPO represents `H^N`.
 #
 # Conventions
 #
@@ -10,7 +10,7 @@
 #   * Sign. A layer entry is coupled `κ(bL ⊗ q → bR)`, running bond first. Stacking the layers, the letter of
 #     layer `k` at site `j` passes the letters of every later layer `m > k` at the sites to its left, whose
 #     total charge is the running bond charge `bL_m`: that costs `R(q_k, bL_m)`, the plain reordering of
-#     letter leg `k` past bond leg `m`. On top of that, `_letter_product` carries the graded sign
+#     letter leg `k` past bond leg `m`. On top of that, `letter_product` carries the graded sign
 #     `(-1)^{p(x)p(y)}` of the placed-operator `*` for two fermion-odd letters, and `R(q_k, q_m)` is `-1`
 #     exactly then, so it cancels that sign. The entry therefore carries
 #     `∏_{k<m} R(q_k, bL_m) R(q_k, q_m) = ∏_{k<m} R(q_k, bR_m)`: `q_k` the letter charge of entry `k`, `bR_m`
@@ -29,7 +29,7 @@
 using SparseArrays: SparseMatrixCSC, sparse
 using TensorKit: Sector, BraidingStyle, Bosonic, Rsymbol, dual, ⊗
 
-# Counters of one `_mpo_power`: `_mul` calls (one per distinct active word of length ≥ 2) and stored entries.
+# Counters of one `_mpo_power`: `site_product` calls (one per distinct active word of length ≥ 2) and stored entries.
 mutable struct PowerStats
     nmul::Int
     nentries::Int
@@ -154,7 +154,7 @@ function _extend_word!(ks::KronSite, node::Int, id::Int)
             push!(ks.prods, ks.ops[id])
         else
             ks.stats.nmul += 1
-            P = _mul(ks.basis, ks.prods[node], ks.ops[id])
+            P = site_product(ks.basis, ks.prods[node], ks.ops[id])
             isempty(P) && return 0
             push!(ks.prods, P)
         end

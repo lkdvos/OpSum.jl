@@ -149,8 +149,7 @@ Two keywords add terms of order `τ^{N+1}` to the same construction:
 On an [`InfiniteChain`](@ref) `H` is a generating set as in [`mpo`](@ref); the MPO is that of the unit cell.
 Needs the total charge of `H` to be `unit`, an abelian symmetry, and, on a finite chain, no exponentially
 decaying channels, like [`jordan_mpo_tensors`](@ref). Every on-site product of letters is expanded in the
-site's basis, so the basis must be closed under products (a complete basis, e.g. `Basis(ops; complete = true)`);
-otherwise this throws `project: the operator is not in the span of the basis`.
+site's basis, which is complete, so no product leaves it.
 """
 function taylor_mpo(W::SymbolicMPO, N::Integer; extension::Bool = true, compression::Bool = false)
     passes = Function[]

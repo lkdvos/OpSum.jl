@@ -1,34 +1,47 @@
 # Explicit on-site operator bases: a letter `(c, n)` names the `n`-th element of charge `c` of a
-# `Basis`. The identity is always element 1, the letter the sweep uses for pass-throughs. Only
-# `instantiate` interprets letters. Design note: `research/operator-bases.md` §3.
-
-# Explicit on-site operator bases: a letter `(c, n)` names the `n`-th element of charge `c`; the
-# identity is element 1 (the pass-through letter). Only `instantiate` interprets letters.
+# `Basis`; the identity is element 1 (the pass-through letter). A `Basis` is always complete, so every
+# operator on the site has coordinates in it, and it owns everything that depends on the basis alone:
+# the dual elements `project` takes overlaps with, the letter metric of the SVD backends, the lazily
+# filled table of on-site letter products. `instantiate` is the inverse of `project` (projection.jl).
 
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, space,
-    isomorphism, ComplexSpace, Trivial, dual, sectors
+    isomorphism, ComplexSpace, Trivial, dual, sectors, fuse
 using LinearAlgebra: LinearAlgebra, Hermitian, eigvals, norm
 
 """
-    Basis(ops::AbstractVector; atol = 0, rtol = 1e-12, complete = false)
+    Basis(ops::AbstractVector; atol = 0, rtol = 1e-12)
 
-An ordered basis of on-site operators on one space `V`: the alphabet that [`project`](@ref) expresses
-operators in. Each entry of `ops` is a charge-neutral operator `V ← V` (or a plain matrix, without
-symmetry), used as an element, or `V ⊗ V ← V ⊗ V`, factorised into its charged single-site pieces
-(for `S⁺ ⊗ S⁻` the pieces `S⁺` and `S⁻`).
+A complete, ordered basis of on-site operators on one space `V`: the alphabet that [`project`](@ref)
+expresses operators in. Each entry of `ops` is a charge-neutral operator `V ← V` (or a plain matrix,
+without symmetry), used as an element, or `V ⊗ V ← V ⊗ V`, factorised into its charged single-site
+pieces (for `S⁺ ⊗ S⁻` the pieces `S⁺` and `S⁻`).
 
-Element 1 is the identity; single-site entries follow in the order given, then the factorised pieces.
-An entry parallel to an earlier element of its charge is dropped; the elements of one charge must be
-linearly independent (checked) but need not be orthogonal. `project` throws for an operator outside
-the span. With `complete = true` the basis is extended by matrix units to span every operator on `V`.
+Element 1 is the identity; single-site entries follow in the order given, then the factorised pieces,
+then the matrix units that complete the basis to span every operator on `V`. An entry parallel to an
+earlier element of its charge is dropped; the entries of one charge must be linearly independent
+(checked) but need not be orthogonal; the matrix units already spanned are skipped.
+
+`project` takes the overlap of an operator with the dual elements stored in the basis (the elements
+`ẽₖ` of the same charge with `⟨ẽₖ, eₘ⟩ = δₖₘ`), which is why a basis is checked for completeness when it
+is built.
+
+Two bases are equal only if they are the same object: `==` is `===` and `hash` goes by identity. The
+stock bases ([`spin_basis`](@ref), …) are memoised, so calling a builder twice returns the identical
+object, and the sites of a lattice are told apart by identity.
 """
-struct Basis{I <: Sector, S <: ElementarySpace, T <: AbstractTensorMap}
+mutable struct Basis{I <: Sector, S <: ElementarySpace, T <: AbstractTensorMap}
     space::S
     elements::Vector{T}                        # basis order; `elements[1]` is the identity
-    letters::Vector{Letter{I}}          # the letter of each element
+    duals::Vector{T}                           # `duals[k]`: dual to `elements[k]` within its charge
+    letters::Vector{Letter{I}}                 # the letter of each element
     bycharge::Dictionary{I, Vector{Int}}       # element positions per charge, in index order
-    pinv::Dictionary{I, Matrix{ComplexF64}}    # per charge: matrix-unit coefficients → basis ones
+    norms::Vector{Float64}                     # `norm(elements[k])`
+    metric::Union{Nothing, Dictionary{I, NTuple{2, Matrix{ComplexF64}}}}   # see `lettermetric`
+    products::Dict{Tuple{Letter{I}, Letter{I}}, SiteOperator{I}}           # filled lazily, letterproducts.jl
 end
+
+Base.:(==)(a::Basis, b::Basis) = a === b
+Base.hash(B::Basis, h::UInt) = hash(objectid(B), h)
 
 TensorKit.space(B::Basis) = B.space
 TensorKit.sectortype(::Type{<:Basis{I}}) where {I} = I
@@ -44,7 +57,7 @@ end
 scalarop(c::Number, B::Basis) = scalarop(c, sectortype(B))
 
 # `charge => number of letters`, what `_checklattice` validates letters against
-_alphabet(B::Basis{I}, ::Type{I}) where {I} = Dict{I, Int}(c => length(ks) for (c, ks) in pairs(B.bycharge))
+alphabet(B::Basis{I}, ::Type{I}) where {I} = Dict{I, Int}(c => length(ks) for (c, ks) in pairs(B.bycharge))
 
 """
     instantiate(op::Letter, B::Basis)
@@ -54,11 +67,18 @@ The element of `B` that the letter `op` names, `V ← V ⊗ Vect[I](c => 1)`, or
 `Σ coeff · element` of a symbolic on-site operator (whose letters must share one charge).
 """
 function instantiate(op::Letter{I}, B::Basis{I}) where {I}
+    return B.elements[_position(op, B)]
+end
+
+# The dual element of the letter: `⟨dualelement(l, B), instantiate(m, B)⟩ = δ_lm` for letters of one charge.
+dualelement(op::Letter{I}, B::Basis{I}) where {I} = B.duals[_position(op, B)]
+
+function _position(op::Letter{I}, B::Basis{I}) where {I}
     ks = get(B.bycharge, op.c, nothing)
     (ks === nothing || !(1 <= op.n <= length(ks))) && throw(
         ArgumentError("letter $op does not exist in the basis $B")
     )
-    return B.elements[ks[op.n]]
+    return ks[op.n]
 end
 
 _space(B::Basis) = space(B)
@@ -77,11 +97,11 @@ end
 # ----------------
 
 # `elems` followed by every matrix unit on `V`.
-_completed_elements(V, elems) = AbstractTensorMap[elems; [matrixunit(mu, V) for mu in matrixunits(V)]]
+completed_elements(V, elems) = AbstractTensorMap[elems; [matrixunit(mu, V) for mu in matrixunits(V)]]
 
-_identityelement(V) = isomorphism(ComplexF64, V ← V ⊗ Vect[sectortype(V)](unit(sectortype(V)) => 1))
+identityelement(V) = isomorphism(ComplexF64, V ← V ⊗ Vect[sectortype(V)](unit(sectortype(V)) => 1))
 
-function Basis(ops::AbstractVector; atol::Real = 0, rtol::Real = 1.0e-12, complete::Bool = false)
+function Basis(ops::AbstractVector; atol::Real = 0, rtol::Real = 1.0e-12)
     isempty(ops) && throw(ArgumentError("Basis: needs at least one operator to fix the space"))
     tensors = map(ops) do t
         t isa AbstractMatrix || return t
@@ -112,17 +132,57 @@ function Basis(ops::AbstractVector; atol::Real = 0, rtol::Real = 1.0e-12, comple
     end
     pieces = AbstractTensorMap[]
     for h in pairs_
-        append!(pieces, _factorise_pair(h; atol, rtol))
+        append!(pieces, factorise_pair(h; atol, rtol))
     end
-    B = _basis_from_elements(V, [_identityelement(V); singles; pieces]; rtol)
-    complete || return B
-    return _basis_from_elements(V, _completed_elements(V, B.elements); rtol, skipdependent = true)
+    # the given operators first, on their own: parallel ones are dropped, dependent ones throw
+    kept, _, bycharge = _select_elements(V, [identityelement(V); singles; pieces]; rtol)
+    _gramblocks(kept, bycharge, rtol)
+    return basis_from_elements(V, completed_elements(V, kept); rtol, skipdependent = true)
 end
 
-# Charged elements (the first the identity) → `Basis`: group by charge, drop elements parallel to an
-# earlier one, check independence, precompute the projector from matrix-unit coefficients. With
+# Charged elements (the first the identity) → complete `Basis`: group by charge, drop elements parallel to
+# an earlier one, check independence and completeness, precompute the dual elements and the metric. With
 # `skipdependent` an element in the span of the earlier ones of its charge is dropped instead of throwing.
-function _basis_from_elements(
+function basis_from_elements(
+        V::ElementarySpace, elems::AbstractVector; rtol::Real = 1.0e-12, skipdependent::Bool = false
+    )
+    I = sectortype(V)
+    kept, letters, bycharge = _select_elements(V, elems; rtol, skipdependent)
+    W = fuse(V ⊗ V')
+    for c in sectors(W)
+        n = length(get(bycharge, c, Int[]))
+        n == dim(W, c) || throw(
+            ArgumentError(
+                "Basis: the elements of charge $c span $n of the $(dim(W, c)) dimensions of the " *
+                    "operators of that charge on $V; a basis must be complete"
+            )
+        )
+    end
+    grams = _gramblocks(kept, bycharge, rtol)
+    duals = similar(kept)
+    for (c, ks) in pairs(bycharge)
+        G = grams[c]
+        Ginv = Matrix(inv(Hermitian(G)))
+        # round-off from the inversion would otherwise become letters with ~1e-16 coefficients, each of
+        # which costs the sweep a term
+        for a in axes(Ginv, 1), b in axes(Ginv, 2)
+            abs(Ginv[a, b]) <= rtol * sqrt(abs(Ginv[a, a] * Ginv[b, b])) && (Ginv[a, b] = 0)
+        end
+        for (j, k) in enumerate(ks)
+            d = zero(kept[k])
+            for (i, m) in enumerate(ks)
+                iszero(Ginv[i, j]) || (d += Ginv[i, j] * kept[m])
+            end
+            duals[k] = d
+        end
+    end
+    norms = Float64[norm(e) for e in kept]
+    return Basis{I, typeof(V), eltype(kept)}(
+        V, kept, duals, letters, bycharge, norms, lettermetric(grams), Dict{Tuple{Letter{I}, Letter{I}}, SiteOperator{I}}()
+    )
+end
+
+function _select_elements(
         V::ElementarySpace, elems::AbstractVector; rtol::Real = 1.0e-12, skipdependent::Bool = false
     )
     I = sectortype(V)
@@ -131,7 +191,7 @@ function _basis_from_elements(
         copy!(x, e)
         return x
     end
-    first(els) ≈ _identityelement(V) ||
+    first(els) ≈ identityelement(V) ||
         invariant_violation("the first element of a basis must be the identity")
     kept = similar(els, 0)
     letters = Letter{I}[]
@@ -157,12 +217,14 @@ function _basis_from_elements(
         push!(letters, Letter{I}(c, length(ks)))
     end
     filter!(!isempty, bycharge)    # a charge whose only candidates were dropped
-    pinv = Dictionary{I, Matrix{ComplexF64}}()
+    return kept, letters, bycharge
+end
+
+# Per charge, the Gram matrix `G[k, m] = ⟨eₖ, eₘ⟩` of the elements; throws if they are linearly dependent.
+function _gramblocks(kept, bycharge::Dictionary{I}, rtol::Real) where {I}
+    grams = Dictionary{I, Matrix{ComplexF64}}()
     for (c, ks) in pairs(bycharge)
-        mus = _chargeunits(V, c)
-        # `A[m, k]`: coefficient of element `k` on matrix unit `m` (the matrix units are orthonormal)
-        A = ComplexF64[inner(matrixunit(mu, V), kept[k]) for mu in mus, k in ks]
-        G = A' * A
+        G = ComplexF64[inner(kept[k], kept[m]) for k in ks, m in ks]
         λ = eigvals(Hermitian(G))
         minimum(λ) > rtol * maximum(λ) || throw(
             ArgumentError(
@@ -170,13 +232,9 @@ function _basis_from_elements(
                     "drop the redundant operator"
             )
         )
-        P = G \ A'
-        # round-off from the solve would otherwise become letters with ~1e-16 coefficients, each of
-        # which costs the sweep a term
-        P[abs.(P) .<= rtol * maximum(abs, P)] .= 0
-        insert!(pinv, c, P)
+        insert!(grams, c, G)
     end
-    return Basis{I, typeof(V), eltype(kept)}(V, kept, letters, bycharge, pinv)
+    return grams
 end
 
 # The matrix-unit letters of charge `c` on `V`.
@@ -186,12 +244,12 @@ _chargeunits(V, c) = filter(mu -> mu.c == c, matrixunits(V))
 # the left factor, `M[a, b]` is the coefficient on the matrix units `eₐ ⊗ e_b` and `M = C R` with `C` the
 # pivot columns of `M` and `R` its reduced row echelon form; the pieces are the columns of `C` and rows
 # of `R`, each scaled so its first entry above `rtol` is 1 (`S⁺ ⊗ S⁻ + S⁻ ⊗ S⁺` gives `S⁺`, `S⁻`, not a
-# mixture). `project` puts the scale back as the pair's coefficient.
-function _factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = 1.0e-12)
+# mixture). The scale is put back as the pair's coefficient by `project`.
+function factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = 1.0e-12)
     V = codomain(h)[1]
     I = sectortype(V)
     bych = Dictionary{I, Vector{Term{I}}}()
-    for t in _project_units(h; atol).terms.terms
+    for t in project_units(h; atol).terms.terms
         push!(get!(bych, t.factors[1].letter.c, Term{I}[]), t)
     end
     blocks = map(sort!(collect(keys(bych)))) do c
@@ -237,96 +295,4 @@ function _leadingone(v::AbstractVector, rtol::Real)
     vmax = maximum(abs, v)
     w = map(x -> abs(x) > rtol * vmax ? x : zero(x), v)
     return w / w[findfirst(!iszero, w)]
-end
-
-# Projection into a basis
-# -----------------------
-
-"""
-    project(O, B::Basis; atol = 0, rtol = 100eps) -> SiteOperator     # O : V ← V, or a matrix
-    project(h, B::Basis; atol = 0, rtol = 100eps) -> LocalOperator    # h : V^⊗K ← V^⊗K, K ≥ 2
-    project(h, Bs::AbstractVector{<:Basis}; …)                        # slot j in Bs[j]
-
-Express an operator in the basis `B`: a [`SiteOperator`](@ref) for one site, an unplaced
-[`LocalOperator`](@ref) for `K` sites (placed with `h[i]` or `h[s₁, …, s_K]`). A slot a term does not
-act on holds the identity, which placement drops. An operator outside the span of `B` throws; a trailing
-total-charge leg is accepted as in [`project`](@ref)`(h)`.
-"""
-function project(O::AbstractMatrix, B::Basis; kwargs...)
-    V = B.space
-    sectortype(V) === Trivial || throw(
-        ArgumentError("project: a plain matrix needs a basis without symmetry, got one on $V")
-    )
-    size(O) == (dim(V), dim(V)) || throw(
-        ArgumentError("project: a $(size(O)) matrix does not act on $V")
-    )
-    return project(TensorMap(ComplexF64.(O), V ← V), B; kwargs...)
-end
-
-project(h::AbstractTensorMap, B::Basis; kwargs...) = project(h, fill(B, numout(h)); kwargs...)
-
-function project(h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; kwargs...) where {I}
-    out = _project_terms(h, Bs; kwargs...)
-    K = length(Bs)
-    K == 1 || return LocalOperator{I}(out, K)
-    ts = out.terms
-    return SiteOperator{I}(Letter{I}[only(t.factors).letter for t in ts], ComplexF64[t.coeff for t in ts])
-end
-
-# Matrix-unit terms re-expressed letter by letter in `Bs[j]`: `(c, m)` becomes `Σₙ P[n, m] (c, n)`. A
-# term with a charge the basis lacks is dropped (the residual check in `_project_terms` catches it).
-function _rebasis(mu::AbstractVector{Term{I}}, Bs) where {I}
-    out = Term{I}[]
-    for t in mu
-        maps = map(eachindex(t.factors)) do j
-            key = t.factors[j]
-            P = get(Bs[j].pinv, key.letter.c, nothing)
-            P === nothing && return nothing
-            col = P[:, key.letter.n - _muoffset(key.letter.c)]
-            return [
-                (Factor{I}(Letter{I}(key.letter.c, n), key.bond), col[n])
-                    for n in eachindex(col) if !iszero(col[n])
-            ]
-        end
-        any(isnothing, maps) && continue
-        for combo in Iterators.product(maps...)
-            keys = Factor{I}[first(x) for x in combo]
-            push!(out, Term{I}(t.sites, keys, t.coeff * prod(last, combo)))
-        end
-    end
-    return Terms{I}(out)
-end
-
-# The terms of `h` on the slots `1:K`, slot `j` in `Bs[j]`; the residual decides whether `h` was in the span.
-function _project_terms(
-        h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; atol::Real = 0, rtol::Real = _default_rtol(h)
-    ) where {I}
-    K = numout(h)
-    length(Bs) == K || throw(
-        ArgumentError("project: got $(length(Bs)) bases for an operator on $K sites")
-    )
-    all(j -> codomain(h)[j] == Bs[j].space, 1:K) || throw(
-        ArgumentError(
-            "project: `h` acts on $(codomain(h)), not on the spaces of the bases " *
-                "$(join((B.space for B in Bs), " ⊗ "))"
-        )
-    )
-    hc, _ = _with_charge_leg(h, K, I)
-    hnorm = norm(hc)
-    θ = max(float(atol), float(rtol) * hnorm)
-    mu = _project_units(h; atol = 0, rtol = 0).terms.terms
-    summed = _rebasis(mu, Bs).terms
-    # drop round-off: a coefficient whose term, at the scale of its elements, is below the tolerance
-    weight(t) = prod(j -> norm(instantiate(t.factors[j].letter, Bs[j])), 1:K)
-    out = Terms{I}(filter(t -> abs(t.coeff) * weight(t) > θ, summed))
-
-    resid = isempty(out.terms) ? hnorm : norm(hc - dense(out, Bs))
-    slack = 16 * eps(real(float(scalartype(hc)))) * sqrt(max(1, length(mu))) * hnorm
-    resid <= θ + slack || throw(
-        ArgumentError(
-            "project: the operator is not in the span of the basis (residual $resid, ‖h‖ = $hnorm); " *
-                "extend the basis"
-        )
-    )
-    return out
 end

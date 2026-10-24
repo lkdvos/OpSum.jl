@@ -12,6 +12,7 @@ nletters(x::LocalOperator) = length(x.terms)
 
 @testset "memoised" begin
     @test spin_basis(SU2Irrep) === spin_basis(SU2Irrep)
+    @test spin_basis(SU2Irrep) == spin_basis(SU2Irrep) && hash(spin_basis(SU2Irrep)) == hash(spin_basis(SU2Irrep))
     @test hubbard_ops(U1Irrep, SU2Irrep) === hubbard_ops(U1Irrep, SU2Irrep)
 end
 
@@ -25,11 +26,11 @@ end
         @test project(randn(ComplexF64, V ← V), B) isa SiteOperator
         @test project(randn(ComplexF64, V ⊗ V ← V ⊗ V), B) isa LocalOperator
     end
-    # a hand-made basis can ask for the same
-    Xm, Zm = ComplexF64[0 1; 1 0], ComplexF64[1 0; 0 -1]
-    @test length(Basis([Xm])) == 2
-    B = Basis([Xm]; complete = true)
-    @test length(B) == 4 && B[2] ≈ Basis([Xm])[2]
+    # so is a hand-made basis: the given operators first, then matrix units
+    Xm = ComplexF64[0 1; 1 0]
+    B = Basis([Xm])
+    @test length(B) == 4 && TensorKit.removeunit(B[2], 3) ≈ TensorMap(Xm, ℂ^2 ← ℂ^2)
+    @test project(randn(ComplexF64, 2, 2), B) isa SiteOperator
 end
 
 @testset "the common operators are one letter" begin

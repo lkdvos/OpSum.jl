@@ -118,7 +118,7 @@ function _checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) whe
                 ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
             )
             V = lat[s]
-            info = get!(() -> _alphabet(V, I), seen, V)
+            info = get!(() -> alphabet(V, I), seen, V)
             op = key.letter
             nmax = get(info, op.c, 0)
             1 <= op.n <= nmax || throw(
@@ -155,7 +155,7 @@ function _checkchannels(lat::AbstractLattice, chans)
                     "operators; use one basis on every site" * (lat isa FiniteChain ? ", or an InfiniteChain whose cell is the pattern" : "")
             )
         )
-        info = _alphabet(first(lat.sites), I)
+        info = alphabet(first(lat.sites), I)
         for op in letters
             1 <= op.n <= get(info, op.c, 0) || throw(
                 ArgumentError(
@@ -226,7 +226,7 @@ function Base.adjoint(H::OperatorSum{I, L}) where {I, L}
     isempty(H.channels) || throw(
         ArgumentError("adjoint: an OperatorSum with decaying channels has no adjoint yet")
     )
-    return OperatorSum{I, L}(H.lattice, _adjoint_terms(H.terms, H.lattice), ExpSum{I}())
+    return OperatorSum{I, L}(H.lattice, adjoint_terms(H.terms, H.lattice), ExpSum{I}())
 end
 
 """

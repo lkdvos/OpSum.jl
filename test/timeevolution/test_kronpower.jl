@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, _jordan_layout, _mpo_power, _mul
+using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, _jordan_layout, _mpo_power, site_product
 using TensorKit
 using SparseArrays: nnz
 
@@ -121,7 +121,7 @@ function naive_power(W, N)
             P = isempty(word) ? one(SiteOperator{sectortype(B)}) : first(word)
             for j in 2:length(word)
                 push!(words, word[1:j])
-                P = _mul(B, P, word[j])
+                P = site_product(B, P, word[j])
                 isempty(P) && break
             end
             isempty(P) && continue

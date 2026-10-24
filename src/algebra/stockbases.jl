@@ -2,7 +2,8 @@
 # builder projecting every neutral operator of that site into it. A basis is defined from an ordered
 # list of TensorKitTensors operators (a two-site one contributes its factorised pieces), skipping what
 # the symmetry does not admit or what is already spanned, then completed with matrix units; the order
-# makes the common operators atomic.
+# makes the common operators atomic. `_STOCK_CACHE` keeps a basis alive for the session, which is what
+# makes `spin_basis(U1Irrep) === spin_basis(U1Irrep)`: bases are told apart by identity.
 
 import TensorKitTensors
 using TensorKitTensors: SpinOperators, FermionOperators, HubbardOperators, TJOperators, BosonOperators
@@ -36,6 +37,7 @@ const _HUBBARD_OPS = (
     :S_plus_S_min, :S_min_S_plus, :S_exchange,
 )
 
+# Memoises bases (and the operators projected into them) per site type and symmetry; see the header.
 const _STOCK_CACHE = Dict{Any, Any}()
 
 # `M.name(ComplexF64, args...; kwargs...)`, or `nothing` when the symmetry does not admit it
@@ -45,7 +47,8 @@ function _tkt_operator(M::Module, name::Symbol, args, kwargs)
     t = try
         getfield(M, name)(ComplexF64, args...; kwargs...)
     catch err
-        err isa Union{ArgumentError, MethodError, DomainError} || rethrow()
+        # "operator is not symmetric under `SU2Irrep` symmetry": the one error that means "not for this symmetry"
+        (err isa ArgumentError && occursin("not symmetric under", err.msg)) || rethrow()
         return nothing
     end
     (numout(t) in (1, 2) && space(t) == (codomain(t) ← codomain(t))) || return nothing
@@ -58,14 +61,14 @@ end
 function _stock_basis(kind::Symbol, M::Module, spacefn, names, args, kwargs)
     return cached(_STOCK_CACHE, (kind, args..., values(kwargs)...)) do
         V = spacefn(args...; kwargs...)
-        elems = AbstractTensorMap[_identityelement(V)]
+        elems = AbstractTensorMap[identityelement(V)]
         for name in names
             t = _tkt_operator(M, name, args, kwargs)
             t === nothing && continue
             codomain(t)[1] == V || invariant_violation("TensorKitTensors operator $name does not act on $V")
-            numout(t) == 1 ? push!(elems, insertrightunit(t)) : append!(elems, _factorise_pair(t))
+            numout(t) == 1 ? push!(elems, insertrightunit(t)) : append!(elems, factorise_pair(t))
         end
-        _basis_from_elements(V, _completed_elements(V, elems); skipdependent = true)
+        basis_from_elements(V, completed_elements(V, elems); skipdependent = true)
     end
 end
 

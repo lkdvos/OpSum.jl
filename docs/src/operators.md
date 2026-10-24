@@ -32,7 +32,7 @@ ops = spin_ops(U1Irrep)
 keys(ops)
 ```
 
-Any other operator is a `TensorMap` handed to [`project`](@ref OpSum.project); the expansion is exact and checked, and it throws if the operator is outside the span of the basis.
+Any other operator is a `TensorMap` handed to [`project`](@ref OpSum.project); a basis is complete, so every operator has an expansion, exact up to round-off (coefficients below `atol`/`rtol` are dropped).
 
 ```@example ops
 Bc = spin_basis()                  # no symmetry
@@ -40,7 +40,8 @@ Vc = space(Bc)
 σx = project(TensorMap(ComplexF64[0 1; 1 0], Vc ← Vc), Bc)
 ```
 
-`Basis(ops; complete = true)` builds a basis of your own from neutral operators.
+`Basis(ops)` builds a complete basis of your own from neutral operators: yours come first, completed by matrix units.
+Bases are compared by identity (`==` is `===`), so keep one object per kind of site; the stock bases are memoised.
 Operators that appear in your Hamiltonian should be elements of the basis: the same model in a poorer basis (e.g. matrix units) has more letters per term and a larger bond dimension.
 `scalarop(c, I)` is a multiple of the identity, which is a pass-through and dropped on placement.
 
@@ -207,7 +208,7 @@ The error against ``e^{\tau H}`` scales as ``\tau^{N+1}``, with the MPO size-ext
 Finite and infinite chains are both supported (on an `InfiniteChain`, `H` is a generating set as for [`mpo`](@ref OpSum.mpo)).
 Only abelian symmetries are supported, fermions included; a non-abelian symmetry throws.
 The total charge of `H` must be `unit`, and on a finite chain `H` may not contain [`expterm`](@ref OpSum.expterm) channels.
-On-site products of letters are expanded in the site's basis, so the basis must be closed under products (e.g. `Basis(ops; complete = true)`); otherwise `project` throws that the product is not in the span of the basis.
+On-site products of letters are expanded in the site's basis, which is complete, so they never leave it.
 
 With MPSKit loaded, `instantiate(U, τ)` gives an MPSKit `FiniteMPO` / `InfiniteMPO`, and `MPSKit.make_time_mpo(H, dt, TaylorCluster(; N, extension, compression); imaginary_evolution)` routes MPSKit's `TaylorCluster` to this symbolic builder.
 Because ``\tau`` is symbolic, the MPO is built once and evaluated for every time step.
@@ -230,6 +231,4 @@ Because ``\tau`` is symbolic, the MPO is built once and evaluated for every time
 | `cannot add an unplaced … to an OperatorSum` | place it first (`A[i]`, `B[i]`) |
 | `adjoint: … no postfix h'` | `'` needs a lattice: `opsum(lat, h)'` |
 | `project: unsupported operator space` | domain ≠ codomain, or a dual / degenerate charge leg |
-| `project: the operator is not in the span of the basis` | use a complete basis or `Basis(ops; complete = true)` |
-| `project: the projected term sum is not faithful` | `atol`/`rtol` discarded real weight; lower them |
 | `GenericFusion … deferred` | fusion multiplicity > 1 is out of scope |

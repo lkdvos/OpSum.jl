@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: SiteOperator, Letter, scalarop, _letter_product, _mul, _written_block, _product_table,
+using OpSum: SiteOperator, Letter, scalarop, letter_product, site_product, _written_block,
     Factor, ispassthrough
 using TensorKit
 using LinearAlgebra: norm
@@ -33,7 +33,7 @@ abelian_bases = [
     V = TensorKit.space(B)
     @testset "all pairs agree with the written-order block" begin
         for x in B.letters, y in B.letters
-            P = _letter_product(B, x, y)
+            P = letter_product(B, x, y)
             tot = only(x.c ⊗ y.c)
             keys = Factor{I}[Factor{I}(x, x.c), Factor{I}(y, tot)]
             blk = _written_block(keys, [1, 1], [B])
@@ -53,7 +53,7 @@ abelian_bases = [
         for _ in 1:3
             X = SiteOperator(neutral, randn(rng, ComplexF64, length(neutral)))
             Y = SiteOperator(neutral, randn(rng, ComplexF64, length(neutral)))
-            Z = _mul(B, X, Y)
+            Z = site_product(B, X, Y)
             @test plain(instantiate(Z, B)) ≈ plain(instantiate(X, B)) * plain(instantiate(Y, B))
         end
     end
@@ -62,28 +62,27 @@ end
 @testset "fermion convention matches a[i] * b[i]" begin
     lat = FiniteChain(Bf, 1)
     dense(x) = densify(opsum(lat, x))
-    cdc = _mul(Bf, F.cd, F.c)
+    cdc = site_product(Bf, F.cd, F.c)
     @test cdc ≈ F.n                                                  # c†c = n
     @test plain(instantiate(cdc, Bf)) ≈ dense(F.cd[1] * F.c[1])
-    cc = _mul(Bf, F.c, F.cd)                                         # cc† = 1 - n
+    cc = site_product(Bf, F.c, F.cd)                                         # cc† = 1 - n
     @test plain(instantiate(cc, Bf)) ≈ dense(F.c[1] * F.cd[1])
-    @test isempty(_mul(Bf, F.cd, F.cd))                              # c†c† = 0
-    @test _mul(Bf, F.n, F.n) ≈ F.n
+    @test isempty(site_product(Bf, F.cd, F.cd))                              # c†c† = 0
+    @test site_product(Bf, F.n, F.n) ≈ F.n
 end
 
 @testset "table hits and errors" begin
     B = Bf
     X = F.n + scalarop(2.0, B)
-    _mul(B, X, X)
-    table = _product_table(B)
-    @test table === _product_table(B)                                # found by identity
+    site_product(B, X, X)
+    table = B.products                                               # owned by the basis
     n = length(table)
     @test n > 0
-    _mul(B, X, X)
+    site_product(B, X, X)
     @test length(table) == n
-    @test _mul(B, one(X), X) == X
-    @test _mul(B, X, one(X)) == X
+    @test site_product(B, one(X), X) == X
+    @test site_product(B, X, one(X)) == X
 
     S = spin_basis(SU2)
-    @test_throws ArgumentError _mul(S, SiteOperator(S.letters[2]), SiteOperator(S.letters[2]))
+    @test_throws ArgumentError site_product(S, SiteOperator(S.letters[2]), SiteOperator(S.letters[2]))
 end

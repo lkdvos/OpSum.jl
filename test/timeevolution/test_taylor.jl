@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, _scaled, _mul,
+using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, _scaled, site_product,
     _jordan_layout, _mpo_power, _taylor_work, _taylor_mpo, _fold_passive!, _merge_equivalent!, _prune_orphans!,
     _extend!, _compress!, _kron_entry!, _rowbond, _bond_space, _deg_indices
 using TensorKit
@@ -87,7 +87,7 @@ poly(I, pairs...) = foldl(+, (TaylorEntry(op, p) for (p, op) in pairs); init = z
     Wb = J.Ws[i]
     @test size(Wb) == (length(J.bondsectors[i]), n)
     op(l, r) = Wb[l, r]
-    mul(x, y) = _mul(B, x, y)
+    mul(x, y) = site_product(B, x, y)
     mids = 2:(n - 1)
     D, Id = op(1, n), op(1, 1)
     w = _taylor_work(W, 2)
@@ -124,7 +124,7 @@ end
     n = length(J.bondsectors[i + 1])
     chi = n - 2
     op(l, r) = J.Ws[i][l, r]
-    mul(x, y) = _mul(B, x, y)
+    mul(x, y) = site_product(B, x, y)
     mids = 2:(n - 1)
     D, Id = op(1, n), op(1, 1)
 
@@ -309,7 +309,7 @@ end
 
 # the mean of the on-site products of the given words
 function mean_words(B, words...)
-    return foldl(+, (foldl((x, y) -> _mul(B, x, y), wd) for wd in words)) * (1 / length(words))
+    return foldl(+, (foldl((x, y) -> site_product(B, x, y), wd) for wd in words)) * (1 / length(words))
 end
 
 @testset "Alg 3 and 4 closed forms (Eqs. (43), (45), MPSKit's `O(1)`/`O(2) exact expression`): $name" for (name, H) in
@@ -322,7 +322,7 @@ end
     n = length(J.bondsectors[i + 1])
     mids = 2:(n - 1)
     D, Id = J.Ws[i][1, n], J.Ws[i][1, 1]
-    mul(x, y) = _mul(B, x, y)
+    mul(x, y) = site_product(B, x, y)
     avg(words...) = mean_words(B, words...)
     Bv(a) = J.Ws[i][a, n]
     Cv(b) = J.Ws[i][1, b]

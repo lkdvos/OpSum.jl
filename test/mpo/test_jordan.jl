@@ -23,17 +23,17 @@ function reference_models()
 
     models = [
         # Jordan padding has to reproduce the textbook bond dim 3
-        "heisenberg N=4" => (opsum(SU2.S_exchange[i, i + 1] for i in 1:3), FiniteChain(BS, 4)),
+        "heisenberg N=4" => (Terms(SU2.S_exchange[i, i + 1] for i in 1:3), FiniteChain(BS, 4)),
         # two disconnected trivial-charge channels at the middle bond
         "singlet pairs N=4" =>
-            (opsum(SU2.S_exchange[1, 2], SU2.S_exchange[3, 4]), FiniteChain(BS, 4)),
+            (Terms(SU2.S_exchange[1, 2], SU2.S_exchange[3, 4]), FiniteChain(BS, 4)),
         # the caterpillar inner line rides the bond
         "K=3 SU(2) N=3" => (
-            opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))),
+            Terms(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))),
             FiniteChain(BS, 3),
         ),
         "U(1) hopping N=4" => (
-            opsum(
+            Terms(
                 U1.S_plus_S_min[i, i + 1] + U1.S_min_S_plus[i, i + 1] for i in 1:3
             ),
             FiniteChain(BU, 4),
@@ -41,7 +41,7 @@ function reference_models()
         fermionic_model(),
         # on-site terms: the only source of a D block
         "trivial chain + field N=4" => (
-            opsum(
+            Terms(
                 (Triv.S_plus_S_min[i, i + 1] for i in 1:3),
                 0.5 * Triv.S_z[2],
             ),
@@ -56,7 +56,7 @@ end
 function fermionic_model(N = 4)
     F = fermion_ops()
     cdc = F.f_plus_f_min                                # c†ᵢ cⱼ, in any site order
-    H = opsum(
+    H = Terms(
         (
             cdc[i, i + 1] + cdc[i + 1, i] + 2 * F.f_num[i] * F.f_num[i + 1]
                 for i in 1:(N - 1)

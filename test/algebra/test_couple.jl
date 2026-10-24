@@ -284,7 +284,7 @@ end
     sites = fill(Bf, N)
 
     # the textbook spelling of a hopping term, hermitian and with the analytic spectrum
-    H = opsum(
+    H = Terms(
         (-t * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1))
     )
     @test relative_hermiticity_error(H, sites) < 1.0e-12
@@ -318,9 +318,9 @@ end
     N = 4
     sites = fill(Bf, N)
 
-    T = opsum(-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1))
+    T = Terms(-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1))
     Td = opsum(sites, T)'
-    @test T + Td.terms ≈ opsum(
+    @test T + Td.terms ≈ Terms(
         -1.0 * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1)
     )
     @test relative_hermiticity_error(T + Td.terms, sites) < 1.0e-12
@@ -332,7 +332,7 @@ end
             (1.0 + 0.5im) * couple(F.cd[1], F.cd[2], F.c[3], F.c[4]),
             2.0im * F.n[2] + scalarop(1.0 + 1.0im, sectortype(Vf))[1],
         )
-        Tl = opsum(T2)
+        Tl = Terms(T2)
         Tld = opsum(sites, Tl)'
         @test relative_hermiticity_error(Tl + Tld.terms, sites) < 1.0e-12
         @test Tld'.terms ≈ Tl
@@ -342,7 +342,7 @@ end
     Vs = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(Vs))
     ssites = fill(unitbasis(Vs), 4)
-    T3 = opsum(
+    T3 = Terms(
         (0.4 + 0.2im) * couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
     )
     T3d = opsum(ssites, T3)'
@@ -360,10 +360,10 @@ end
         L = 4
         su2 = SU2Space(s => 1)
         S = spinvector(unitbasis(su2))
-        Hsu2 = opsum((dot(S[i], S[i + 1]) for i in 1:(L - 1)))
+        Hsu2 = Terms((dot(S[i], S[i + 1]) for i in 1:(L - 1)))
         Bu = spin_basis(U1Irrep; spin = s)
         F = spinladder(Bu, [U1Irrep(m) for m in s:-1:(-s)])
-        Hu1 = opsum(
+        Hu1 = Terms(
             (
                 F.Sz[i] * F.Sz[i + 1] +      # `*`: for s = 3/2 `Sz` carries an identity component, which `couple` refuses
                     (couple(F.Sp[i], F.Sm[i + 1]) + couple(F.Sm[i], F.Sp[i + 1])) / 2

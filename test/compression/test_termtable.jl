@@ -14,7 +14,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
 @testset "TermTable — flat term storage" begin
 
     @testset "construction sanity" begin
-        H = opsum((dot(spinvector(unitbasis(su2))[i], spinvector(unitbasis(su2))[i + 1]) for i in 1:3))
+        H = Terms((dot(spinvector(unitbasis(su2))[i], spinvector(unitbasis(su2))[i + 1]) for i in 1:3))
         tt = TermTable(H, 4)
         @test (nvertices(tt), nterms(tt), arity(tt)) == (4, length(H), 2)
         for t in 1:nterms(tt)
@@ -24,7 +24,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
     end
 
     @testset "_factor_at reconstructs the running-bond pass-through path" begin
-        tt = TermTable(opsum(dot(spinvector(unitbasis(su2))[1], spinvector(unitbasis(su2))[3])), 4)
+        tt = TermTable(Terms(dot(spinvector(unitbasis(su2))[1], spinvector(unitbasis(su2))[3])), 4)
         @test nterms(tt) == 1
         path = [_factor_at(tt, 1, s) for s in 1:4]
 
@@ -43,7 +43,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
     @testset "U(1) charge threads through idle sites" begin
         raise = LO(Letter(U1Irrep(1), 1))
         lower = LO(Letter(U1Irrep(-1), 1))
-        tt = TermTable(opsum(dot(raise[1], lower[4])), 5)
+        tt = TermTable(Terms(dot(raise[1], lower[4])), 5)
         path = [_factor_at(tt, 1, s) for s in 1:5]
         @test all(s -> path[s].bond == U1Irrep(1), 2:3)
         @test path[4].bond == U1Irrep(0)
@@ -57,7 +57,7 @@ end
     S = spinvector(unitbasis(su2))
     t = dot(S[1], S[2])
 
-    H = opsum(t, t)
+    H = Terms(t, t)
     @test length(H) == 1                      # two coincident terms are one term
     @test only(H).coeff ≈ 2 * only(t).coeff
     @test nterms(TermTable(H, 2)) == 1
@@ -69,30 +69,30 @@ end
     @test append!(G, t) === G && length(G) == 1 && only(G).coeff ≈ 2 * only(t).coeff
     @test length(append!(G, -2 * t)) == 0
 
-    @test isempty(opsum(t, -t))               # exact cancellation drops the term
-    @test length(opsum(t, 2 * t, -3 * t)) == 0
-    @test_throws ArgumentError instantiate(opsum(fill(unitbasis(su2), 2), opsum(t, -t)))
+    @test isempty(Terms(t, -t))               # exact cancellation drops the term
+    @test length(Terms(t, 2 * t, -3 * t)) == 0
+    @test_throws ArgumentError instantiate(opsum(fill(unitbasis(su2), 2), Terms(t, -t)))
 
     # every accumulation route agrees, whatever its cost
     terms = [dot(S[i], S[i + 1]) for i in 1:5]
-    ref = opsum(terms)
+    ref = Terms(terms)
     @test length(ref) == 5
-    @test ref ≈ opsum(dot(S[i], S[i + 1]) for i in 1:5)
+    @test ref ≈ Terms(dot(S[i], S[i + 1]) for i in 1:5)
     @test ref ≈ foldl(+, terms; init = Terms{SU2Irrep}())
     @test ref ≈ append!(Terms{SU2Irrep}(), terms)
-    @test ref ≈ opsum(only(terms[1]), terms[2:5])
+    @test ref ≈ Terms(only(terms[1]), terms[2:5])
     # nested iterables flatten
-    @test ref ≈ opsum([terms[1:2], terms[3:5]])
-    @test ref ≈ opsum(terms[1:2], terms[3:5])
+    @test ref ≈ Terms([terms[1:2], terms[3:5]])
+    @test ref ≈ Terms(terms[1:2], terms[3:5])
 
     # `+` copies, so older values are never disturbed by a later addition
-    a = opsum(terms[1:2])
+    a = Terms(terms[1:2])
     b = a + terms[3]
     c = a + terms[4]
     @test length(a) == 2 && length(b) == 3 && length(c) == 3
-    @test b ≈ opsum(terms[1:3])
-    @test c ≈ opsum(terms[[1, 2, 4]])
-    @test a ≈ opsum(terms[1:2])
+    @test b ≈ Terms(terms[1:3])
+    @test c ≈ Terms(terms[[1, 2, 4]])
+    @test a ≈ Terms(terms[1:2])
 
     # `zero` / `empty` are fresh empty bags; `one` is the no-site term, at instance and type level
     @test isempty(zero(a)) && isempty(empty(a))
@@ -100,7 +100,7 @@ end
     @test length(one(a)) == 1 && isempty(only(one(a)).sites)
 
     # mixed arity: the table reports the true maximum
-    mixed = opsum(
+    mixed = Terms(
         dot(S[1], S[2]),
         couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3])
     )
@@ -113,7 +113,7 @@ end
     terms = [dot(S[i], S[i + 1]) for i in 1:3]
     sites = fill(unitbasis(su2), 4)
 
-    H = opsum(terms)
+    H = Terms(terms)
     @test nvertices(TermTable(H, length(sites))) == length(sites)
     @test mpo(opsum(sites, H)).bondsectors == mpo(opsum(FiniteChain(unitbasis(su2), 4), H)).bondsectors
 
@@ -121,7 +121,7 @@ end
     @test_throws ArgumentError mpo(opsum(fill(unitbasis(u1), 4), H))                  # wrong sector type
     @test_throws ArgumentError mpo(opsum(fill(unitbasis(SU2Space(0 => 1)), 4), H))    # no spin-1 letter there
 
-    H2 = append!(opsum(terms), dot(S[1], S[5]))
+    H2 = append!(Terms(terms), dot(S[1], S[5]))
     @test length(H2) == 4
     @test_throws ArgumentError mpo(opsum(sites, H2))
 
@@ -134,7 +134,7 @@ end
     S = spinvector(unitbasis(su2))
     t = dot(S[1], S[2])
     u = dot(S[2], S[3])
-    H = opsum(t, 2 * u)
+    H = Terms(t, 2 * u)
 
     @test length(H) == 2
     @test collect(H) == H.terms                # iteration is the canonical list
@@ -144,16 +144,16 @@ end
     @test H[1].coeff ≈ only(t).coeff
 
     # `==` is exact where `≈` is approximate, and both take the normal form first
-    @test H == opsum(t, 2 * u)
+    @test H == Terms(t, 2 * u)
     @test H == (H + t) - t                     # appended-then-cancelled is the same value
-    @test H != opsum(t)
-    @test opsum(1.0e-14 * t) != opsum(0.0 * t)
-    @test opsum(1.0e-14 * t) ≈ opsum(1.0e-14 * t)
+    @test H != Terms(t)
+    @test Terms(1.0e-14 * t) != Terms(0.0 * t)
+    @test Terms(1.0e-14 * t) ≈ Terms(1.0e-14 * t)
 
     # both multiplication orders, and division
     @test H * 2 == 2 * H
     @test (H * 2) / 2 == H
-    @test opsum(one(t)) * 3 ≈ opsum(scalarop(3.0, unitbasis(su2))[1])
+    @test Terms(one(t)) * 3 ≈ Terms(scalarop(3.0, unitbasis(su2))[1])
 
     # a `Term` is comparable and hashable on its content, the coefficient included
     @test only(t) == only(1 * t)

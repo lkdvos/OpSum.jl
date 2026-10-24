@@ -20,11 +20,11 @@ end
     raise, lower = LO(Letter(U1Irrep(1), 1)), LO(Letter(U1Irrep(-1), 1))
     ops = [LO(Letter(unit(Trivial), n)) for n in 1:4]
     cases = [
-        ("SU2 S·S", unitbasis(Vs), 2, opsum(dot(S[1], S[2]))),
-        ("SU2 Heisenberg", unitbasis(Vs), 3, opsum(dot(S[1], S[2]), dot(S[2], S[3]))),
-        ("trivial", unitbasis(ℂ^2), 3, opsum(couple(ops[2][i], ops[3][i + 1]; to = unit(Trivial)) for i in 1:2)),
-        ("U1 hopping", unitbasis(Vu), 2, opsum(dot(raise[1], lower[2]), dot(lower[1], raise[2]))),
-        ("SU2 K=3", unitbasis(Vs), 3, opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))),
+        ("SU2 S·S", unitbasis(Vs), 2, Terms(dot(S[1], S[2]))),
+        ("SU2 Heisenberg", unitbasis(Vs), 3, Terms(dot(S[1], S[2]), dot(S[2], S[3]))),
+        ("trivial", unitbasis(ℂ^2), 3, Terms(couple(ops[2][i], ops[3][i + 1]; to = unit(Trivial)) for i in 1:2)),
+        ("U1 hopping", unitbasis(Vu), 2, Terms(dot(raise[1], lower[2]), dot(lower[1], raise[2]))),
+        ("SU2 K=3", unitbasis(Vs), 3, Terms(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))),
     ]
     for (name, B, N, H) in cases
         sites = fill(B, N)
@@ -57,7 +57,7 @@ end
         chi += eps[a, b, c] * kron(Sv[a], kron(Sv[b], Sv[c]))
     end
 
-    H = opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
+    H = Terms(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0)))
     Hmat = physmatrix(instantiate(opsum(fill(unitbasis(V), 3), H)), 3, 2)
     α = dot(vec(chi), vec(Hmat)) / dot(vec(chi), vec(chi))   # least-squares proportionality constant
     @test abs(α) > 1.0e-6

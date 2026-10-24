@@ -82,7 +82,7 @@ end
 # Every translate of the generating set (terms and channels) inside `ncells` cells.
 function window_terms(H::OperatorSum{I, <:InfiniteChain}, ncells::Int) where {I}
     L = length(H.lattice)
-    return opsum(window_terms(H.terms, H.lattice, ncells), expand_channels(H.channels, L, ncells * L))
+    return Terms(window_terms(H.terms, H.lattice, ncells), expand_channels(H.channels, L, ncells * L))
 end
 
 # Translates sticking out of either end are dropped, so only the bulk agrees with the periodic problem.

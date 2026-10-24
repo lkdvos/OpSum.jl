@@ -56,8 +56,11 @@ end
 
 """
     opsum(lat, terms...) -> OperatorSum
+    opsum(sites::AbstractVector{<:Basis}, terms...) -> OperatorSum
 
-Accumulate `terms` into a new [`OperatorSum`](@ref) on `lat`.
+Accumulate `terms` into a new [`OperatorSum`](@ref) on the lattice `lat` (or on the finite chain of
+`sites`). The terms are `Term`s, `Terms`, `ExpSum`s or nested iterables of those, as for
+[`opsum!`](@ref); [`Terms`](@ref)`(terms...)` collects the same arguments without a lattice.
 """
 opsum(lat::AbstractLattice, args...) = opsum!(OperatorSum(lat), args...)
 opsum(sites::AbstractVector{<:Basis}, args...) = opsum!(OperatorSum(sites), args...)

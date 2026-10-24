@@ -7,10 +7,10 @@ export boson_ops, hubbard_ops, tj_ops
 export Letter, scalarop, project, spin_ops, fermion_ops
 # unplaced K-site operators
 export LocalOperator
-# term algebra (latticeless)
-export Term, Terms, couple, couple_channels, opsum
-# the lattice-carrying container
-export OperatorSum, opsum!
+# term algebra (latticeless); `Terms(args...)` collects terms
+export Term, Terms, couple, couple_channels
+# the lattice-carrying container; `opsum(lat, args...)` builds one
+export OperatorSum, opsum, opsum!
 # lattices
 export AbstractLattice, FiniteChain, InfiniteChain
 # MPO construction

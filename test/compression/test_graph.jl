@@ -41,20 +41,20 @@ function reference_hamiltonians()
     let V = SU2Space(1 // 2 => 1)
         S = spinvector(unitbasis(V))
         for N in (2, 3, 4, 5, 6)
-            H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
+            H = Terms(dot(S[i], S[i + 1]) for i in 1:(N - 1))
             push!(cases, ("SU2 Heisenberg N=$N", H, FiniteChain(unitbasis(V), N)))
         end
-        push!(cases, ("SU2 fields", opsum(S[1], S[2], S[3]), FiniteChain(unitbasis(V), 3)))
+        push!(cases, ("SU2 fields", Terms(S[1], S[2], S[3]), FiniteChain(unitbasis(V), 3)))
         push!(
             cases, (
                 "SU2 decoupled pairs N=6",
-                opsum(dot(S[1], S[2]), dot(S[3], S[4]), dot(S[5], S[6])), FiniteChain(unitbasis(V), 6),
+                Terms(dot(S[1], S[2]), dot(S[3], S[4]), dot(S[5], S[6])), FiniteChain(unitbasis(V), 6),
             )
         )
         push!(
             cases, (
                 "SU2 K=3 three-body",
-                opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))),
+                Terms(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))),
                 FiniteChain(unitbasis(V), 3),
             )
         )
@@ -62,7 +62,7 @@ function reference_hamiltonians()
         push!(
             cases, (
                 "SU2 K=3 tail collides with on-site field",
-                opsum(
+                Terms(
                     couple(couple(S[1], S[2]; to = SU2Irrep(0)), S[4]; to = SU2Irrep(1)),
                     2.0 * S[4],
                 ),
@@ -70,14 +70,14 @@ function reference_hamiltonians()
             )
         )
         # boundary shapes: nothing active at site 1; first active site is the last one
-        push!(cases, ("SU2 no term starts at site 1", opsum(dot(S[2], S[3])), FiniteChain(unitbasis(V), 3)))
-        push!(cases, ("SU2 first active site == N", opsum(S[1], S[4]), FiniteChain(unitbasis(V), 4)))
+        push!(cases, ("SU2 no term starts at site 1", Terms(dot(S[2], S[3])), FiniteChain(unitbasis(V), 3)))
+        push!(cases, ("SU2 first active site == N", Terms(S[1], S[4]), FiniteChain(unitbasis(V), 4)))
     end
     let V = Rep[U₁](0 => 1, 1 => 1)
         raise = LO(Letter(U1Irrep(1), 1))
         lower = LO(Letter(U1Irrep(-1), 1))
         for N in (3, 4)
-            H = opsum(
+            H = Terms(
                 (dot(raise[i], lower[i + 1]) for i in 1:(N - 1)),
                 (dot(lower[i], raise[i + 1]) for i in 1:(N - 1)),
             )
@@ -86,7 +86,7 @@ function reference_hamiltonians()
         push!(
             cases, (
                 "U1 K=3 three-body",
-                opsum(
+                Terms(
                     couple(couple(raise[1], raise[2]; to = U1Irrep(2)), lower[3]; to = U1Irrep(1))
                 ),
                 FiniteChain(unitbasis(V), 3),
@@ -97,19 +97,19 @@ function reference_hamiltonians()
         push!(
             cases, (
                 "U1 charge-0 on-site collides with two-site tail",
-                opsum(couple(z[1], z[3]; to = U1Irrep(0)), 0.5 * z[3]),
+                Terms(couple(z[1], z[3]; to = U1Irrep(0)), 0.5 * z[3]),
                 FiniteChain(unitbasis(V), 3),
             )
         )
     end
     let V = ℂ^2
         ops = [Letter(unit(Trivial), n) for n in 1:4]
-        H = opsum(couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2)
+        H = Terms(couple(LO(ops[2])[i], LO(ops[3])[i + 1]; to = unit(Trivial)) for i in 1:2)
         push!(cases, ("trivial sector N=3", H, FiniteChain(unitbasis(V), 3)))
         push!(
             cases, (
                 "trivial on-site collides with two-site tail",
-                opsum(
+                Terms(
                     couple(LO(ops[2])[1], LO(ops[3])[3]; to = unit(Trivial)),
                     0.5 * LO(ops[3])[3],
                 ),
@@ -168,7 +168,7 @@ end
     V = SU2Space(1 // 2 => 1)
     N = 4
     sites = fill(unitbasis(V), N)
-    H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
+    H = Terms((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
     Wdef, sdef = reduced(mpo(opsum(sites, H)))
     Wsel, ssel = reduced(mpo(opsum(sites, H), VertexCover()))
     Wstr, sstr = _sweep(TermTable(H, N), N, VertexCover())
@@ -211,7 +211,7 @@ end
     V = SU2Space(1 // 2 => 1)
     N = 8
     sites = fill(unitbasis(V), N)
-    H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
+    H = Terms((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
     Ws, secs = reduced(mpo(opsum(sites, H), VertexCover()))
     @test bondprofile(secs) == HEISENBERG8_BONDS
     @test islossless(opsum(sites, H))
@@ -222,11 +222,11 @@ end
     S = spinvector(unitbasis(V))
     sites = fill(unitbasis(V), 3)
     for (name, H) in (
-            ("pure identity", opsum(scalarop(2.5, unitbasis(V))[1])),
-            ("identity plus bond", opsum(scalarop(2.5, unitbasis(V))[1], dot(S[1], S[2]))),
+            ("pure identity", Terms(scalarop(2.5, unitbasis(V))[1])),
+            ("identity plus bond", Terms(scalarop(2.5, unitbasis(V))[1], dot(S[1], S[2]))),
             (
                 "identity plus two bonds",
-                opsum(scalarop(-1.5, unitbasis(V))[1], dot(S[1], S[2]), dot(S[2], S[3])),
+                Terms(scalarop(-1.5, unitbasis(V))[1], dot(S[1], S[2]), dot(S[2], S[3])),
             ),
         )
         Ws, secs = reduced(mpo(opsum(sites, H), VertexCover()))
@@ -255,7 +255,7 @@ end
     z, s = LO(zl), LO(sl)
     N = 4
     sites = fill(unitbasis(V), N)
-    H = opsum(
+    H = Terms(
         couple(z[1], s[4]; to = SU2Irrep(1)),
         2.0 * couple(s[1], s[4]; to = SU2Irrep(1)),
     )
@@ -278,7 +278,7 @@ end
     A, B = LO(ops[2]), LO(ops[3])
     N = 3
     sites = fill(unitbasis(V), N)
-    H = opsum(couple(A[1], B[3]; to = unit(Trivial)), 0.5 * B[3])
+    H = Terms(couple(A[1], B[3]; to = unit(Trivial)), 0.5 * B[3])
     tt = TermTable(H, N)
 
     @test OpSum._factor_at(tt, 1, 3) == OpSum._factor_at(tt, 2, 3)
@@ -296,7 +296,7 @@ end
     V = SU2Space(1 // 2 => 1)
     sizes = (5, 20, 80)
     livecounts = map(sizes) do N
-        H = opsum((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
+        H = Terms((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
         g = SweepGraph(TermTable(H, N), N)
         counts = Int[]
         for i in 1:N

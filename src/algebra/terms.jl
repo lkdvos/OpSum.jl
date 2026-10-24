@@ -1,5 +1,5 @@
 # Term algebra over letters: `Term` (one term) → `Terms` (the operator, always in normal form) and
-# collecting terms into one (`opsum`). Latticeless. Coupling lives in couple.jl.
+# collecting terms into one (`Terms(args...)`). Latticeless. Coupling lives in couple.jl.
 
 using TensorKit
 using TensorKit: Sector, FusionTree, unit
@@ -103,7 +103,6 @@ struct Terms{I <: Sector}
     end
 end
 Terms{I}(terms::Vector{Term{I}}) where {I <: Sector} = Terms{I}(terms, PendingTerm{I}[])
-Terms{I}() where {I <: Sector} = Terms{I}(Term{I}[])
 Terms(terms::Vector{Term{I}}) where {I} = Terms{I}(terms)
 Terms(t::Term{I}) where {I} = Terms{I}(Term{I}[t])
 
@@ -204,7 +203,7 @@ Base.getindex(ts::Terms, i::Integer) = check_resolved(ts).terms[i]
 Base.firstindex(::Terms) = 1
 Base.lastindex(ts::Terms) = length(ts)
 
-# Each `+` is a merge, so folding over M terms is quadratic; use `opsum`.
+# Each `+` is a merge, so folding over M terms is quadratic; use `Terms(args...)`.
 Base.:+(a::Terms{I}, b::Terms{I}) where {I} =
     Terms{I}(merge_terms(a.terms, b.terms), vcat(a.pending, b.pending))
 Base.:+(a::Terms{I}, t::Term{I}) where {I} = Terms{I}(merge_terms(a.terms, [t]), copy(a.pending))
@@ -269,15 +268,19 @@ function _termsapprox(
 end
 
 """
-    opsum(terms...) -> Terms
+    Terms(args...)
+    Terms{I}(args...)
 
-Accumulate terms into one [`Terms`](@ref) in one pass. Each argument is a [`Term`](@ref), a `Terms` bag
-or an arbitrarily nested iterable of those; `opsum(lat, terms...)` builds an [`OperatorSum`](@ref).
+Collect terms into one [`Terms`](@ref) in one pass (an `O(M log M)` sort, where folding with `+` is
+quadratic). Each argument is a [`Term`](@ref), a `Terms` or an arbitrarily nested iterable of those;
+`Terms(args...)` infers the sector `I` from the first term, `Terms{I}(args...)` states it (and
+allows no arguments: `Terms{I}()` is the empty operator). A `Vector{Term{I}}` is taken over as is.
+`opsum(lat, args...)` collects the same arguments into an [`OperatorSum`](@ref).
 """
-function opsum(args...)
+function Terms(args...)
     isempty(args) && throw(
         ArgumentError(
-            "opsum() has no terms, so the symmetry sector cannot be inferred; write `Terms{I}()` " *
+            "Terms() has no terms, so the symmetry sector cannot be inferred; write `Terms{I}()` " *
                 "for the empty operator"
         )
     )
@@ -287,11 +290,19 @@ function opsum(args...)
     end
     out === nothing && throw(
         ArgumentError(
-            "opsum: every argument was empty, so the symmetry sector cannot be inferred; write " *
+            "Terms: every argument was empty, so the symmetry sector cannot be inferred; write " *
                 "`Terms{I}()` for the empty operator"
         )
     )
     return Terms(out)
+end
+
+function Terms{I}(args...) where {I <: Sector}
+    bag = TermBag{I}()
+    for a in args
+        collect_terms!(bag, a, I)
+    end
+    return Terms{I}(bag)
 end
 
 # The accumulator is `nothing` until the first term fixes `I`; after that the typed collector runs.
@@ -322,7 +333,7 @@ _wrongsector(I, J) = throw(
 """
     append!(ts::Terms, terms...) -> ts
 
-Append terms to `ts` in place, keeping its normal form; the arguments are as for [`opsum`](@ref).
+Append terms to `ts` in place, keeping its normal form; the arguments are as for [`Terms`](@ref).
 """
 function Base.append!(ts::Terms{I}, args...) where {I}
     bag = TermBag{I}()

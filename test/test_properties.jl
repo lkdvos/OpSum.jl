@@ -43,7 +43,7 @@ function random_termsum(rng, B, N, Ks)
         h = randn(rng, ComplexF64, foldl(⊗, Vs) ← foldl(⊗, Vs))
         push!(parts, project(h, B)[sites...])
     end
-    return opsum(parts)
+    return Terms(parts)
 end
 
 @testset "random term sums compress losslessly — $name" for (name, B) in PROPERTY_SPACES
@@ -108,7 +108,7 @@ end
 # long-range Heisenberg chain: a real singular-value spectrum to truncate
 function powerlaw_chain(B, N; α = 2.0)
     S = spinvector(B)
-    return opsum(abs(m - n)^(-α) * dot(S[n], S[m]) for n in 1:(N - 1) for m in (n + 1):N)
+    return Terms(abs(m - n)^(-α) * dot(S[n], S[m]) for n in 1:(N - 1) for m in (n + 1):N)
 end
 
 const TRUNC_V = SU2Space(1 // 2 => 1)

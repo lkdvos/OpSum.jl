@@ -62,11 +62,11 @@ end
     @test_throws ArgumentError couple(x, F.c[2])
     @test_throws ArgumentError expterm(x * couple(F.cd[1], F.c[2]); decay = 0.5)
     # sums, scaling and opsum carry it along
-    y = opsum(2 * x, F.n[2], x)
+    y = Terms(2 * x, F.n[2], x)
     @test dense(lat3, y) ≈ 3 * dense(lat3, F.n[1]) + dense(lat3, F.n[2])
     # an `OperatorSum` holds resolved terms only
     H = opsum(lat3, y)
-    @test H.terms ≈ opsum(3 * F.n[1], F.n[2])
+    @test H.terms ≈ Terms(3 * F.n[1], F.n[2])
 end
 
 # a spinless fermion site in a basis built from the hopping pairs: 𝟙, n, c†, c

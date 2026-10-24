@@ -25,19 +25,19 @@ mpo_operator(Ws, secs, sites) = instantiate(opsum(sites, mpo_terms(Ws, secs)))
     raise, lower = LO(Letter(U1Irrep(1), 1)), LO(Letter(U1Irrep(-1), 1))
     ops = [LO(Letter(unit(Trivial), n)) for n in 1:4]
     cases = Any[
-        ("SU2 Heisenberg N=$N", unitbasis(Vs), N, opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1)), SU2Irrep(0)) for N in (3, 4, 5)
+        ("SU2 Heisenberg N=$N", unitbasis(Vs), N, Terms(dot(S[i], S[i + 1]) for i in 1:(N - 1)), SU2Irrep(0)) for N in (3, 4, 5)
     ]
     push!(
         cases,
         (
             "U1 hopping", unitbasis(Vu), 4,
-            opsum((dot(raise[i], lower[i + 1]) for i in 1:3), (dot(lower[i], raise[i + 1]) for i in 1:3)), U1Irrep(0),
+            Terms((dot(raise[i], lower[i + 1]) for i in 1:3), (dot(lower[i], raise[i + 1]) for i in 1:3)), U1Irrep(0),
         ),
         (
             "trivial", unitbasis(ℂ^2), 3,
-            opsum(couple(ops[2][i], ops[3][i + 1]; to = unit(Trivial)) for i in 1:2), unit(Trivial),
+            Terms(couple(ops[2][i], ops[3][i + 1]; to = unit(Trivial)) for i in 1:2), unit(Trivial),
         ),
-        ("SU2 K=3", unitbasis(Vs), 3, opsum(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))), SU2Irrep(0)),
+        ("SU2 K=3", unitbasis(Vs), 3, Terms(couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))), SU2Irrep(0)),
     )
     for (name, B, N, H, total) in cases
         @testset "$name" begin
@@ -58,7 +58,7 @@ end
     S = spinvector(unitbasis(V))
     N = 3
     sites = fill(unitbasis(V), N)
-    H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
+    H = Terms(dot(S[i], S[i + 1]) for i in 1:(N - 1))
 
     _, sb = reduced(mpo(opsum(sites, H), VertexCover()))
     _, sfull = reduced(mpo(opsum(sites, H), IndependentSVD()))
@@ -80,7 +80,7 @@ end
     S = spinvector(unitbasis(V))
     N = 4
     sites = fill(unitbasis(V), N)
-    H = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
+    H = Terms(dot(S[i], S[i + 1]) for i in 1:(N - 1))
 
     @test IndependentSVD().trunc isa NoTruncation
     @test SequentialSVD().trunc isa NoTruncation

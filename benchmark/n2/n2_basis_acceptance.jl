@@ -61,7 +61,7 @@ function strings_terms(strings)
     for (c, s) in strings
         Q.add_string!(acc, c, s)
     end
-    return opsum(Q.build_term(k..., c) for (k, c) in acc if abs(c) > 1.0e-14)
+    return Terms(Q.build_term(k..., c) for (k, c) in acc if abs(c) > 1.0e-14)
 end
 densen(ts, n) = (t = OpSum.dense(ts, fill(Vh, n)); removeunit(t, numind(t)))
 

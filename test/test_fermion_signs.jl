@@ -45,7 +45,7 @@ dense(h, N) = densemat(instantiate(opsum(FiniteChain(Bf, N), h)))
         bonds = [(1, 2), (2, 3), (1, 3)]
         hop(i, j) = -(couple(F.cd[i], F.c[j]) + couple(F.cd[j], F.c[i]))
         Hjw = sum(-(jw_cd(i, 3) * jw_c(j, 3) + jw_cd(j, 3) * jw_c(i, 3)) for (i, j) in bonds)
-        h = opsum(hop(i, j) for (i, j) in bonds)
+        h = Terms(hop(i, j) for (i, j) in bonds)
         @test dense(h, 3) ≈ Hjw
         one = [count_ones(m) == 1 for m in 0:7]
         @test sort(real(eigvals(Hermitian(Hjw[one, one])))) ≈ [-2.0, 1.0, 1.0]

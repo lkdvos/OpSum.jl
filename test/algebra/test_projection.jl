@@ -312,7 +312,7 @@ end
     for (label, h) in (("S·S", hbond), ("S·S + identity", hbond + 0.3 * insertrightunit(id(V ⊗ V))))
         @testset "$label" begin
             hloc = project(h, B)
-            H = opsum((hloc[i, i + 1] for i in 1:(N - 1)))
+            H = Terms((hloc[i, i + 1] for i in 1:(N - 1)))
 
             Ws, secs = reduced(mpo(opsum(lat, H)))
             @test length(secs) == N

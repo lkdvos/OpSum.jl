@@ -53,7 +53,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 |---|-------|-------|--------|
 | 0 | Top-down tour of the main path | — | done |
 | 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done |
-| 2 | Letters | letters, siteoperator, instantiate | done (stored-entry change accepted; full suite running) |
+| 2 | Letters | letters, siteoperator, instantiate | done (full suite green at 4b54d6f) |
 | 3 | Terms | terms, couple | implementing |
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | decided (after chunk 3) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |

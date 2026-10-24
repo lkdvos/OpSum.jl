@@ -47,15 +47,15 @@ _translates_error(what, s1, s2, L) = throw(
 # Shift each generator so its leftmost site lies in `1:L`; two `L`-translates of each other are an error.
 function unitcell_terms(ts::Terms{I}, L::Int) where {I}
     L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
-    seen = Dictionary{Term{I}, Int}()
+    seen = Dictionary{Support{I}, Int}()   # by support: translates with other coefficients still clash
     out = Term{I}[]
     for t in canonicalize!(ts).terms
         _checkgenerator(t)
         ct = translate(t, _cellshift(t.sites, L))
-        prev = get(seen, ct, 0)
+        prev = get(seen, support(ct), 0)
         iszero(prev) || _translates_error("terms", t.sites, out[prev].sites, L)
         push!(out, ct)
-        insert!(seen, ct, length(out))
+        insert!(seen, support(ct), length(out))
     end
     return Terms{I}(out)
 end

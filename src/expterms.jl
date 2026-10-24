@@ -174,7 +174,7 @@ end
 
 # Every translate of channel `k` inside `1:N` (period `P`) as ordinary terms: exit block pushed right in steps of `P`.
 function _expand_channel!(
-        d::Dictionary{Term{I}, ComplexF64}, k::ExpKey{I}, coeff, P::Int, N::Int
+        d::Dictionary{Support{I}, ComplexF64}, k::ExpKey{I}, coeff, P::Int, N::Int
     ) where {I}
     sites = k.term.sites
     ops = [key.letter for key in k.term.factors]
@@ -205,7 +205,7 @@ end
 
 # One stretched translate: a composite string distributes over its letters at every gap site.
 function _emit_stretched!(
-        d::Dictionary{Term{I}, ComplexF64}, entry, exit_, ops, bonds, ne, entrybond,
+        d::Dictionary{Support{I}, ComplexF64}, entry, exit_, ops, bonds, ne, entrybond,
         strsites, string, w
     ) where {I}
     nstr = length(strsites)
@@ -240,23 +240,23 @@ function _emit_stretched!(
 end
 
 function _insert_stretched!(
-        d::Dictionary{Term{I}, ComplexF64}, newsites, newops, newbonds, w
+        d::Dictionary{Support{I}, ComplexF64}, newsites, newops, newbonds, w
     ) where {I}
     # multiplicity-free fusion: every vertex label is 1
     keys_ = Factor{I}[Factor{I}(o, b) for (o, b) in zip(newops, newbonds)]
-    # `Term`'s `==`/`hash` ignore the coefficient, so `setwith!` sums coincident terms
-    setwith!(+, d, Term{I}(newsites, keys_, one(ComplexF64)), ComplexF64(w))
+    # keyed by support, so `setwith!` sums coincident terms
+    setwith!(+, d, (newsites, keys_), ComplexF64(w))
     return d
 end
 
 # Every translate of every channel inside `1:N` as an ordinary bag; exponential in the gap (oracle).
 function expand_channels(es::ExpSum{I}, P::Int, N::Int) where {I}
-    d = Dictionary{Term{I}, ComplexF64}()
+    d = Dictionary{Support{I}, ComplexF64}()
     for (k, v) in pairs(es.channels)
         _expand_channel!(d, k, v, P, N)
     end
     filter!(!iszero, d)
-    return Terms{I}([Term{I}(t.sites, t.factors, v) for (t, v) in pairs(d)])
+    return Terms{I}([Term{I}(sites, factors, v) for ((sites, factors), v) in pairs(d)])
 end
 
 # --- lowering to a weighted automaton -------------------------------------------------------------

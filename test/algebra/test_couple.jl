@@ -115,8 +115,6 @@ end
     V = SU2Space(1 // 2 => 1)
     S = spinvector(unitbasis(V))
     a, b, c = S[1], S[2], S[3]
-    @test_throws ArgumentError couple(a, b; to = SU2Irrep(0), via = :tree)
-    @test_throws ArgumentError couple(a, b, c; to = SU2Irrep(0), via = :tree)
     # four rank-1 operators leave (j₁₂, j₁₂₃) free, and the error says so rather than picking one
     d = S[4]
     err = try

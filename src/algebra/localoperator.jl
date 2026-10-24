@@ -151,10 +151,10 @@ the variadic forced-channel form are those of the placed `couple`.
 """
 function couple(
         a::UnplacedOperator{I}, b::UnplacedOperator{I}, rest::UnplacedOperator{I}...;
-        to = unit(I), via = nothing
+        to = unit(I)
     ) where {I}
     ops = (a, b, rest...)
-    out = couple(_slotoperands(ops)...; to, via)
+    out = couple(_slotoperands(ops)...; to)
     return LocalOperator{I}(out, sum(nsites, ops))
 end
 

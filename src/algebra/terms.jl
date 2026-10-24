@@ -2,7 +2,7 @@
 # (`canonicalize!`), and collecting terms into a bag (`opsum`). Latticeless. Coupling lives in couple.jl.
 
 using TensorKit
-using TensorKit: Sector, ElementarySpace, FusionTree, unit
+using TensorKit: Sector, FusionTree, unit
 
 # Inverse of `bondcharges` (multiplicity-free: all vertex labels are 1). The 4-arg `FusionTree` form
 # for K = 0: the 3-arg one throws for `MultipleFusion`.
@@ -20,16 +20,20 @@ end
     Term{I<:Sector}
 
 One term: `sites` (ascending, unique), one `Factor` each (letter, running bond charge)
-and a reduced `coeff`. Multiplicity-free fusion only. Never mutated, so terms share vectors;
-`==`/`hash` ignore the coefficient, which is what makes summing coincident terms well defined.
+and a reduced `coeff`. Multiplicity-free fusion only. Never mutated, so terms share vectors.
+`==`/`hash` are struct-like (sites, factors and coefficient); the normal form sums terms of equal
+`support` (sites and factors), which is also the key of `≈`.
 """
 struct Term{I <: Sector}
     sites::Vector{Int}
     factors::Vector{Factor{I}}
     coeff::ComplexF64
     function Term{I}(sites::Vector{Int}, factors::Vector{Factor{I}}, coeff::ComplexF64) where {I}
-        @assert length(sites) == length(factors) "sites/factors arity mismatch"
-        @assert issorted(sites) && allunique(sites) "a term's sites must be ascending and unique"
+        length(sites) == length(factors) || throw(
+            ArgumentError("a term needs one factor per site, got $(length(sites)) site(s) and $(length(factors)) factor(s)")
+        )
+        issorted(sites; lt = <=) ||
+            throw(ArgumentError("a term's sites must be ascending and unique, got $sites"))
         return new{I}(sites, factors, coeff)
     end
 end
@@ -48,8 +52,15 @@ total(t::Term{I}) where {I} = isempty(t.factors) ? unit(I) : last(t.factors).bon
 # the caterpillar coupling tree, rebuilt from the running bond charges
 tree(t::Term{I}) where {I} = tree_from_bonds(I[k.letter.c for k in t.factors], I[k.bond for k in t.factors])
 
-Base.:(==)(x::Term{I}, y::Term{I}) where {I} = x.sites == y.sites && x.factors == y.factors
-Base.hash(t::Term, h::UInt) = hash(t.factors, hash(t.sites, hash(:Term, h)))
+Base.:(==)(x::Term{I}, y::Term{I}) where {I} =
+    x.sites == y.sites && x.factors == y.factors && x.coeff == y.coeff
+# field-wise: the default struct hash goes through `objectid` and is markedly slower in the sweep
+Base.hash(t::Term, h::UInt) = hash(t.coeff, hash(t.factors, hash(t.sites, hash(:Term, h))))
+
+# What identifies a term up to its coefficient: the key of the normal form and of `≈`.
+const Support{I} = Tuple{Vector{Int}, Vector{Factor{I}}}
+support(t::Term{I}) where {I} = (t.sites, t.factors)::Support{I}
+samesupport(x::Term{I}, y::Term{I}) where {I} = x.sites == y.sites && x.factors == y.factors
 
 # Total order for the normal form; the factors distinguish letters *and* couplings.
 function Base.isless(x::Term{I}, y::Term{I}) where {I}
@@ -166,7 +177,7 @@ function _canonicalize!(terms::Vector{Term{I}}) where {I}
     out = 0
     @inbounds for i in eachindex(terms)
         t = terms[i]
-        if out >= 1 && terms[out] == t
+        if out >= 1 && samesupport(terms[out], t)
             prev = terms[out]
             terms[out] = Term{I}(prev.sites, prev.factors, prev.coeff + t.coeff)
         else
@@ -181,20 +192,37 @@ function _canonicalize!(terms::Vector{Term{I}}) where {I}
 end
 
 # Both in normal form, so a positional walk is a set comparison.
-function _termsequal(ta::Vector{Term{I}}, tb::Vector{Term{I}}) where {I}
-    return length(ta) == length(tb) && all(((x, y),) -> x == y && x.coeff == y.coeff, zip(ta, tb))
-end
+_termsequal(ta::Vector{Term{I}}, tb::Vector{Term{I}}) where {I} = ta == tb
 
-# `isapprox` of the two operators as sparse vectors over terms.
+# `isapprox` of the two operators as sparse vectors over terms: a merge walk over the two sorted
+# lists, matching terms by support.
 function _termsapprox(
         ta::Vector{Term{I}}, tb::Vector{Term{I}}; atol::Real = 0, rtol::Real = Base.rtoldefault(Float64)
     ) where {I}
-    diff = Dict{Term{I}, ComplexF64}(t => t.coeff for t in ta)
-    for t in tb
-        diff[t] = get(diff, t, zero(ComplexF64)) - t.coeff
+    d2 = 0.0
+    i = j = 1
+    while i <= length(ta) && j <= length(tb)
+        x, y = ta[i], tb[j]
+        if samesupport(x, y)
+            d2 += abs2(x.coeff - y.coeff)
+            i += 1
+            j += 1
+        elseif isless(x, y)
+            d2 += abs2(x.coeff)
+            i += 1
+        else
+            d2 += abs2(y.coeff)
+            j += 1
+        end
+    end
+    for k in i:length(ta)
+        d2 += abs2(ta[k].coeff)
+    end
+    for k in j:length(tb)
+        d2 += abs2(tb[k].coeff)
     end
     nrm(ts) = sqrt(sum(t -> abs2(t.coeff), ts; init = 0.0))
-    return sqrt(sum(abs2, values(diff); init = 0.0)) <= max(atol, rtol * max(nrm(ta), nrm(tb)))
+    return sqrt(d2) <= max(atol, rtol * max(nrm(ta), nrm(tb)))
 end
 
 """
@@ -228,16 +256,6 @@ _collect_any(::Nothing, t::Term{I}) where {I} = Terms{I}(Term{I}[t])
 _collect_any(::Nothing, ts::Terms) = copy(ts)
 _collect_any(::Nothing, itr) = foldl(_collect_any, itr; init = nothing)
 _collect_any(out::Terms{I}, a) where {I} = collect_terms!(out, a, I)
-# a bare space is iterable, so a vector of them would otherwise be read as a nest of terms
-_collect_any(::Nothing, ::ElementarySpace) = _spaceaslattice()
-collect_terms!(::Terms{I}, ::ElementarySpace, ::Type{I}) where {I} = _spaceaslattice()
-_spaceaslattice() = throw(
-    ArgumentError(
-        "opsum: got an ElementarySpace where an operator was expected; a lattice is one operator " *
-            "`Basis` per site (e.g. `FiniteChain(spin_basis(SU2Irrep), N)`), not a list of spaces"
-    )
-)
-
 collect_terms!(out::Terms{I}, t::Term{I}, ::Type{I}) where {I} = (push!(out.terms, t); out)
 function collect_terms!(out::Terms{I}, ts::Terms{I}, ::Type{I}) where {I}
     append!(out.terms, ts.terms)

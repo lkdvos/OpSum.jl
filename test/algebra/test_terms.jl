@@ -77,3 +77,20 @@ end
     @test !(a ≈ a + b) && !(a + b ≈ a)
     @test isapprox(a, a + 1.0e-3 * b; atol = 1.0e-2)
 end
+
+@testset "Term: constructor checks and equality" begin
+    F = OpSum.Factor
+    raise = Letter(U1Irrep(1), 1)
+    lower = Letter(U1Irrep(-1), 1)
+    f1, f2 = F{U1Irrep}(raise, raise.c), F{U1Irrep}(lower, unit(U1Irrep))
+    @test_throws ArgumentError Term{U1Irrep}([1, 2], [f1], 1.0 + 0im)          # one factor per site
+    @test_throws ArgumentError Term{U1Irrep}([2, 1], [f1, f2], 1.0 + 0im)      # ascending
+    @test_throws ArgumentError Term{U1Irrep}([1, 1], [f1, f2], 1.0 + 0im)      # unique
+    t = Term{U1Irrep}([1, 2], [f1, f2], 1.0 + 0im)
+    u = Term{U1Irrep}([1, 2], [f1, f2], 1.0 + 0im)
+    w = Term{U1Irrep}([1, 2], [f1, f2], 2.0 + 0im)
+    @test t == u && hash(t) == hash(u)
+    @test t != w                                  # the coefficient is part of the equality …
+    @test OpSum.support(t) == OpSum.support(w)    # … but not of the support
+    @test OpSum.Terms(t) ≈ OpSum.Terms(w) * 0.5 && !(OpSum.Terms(t) ≈ OpSum.Terms(w))
+end

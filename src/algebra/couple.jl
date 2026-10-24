@@ -2,7 +2,7 @@
 
 using TensorKit
 using TensorKit: Sector, unit, dim, Nsymbol, Rsymbol, FusionStyle, UniqueFusion,
-    BraidingStyle, SymmetricBraiding
+    BraidingStyle, SymmetricBraiding, GenericFusion
 using LinearAlgebra: LinearAlgebra
 
 function Base.getindex(O::SiteOperator{I}, ind::Integer, inds::Integer...) where {I}
@@ -27,6 +27,14 @@ function _single_site_term(b::Terms, ctx)
     arity(t) == 1 || throw(ArgumentError("$ctx must be a single-site charged operator"))
     return only(t.sites), only(t.factors).letter
 end
+
+# Both `couple` forms are multiplicity-free: the vertex labels are not tracked.
+check_uniquefusion(::Type{I}) where {I <: Sector} =
+    FusionStyle(I) isa GenericFusion && throw(
+    ArgumentError(
+        "couple: multi-channel (GenericFusion) coupling is deferred, and $I has $(FusionStyle(I))"
+    )
+)
 
 # Whether a leg may be *inserted* left of others: `UniqueFusion` forces every invalidated running
 # charge and makes a transposition one scalar `Rsymbol(x, y, x ⊗ y)`; `SymmetricBraiding` makes
@@ -75,7 +83,7 @@ function couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             tot = tgt::I
             nsym = Nsymbol(run, opb.c, tot)
             iszero(nsym) && continue
-            @assert isone(nsym) "expected a unique coupling channel; multi-channel (GenericFusion) coupling is deferred"
+            isone(nsym) || invariant_violation("expected a unique coupling channel, got $nsym")
 
             coeff = ta.coeff * tb.coeff
             # graded tensor product: -1 iff both are fermion-odd
@@ -128,9 +136,8 @@ The variadic form takes every intermediate channel the charges force and errors 
 genuine choice (see [`couple_channels`](@ref)); nest `couple` to name it. For SU(2),
 `couple(S[1], S[2], S[3])` is forced, `couple(S[1], S[2], S[3], S[4])` is not.
 """
-function couple(a::Terms{I}, b::Terms{I}; to = unit(I), via = nothing) where {I}
-    via === nothing ||
-        throw(ArgumentError("tree-structured / multi-body coupling (`via`) is deferred"))
+function couple(a::Terms{I}, b::Terms{I}; to = unit(I)) where {I}
+    check_uniquefusion(I)
     isempty(a) && throw(ArgumentError("couple: first operand has no terms"))
     isempty(b) && throw(ArgumentError("couple: second operand has no terms"))
     tot = to::I
@@ -227,17 +234,9 @@ end
 
 # Variadic coupling: fold left, taking each intermediate channel the charges force.
 function couple(
-        a::Terms{I}, b::Terms{I}, c::Terms{I}, rest::Terms{I}...;
-        to = unit(I), via = nothing
+        a::Terms{I}, b::Terms{I}, c::Terms{I}, rest::Terms{I}...; to = unit(I)
     ) where {I}
-    via === nothing ||
-        throw(ArgumentError("tree-structured / multi-body coupling (`via`) is deferred"))
-    FusionStyle(I) isa GenericFusion && throw(
-        ArgumentError(
-            "couple: multi-channel (GenericFusion) coupling is deferred, and $I has " *
-                "$(FusionStyle(I))"
-        )
-    )
+    check_uniquefusion(I)
     tot = to::I
 
     others = (b, c, rest...)

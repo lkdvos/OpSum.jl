@@ -54,7 +54,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 0 | Top-down tour of the main path | — | done |
 | 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done |
 | 2 | Letters | letters, siteoperator, instantiate | done (full suite green at 4b54d6f) |
-| 3 | Terms | terms, couple | implementing |
+| 3 | Terms | terms, couple | done (full suite running) |
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | decided (after chunk 3) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |
 | 6 | Container and channels | operatorsum, infinite/expterms | pending |
@@ -150,6 +150,13 @@ equivalence harness and a construction-time check (largest showcase model, N₂ 
 (d) `Term` checks → `ArgumentError`; `via` keyword deleted; one GenericFusion entry check for both `couple` forms
 (removes the `@assert`); `_spaceaslattice` deleted.
 (e) Latticeless `opsum(args...)` → `Terms(args...)`; `opsum` always builds an `OperatorSum`; `append!` stays.
+As applied: a718882 (c), 7c6e751 (b, d), 2040882 (a), 2897433 (e), 04e2747 (tests keyed by `support`, `TermBag`
+with `_written!`; commits 7c6e751/2040882 alone fail 3 test files, fixed there). New internal `TermBag` (raw
+accumulator) so no code path writes a non-canonical `Terms`; `≈` is a merge walk on sorted lists; `Terms(Term{I}[])` is
+the empty operator. `Term`-keyed dictionaries in `unitcell.jl`/`expterms.jl` now key on `support` (the unit-cell
+translate check needed it). Equivalence: 0 bitwise diffs vs pre-chunk (95 cases), 0 operator-level vs base. Build of
+`H` up to +24% (hubbard_su2 N=128 0.19→0.23 ms; haldane_shastry N=256 20→22.5 ms), `mpo(H)` unchanged within noise.
+`benchmark/n2` was already stale (`_rebasis` signature), chunk 14.
 
 **D11 Chunk 4 (bases, projection, stock bases, adjoint).**
 (a) `Basis` equality is identity (`==` is `===`, `hash` by `objectid`), documented; stock bases memoised so repeated

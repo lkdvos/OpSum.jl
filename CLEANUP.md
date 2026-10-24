@@ -55,7 +55,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done |
 | 2 | Letters | letters, siteoperator, instantiate | done (full suite green at 4b54d6f) |
 | 3 | Terms | terms, couple | done (full suite green at bf826f5) |
-| 4 | Bases and projection | basis, projection, stockbases, adjoint | implementing |
+| 4 | Bases and projection | basis, projection, stockbases, adjoint | done (full suite running) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |
 | 6 | Container and channels | operatorsum, infinite/expterms | pending |
 | 7 | The sweep | irreptermtable (table), irrepinterning, irrepgraph | pending |
@@ -172,6 +172,16 @@ anything per-basis the adjoint needs; global per-basis caches go.
 (e) Narrow `_tkt_operator`'s `catch`; files split by concern (basis.jl = construction + instantiate,
 projection.jl = `project`); header fixed; D7 renames; adjoint and stock caches kept, documented.
 (f) Issue: `project` builds each candidate densely; overlaps factorise site by site. → #44.
+As applied: 1fed91e (one commit). `Basis` is a `mutable struct` (identity `==`/`hash`) with fields `duals`,
+`norms`, `metric` (eager), `products` (lazy, under `OPCACHE_LOCK`); `_LETTER_PRODUCT_CACHE` gone, `_ADJOINT_CACHE` kept
+(keyed per term × lattice). Dual of `e_k` is `Σ_m conj((G⁻¹)_km) e_m` (conjugate needed for complex bases; tested
+`⟨ẽ_k, e_j⟩ = δ`); `G⁻¹` chopped at `rtol` scale-invariantly. Completeness checked per charge at construction
+(`ArgumentError`). `_tkt_operator` rethrows all but the "not symmetric under" `ArgumentError`. Equivalence: VC cases
+identical up to round-off (max 1.8e-15 abs, same letters/entries); SVD cases differ by noise and degenerate gauge,
+lossless SVD still reproduces the operator (11 cases checked); 2 trunc2 cases differ by tie-breaking in one bond.
+Residuals ≤ 7.5e-15. `project` 1.4–2.6× faster, ~half the allocations; model construction ~2× faster (recovers the
+chunk 3 build cost); `mpo` unchanged. Lattice letter-range check is weaker (complete same-space bases have equal
+letter counts). `benchmark/n2` got a local `rebasis` helper, still unrunnable (chunk 14).
 
 ## Possible improvements
 

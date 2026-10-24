@@ -55,7 +55,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 1 | Foundations | utility/, compression/algorithms.jl, lattices.jl | done |
 | 2 | Letters | letters, siteoperator, instantiate | done (full suite green at 4b54d6f) |
 | 3 | Terms | terms, couple | done (full suite running) |
-| 4 | Bases and projection | basis, projection, stockbases, adjoint | decided (after chunk 3) |
+| 4 | Bases and projection | basis, projection, stockbases, adjoint | implementing |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |
 | 6 | Container and channels | operatorsum, infinite/expterms | pending |
 | 7 | The sweep | irreptermtable (table), irrepinterning, irrepgraph | pending |
@@ -171,7 +171,7 @@ metric.jl), the letter product table (now the global `IdDict` in letterproducts.
 anything per-basis the adjoint needs; global per-basis caches go.
 (e) Narrow `_tkt_operator`'s `catch`; files split by concern (basis.jl = construction + instantiate,
 projection.jl = `project`); header fixed; D7 renames; adjoint and stock caches kept, documented.
-(f) Issue: `project` builds each candidate densely; overlaps factorise site by site.
+(f) Issue: `project` builds each candidate densely; overlaps factorise site by site. → #44.
 
 ## Possible improvements
 

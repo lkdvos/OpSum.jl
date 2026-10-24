@@ -140,10 +140,10 @@ end
     # the same on an infinite chain, against the explicit window
     Hi = opsum(InfiniteChain(f.B), expterm(f.h[1, 2]; decay = λ, string = p), 0.3 * f.n[1])
     W = mpo(Hi)
-    got = Dict(t => t.coeff for t in OpSum.mpo_terms_window(W, 6))
-    exact = Dict(t => t.coeff for t in OpSum.window_terms(Hi, 6))
+    got = termdict(OpSum.mpo_terms_window(W, 6))
+    exact = termdict(OpSum.window_terms(Hi, 6))
     @test all(haskey(exact, t) && exact[t] ≈ v for (t, v) in got)
-    @test all(haskey(got, t) for t in keys(exact) if maximum(t.sites) <= 4)
+    @test all(haskey(got, t) for t in keys(exact) if maximum(first(t)) <= 4)
 
     # a channel's letters land on sites it does not name: they must mean the same operator there
     Q = Basis([Xmat, Zmat])

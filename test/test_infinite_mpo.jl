@@ -77,17 +77,17 @@ function faithful(H, spaces; ncells = 5)
     R = maxspan(gen)
     N = ncells * L
     N > R + 1 || error("window too small for the guard")
-    # `Term`'s `==`/`hash` ignore the coefficient, so it is the dictionary key
-    got = Dict(t => t.coeff for t in mpo_terms_window(mpo(H), ncells))
-    want = Dict(t => t.coeff for t in window_terms(gen, ncells))
+    # keyed by support (sites and factors), the coefficient is the value
+    got = termdict(mpo_terms_window(mpo(H), ncells))
+    want = termdict(window_terms(gen, ncells))
 
     for (t, v) in got
-        haskey(want, t) || return false, "spurious term on sites $(t.sites)"
-        want[t] ≈ v || return false, "wrong coefficient on sites $(t.sites)"
+        haskey(want, t) || return false, "spurious term on sites $(first(t))"
+        want[t] ≈ v || return false, "wrong coefficient on sites $(first(t))"
     end
     for (t, _) in want
-        maximum(t.sites) <= N - R - 1 || continue
-        haskey(got, t) || return false, "missing term on sites $(t.sites)"
+        maximum(first(t)) <= N - R - 1 || continue
+        haskey(got, t) || return false, "missing term on sites $(first(t))"
     end
     return true, ""
 end

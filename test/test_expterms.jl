@@ -98,17 +98,17 @@ function faithful(H, spaces; ncells = 6)
     gen = unitcell_terms(H)
     R = maxspan(gen)
     N = ncells * L
-    got = Dict(t => t.coeff for t in mpo_terms_window(mpo(H), ncells))
-    want = Dict(t => t.coeff for t in window_terms(gen, ncells))
+    got = termdict(mpo_terms_window(mpo(H), ncells))
+    want = termdict(window_terms(gen, ncells))
 
     for (t, v) in got
-        haskey(want, t) || return false, "spurious term on sites $(t.sites)"
+        haskey(want, t) || return false, "spurious term on sites $(first(t))"
         want[t] ≈ v ||
-            return false, "wrong coefficient on sites $(t.sites): $v vs $(want[t])"
+            return false, "wrong coefficient on sites $(first(t)): $v vs $(want[t])"
     end
     for (t, _) in want
-        maximum(t.sites) <= N - R - 1 || continue
-        haskey(got, t) || return false, "missing term on sites $(t.sites)"
+        maximum(first(t)) <= N - R - 1 || continue
+        haskey(got, t) || return false, "missing term on sites $(first(t))"
     end
     return true, ""
 end
@@ -127,7 +127,7 @@ end
     chain = InfiniteChain([BSU2])
     geo = mpo(opsum(chain, expterm(dot(S[1], S[2]); decay = λ)))
     @test densedim(geo.bondsectors[1]) == 5
-    got = Dict(t => t.coeff for t in mpo_terms_window(geo, ncells))
+    got = termdict(mpo_terms_window(geo, ncells))
 
     for Rmax in (2, 4, 7)
         gen = unitcell_terms(sum([λ^(r - 1) * dot(S[1], S[1 + r]) for r in 1:Rmax]), 1)
@@ -137,7 +137,7 @@ end
 
         for t in window_terms(gen, chain, ncells)
             maximum(t.sites) <= ncells - Rmax - 1 || continue
-            @test haskey(got, t) && got[t] ≈ t.coeff
+            @test haskey(got, OpSum.support(t)) && got[OpSum.support(t)] ≈ t.coeff
         end
     end
 end
@@ -303,8 +303,8 @@ end
         W = mpo(H)
         Ws, secs = W.Ws, W.bondsectors
         @test length(secs[N]) == 1                      # vacuum-terminated, as on a FiniteChain
-        want = Dict(t => t.coeff for t in chain_terms(H))
-        got = Dict(t => t.coeff for t in mpo_terms(Ws, secs))
+        want = termdict(chain_terms(H))
+        got = termdict(mpo_terms(Ws, secs))
         @test length(got) == length(want)
         @test all(
             haskey(want, t) && want[t] ≈ v for (t, v) in got

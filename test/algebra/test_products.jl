@@ -119,9 +119,10 @@ end
 
 # Re-coupling oracle: the written-order caterpillar materialised by `_written_block`, against the site-order terms.
 function recouples(sites, keys, coeff, Vs)
-    out = Terms{sectortype(first(Vs))}()
-    OpSum._written!(out, sites, keys, ComplexF64(coeff))
-    return OpSum.dense(out, Vs) ≈ coeff * OpSum._written_block(keys, sites, Vs)
+    I = sectortype(first(Vs))
+    bag = OpSum.TermBag{I}()
+    OpSum._written!(bag, sites, keys, ComplexF64(coeff))
+    return OpSum.dense(Terms{I}(bag), Vs) ≈ coeff * OpSum._written_block(keys, sites, Vs)
 end
 
 @testset "non-abelian re-coupling against the written-order product" begin
@@ -150,8 +151,9 @@ end
     # under an abelian symmetry the re-coupling is the R-symbol bookkeeping
     t = only(couple(F.cd[1], F.c[2], F.cd[3], F.c[4]))
     for p in ([3, 1, 4, 2], [2, 4, 1, 3], [4, 3, 2, 1])
-        out = Terms{FermionParity}()
-        OpSum._written!(out, p, t.factors, 1.0 + 0im)
+        bag = OpSum.TermBag{FermionParity}()
+        OpSum._written!(bag, p, t.factors, 1.0 + 0im)
+        out = Terms{FermionParity}(bag)
         @test Terms{FermionParity}(OpSum._recouple(p, t.factors, 1.0 + 0im)) ≈ out
     end
 

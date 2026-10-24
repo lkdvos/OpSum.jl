@@ -232,3 +232,6 @@ function window_operator(Ts, secs, s, f, cells)
     window[end] = select_right(window[end], secs[L], f)
     return plain(mpo_tensormap(window))
 end
+
+# a term sum as a dictionary `support => coefficient`; `Term` equality includes the coefficient
+termdict(ts) = Dict(OpSum.support(t) => t.coeff for t in ts)

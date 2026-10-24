@@ -32,8 +32,9 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   Stock bases (`spin_basis`, `fermion_basis`, `boson_basis`, `hubbard_basis`, `tj_basis`) and builders
   (`spin_ops`, …, named after TensorKitTensors functions) live in `stockbases.jl` and are memoised.
 * **Terms** (`algebra/terms.jl`, `algebra/letters.jl`): `Term` = ascending sites, one `Factor` per site, coefficient; the
-  running bond charges of the caterpillar *are* the fusion tree. `==`/`hash` ignore the coefficient. `Terms` is a
-  bag; `canonicalize!` (`algebra/terms.jl`) is the only normal form and everything observing the set goes through it.
+  running bond charges of the caterpillar *are* the fusion tree. `==`/`hash` include the coefficient (field-wise `hash`); `support(t)` = (sites, factors) is the key
+  of the normal form. `Terms` is in normal form at all times (sorted, coincident terms summed, zeros dropped; every
+  constructor and operation restores it, `+` is a merge, reading never mutates); pending products are kept apart.
   `≈` compares canonical terms as sparse vectors; `==` is exact.
 * **`couple`/`dot`/`*`** (`algebra/couple.jl`) are order-free. Abelian (`canreorder`): legs inserted with R-symbols (fermionic signs).
   Non-abelian (`_canrecouple`): written in order, re-coupled by `_recouple` (`products.jl`). Two fermion-odd operands

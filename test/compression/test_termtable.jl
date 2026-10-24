@@ -1,8 +1,7 @@
 using Test
 using OpSum
 using OpSum: TermTable, _factor_at, arity, nterms, nvertices, ispassthrough,
-    Term, Terms, scalarop, couple, nterms_raw, mpo, instantiate,
-    canonicalize!, opsum
+    Term, Terms, scalarop, couple, mpo, instantiate, opsum
 using OpSum: Letter
 using TensorKit
 using LinearAlgebra: dot
@@ -53,20 +52,22 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
 
 end
 
-# A bag until `canonicalize!` merges it; the pre-merge append count must not be observable.
-@testset "append-then-canonicalise" begin
+# `Terms` is in normal form at all times: coincident terms are summed as they are combined.
+@testset "coincident terms are summed" begin
     S = spinvector(unitbasis(su2))
     t = dot(S[1], S[2])
 
     H = opsum(t, t)
-    @test nterms_raw(H) == 2                  # two appended terms …
-    @test length(H) == 1                      # … but one term
+    @test length(H) == 1                      # two coincident terms are one term
     @test only(H).coeff ≈ 2 * only(t).coeff
     @test nterms(TermTable(H, 2)) == 1
 
-    # canonicalisation is in place and idempotent
-    @test nterms_raw(canonicalize!(H)) == 1
-    @test length(canonicalize!(H)) == 1
+    # every combining route sums coincident terms, and `append!` keeps the normal form in place
+    @test length(t + t) == 1 && only(t + t).coeff ≈ 2 * only(t).coeff
+    @test length(2 * t - t) == 1 && only(2 * t - t).coeff ≈ only(t).coeff
+    G = Terms(only(t))
+    @test append!(G, t) === G && length(G) == 1 && only(G).coeff ≈ 2 * only(t).coeff
+    @test length(append!(G, -2 * t)) == 0
 
     @test isempty(opsum(t, -t))               # exact cancellation drops the term
     @test length(opsum(t, 2 * t, -3 * t)) == 0
@@ -121,7 +122,7 @@ end
     @test_throws ArgumentError mpo(opsum(fill(unitbasis(SU2Space(0 => 1)), 4), H))    # no spin-1 letter there
 
     H2 = append!(opsum(terms), dot(S[1], S[5]))
-    @test nterms_raw(H2) == 4
+    @test length(H2) == 4
     @test_throws ArgumentError mpo(opsum(sites, H2))
 
     # `OperatorSum` takes a lattice or a `Vector{<:Basis}`
@@ -154,12 +155,36 @@ end
     @test (H * 2) / 2 == H
     @test opsum(one(t)) * 3 ≈ opsum(scalarop(3.0, unitbasis(su2))[1])
 
-    # a `Term` is comparable and hashable on its content, ignoring the coefficient
-    @test only(t) == only(2 * t)
-    @test hash(only(t)) == hash(only(2 * t))
+    # a `Term` is comparable and hashable on its content, the coefficient included
+    @test only(t) == only(1 * t)
+    @test hash(only(t)) == hash(only(1 * t))
+    @test only(t) != only(2 * t)
+    @test OpSum.support(only(t)) == OpSum.support(only(2 * t))
     @test only(t) != only(u)
 
     str = sprint(show, H)
     @test startswith(str, "Terms(")
     @test occursin("sites=[1, 2]", str)
+end
+
+# Building the MPO and reading a `Terms` never change what the user holds.
+@testset "mpo(H) and observers do not mutate" begin
+    S = spinvector(unitbasis(su2))
+    terms = [dot(S[i], S[i + 1]) for i in 1:4]
+    sites = fill(unitbasis(su2), 5)
+    H = opsum(sites, reverse(terms), terms[2])   # out of site order, one term coincident
+    @test issorted(H.terms.terms) && length(H) == 4
+    before = copy(H)
+    order = copy(H.terms.terms)
+    for alg in (nothing, IndependentSVD(), SequentialSVD())
+        alg === nothing ? mpo(H) : mpo(H, alg)
+        @test H.terms == before.terms
+        @test H.terms.terms == order            # same terms, same order
+    end
+
+    h = H.terms
+    v = copy(h.terms)
+    length(h); collect(h); h[1]; h == copy(h); h ≈ h; sprint(show, h)
+    @test h.terms == v
+    @test OpSum.dense(h, sites) ≈ OpSum.dense(copy(h), sites)
 end

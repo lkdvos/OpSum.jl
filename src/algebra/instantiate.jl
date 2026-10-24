@@ -8,9 +8,9 @@ using TensorKit: ElementarySpace, FusionTree, unit, dim, id, Vect, domain, permu
 _space(V::ElementarySpace) = V
 _lettertensor(letter::Letter, V::ElementarySpace) = matrixunit(letter, V)
 
-# The sum of the terms of `h` on `sites` (spaces or bases); `h` itself is left untouched.
+# The sum of the terms of `h` on `sites` (spaces or bases).
 function dense(h::Terms, sites)
-    return sum(t -> t.coeff * dense(t, sites), canonicalize!(copy(h)).terms)
+    return sum(t -> t.coeff * dense(t, sites), check_resolved(h).terms)
 end
 
 # The term with letters `ops` at `positions` and fusion `tree`, on `sites` (spaces or bases).

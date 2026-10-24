@@ -66,8 +66,8 @@ function Base.getindex(B::LocalOperator{I}, ind::Integer, inds::Integer...) wher
     sites = n == 1 ? collect(Int(ind):(Int(ind) + K - 1)) : Int[Int(ind), (Int(s) for s in inds)...]
     minimum(sites) >= 1 || throw(ArgumentError("site indices must be ≥ 1, got $sites"))
     increasing = issorted(sites; lt = <=)    # strictly increasing
-    out = Terms{I}()
-    for t in canonicalize!(B.terms).terms
+    out = TermBag{I}()
+    for t in B.terms.terms
         keep = findall(k -> !ispassthrough(k.letter), t.factors)
         if increasing    # a pure relabelling
             push!(out.terms, Term{I}(sites[keep], t.factors[keep], t.coeff))
@@ -75,7 +75,7 @@ function Base.getindex(B::LocalOperator{I}, ind::Integer, inds::Integer...) wher
             _written!(out, sites[keep], t.factors[keep], t.coeff)
         end
     end
-    return out
+    return Terms{I}(out)
 end
 
 function Base.:+(a::LocalOperator{I}, b::LocalOperator{I}) where {I}
@@ -119,7 +119,7 @@ function _slotterms(O::SiteOperator{I}, offset::Int) where {I}
 end
 
 function _slotterms(B::LocalOperator{I}, offset::Int) where {I}
-    ts = canonicalize!(B.terms).terms
+    ts = B.terms.terms
     offset == 0 && return Terms{I}(copy(ts))
     sites = collect((offset + 1):(offset + B.nsites))
     return Terms{I}(Term{I}[Term{I}(sites, t.factors, t.coeff) for t in ts])

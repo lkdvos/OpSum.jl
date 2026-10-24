@@ -13,7 +13,7 @@ using TensorKit: Sector, unit, Rsymbol, Nsymbol, FusionTree, Vect, id, permute, 
 _writtentotal(keys::Vector{Factor{I}}) where {I} = isempty(keys) ? unit(I) : last(keys).bond
 
 # Push a term written in any order, as `Term`s or a `PendingTerm`.
-function _written!(out::Terms{I}, sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64) where {I}
+function _written!(out::TermBag{I}, sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64) where {I}
     allunique(sites) || return push!(out.pending, PendingTerm{I}(sites, keys, coeff))
     issorted(sites) && return push!(out.terms, Term{I}(sites, keys, coeff))
     canreorder(I) || return append!(out.terms, _recouple(sites, keys, coeff))
@@ -123,7 +123,7 @@ several terms). A shared site, `a[i] * b[i]`, stays unevaluated until the operat
 `*` throws when the channel is not forced (two charged totals fusing to several sectors).
 """
 function Base.:*(a::Terms{I}, b::Terms{I}) where {I}
-    out = Terms{I}()
+    out = TermBag{I}()
     for (sa, ka, ca) in _factors(a), (sb, kb, cb) in _factors(b)
         ta, tb = _writtentotal(ka), _writtentotal(kb)
         cs = collect(ta ⊗ tb)
@@ -139,7 +139,7 @@ function Base.:*(a::Terms{I}, b::Terms{I}) where {I}
             _written!(out, vcat(sa, sb), keys, coeff * x)
         end
     end
-    return out
+    return Terms{I}(out)
 end
 
 _factors(ts::Terms) = Iterators.flatten(

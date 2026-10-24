@@ -37,7 +37,7 @@ Add `Term`s, `Terms`, `ExpSum`s or (nested) iterables of those to `H` in place. 
 against the lattice before anything is added.
 """
 function opsum!(H::OperatorSum{I}, args...) where {I}
-    buf = Terms{I}()
+    buf = TermBag{I}()
     chans = Dictionary{ExpKey{I}, ComplexF64}()
     for a in args
         _collect_op!(buf, chans, a, I)
@@ -46,7 +46,7 @@ function opsum!(H::OperatorSum{I}, args...) where {I}
     # on-site products are resolved here, where the sites' bases are known
     isempty(buf.pending) || append!(terms, _resolve(buf.pending, H.lattice))
     _checkinsert(H.lattice, terms, chans)
-    append!(H.terms.terms, terms)
+    merge_terms!(H.terms, terms)
     if !isempty(chans)
         foreach(((k, v),) -> setwith!(+, H.channels.channels, k, v), pairs(chans))
         filter!(!iszero, H.channels.channels)

@@ -49,7 +49,7 @@ function unitcell_terms(ts::Terms{I}, L::Int) where {I}
     L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
     seen = Dictionary{Support{I}, Int}()   # by support: translates with other coefficients still clash
     out = Term{I}[]
-    for t in canonicalize!(ts).terms
+    for t in ts.terms
         _checkgenerator(t)
         ct = translate(t, _cellshift(t.sites, L))
         prev = get(seen, support(ct), 0)

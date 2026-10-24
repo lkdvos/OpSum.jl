@@ -16,8 +16,7 @@ nterms(tt::TermTable) = length(tt.coeffs)
 nvertices(tt::TermTable) = tt.nvertices
 
 function TermTable(ts::Terms{I}, N::Integer) where {I}
-    canonicalize!(ts)
-    terms = ts.terms
+    terms = check_resolved(ts).terms
     M = length(terms)
     K = max(1, maximum(arity, terms; init = 0))   # the sweeps index row 1 unconditionally
     sitemat = zeros(Int, K, M)

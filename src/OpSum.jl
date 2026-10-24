@@ -8,7 +8,7 @@ export Letter, scalarop, project, spin_ops, fermion_ops
 # unplaced K-site operators
 export LocalOperator
 # term algebra (latticeless)
-export Term, Terms, couple, couple_channels, opsum, canonicalize!
+export Term, Terms, couple, couple_channels, opsum
 # the lattice-carrying container
 export OperatorSum, opsum!
 # lattices

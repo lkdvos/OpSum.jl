@@ -16,7 +16,7 @@
 # basis spans every operator on the site.
 
 using OpSum, TensorKit, LinearAlgebra, Printf
-using OpSum: Term, Terms, canonicalize!, _rebasis
+using OpSum: Term, Terms, _rebasis
 using TensorKit: removeunit, numind
 
 const EXP = get(ENV, "MPSKITEXPERIMENTAL", "/mnt/home/ldevos/Projects/MPSKitExperimental.jl")
@@ -96,7 +96,7 @@ function run(which)
     B = qchem_basis()
     @printf "basis: %s\n" B
     lat = FiniteChain(B, N)
-    rb = canonicalize!(_rebasis(canonicalize!(terms).terms, (t, j) -> lat[t.sites[j]]; placed = true)).terms
+    rb = _rebasis(terms.terms, (t, j) -> lat[t.sites[j]]; placed = true).terms
     # different matrix-unit tuples land on the same basis term and cancel to round-off there
     cmax = maximum(t -> abs(t.coeff), rb)
     Hb = opsum(lat, Terms(filter(t -> abs(t.coeff) > 1.0e-12 * cmax, rb)))

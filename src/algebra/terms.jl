@@ -1,5 +1,5 @@
-# Term algebra over letters: `Term` (one term) → `Terms` (a bag, the operator), its normal form
-# (`canonicalize!`), and collecting terms into a bag (`opsum`). Latticeless. Coupling lives in couple.jl.
+# Term algebra over letters: `Term` (one term) → `Terms` (the operator, always in normal form) and
+# collecting terms into one (`opsum`). Latticeless. Coupling lives in couple.jl.
 
 using TensorKit
 using TensorKit: Sector, FusionTree, unit
@@ -87,13 +87,20 @@ end
 """
     Terms{I<:Sector}
 
-The compressible operator: a lattice-free bag of [`Term`](@ref)s, returned by placement (`A[i]`),
-[`couple`](@ref) and `dot`, and combined by `+ - * /`. Terms are appended as given;
-[`canonicalize!`](@ref) normalises in place, and `length`, iteration, indexing and `≈` go through it.
+The compressible operator: a lattice-free sum of [`Term`](@ref)s, returned by placement (`A[i]`),
+[`couple`](@ref) and `dot`, and combined by `+ - * /`. It is always in normal form: terms sorted,
+coincident terms (equal sites and factors) summed, zero coefficients dropped; every constructor
+and operation returns it so, and reading never changes it. The exception is a product acting twice
+on one site (`a[i] * b[i]`), kept apart as a pending product until it enters an
+[`OperatorSum`](@ref); such a `Terms` has no normal form, and `length`, iteration and `≈` throw.
 """
 struct Terms{I <: Sector}
     terms::Vector{Term{I}}
     pending::Vector{PendingTerm{I}}
+    # normalises `terms` in place: the vector is owned by the new `Terms`
+    function Terms{I}(terms::Vector{Term{I}}, pending::Vector{PendingTerm{I}}) where {I <: Sector}
+        return new{I}(normalize_terms!(terms), pending)
+    end
 end
 Terms{I}(terms::Vector{Term{I}}) where {I <: Sector} = Terms{I}(terms, PendingTerm{I}[])
 Terms{I}() where {I <: Sector} = Terms{I}(Term{I}[])
@@ -102,76 +109,27 @@ Terms(t::Term{I}) where {I} = Terms{I}(Term{I}[t])
 
 TensorKit.sectortype(::Type{Terms{I}}) where {I} = I
 
-# the appended count, before coincident terms are summed (tests)
-nterms_raw(ts::Terms) = length(ts.terms)
+# A raw, unordered accumulator of terms and pending products, normalised once by `Terms{I}(bag)`.
+struct TermBag{I <: Sector}
+    terms::Vector{Term{I}}
+    pending::Vector{PendingTerm{I}}
+end
+TermBag{I}() where {I <: Sector} = TermBag{I}(Term{I}[], PendingTerm{I}[])
+Terms{I}(bag::TermBag{I}) where {I <: Sector} = Terms{I}(bag.terms, bag.pending)
+Terms(bag::TermBag{I}) where {I} = Terms{I}(bag)
 
-# Everything that observes the term set normalises first.
-Base.length(ts::Terms) = length(canonicalize!(ts).terms)
-Base.iterate(ts::Terms, args...) = iterate(canonicalize!(ts).terms, args...)
-Base.eltype(::Type{Terms{I}}) where {I} = Term{I}
-Base.getindex(ts::Terms, i::Integer) = canonicalize!(ts).terms[i]
-Base.firstindex(::Terms) = 1
-Base.lastindex(ts::Terms) = length(ts)
+# --- normal form ----------------------------------------------------------------------------------
 
-# Copies, so folding over M terms is quadratic; use `opsum`.
-Base.:+(a::Terms{I}, b::Terms{I}) where {I} =
-    Terms{I}(vcat(a.terms, b.terms), vcat(a.pending, b.pending))
-Base.:+(a::Terms{I}, t::Term{I}) where {I} = Terms{I}(vcat(a.terms, [t]), copy(a.pending))
-Base.:+(t::Term{I}, a::Terms{I}) where {I} = Terms{I}(vcat([t], a.terms), copy(a.pending))
-VectorInterface.scale(ts::Terms{I}, α::Number) where {I} = Terms{I}(
-    Term{I}[scale(t, α) for t in ts.terms],
-    PendingTerm{I}[PendingTerm{I}(p.sites, p.factors, p.coeff * ComplexF64(α)) for p in ts.pending]
-)
-
-# `one` is the term with no active sites; `zero` is the empty bag
-Base.one(::Union{Terms{I}, Type{Terms{I}}}) where {I} =
-    Terms{I}(Term{I}[Term{I}(Int[], Factor{I}[], ComplexF64(1))])
-Base.zero(::Union{Terms{I}, Type{Terms{I}}}) where {I} = Terms{I}()
-Base.empty(::Terms{I}) where {I} = Terms{I}()
-
-Base.copy(ts::Terms{I}) where {I} = Terms{I}(copy(ts.terms), copy(ts.pending))
-
-# `≈`: close as sparse vectors over the canonical terms (a missing term counts as zero); `==` is exact.
-Base.isapprox(a::Terms{I}, b::Terms{I}; kwargs...) where {I} =
-    _termsapprox(canonicalize!(a).terms, canonicalize!(b).terms; kwargs...)
-Base.:(==)(a::Terms{I}, b::Terms{I}) where {I} =
-    _termsequal(canonicalize!(a).terms, canonicalize!(b).terms)
-
-function Base.show(io::IO, ts::Terms{I}) where {I}
-    isempty(ts.pending) || return print(
-        io, "Terms{", I, "}(", length(ts.terms), " term(s) and ", length(ts.pending),
-        " unresolved on-site product(s); add it to an OperatorSum to resolve them)"
-    )
-    canonicalize!(ts)
-    print(io, "Terms(")
-    join(io, ("$(t.coeff) * [sites=$(t.sites), ops=$(letters(t)), total=$(total(t))]" for t in ts.terms), " + ")
-    return print(io, ")")
+# the three-way comparison of the term order (by support)
+function cmpsupport(x::Term{I}, y::Term{I}) where {I}
+    c = cmp(x.sites, y.sites)
+    return iszero(c) ? cmp(x.factors, y.factors) : c
 end
 
-"""
-    canonicalize!(ts::Terms) -> ts
-
-Put `ts` in normal form in place: sort, sum coincident terms, drop cancelled ones. Idempotent.
-"""
-function canonicalize!(ts::Terms)
-    isempty(ts.pending) || throw(
-        ArgumentError(
-            "this operator holds $(length(ts.pending)) unresolved on-site product(s) (`a[i] * b[i]`, " *
-                "or a pair placed on one site), which are only resolved in the sites' bases when it " *
-                "enters an OperatorSum: `opsum(lat, h)`. Until then it has no normal form, so its " *
-                "length, terms and `≈` are not defined."
-        )
-    )
-    _canonicalize!(ts.terms)
-    return ts
-end
-
-# sort, merge adjacent equals, drop cancellations
-function _canonicalize!(terms::Vector{Term{I}}) where {I}
-    if length(terms) <= 1
-        length(terms) == 1 && iszero(only(terms).coeff) && empty!(terms)   # so `isempty` cannot lie
-        return terms
-    end
+# Normal form in place: no zero coefficients, strictly ascending supports. Already-normal input costs one pass.
+function normalize_terms!(terms::Vector{Term{I}}) where {I}
+    any(t -> iszero(t.coeff), terms) && filter!(t -> !iszero(t.coeff), terms)
+    (length(terms) <= 1 || all(i -> cmpsupport(terms[i - 1], terms[i]) < 0, 2:length(terms))) && return terms
 
     sort!(terms)
     out = 0
@@ -186,13 +144,98 @@ function _canonicalize!(terms::Vector{Term{I}}) where {I}
         end
     end
     resize!(terms, out)
-
     any(t -> iszero(t.coeff), terms) && filter!(t -> !iszero(t.coeff), terms)
     return terms
 end
 
-# Both in normal form, so a positional walk is a set comparison.
-_termsequal(ta::Vector{Term{I}}, tb::Vector{Term{I}}) where {I} = ta == tb
+# The sum of two normal forms, a merge in `O(n + m)`.
+function merge_terms(a::Vector{Term{I}}, b::Vector{Term{I}}) where {I}
+    out = Term{I}[]
+    sizehint!(out, length(a) + length(b))
+    i = j = 1
+    while i <= length(a) && j <= length(b)
+        x, y = a[i], b[j]
+        c = cmpsupport(x, y)
+        if c < 0
+            push!(out, x)
+            i += 1
+        elseif c > 0
+            push!(out, y)
+            j += 1
+        else
+            s = x.coeff + y.coeff
+            iszero(s) || push!(out, Term{I}(x.sites, x.factors, s))
+            i += 1
+            j += 1
+        end
+    end
+    append!(out, view(a, i:length(a)))
+    append!(out, view(b, j:length(b)))
+    return out
+end
+
+# Add `new` (owned, any order) into `ts` in place, keeping its normal form; for `OperatorSum` insertion and `append!`.
+function merge_terms!(ts::Terms{I}, new::Vector{Term{I}}) where {I}
+    isempty(new) && return ts
+    merged = merge_terms(ts.terms, normalize_terms!(new))
+    resize!(ts.terms, length(merged))
+    copyto!(ts.terms, merged)
+    return ts
+end
+
+# Observers of the normal form refuse a bag that still holds unevaluated on-site products.
+function check_resolved(ts::Terms)
+    isempty(ts.pending) || throw(
+        ArgumentError(
+            "this operator holds $(length(ts.pending)) unresolved on-site product(s) (`a[i] * b[i]`, " *
+                "or a pair placed on one site), which are only resolved in the sites' bases when it " *
+                "enters an OperatorSum: `opsum(lat, h)`. Until then it has no normal form, so its " *
+                "length, terms and `≈` are not defined."
+        )
+    )
+    return ts
+end
+
+Base.length(ts::Terms) = length(check_resolved(ts).terms)
+Base.isempty(ts::Terms) = isempty(check_resolved(ts).terms)
+Base.iterate(ts::Terms, args...) = iterate(check_resolved(ts).terms, args...)
+Base.eltype(::Type{Terms{I}}) where {I} = Term{I}
+Base.getindex(ts::Terms, i::Integer) = check_resolved(ts).terms[i]
+Base.firstindex(::Terms) = 1
+Base.lastindex(ts::Terms) = length(ts)
+
+# Each `+` is a merge, so folding over M terms is quadratic; use `opsum`.
+Base.:+(a::Terms{I}, b::Terms{I}) where {I} =
+    Terms{I}(merge_terms(a.terms, b.terms), vcat(a.pending, b.pending))
+Base.:+(a::Terms{I}, t::Term{I}) where {I} = Terms{I}(merge_terms(a.terms, [t]), copy(a.pending))
+Base.:+(t::Term{I}, a::Terms{I}) where {I} = a + t
+VectorInterface.scale(ts::Terms{I}, α::Number) where {I} = Terms{I}(
+    Term{I}[scale(t, α) for t in ts.terms],
+    PendingTerm{I}[PendingTerm{I}(p.sites, p.factors, p.coeff * ComplexF64(α)) for p in ts.pending]
+)
+
+# `one` is the term with no active sites; `zero` is the empty operator
+Base.one(::Union{Terms{I}, Type{Terms{I}}}) where {I} =
+    Terms{I}(Term{I}[Term{I}(Int[], Factor{I}[], ComplexF64(1))])
+Base.zero(::Union{Terms{I}, Type{Terms{I}}}) where {I} = Terms{I}()
+Base.empty(::Terms{I}) where {I} = Terms{I}()
+
+Base.copy(ts::Terms{I}) where {I} = Terms{I}(copy(ts.terms), copy(ts.pending))
+
+# `≈`: close as sparse vectors over the terms (a missing term counts as zero); `==` is exact.
+Base.isapprox(a::Terms{I}, b::Terms{I}; kwargs...) where {I} =
+    _termsapprox(check_resolved(a).terms, check_resolved(b).terms; kwargs...)
+Base.:(==)(a::Terms{I}, b::Terms{I}) where {I} = check_resolved(a).terms == check_resolved(b).terms
+
+function Base.show(io::IO, ts::Terms{I}) where {I}
+    isempty(ts.pending) || return print(
+        io, "Terms{", I, "}(", length(ts.terms), " term(s) and ", length(ts.pending),
+        " unresolved on-site product(s); add it to an OperatorSum to resolve them)"
+    )
+    print(io, "Terms(")
+    join(io, ("$(t.coeff) * [sites=$(t.sites), ops=$(letters(t)), total=$(total(t))]" for t in ts.terms), " + ")
+    return print(io, ")")
+end
 
 # `isapprox` of the two operators as sparse vectors over terms: a merge walk over the two sorted
 # lists, matching terms by support.
@@ -248,29 +291,30 @@ function opsum(args...)
                 "`Terms{I}()` for the empty operator"
         )
     )
-    return out
+    return Terms(out)
 end
 
 # The accumulator is `nothing` until the first term fixes `I`; after that the typed collector runs.
-_collect_any(::Nothing, t::Term{I}) where {I} = Terms{I}(Term{I}[t])
-_collect_any(::Nothing, ts::Terms) = copy(ts)
+_collect_any(::Nothing, t::Term{I}) where {I} = collect_terms!(TermBag{I}(), t, I)
+_collect_any(::Nothing, ts::Terms{I}) where {I} = collect_terms!(TermBag{I}(), ts, I)
 _collect_any(::Nothing, itr) = foldl(_collect_any, itr; init = nothing)
-_collect_any(out::Terms{I}, a) where {I} = collect_terms!(out, a, I)
-collect_terms!(out::Terms{I}, t::Term{I}, ::Type{I}) where {I} = (push!(out.terms, t); out)
-function collect_terms!(out::Terms{I}, ts::Terms{I}, ::Type{I}) where {I}
+_collect_any(out::TermBag{I}, a) where {I} = collect_terms!(out, a, I)
+
+collect_terms!(out::TermBag{I}, t::Term{I}, ::Type{I}) where {I} = (push!(out.terms, t); out)
+function collect_terms!(out::TermBag{I}, ts::Terms{I}, ::Type{I}) where {I}
     append!(out.terms, ts.terms)
     append!(out.pending, ts.pending)
     return out
 end
-function collect_terms!(out::Terms{I}, itr, ::Type{I}) where {I}
+function collect_terms!(out::TermBag{I}, itr, ::Type{I}) where {I}
     for a in itr
         collect_terms!(out, a, I)
     end
     return out
 end
 # A term over a different symmetry than the one already accumulated is a mistake worth naming.
-collect_terms!(::Terms{I}, ::Term{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
-collect_terms!(::Terms{I}, ::Terms{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
+collect_terms!(::TermBag{I}, ::Term{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
+collect_terms!(::TermBag{I}, ::Terms{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
 _wrongsector(I, J) = throw(
     ArgumentError("cannot combine an operator over $J with one over $I")
 )
@@ -278,11 +322,13 @@ _wrongsector(I, J) = throw(
 """
     append!(ts::Terms, terms...) -> ts
 
-Append terms to `ts` in place; the arguments are as for [`opsum`](@ref).
+Append terms to `ts` in place, keeping its normal form; the arguments are as for [`opsum`](@ref).
 """
 function Base.append!(ts::Terms{I}, args...) where {I}
+    bag = TermBag{I}()
     for a in args
-        collect_terms!(ts, a, I)
+        collect_terms!(bag, a, I)
     end
-    return ts
+    append!(ts.pending, bag.pending)
+    return merge_terms!(ts, bag.terms)
 end

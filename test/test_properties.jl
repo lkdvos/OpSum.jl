@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: instantiate, mpo_terms, mpo, mpo_tensors, nterms_raw, total, opsum,
+using OpSum: instantiate, mpo_terms, mpo, mpo_tensors, total, opsum,
     Terms
 using TensorKit
 using Random: Xoshiro, shuffle
@@ -59,7 +59,7 @@ end
         Ws, secs = reduced(mpo(opsum(sites, H)))
         @test length(secs) == N
         @test secs[N] == [unit(sectortype(V))]
-        @test all(length(s) <= nterms_raw(H) + 1 for s in secs)
+        @test all(length(s) <= length(H) + 1 for s in secs)
         # the lossless SVD rank is bounded by the cover (`islossless` does not apply to SVD bases; see below)
         for alg in (IndependentSVD(), SequentialSVD())
             _, ssvd = reduced(mpo(opsum(sites, H), alg))

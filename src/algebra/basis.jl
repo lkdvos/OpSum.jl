@@ -269,7 +269,7 @@ function project(h::AbstractTensorMap, Bs::AbstractVector{<:Basis{I}}; kwargs...
     out = _project_terms(h, Bs; kwargs...)
     K = length(Bs)
     K == 1 || return LocalOperator{I}(out, K)
-    ts = canonicalize!(out).terms
+    ts = out.terms
     return SiteOperator{I}(Letter{I}[only(t.factors).letter for t in ts], ComplexF64[t.coeff for t in ts])
 end
 
@@ -315,7 +315,7 @@ function _project_terms(
     hnorm = norm(hc)
     θ = max(float(atol), float(rtol) * hnorm)
     mu = _project_units(h; atol = 0, rtol = 0).terms.terms
-    summed = canonicalize!(_rebasis(mu, Bs)).terms
+    summed = _rebasis(mu, Bs).terms
     # drop round-off: a coefficient whose term, at the scale of its elements, is below the tolerance
     weight(t) = prod(j -> norm(instantiate(t.factors[j].letter, Bs[j])), 1:K)
     out = Terms{I}(filter(t -> abs(t.coeff) * weight(t) > θ, summed))

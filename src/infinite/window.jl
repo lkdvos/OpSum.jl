@@ -139,9 +139,9 @@ function _infinite_window(
     for attempt in 1:3
         attempt == 1 || (nc *= 2)
         N = nc * L
-        tt = TermTable(window_terms(gen.terms, lat, nc), N)
-        Ws, bondsectors = _sweep(
-            tt, N, VertexCover(); channels = lower_channels(gen.channels, L)
+        tt = TermTable(window_terms(gen.terms, lat, nc))
+        (; Ws, bondsectors) = sweep(
+            tt, N, VertexCover(); jordan = false, channels = lower_channels(gen.channels, L)
         )
         c = _fixedpoint_cell(Ws, bondsectors, L, R)
         iszero(c) || break

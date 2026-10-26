@@ -6,7 +6,7 @@ using Test
 using OpSum
 using OpSum: mpo, mpo_tensors, mpo_terms, instantiate, couple, scalarop, opsum
 using OpSum: VertexCover, IndependentSVD, SequentialSVD
-using OpSum: TermTable, _sweep, SweepGraph, _at_site!
+using OpSum: TermTable, sweep, SweepGraph, _at_site!
 using OpSum: Letter
 using TensorKit
 using TensorKit: @tensor
@@ -171,7 +171,8 @@ end
     H = Terms((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
     Wdef, sdef = reduced(mpo(opsum(sites, H)))
     Wsel, ssel = reduced(mpo(opsum(sites, H), VertexCover()))
-    Wstr, sstr = _sweep(TermTable(H, N), N, VertexCover())
+    (; Ws, bondsectors) = sweep(TermTable(H), N, VertexCover(); jordan = false)
+    Wstr, sstr = Ws, bondsectors
     @test bondprofile(sdef) == bondprofile(ssel) == bondprofile(sstr)
     @test mpo_operator(Wdef, sdef, sites) ≈ mpo_operator(Wsel, ssel, sites)
     @test mpo_operator(Wstr, sstr, sites) ≈ mpo_operator(Wsel, ssel, sites)
@@ -239,8 +240,9 @@ end
 
     # without the forced finish channel the cover is one index smaller at bond 1
     H = opsum(FiniteChain(sites), scalarop(-1.5, unitbasis(V))[1], dot(S[1], S[2]), dot(S[2], S[3]))
-    tt = OpSum.TermTable(H.terms, 3)
-    Ws, secs = OpSum._sweep(tt, 3, OpSum.VertexCover())
+    tt = OpSum.TermTable(H.terms)
+    (; Ws, bondsectors) = OpSum.sweep(tt, 3, OpSum.VertexCover(); jordan = false)
+    secs = bondsectors
     @test bondprofile(secs) == [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]]
     @test mpo_terms(Ws, secs) ≈ H.terms
 end
@@ -259,7 +261,7 @@ end
         couple(z[1], s[4]; to = SU2Irrep(1)),
         2.0 * couple(s[1], s[4]; to = SU2Irrep(1)),
     )
-    tt = TermTable(H, N)
+    tt = TermTable(H)
 
     # the two classes agree on the remaining factors at bond 2 but not on the running charge
     @test OpSum._factor_at(tt, 1, 4) == OpSum._factor_at(tt, 2, 4)
@@ -279,7 +281,7 @@ end
     N = 3
     sites = fill(unitbasis(V), N)
     H = Terms(couple(A[1], B[3]; to = unit(Trivial)), 0.5 * B[3])
-    tt = TermTable(H, N)
+    tt = TermTable(H)
 
     @test OpSum._factor_at(tt, 1, 3) == OpSum._factor_at(tt, 2, 3)
 
@@ -297,7 +299,7 @@ end
     sizes = (5, 20, 80)
     livecounts = map(sizes) do N
         H = Terms((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
-        g = SweepGraph(TermTable(H, N), N)
+        g = SweepGraph(TermTable(H), N)
         counts = Int[]
         for i in 1:N
             _at_site!(g, i, VertexCover())

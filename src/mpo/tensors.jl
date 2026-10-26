@@ -5,7 +5,7 @@ using SparseArrays: SparseMatrixCSC
 using TensorKit: Vect, fusiontrees, permute, unit, @tensor, ncon, removeunit
 
 # Bond matrices, bond sectors and per-bond identity-channel indices (empty with decaying channels, where
-# they are unknown). Without channels `_sweep_channels` forces the finish channel into the cover.
+# they are unknown). Without channels `sweep` forces the finish channel into the cover.
 function _compress(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy) where {I}
     N = length(H.lattice)
     if isempty(H.channels)
@@ -14,18 +14,17 @@ function _compress(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy) where {I
             out = compress_in_metric(H.terms, H.lattice, alg)
             out === nothing || return out
         end
-        tt = TermTable(H.terms, N)
-        return _sweep_channels(tt, nvertices(tt), alg)
+        return sweep(TermTable(H.terms), N, alg)
     end
     return _compress_channels(H, alg)
 end
 
 function _compress_channels(H::OperatorSum{I, <:FiniteChain}, ::VertexCover) where {I}
     N = length(H.lattice)
-    Ws, secs = _sweep(
-        TermTable(H.terms, N), N, VertexCover(); channels = lower_channels(H.channels, 1)
+    (; Ws, bondsectors) = sweep(
+        TermTable(H.terms), N, VertexCover(); jordan = false, channels = lower_channels(H.channels, 1)
     )
-    return Ws, secs, Int[], Int[]
+    return (; Ws, bondsectors, starts = Int[], finishes = Int[])
 end
 _compress_channels(::OperatorSum, ::Union{IndependentSVD, SequentialSVD}) = throw(
     ArgumentError(

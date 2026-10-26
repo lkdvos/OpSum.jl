@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: TermTable, _factor_at, arity, nterms, nvertices, ispassthrough,
+using OpSum: TermTable, _factor_at, arity, nterms, ispassthrough,
     Term, Terms, scalarop, couple, mpo, instantiate, opsum
 using OpSum: Letter
 using TensorKit
@@ -15,8 +15,8 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
 
     @testset "construction sanity" begin
         H = Terms((dot(spinvector(unitbasis(su2))[i], spinvector(unitbasis(su2))[i + 1]) for i in 1:3))
-        tt = TermTable(H, 4)
-        @test (nvertices(tt), nterms(tt), arity(tt)) == (4, length(H), 2)
+        tt = TermTable(H)
+        @test (nterms(tt), arity(tt)) == (length(H), 2)
         for t in 1:nterms(tt)
             occ = filter(!=(0), tt.sites[:, t])
             @test issorted(occ) && allunique(occ)
@@ -24,7 +24,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
     end
 
     @testset "_factor_at reconstructs the running-bond pass-through path" begin
-        tt = TermTable(Terms(dot(spinvector(unitbasis(su2))[1], spinvector(unitbasis(su2))[3])), 4)
+        tt = TermTable(Terms(dot(spinvector(unitbasis(su2))[1], spinvector(unitbasis(su2))[3])))
         @test nterms(tt) == 1
         path = [_factor_at(tt, 1, s) for s in 1:4]
 
@@ -43,7 +43,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
     @testset "U(1) charge threads through idle sites" begin
         raise = LO(Letter(U1Irrep(1), 1))
         lower = LO(Letter(U1Irrep(-1), 1))
-        tt = TermTable(Terms(dot(raise[1], lower[4])), 5)
+        tt = TermTable(Terms(dot(raise[1], lower[4])))
         path = [_factor_at(tt, 1, s) for s in 1:5]
         @test all(s -> path[s].bond == U1Irrep(1), 2:3)
         @test path[4].bond == U1Irrep(0)
@@ -60,7 +60,7 @@ end
     H = Terms(t, t)
     @test length(H) == 1                      # two coincident terms are one term
     @test only(H).coeff ≈ 2 * only(t).coeff
-    @test nterms(TermTable(H, 2)) == 1
+    @test nterms(TermTable(H)) == 1
 
     # every combining route sums coincident terms, and `append!` keeps the normal form in place
     @test length(t + t) == 1 && only(t + t).coeff ≈ 2 * only(t).coeff
@@ -104,7 +104,7 @@ end
         dot(S[1], S[2]),
         couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3])
     )
-    @test arity(TermTable(mixed, 3)) == 3
+    @test arity(TermTable(mixed)) == 3
     @test length(mixed) == 2
 end
 
@@ -114,7 +114,6 @@ end
     sites = fill(unitbasis(su2), 4)
 
     H = Terms(terms)
-    @test nvertices(TermTable(H, length(sites))) == length(sites)
     @test mpo(opsum(sites, H)).bondsectors == mpo(opsum(FiniteChain(unitbasis(su2), 4), H)).bondsectors
 
     @test_throws ArgumentError mpo(opsum(fill(unitbasis(su2), 3), H))                 # term past the lattice

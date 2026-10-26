@@ -8,14 +8,12 @@ struct TermTable{I <: Sector}
     sites::Matrix{Int}
     factors::Matrix{Factor{I}}
     coeffs::Vector{ComplexF64}
-    nvertices::Int
 end
 
 arity(tt::TermTable) = size(tt.sites, 1)
 nterms(tt::TermTable) = length(tt.coeffs)
-nvertices(tt::TermTable) = tt.nvertices
 
-function TermTable(ts::Terms{I}, N::Integer) where {I}
+function TermTable(ts::Terms{I}) where {I}
     terms = check_resolved(ts).terms
     M = length(terms)
     K = max(1, maximum(arity, terms; init = 0))   # the sweeps index row 1 unconditionally
@@ -27,7 +25,7 @@ function TermTable(ts::Terms{I}, N::Integer) where {I}
             keymat[j, t] = term.factors[j]
         end
     end
-    return TermTable{I}(sitemat, keymat, ComplexF64[t.coeff for t in terms], Int(N))
+    return TermTable{I}(sitemat, keymat, ComplexF64[t.coeff for t in terms])
 end
 
 # `Factor` at site `s` of term `t`: the stored key on an active site, else the pass-through carrying

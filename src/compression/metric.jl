@@ -71,17 +71,17 @@ function _from_orthonormal(op::SiteOperator{I}, metric) where {I}
     return SiteOperator{I}(letters, coeffs)
 end
 
-# `_sweep_channels` in the orthonormal letters, entries mapped back to each site's basis; `nothing`
+# `sweep` in the orthonormal letters, entries mapped back to each site's basis; `nothing`
 # when every site is already orthonormal.
 function compress_in_metric(tt_terms::Terms{I}, lat::FiniteChain, strategy) where {I}
     N = length(lat)
     metrics = [lat[s].metric for s in 1:N]
     all(isnothing, metrics) && return nothing
-    tt = TermTable(orthonormal_terms(tt_terms, metrics), N)
-    Ws, secs, start, finish = _sweep_channels(tt, nvertices(tt), strategy)
-    for (s, W) in enumerate(Ws)
+    tt = TermTable(orthonormal_terms(tt_terms, metrics))
+    result = sweep(tt, N, strategy)
+    for (s, W) in enumerate(result.Ws)
         metrics[s] === nothing && continue
         W.nzval .= _from_orthonormal.(W.nzval, Ref(metrics[s]))
     end
-    return Ws, secs, start, finish
+    return result
 end

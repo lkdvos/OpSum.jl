@@ -132,7 +132,7 @@ end
 # `IndependentSVD`: not a graph sweep, since each bond is compressed on the raw prefix/suffix classes
 # (`_prefix_ids`; `(_suffix_ids, charge)`) regardless of its neighbours' bases. One charge-graded
 # `C_b : Ppre ← Psuf` per bond, `U_b` as its basis, then `W_op = U_{i-1}' · C_op · U_i` per letter.
-function _sweep_channels(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
+function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
     trunc = strategy.trunc
     T = ComplexF64
     Op = Factor{I}
@@ -231,5 +231,5 @@ function _sweep_channels(tt::TermTable{I}, N::Int, strategy::IndependentSVD) whe
 
     bondsectors = Vector{I}[i < N ? bond_secs[i] : I[unit(I)] for i in 1:N]
     Ws = map(sparse_from_dict, dicts, sizes)
-    return (Ws, bondsectors, zeros(Int, N), zeros(Int, N))
+    return (; Ws, bondsectors, starts = zeros(Int, N), finishes = zeros(Int, N))
 end

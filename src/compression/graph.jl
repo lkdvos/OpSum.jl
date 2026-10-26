@@ -480,12 +480,13 @@ end
 _graph_lazy(::VertexCover) = true
 _graph_lazy(::SequentialSVD) = false
 
-_emptysweep(::Type{I}) where {I} = (SparseMatrixCSC{SiteOperator{I}, Int}[], Vector{I}[], Int[], Int[])
+_emptysweep(::Type{I}) where {I} = (; Ws = SparseMatrixCSC{SiteOperator{I}, Int}[], bondsectors = Vector{I}[], starts = Int[], finishes = Int[])
 
-# The graph sweep: `(Ws, bondsectors, starts, finishes)`, `starts[i]`/`finishes[i]` being the bond indices
-# of the start/finish identity channels right of site `i` (0 where the cover spent none). `jordan` forces
-# the finish class into the cover (which can cost one index, e.g. a constant next to two-site terms).
-function _sweep_channels(
+# The reduced-MPO sweep of a term table over `N` sites, as the named tuple `(; Ws, bondsectors, starts,
+# finishes)`; `starts[i]`/`finishes[i]` are the bond indices of the start/finish identity channels right of
+# site `i` (0 where the cover spent none). `jordan` forces the finish class into the cover (which can cost
+# one index, e.g. a constant next to two-site terms); without it the cover is free to be one index smaller.
+function sweep(
         tt::TermTable{I}, N::Int, strategy::GraphStrategy;
         jordan::Bool = true, channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
     ) where {I}
@@ -498,12 +499,5 @@ function _sweep_channels(
     for i in 1:N
         Ws[i], bondsectors[i], starts[i], finishes[i] = _at_site!(g, i, strategy)
     end
-    return (Ws, bondsectors, starts, finishes)
-end
-
-# `_sweep_channels` without forcing the finish class or reporting the identity channels.
-function _sweep(
-        tt::TermTable{I}, N::Int, strategy::GraphStrategy; channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
-    ) where {I}
-    return _sweep_channels(tt, N, strategy; jordan = false, channels)[1:2]
+    return (; Ws, bondsectors, starts, finishes)
 end

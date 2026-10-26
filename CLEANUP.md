@@ -58,7 +58,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | done (full suite green at f9990dc) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite green at a53c9c4) |
 | 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
-| 7 | The sweep | compression/termtable, graph | pending |
+| 7 | The sweep | compression/termtable, graph | implementing |
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | pending |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | pending |
 | 10 | Infinite chains | infinite/unitcell, window | pending |
@@ -221,6 +221,18 @@ As applied: 4765a1a (e, pure move), ed9d17d (b, arithmetic), 1f493a4 (a, c, d, g
 `opsum` give identical errors. `addchannel!`/`addchannels!`, `copy(::ExpSum)`. Exact `==`/`hash` on `OperatorSum`,
 `ExpSum`, `ExpKey`, `Terms`, lattices. (f) tried and reverted: ≤1% on building `H`. Equivalence: 95/95 bitwise identical
 (bond order included). `mpo` and channel-model timings unchanged or slightly better.
+
+**D14 Chunk 7 (TermTable and the sweep graph).**
+(a) P7.1: `TermTable(ts)` without `nvertices`; `N` passed where needed.
+(b) P7.2: one entry point `sweep(tt, N, strategy; jordan, channels)` returning `(Ws, bondsectors, starts, finishes)` as
+a named result; `IndependentSVD` keeps its own method; `_sweep`/`_sweep_channels` go.
+(c) P7.3: `SweepGraph` fields grouped in small immutable structs (right vertices, left vertices, pending terms,
+boundary markers, scratch), keyword construction, `K` dropped; kept only if the perf harness shows no slowdown
+beyond noise (else flat struct with keyword construction).
+(d) P7.4: `@enum`s (not integer constants) for the right-vertex kind (term class / channel state / exhausted) and the
+`_rdesc` kind; the channel index stays a separate integer.
+(e) P7.5: lazy insertion for `SequentialSVD` too; if bitwise identical, eager mode, `lazy` and the seeding branch go.
+(f) P7.6: D7 renames for the cross-file sweep names; fix the garbled `_iscyclic` comment and "an `TermTable`".
 
 ## Possible improvements
 

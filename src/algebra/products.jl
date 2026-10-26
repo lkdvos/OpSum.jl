@@ -71,7 +71,7 @@ _factors(ts::Terms) = Iterators.flatten(
 )
 
 # The charge-only tensor `C₁ ⊗ … ⊗ C_K ← C_tot` with one nonzero entry, at the caterpillar tree of `bonds`.
-function treetensor(charges::Vector{I}, bonds::Vector{I}) where {I}
+function _treetensor(charges::Vector{I}, bonds::Vector{I}) where {I}
     f = tree_from_bonds(charges, bonds)
     tot = f.coupled
     X = zeros(ComplexF64, foldl(⊗, (Vect[I](c => 1) for c in charges)) ← Vect[I](tot => 1))
@@ -116,7 +116,7 @@ function written_block(keys::Vector{Factor{I}}, pos::Vector{Int}, Bs) where {I}
             T = permute(R, (ntuple(identity, m), dom))                  # W ← W ⊗ Cs ⊗ C
         end
     end
-    X = treetensor(I[k.letter.c for k in keys], I[k.bond for k in keys])
+    X = _treetensor(I[k.letter.c for k in keys], I[k.bond for k in keys])
     W = foldl(⊗, (space(B) for B in Bs))
     return T * (id(W) ⊗ X)                                              # W ← W ⊗ C_tot
 end

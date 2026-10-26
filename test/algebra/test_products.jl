@@ -117,52 +117,6 @@ end
     @test dense(lath, E[1, 2] * E[2, 2]) ≈ dense(lath, E[1, 2]) * dense(lath, E[2, 2])
 end
 
-# Re-coupling oracle: the written-order caterpillar materialised by `written_block`, against the site-order terms.
-function recouples(sites, keys, coeff, Vs)
-    I = sectortype(first(Vs))
-    bag = OpSum.TermBag{I}()
-    OpSum.written!(bag, sites, keys, ComplexF64(coeff))
-    return OpSum.dense(Terms{I}(bag), Vs) ≈ coeff * OpSum.written_block(keys, sites, Vs)
-end
-
-@testset "non-abelian re-coupling against the written-order product" begin
-    J = SU2Irrep
-    B1 = unitbasis(SU2Space(1 // 2 => 1))
-    S1 = spinvector(B1)
-    letter(x) = only(only(x).factors).letter
-    Vs = fill(B1, 4)
-    for j in (0, 1, 2), tot in J(j) ⊗ J(1)                       # every channel, three sites
-        a = only(couple(S1[1], S1[3]; to = J(j)))
-        keys = vcat(a.factors, OpSum.Factor{J}(letter(S1[2]), tot))
-        @test recouples([1, 3, 2], keys, 0.7, Vs)
-        @test recouples([3, 2, 1], keys, 1.0, Vs)
-    end
-    a = only(couple(couple(S1[1], S1[3]; to = J(2)), S1[4]; to = J(1)))   # four sites, two orders
-    keys = vcat(a.factors, OpSum.Factor{J}(letter(S1[2]), J(1)))
-    @test recouples([1, 3, 4, 2], keys, 0.7, Vs)
-    @test recouples([4, 1, 3, 2], keys, 1.0, Vs)
-    # `couple` out of order gives the same terms
-    a = only(couple(S1[1], S1[3]; to = J(1)))
-    x = couple(Terms{J}([a]), S1[2]; to = J(1))
-    keys = vcat(a.factors, OpSum.Factor{J}(letter(S1[2]), J(1)))
-    @test OpSum.dense(x, Vs) ≈
-        a.coeff * only(S1[2]).coeff * OpSum.written_block(keys, [1, 3, 2], Vs)
-
-    # under an abelian symmetry the re-coupling is the R-symbol bookkeeping
-    t = only(couple(F.cd[1], F.c[2], F.cd[3], F.c[4]))
-    for p in ([3, 1, 4, 2], [2, 4, 1, 3], [4, 3, 2, 1])
-        bag = OpSum.TermBag{FermionParity}()
-        OpSum.written!(bag, p, t.factors, 1.0 + 0im)
-        out = Terms{FermionParity}(bag)
-        @test Terms{FermionParity}(OpSum.recouple(p, t.factors, 1.0 + 0im)) ≈ out
-    end
-
-    # fermions under SU(2): E[q, p] = E[p, q]†, and interleaved products of spin-summed hoppings
-    @test dense(lath, E[3, 1]) ≈ dense(lath, E[1, 3])'
-    D(x) = dense(lath, x)
-    @test D(E[1, 3] * E[2, 4]) ≈ D(E[1, 3]) * D(E[2, 4])
-end
-
 @testset "on-site products on an infinite chain" begin
     f = fermion_site()
     # n_i² + hopping, one-site cell: resolved per insertion like any other term

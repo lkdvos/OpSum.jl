@@ -2,16 +2,25 @@
 # increasing site (`recouple`), and two caterpillars fused into one (`concat`). Used by placed `*` and
 # `couple`, and by `written!` (products.jl).
 
-using TensorKit: Sector, unit, FusionTree, Vect, permute, fusiontrees, BraidingStyle, SymmetricBraiding,
+using TensorKit
+using TensorKit: Sector, unit, FusionTreeBlock, permute, BraidingStyle, SymmetricBraiding,
     FusionStyle, GenericFusion
 
 # The total of a written-order caterpillar.
 writtentotal(keys::Vector{Factor{I}}) where {I} = isempty(keys) ? unit(I) : last(keys).bond
 
-# Re-coupling under a non-abelian symmetry: a caterpillar is the charge-only tensor `C₁ ⊗ … ⊗ C_K ← C_tot`
-# with one nonzero entry at its tree (`treetensor`). Permuting its legs or fusing two caterpillars
-# rewrites the term; reading it back in the caterpillar basis (`_expand`) gives the new terms (memoised).
-# Needs one tree per running-charge sequence (multiplicity-free) and crossing-independent permutations.
+# Re-coupling under a non-abelian symmetry. A caterpillar is a left-nested fusion tree of the letters'
+# charges; the running bond charges *are* its inner lines. Permuting the legs, or fusing two caterpillars,
+# rewrites it as a combination of trees (TensorKit's `permute` and `merge` on fusion trees), whose inner
+# lines give the new terms. Needs one tree per running-charge sequence (multiplicity-free) and
+# crossing-independent permutations.
+
+"""
+Coefficients of a re-coupling below this are rounding noise of the F- and R-symbol products, not
+terms: those trees are dropped (a tree in the expansion has coefficient of order one or is structurally absent).
+"""
+const RECOUPLE_ATOL = 1.0e-13
+
 _canrecouple(::Type{I}) where {I <: Sector} =
     !(FusionStyle(I) isa GenericFusion) && BraidingStyle(I) isa SymmetricBraiding
 
@@ -24,14 +33,28 @@ function _checkrecouple(::Type{I}) where {I}
     )
 end
 
-# A charge-only tensor in the caterpillar basis: the running charges of each tree and its coefficient.
-function _expand(X)
-    out = Tuple{Vector{sectortype(X)}, ComplexF64}[]
-    for (f₁, f₂) in fusiontrees(X)
-        x = only(X[f₁, f₂])
-        abs(x) > 1.0e-13 && push!(out, (bondcharges(f₁), x))
+# The running charges of each tree of an expansion `tree => coefficient`, above the noise level.
+function _expansion(::Type{I}, trees) where {I}
+    out = Tuple{Vector{I}, ComplexF64}[]
+    for (f, x) in trees
+        abs(x) > RECOUPLE_ATOL && push!(out, (bondcharges(f), ComplexF64(x)))
     end
     return out
+end
+
+# The caterpillar `charges`, `bonds` with its legs permuted by `perm` (`perm[n]` is the old position of the
+# new leg `n`), as trees. `permute` on a single tree needs unique fusion, so the tree sits in the block of
+# all trees of the same legs coupled to its total (the domain leg), whose transformation `U` gives the row.
+function _permuted(charges::Vector{I}, bonds::Vector{I}, perm::Vector{Int}) where {I}
+    K = length(charges)
+    tot = last(bonds)
+    isdual = (ntuple(_ -> false, K), (false,))
+    block = FusionTreeBlock{I}((Tuple(charges), (tot,)), isdual)
+    dst, U = permute(block, (Tuple(perm), (K + 1,)))
+    f = tree_from_bonds(charges, bonds)
+    i = findfirst(t -> t[1] == f, block.trees)
+    i === nothing && invariant_violation("caterpillar tree not found in its block")
+    return [dst.trees[j][1] => U[j, i] for j in eachindex(dst.trees)]
 end
 
 const _RECOUPLE_CACHE = Dict{Any, Any}()
@@ -43,13 +66,13 @@ function recouple(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64
     perm = sortperm(sites)
     charges = I[k.letter.c for k in keys]
     bonds = I[k.bond for k in keys]
-    expansion = cached(_RECOUPLE_CACHE, (:permute, charges, bonds, perm)) do
-        return _expand(permute(treetensor(charges, bonds), (Tuple(perm), (K + 1,))))
+    terms = cached(_RECOUPLE_CACHE, (:permute, charges, bonds, perm)) do
+        return _expansion(I, _permuted(charges, bonds, perm))
     end
     sorted, ops = sites[perm], [keys[j].letter for j in perm]
     return Term{I}[
         Term{I}(sorted, Factor{I}[Factor{I}(ops[n], b[n]) for n in 1:K], coeff * x)
-            for (b, x) in expansion
+            for (b, x) in terms
     ]
 end
 
@@ -65,13 +88,11 @@ function concat(ka::Vector{Factor{I}}, kb::Vector{Factor{I}}, tot::I) where {I}
     _checkrecouple(I)
     ca, cb = I[k.letter.c for k in ka], I[k.letter.c for k in kb]
     ba, bb = I[k.bond for k in ka], I[k.bond for k in kb]
-    expansion = cached(_RECOUPLE_CACHE, (:concat, ca, ba, cb, bb, tot)) do
-        tb = last(bb)
-        Y = treetensor([ta, tb], [ta, tot])
-        return _expand((treetensor(ca, ba) ⊗ treetensor(cb, bb)) * Y)
+    terms = cached(_RECOUPLE_CACHE, (:concat, ca, ba, cb, bb, tot)) do
+        return _expansion(I, TensorKit.merge(tree_from_bonds(ca, ba), tree_from_bonds(cb, bb), tot))
     end
     ops = vcat([k.letter for k in ka], [k.letter for k in kb])
     return [
-        (Factor{I}[Factor{I}(ops[n], b[n]) for n in eachindex(ops)], x) for (b, x) in expansion
+        (Factor{I}[Factor{I}(ops[n], b[n]) for n in eachindex(ops)], x) for (b, x) in terms
     ]
 end

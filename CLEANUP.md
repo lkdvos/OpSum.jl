@@ -57,7 +57,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 3 | Terms | terms, couple | done (full suite green at bf826f5) |
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | done (full suite green at f9990dc) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite green at a53c9c4) |
-| 6 | Container and channels | operatorsum, expterms | implementing |
+| 6 | Container and channels | operatorsum, expterms | done (full suite running) |
 | 7 | The sweep | compression/termtable, graph | pending |
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | pending |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | pending |
@@ -216,6 +216,11 @@ descriptor, `expterm` and the expansion oracle stay in `expterms.jl`.
 (f) P6.6: `merge_terms!` shortcut when the target is empty, kept only if it measurably helps building `H`.
 (g) P6.7: D7 renames (`lower_channels`, `checkinsert`, `checkchannels`, `checklattice`, `checkgenerator`, `resolve`
 as applicable); readable `_checkchannels` errors.
+As applied: 4765a1a (e, pure move), ed9d17d (b, arithmetic), 1f493a4 (a, c, d, g, `ExpSum` helpers), 5d5be8d.
+`TermBag{I,C}` carries a channel slot (`nothing` for `Terms`); one `rejection(a)` hook per type, so `Terms(…)` and
+`opsum` give identical errors. `addchannel!`/`addchannels!`, `copy(::ExpSum)`. Exact `==`/`hash` on `OperatorSum`,
+`ExpSum`, `ExpKey`, `Terms`, lattices. (f) tried and reverted: ≤1% on building `H`. Equivalence: 95/95 bitwise identical
+(bond order included). `mpo` and channel-model timings unchanged or slightly better.
 
 ## Possible improvements
 

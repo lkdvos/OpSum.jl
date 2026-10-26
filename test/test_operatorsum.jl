@@ -147,3 +147,45 @@ end
     e = expterm(b[1]; decay = 0.3)
     @test length((a + e).channels.channels) == 1 && (a + e) ≈ (a + opsum(lat, e))
 end
+
+@testset "exact == and hash" begin
+    lat = FiniteChain(BSU2, 6)
+    e = expterm(b[1]; decay = 0.3)
+    H = opsum(lat, b[1], 2 * b[2], e)
+    @test H == copy(H) && hash(H) == hash(copy(H))
+    @test H != 2H && H != H + b[3] && H != H + e
+    @test H != opsum(FiniteChain(BSU2, 5), b[1], 2 * b[2], e)      # another lattice
+    @test H != opsum(lat, b[1], 2 * b[2])                          # the channels count
+    # the order terms and channels were added in does not matter
+    G = opsum(lat, e, 2 * b[2], b[1])
+    @test G == H && hash(G) == hash(H)
+    e2 = expterm(b[2]; decay = -0.5)
+    @test opsum(lat, e, e2) == opsum(lat, e2, e) && hash(opsum(lat, e, e2)) == hash(opsum(lat, e2, e))
+    @test (H - H) == OperatorSum(lat) && hash(H - H) == hash(OperatorSum(lat))
+    @test length(Set([H, copy(H), G])) == 1
+end
+
+@testset "Terms(…) and opsum accept and reject the same inputs" begin
+    lat = FiniteChain(BSU2, 4)
+    # accepted by both: terms, bags, nested iterables
+    @test Terms(b[1], [b[2], (b[3],)]) ≈ opsum(lat, b[1], [b[2], (b[3],)]).terms
+    # rejected by both, with the same ArgumentError: numbers, unplaced operators, OperatorSums
+    for bad in (1.0, 2, S, one(S), OpSum.LocalOperator(S), opsum(lat, b[1]))
+        msg = argerr(() -> opsum(lat, b[1], bad))
+        @test msg !== nothing
+        @test argerr(() -> Terms(b[1], bad)) == msg
+        @test argerr(() -> Terms(bad)) == msg
+        @test argerr(() -> Terms{SU2Irrep}(bad)) == msg
+        @test argerr(() -> Terms(b[1], [b[2], [bad]])) == msg
+    end
+    # an ExpSum has channels, which only an OperatorSum holds
+    e = expterm(b[1]; decay = 0.3)
+    for f in (() -> Terms(e), () -> Terms(b[1], e), () -> Terms(b[1], [b[2], e]), () -> Terms{SU2Irrep}(e))
+        @test occursin("opsum", argerr(f))
+    end
+    @test opsum(lat, b[1], [b[2], e]).channels == e
+    # one symmetry per collection
+    other = OpSum.ExpSum{U1Irrep}()
+    @test_throws ArgumentError opsum(lat, b[1], other)
+    @test_throws ArgumentError Terms(b[1], other)
+end

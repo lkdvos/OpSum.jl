@@ -109,13 +109,17 @@ Terms(t::Term{I}) where {I} = Terms{I}(Term{I}[t])
 TensorKit.sectortype(::Type{Terms{I}}) where {I} = I
 
 # A raw, unordered accumulator of terms and pending products, normalised once by `Terms{I}(bag)`.
-struct TermBag{I <: Sector}
+# `channels` is the slot for decaying channels (an `ExpSum` when collecting for an `OperatorSum`,
+# `nothing` when collecting a `Terms`, which has none).
+struct TermBag{I <: Sector, C}
     terms::Vector{Term{I}}
     pending::Vector{PendingTerm{I}}
+    channels::C
 end
-TermBag{I}() where {I <: Sector} = TermBag{I}(Term{I}[], PendingTerm{I}[])
-Terms{I}(bag::TermBag{I}) where {I <: Sector} = Terms{I}(bag.terms, bag.pending)
-Terms(bag::TermBag{I}) where {I} = Terms{I}(bag)
+TermBag{I}() where {I <: Sector} = TermBag{I, Nothing}(Term{I}[], PendingTerm{I}[], nothing)
+TermBag{I}(channels) where {I <: Sector} = TermBag{I, typeof(channels)}(Term{I}[], PendingTerm{I}[], channels)
+Terms{I}(bag::TermBag{I, Nothing}) where {I <: Sector} = Terms{I}(bag.terms, bag.pending)
+Terms(bag::TermBag{I, Nothing}) where {I} = Terms{I}(bag)
 
 # --- normal form ----------------------------------------------------------------------------------
 
@@ -233,6 +237,7 @@ Base.copy(ts::Terms{I}) where {I} = Terms{I}(copy(ts.terms), copy(ts.pending))
 Base.isapprox(a::Terms{I}, b::Terms{I}; kwargs...) where {I} =
     _termsapprox(check_resolved(a).terms, check_resolved(b).terms; kwargs...)
 Base.:(==)(a::Terms{I}, b::Terms{I}) where {I} = check_resolved(a).terms == check_resolved(b).terms
+Base.hash(ts::Terms, h::UInt) = hash(check_resolved(ts).terms, hash(:Terms, h))
 
 function Base.show(io::IO, ts::Terms{I}) where {I}
     isempty(ts.pending) || return print(
@@ -294,7 +299,7 @@ function Terms(args...)
     )
     out = nothing
     for a in args
-        out = _collect_any(out, a)
+        out = collect_any(out, a)
     end
     out === nothing && throw(
         ArgumentError(
@@ -314,10 +319,13 @@ function Terms{I}(args...) where {I <: Sector}
 end
 
 # The accumulator is `nothing` until the first term fixes `I`; after that the typed collector runs.
-_collect_any(::Nothing, t::Term{I}) where {I} = collect_terms!(TermBag{I}(), t, I)
-_collect_any(::Nothing, ts::Terms{I}) where {I} = collect_terms!(TermBag{I}(), ts, I)
-_collect_any(::Nothing, itr) = foldl(_collect_any, itr; init = nothing)
-_collect_any(out::TermBag{I}, a) where {I} = collect_terms!(out, a, I)
+collect_any(::Nothing, t::Term{I}) where {I} = collect_terms!(TermBag{I}(), t, I)
+collect_any(::Nothing, ts::Terms{I}) where {I} = collect_terms!(TermBag{I}(), ts, I)
+function collect_any(::Nothing, itr)
+    check_collectable(itr)
+    return foldl(collect_any, itr; init = nothing)
+end
+collect_any(out::TermBag{I}, a) where {I} = collect_terms!(out, a, I)
 
 collect_terms!(out::TermBag{I}, t::Term{I}, ::Type{I}) where {I} = (push!(out.terms, t); out)
 function collect_terms!(out::TermBag{I}, ts::Terms{I}, ::Type{I}) where {I}
@@ -326,17 +334,38 @@ function collect_terms!(out::TermBag{I}, ts::Terms{I}, ::Type{I}) where {I}
     return out
 end
 function collect_terms!(out::TermBag{I}, itr, ::Type{I}) where {I}
+    check_collectable(itr)
     for a in itr
         collect_terms!(out, a, I)
     end
     return out
 end
 # A term over a different symmetry than the one already accumulated is a mistake worth naming.
-collect_terms!(::TermBag{I}, ::Term{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
-collect_terms!(::TermBag{I}, ::Terms{J}, ::Type{I}) where {I, J} = _wrongsector(I, J)
-_wrongsector(I, J) = throw(
+collect_terms!(out::TermBag{I}, ::Term{J}, ::Type{I}) where {I, J} = wrongsector(out, J)
+collect_terms!(out::TermBag{I}, ::Terms{J}, ::Type{I}) where {I, J} = wrongsector(out, J)
+wrongsector(::TermBag{I, Nothing}, ::Type{J}) where {I, J} = throw(
     ArgumentError("cannot combine an operator over $J with one over $I")
 )
+wrongsector(::TermBag{I}, ::Type{J}) where {I, J} = throw(
+    ArgumentError("cannot add an operator over $J to an OperatorSum on a lattice of sector type $I")
+)
+
+# What no collector takes, with the reason (`nothing`: not rejected); types defined later add methods.
+# A number or a string is iterable (of itself), so it would recurse forever.
+rejection(::Any) = nothing
+rejection(a::Number) = "cannot add the number $a; scale an operator instead"
+
+function check_collectable(a)
+    reason = rejection(a)
+    reason === nothing || throw(ArgumentError(reason))
+    applicable(iterate, a) || throw(
+        ArgumentError(
+            "cannot add a $(typeof(a)): expected a Term, Terms, ExpSum (`opsum` only) or an " *
+                "iterable of those"
+        )
+    )
+    return nothing
+end
 
 """
     append!(ts::Terms, terms...) -> ts

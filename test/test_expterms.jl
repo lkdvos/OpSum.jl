@@ -3,8 +3,8 @@ using TensorKit
 using LinearAlgebra: dot
 using OpSum
 using OpSum: mpo, mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
-    unitcell_terms, maxspan, couple, scalarop, instantiate,
-    expterm, expand_channels, chain_terms, channelspan, ExpSum, _lower_channels,
+    unitcell_terms, maxspan, translate, couple, scalarop, instantiate,
+    expterm, expand_channels, chain_terms, channelspan, ExpSum, lower_channels,
     _entriesequal, _infinite_window, storedpairs, ispassthrough
 using OpSum: Letter
 
@@ -240,6 +240,29 @@ end
     end
 end
 
+@testset "ExpSum: exact equality, hash and content order" begin
+    e1 = expterm(dot(S[1], S[2]); decay = 0.5)
+    e2 = expterm(dot(S[1], S[3]); decay = -0.25)
+    @test e1 + e2 == e2 + e1 && hash(e1 + e2) == hash(e2 + e1)
+    @test e1 + e2 != e1 && e1 != 2 * e1 && e1 == copy(e1)
+    @test e1 - e1 == ExpSum{SU2Irrep}() && hash(e1 - e1) == hash(ExpSum{SU2Irrep}())
+    @test e1 + e2 ≈ e2 + e1 && !(e1 ≈ 2 * e1) && !(e1 ≈ e2)
+
+    # the key's content order is total and independent of the writing order
+    k1, k2 = only(keys(e1.channels)), only(keys(e2.channels))
+    @test isless(k1, k2) != isless(k2, k1)
+    @test sort([k2, k1]) == sort([k1, k2])
+    @test k1 == translate(k1, 0) && translate(k1, 2) != k1
+    # the string is part of the key; the default string is the identity
+    p = expterm(couple(Sp[1], Sm[2]); decay = 0.5)
+    @test p == expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = scalarop(1, U1Irrep))
+    q = expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)
+    @test p != q && hash(p) != hash(q)
+    @test sort([only(keys(q.channels)), only(keys(p.channels))]) == sort([only(keys(p.channels)), only(keys(q.channels))])
+    # a cancelling coefficient drops the channel instead of leaving a zero
+    @test isempty(OpSum.addchannel!(copy(e1), k1, -only(values(e1.channels))))
+end
+
 @testset "the unit cell closes and reports two identity channels" begin
     for (name, H, spaces) in reference_models()
         L = length(spaces)
@@ -397,18 +420,18 @@ end
     @test c2([1, 4]) ≈ 0.25 * c2([1, 2])
 
     # the lowered automaton: one cyclic state per period, plus the mandatory waits of a longer gap
-    @test length(only(_lower_channels(e, 1)).states) == 1
-    @test length(only(_lower_channels(e, 3)).states) == 3
+    @test length(only(lower_channels(e, 1)).states) == 1
+    @test length(only(lower_channels(e, 3)).states) == 3
     gap = expterm(dot(S[1], S[4]); decay = 0.5)
-    c = only(_lower_channels(gap, 2))
+    c = only(lower_channels(gap, 2))
     @test length(c.states) == 3                              # δ = 3 (wait), 2 and 1 (cyclic)
     @test count(st -> st.cyclic, c.states) == 2
     # channels that must merge share their state names, channels with a different λ do not
-    same = _lower_channels(
+    same = lower_channels(
         expterm(couple(A3[1], B3[2]); decay = 0.5) + expterm(couple(A3[2], B3[3]); decay = 0.5), 1
     )
     @test allequal(only(ch.states).name for ch in same)
-    diff = _lower_channels(
+    diff = lower_channels(
         expterm(couple(A3[1], B3[2]); decay = 0.5) + expterm(couple(A3[1], B3[2]); decay = 0.25), 1
     )
     @test allunique(only(ch.states).name for ch in diff)

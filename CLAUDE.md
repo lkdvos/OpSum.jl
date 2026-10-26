@@ -47,13 +47,13 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   `SequentialSVD`). Load-bearing invariant: the pending↔started suffix-class collision (`_promote_pending!`), guarded
   in `test/compression/test_graph.jl` in all three sectors. Truncating SVD works in the bases' Hilbert–Schmidt metric (`metric.jl`).
 * **Container and output** (`operatorsum.jl`, `mpo/{symbolicmpo,tensors,jordan}.jl`): `OperatorSum` holds
-  lattice + `Terms` + `ExpSum` channels and validates on insertion (`_checkinsert`, `_checkchannels`). `mpo(H[, alg])`
+  lattice + `Terms` + `ExpSum` channels and validates on insertion (`checkinsert`, `checkchannels`). `mpo(H[, alg])`
   → `SymbolicMPO`; on a finite chain without channels the finish channel is forced into the cover (`_force_finish!`)
   so a Jordan form exists. `mpo_tensors`, `jordan_mpo_tensors` (BlockTensorKit, MPSKit layout) and
   `instantiate(W)` (MPSKit extension, `ext/`) emit tensors. `H'` goes through dense blocks (`adjoint_terms`).
 * **Infinite chains** (`infinite/`): `mpo` on an `InfiniteChain` unrolls a window, runs the same sweep and finds the
   translation-invariant cell (`_infinite_window`); the suffix canonicalisation (`_canonicalise_rights!`) is required
-  for the cell to close. `expterm` channels (`src/expterms.jl`) lower to weighted automata: cyclic states are forced into
+  for the cell to close. `expterm` channels (`src/expterms.jl`; the automaton is `compression/channels.jl`) lower to weighted automata: cyclic states are forced into
   the cover, and λ rides as an edge weight so every emitted entry carries a letter.
 * **Time evolution** (`timeevolution/{kronpower,taylormpo,taylor}.jl`, `algebra/letterproducts.jl`):
   `taylor_mpo(H|W, N; extension = true, compression = false)` → `TaylorMPO`, the symbolic `exp(τH)` MPO through `τ^N`

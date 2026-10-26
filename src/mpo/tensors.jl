@@ -23,7 +23,7 @@ end
 function _compress_channels(H::OperatorSum{I, <:FiniteChain}, ::VertexCover) where {I}
     N = length(H.lattice)
     Ws, secs = _sweep(
-        TermTable(H.terms, N), N, VertexCover(); channels = _lower_channels(H.channels, 1)
+        TermTable(H.terms, N), N, VertexCover(); channels = lower_channels(H.channels, 1)
     )
     return Ws, secs, Int[], Int[]
 end

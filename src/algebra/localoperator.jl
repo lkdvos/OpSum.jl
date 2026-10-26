@@ -126,6 +126,9 @@ Base.:+(α::Number, B::LocalOperator) = B + α
 Base.:-(B::LocalOperator, α::Number) = B + (-α)
 Base.:-(α::Number, B::LocalOperator) = (-B) + α
 
+rejection(a::Union{SiteOperator, LocalOperator}) =
+    "cannot add an unplaced $(nameof(typeof(a))): place it first (`A[i]`, `B[i, j]`)"
+
 Base.isapprox(a::LocalOperator{I}, b::LocalOperator{I}; kwargs...) where {I} =
     a.nsites == b.nsites && isapprox(a.terms, b.terms; kwargs...)
 

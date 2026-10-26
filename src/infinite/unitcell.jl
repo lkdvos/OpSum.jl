@@ -14,24 +14,25 @@ maxspan(es::ExpSum) = maximum(channelspan, keys(es.channels); init = 0)
 maxspan(H::OperatorSum) = max(maxspan(H.terms), maxspan(H.channels))
 
 # The sweep's running bond charge is referenced to the left vacuum, so terms must be neutral.
-function _checkneutral(t::Term{I}) where {I}
-    return total(t) == unit(I) || throw(
+function _checkneutral(sites, factors::Vector{Factor{I}}) where {I}
+    charge = isempty(factors) ? unit(I) : last(factors).bond
+    return charge == unit(I) || throw(
         ArgumentError(
             "infinite MPO construction requires charge-neutral terms, got total charge " *
-                "$(total(t)) on sites $(t.sites); charged infinite MPOs are out of scope"
+                "$charge on sites $sites; charged infinite MPOs are out of scope"
         )
     )
 end
 
-function _checkgenerator(t::Term)
+function checkgenerator(t::Term)
     isempty(t.sites) && throw(
         ArgumentError(
             "an infinite MPO cannot represent a K = 0 identity term: `Σ_n c·𝟙` does not converge"
         )
     )
-    return _checkneutral(t)
+    return _checkneutral(t.sites, t.factors)
 end
-_checkgenerator(k::ExpKey) = _checkneutral(k.term)
+checkgenerator(k::ExpKey) = _checkneutral(k.support...)
 
 # shift putting the leftmost site into `1:L`
 _cellshift(sites, L) = -L * fld(minimum(sites) - 1, L)
@@ -50,7 +51,7 @@ function unitcell_terms(ts::Terms{I}, L::Int) where {I}
     seen = Dictionary{Support{I}, Int}()   # by support: translates with other coefficients still clash
     out = Term{I}[]
     for t in ts.terms
-        _checkgenerator(t)
+        checkgenerator(t)
         ct = translate(t, _cellshift(t.sites, L))
         prev = get(seen, support(ct), 0)
         iszero(prev) || _translates_error("terms", t.sites, out[prev].sites, L)
@@ -64,9 +65,9 @@ function unitcell_terms(es::ExpSum{I}, L::Int) where {I}
     L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
     d = Dictionary{ExpKey{I}, ComplexF64}()
     for (k, v) in pairs(es.channels)
-        _checkgenerator(k)
-        ck = translate(k, _cellshift(k.term.sites, L))
-        haskey(d, ck) && _translates_error("the decaying channels", k.term.sites, ck.term.sites, L)
+        checkgenerator(k)
+        ck = translate(k, _cellshift(k.support[1], L))
+        haskey(d, ck) && _translates_error("the decaying channels", k.support[1], ck.support[1], L)
         insert!(d, ck, v)
     end
     return ExpSum{I}(d)

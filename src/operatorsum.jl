@@ -26,10 +26,15 @@ Base.length(H::OperatorSum) = length(H.terms)
 Base.isempty(H::OperatorSum) = isempty(H.terms) && isempty(H.channels)
 
 function Base.copy(H::OperatorSum{I, L}) where {I, L}
-    return OperatorSum{I, L}(
-        H.lattice, copy(H.terms), ExpSum{I}(copy(H.channels.channels))
-    )
+    return OperatorSum{I, L}(H.lattice, copy(H.terms), copy(H.channels))
 end
+
+# exact: the lattice (by its bases), the terms and the channels
+function Base.:(==)(a::OperatorSum{I}, b::OperatorSum{I}) where {I}
+    return a.lattice == b.lattice && a.terms == b.terms && a.channels == b.channels
+end
+Base.hash(H::OperatorSum, h::UInt) = hash(H.channels, hash(H.terms, hash(H.lattice, hash(:OperatorSum, h))))
+
 """
     opsum!(H::OperatorSum, terms...) -> H
 
@@ -37,20 +42,16 @@ Add `Term`s, `Terms`, `ExpSum`s or (nested) iterables of those to `H` in place. 
 against the lattice before anything is added.
 """
 function opsum!(H::OperatorSum{I}, args...) where {I}
-    buf = TermBag{I}()
-    chans = Dictionary{ExpKey{I}, ComplexF64}()
+    buf = TermBag{I}(ExpSum{I}())
     for a in args
-        _collect_op!(buf, chans, a, I)
+        collect_terms!(buf, a, I)
     end
     terms = buf.terms
     # on-site products are resolved here, where the sites' bases are known
     isempty(buf.pending) || append!(terms, resolve(buf.pending, H.lattice))
-    _checkinsert(H.lattice, terms, chans)
+    checkinsert(H.lattice, terms, buf.channels)
     merge_terms!(H.terms, terms)
-    if !isempty(chans)
-        foreach(((k, v),) -> setwith!(+, H.channels.channels, k, v), pairs(chans))
-        filter!(!iszero, H.channels.channels)
-    end
+    addchannels!(H.channels, buf.channels)
     return H
 end
 
@@ -60,101 +61,69 @@ end
 
 Accumulate `terms` into a new [`OperatorSum`](@ref) on the lattice `lat` (or on the finite chain of
 `sites`). The terms are `Term`s, `Terms`, `ExpSum`s or nested iterables of those, as for
-[`opsum!`](@ref); [`Terms`](@ref)`(terms...)` collects the same arguments without a lattice.
+[`opsum!`](@ref); [`Terms`](@ref)`(terms...)` collects the same arguments without a lattice (and
+without `ExpSum`s, which a `Terms` cannot hold).
 """
 opsum(lat::AbstractLattice, args...) = opsum!(OperatorSum(lat), args...)
 opsum(sites::AbstractVector{<:Basis}, args...) = opsum!(OperatorSum(sites), args...)
 
-_collect_op!(out, ch, t::Term{I}, ::Type{I}) where {I} = push!(out.terms, t)
-_collect_op!(out, ch, ts::Terms{I}, ::Type{I}) where {I} = collect_terms!(out, ts, I)
-function _collect_op!(out, ch, es::ExpSum{I}, ::Type{I}) where {I}
-    for (k, v) in pairs(es.channels)
-        setwith!(+, ch, k, v)
-    end
-    return ch
-end
-_collect_op!(out, ch, a::Union{SiteOperator, LocalOperator}, ::Type) = throw(
-    ArgumentError("cannot add an unplaced $(nameof(typeof(a))): place it first (`A[i]`, `B[i, j]`)")
-)
-_collect_op!(out, ch, ::OperatorSum, ::Type) = throw(
-    ArgumentError("cannot add an OperatorSum with opsum!; combine them with `+`")
-)
-# a number is iterable, so it would recurse forever
-_collect_op!(out, ch, a::Number, ::Type) = throw(
-    ArgumentError("cannot add the number $a to an OperatorSum; scale an operator instead")
-)
-function _collect_op!(out, ch, itr, ::Type{I}) where {I}
-    applicable(iterate, itr) || throw(
-        ArgumentError(
-            "cannot add a $(typeof(itr)) to an OperatorSum: expected a Term, Terms, ExpSum or an " *
-                "iterable of those"
-        )
-    )
-    for a in itr
-        _collect_op!(out, ch, a, I)
-    end
-    return out
-end
-for T in (:Term, :Terms, :ExpSum)
-    @eval _collect_op!(out, ch, ::$T{J}, ::Type{I}) where {I, J} = _wrongsector_op(I, J)
-end
-_wrongsector_op(I, J) = throw(
-    ArgumentError("cannot add an operator over $J to an OperatorSum on a lattice of sector type $I")
-)
+rejection(::OperatorSum) = "cannot add an OperatorSum to a Terms or with opsum!; combine them with `+`"
 
 # Checks letters against the lattice's bases when terms enter an `OperatorSum`; no site range on an
 # `InfiniteChain`.
-function _checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) where {I}
+function checklattice(terms::AbstractVector{Term{I}}, lat::AbstractLattice) where {I}
     isempty(terms) && return nothing
+    _checksector(I, lat)
+    seen = Dict{eltype(lat), Dict{I, Int}}()
+    for t in terms
+        _checksupport!(seen, lat, t.sites, t.factors)
+    end
+    return nothing
+end
+checklattice(ts::Terms, lat::AbstractLattice) = checklattice(ts.terms, lat)
+
+function _checksector(::Type{I}, lat::AbstractLattice) where {I}
     J = sectortype(lat)
     J === I || throw(
         ArgumentError("cannot compress an operator over $I on a lattice of sector type $J")
     )
+    return nothing
+end
+
+function _checksupport!(seen, lat::AbstractLattice, sites, factors::Vector{Factor{I}}) where {I}
     N = maxsite(lat)
-    seen = Dict{eltype(lat), Dict{I, Int}}()
-    for t in terms
-        for (s, key) in zip(t.sites, t.factors)
-            (N === nothing || 1 <= s <= N) || throw(
-                ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
+    for (s, key) in zip(sites, factors)
+        (N === nothing || 1 <= s <= N) || throw(
+            ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
+        )
+        V = lat[s]
+        info = get!(() -> alphabet(V, I), seen, V)
+        op = key.letter
+        nmax = get(info, op.c, 0)
+        1 <= op.n <= nmax || throw(
+            ArgumentError(
+                "letter $op does not exist on site $s ($V): that site carries " *
+                    "$nmax operator(s) of charge $(op.c)"
             )
-            V = lat[s]
-            info = get!(() -> alphabet(V, I), seen, V)
-            op = key.letter
-            nmax = get(info, op.c, 0)
-            1 <= op.n <= nmax || throw(
-                ArgumentError(
-                    "letter $op does not exist on site $s ($V): that site carries " *
-                        "$nmax operator(s) of charge $(op.c)"
-                )
-            )
-        end
+        )
     end
     return nothing
 end
 
-_checklattice(ts::Terms, lat::AbstractLattice) = _checklattice(ts.terms, lat)
-
-function _checkinsert(lat::AbstractLattice, terms::Vector{Term{I}}, chans) where {I}
-    _checklattice(terms, lat)
-    _checkgenerating(lat, terms, chans)
-    _checkchannels(lat, chans)
+function checkinsert(lat::AbstractLattice, terms::Vector{Term{I}}, chans::ExpSum{I}) where {I}
+    checklattice(terms, lat)
+    checkgenerating(lat, terms, chans)
+    checkchannels(lat, chans)
     return nothing
 end
 
 # A channel puts its letters on sites it does not name (translates, string), which must share one basis.
-function _checkchannels(lat::AbstractLattice, chans)
-    for k in keys(chans)
-        I = sectortype(k.term)
-        letters = Letter{I}[l for (l, _) in k.string if l !== nothing]
-        lat isa FiniteChain && append!(letters, (key.letter for key in k.term.factors))
+function checkchannels(lat::AbstractLattice, chans::ExpSum{I}) where {I}
+    for k in keys(chans.channels)
+        letters = Letter{I}[l for l in k.string.letters if !ispassthrough(l)]
+        lat isa FiniteChain && append!(letters, (f.letter for f in k.support[2]))
         isempty(letters) && continue
-        allequal(lat.sites) || throw(
-            ArgumentError(
-                "a decaying channel " * (lat isa FiniteChain ? "on a finite chain moves by one site" : "with a string fills every site of its gap") *
-                    ", so its letters land on sites with different bases, where they mean different " *
-                    "operators; use one basis on every site" * (lat isa FiniteChain ? ", or an InfiniteChain whose cell is the pattern" : "")
-            )
-        )
+        allequal(lat.sites) || throw(ArgumentError(_mixedbases_message(lat)))
         info = alphabet(first(lat.sites), I)
         for op in letters
             1 <= op.n <= get(info, op.c, 0) || throw(
@@ -168,14 +137,24 @@ function _checkchannels(lat::AbstractLattice, chans)
     return nothing
 end
 
-_checkgenerating(::FiniteChain, terms, chans) = nothing
-function _checkgenerating(lat::InfiniteChain, terms::Vector{Term{I}}, chans) where {I}
+_mixedbases_message(::FiniteChain) =
+    "a decaying channel on a finite chain moves by one site, so its letters land on sites with " *
+    "different bases, where they mean different operators; use one basis on every site, or an " *
+    "InfiniteChain whose cell is the pattern"
+_mixedbases_message(::InfiniteChain) =
+    "a decaying channel with a string fills every site of its gap, so its letters land on sites " *
+    "with different bases, where they mean different operators; use one basis on every site"
+
+checkgenerating(::FiniteChain, terms, chans) = nothing
+function checkgenerating(lat::InfiniteChain, terms::Vector{Term{I}}, chans::ExpSum{I}) where {I}
     for t in terms
-        _checkgenerator(t)
+        checkgenerator(t)
     end
-    for k in keys(chans)
-        _checkgenerator(k)
-        _checklattice([k.term], lat)
+    seen = Dict{eltype(lat), Dict{I, Int}}()
+    for k in keys(chans.channels)
+        checkgenerator(k)
+        _checksector(I, lat)
+        _checksupport!(seen, lat, k.support...)
     end
     return nothing
 end

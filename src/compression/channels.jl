@@ -61,22 +61,11 @@ _cons!(names::_ChannelNames{I}, key::Factor{I}, succ::Int) where {I} =
 _loopname!(names::_ChannelNames{I}, λ, strs, exitkey, exitname, P, δ) where {I} =
     _intern!(names.loop, names, (λ, strs, exitkey, exitname, P, δ))
 
-# Content-derived order, so interned ids (hence bond order) do not depend on the order channels were written.
-function _channelorder(k::ExpKey)
-    return (
-        Int.(k.term.sites),
-        Int(k.exitsite),
-        [(key.letter.c, key.letter.n) for key in k.term.factors],
-        [key.bond for key in k.term.factors],
-        (real(k.decay), imag(k.decay)),
-        [(l === nothing, l === nothing ? 0 : l.n, real(c), imag(c)) for (l, c) in k.string],
-    )
-end
-
-function _lower_channels(es::ExpSum{I}, P::Int) where {I}
+function lower_channels(es::ExpSum{I}, P::Int) where {I}
     P >= 1 || throw(ArgumentError("channel period must be positive, got $P"))
     names = _ChannelNames{I}()
-    entries = sort!(collect(pairs(es.channels)); by = kv -> _channelorder(first(kv)))
+    # content order, so interned ids (hence bond order) do not depend on the order channels were written
+    entries = sort!(collect(pairs(es.channels)); by = first)
     return ExpChannel{I}[_lower_channel(k, ComplexF64(v), P, names) for (k, v) in entries]
 end
 
@@ -105,8 +94,7 @@ end
 function _lower_channel(
         k::ExpKey{I}, coeff::ComplexF64, P::Int, names::_ChannelNames{I}
     ) where {I}
-    sites = k.term.sites
-    keys_ = k.term.factors
+    sites, keys_ = k.support
     K = length(sites)
     ne = count(<(k.exitsite), sites)
     slast = sites[K]
@@ -133,7 +121,7 @@ function _lower_channel(
     # λ rides as an edge weight so the entry carries a letter (a letter-less `SiteOperator` is dropped
     # at tensor assembly); the `cyclic` loop states are forced into the cover, else λ accumulates.
     strtrans = Tuple{Factor{I}, ComplexF64}[
-        (Factor{I}(l === nothing ? passthrough(I) : l, cmid), k.decay * c) for (l, c) in k.string
+        (Factor{I}(l, cmid), k.decay * c) for (l, c) in pairs(k.string)
     ]
     loopidx = zeros(Int, nloop)
     for δ in 1:nloop

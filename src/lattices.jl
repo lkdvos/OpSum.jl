@@ -76,6 +76,7 @@ Base.firstindex(::AbstractLattice) = 1
 Base.lastindex(lat::AbstractLattice) = length(lat)
 Base.:(==)(a::AbstractLattice, b::AbstractLattice) =
     typeof(a) == typeof(b) && a.sites == b.sites
+Base.hash(lat::AbstractLattice, h::UInt) = hash(lat.sites, hash(typeof(lat), h))
 
 Base.getindex(lat::FiniteChain, i::Integer) = lat.sites[i]
 Base.getindex(lat::InfiniteChain, i::Integer) = lat.sites[mod1(Int(i), length(lat))]

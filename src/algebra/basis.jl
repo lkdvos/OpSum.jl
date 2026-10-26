@@ -63,7 +63,7 @@ end
 
 scalarop(c::Number, B::Basis) = scalarop(c, sectortype(B))
 
-# `charge => number of letters`, what `_checklattice` validates letters against
+# `charge => number of letters`, what `checklattice` validates letters against
 alphabet(B::Basis{I}, ::Type{I}) where {I} = Dict{I, Int}(c => length(ks) for (c, ks) in pairs(B.bycharge))
 
 """

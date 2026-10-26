@@ -87,6 +87,11 @@ Base.:/(a::ExpSum, α::Number) = scale(a, inv(α))
 Base.:-(a::ExpSum) = scale(a, -1)
 Base.:-(a::ExpSum, b::ExpSum) = a + (-b)
 
+# close as sparse vectors over the descriptors: the same keys, coefficients close
+Base.isapprox(a::ExpSum{I}, b::ExpSum{I}; kwargs...) where {I} =
+    length(a) == length(b) &&
+    all(((k, v),) -> haskey(b.channels, k) && isapprox(v, b.channels[k]; kwargs...), pairs(a.channels))
+
 # --- the constructor ------------------------------------------------------------------------------
 
 # Canonical `(letter, coefficient)` list; letters must be neutral, else the loop is not a self-loop.

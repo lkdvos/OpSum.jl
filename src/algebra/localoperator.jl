@@ -95,6 +95,11 @@ function Base.:+(a::LocalOperator{I}, b::LocalOperator{I}) where {I}
 end
 VectorInterface.scale(B::LocalOperator{I}, α::Number) where {I} =
     LocalOperator{I}(scale(B.terms, α), B.nsites)
+Base.:*(α::Number, B::LocalOperator) = scale(B, α)
+Base.:*(B::LocalOperator, α::Number) = scale(B, α)
+Base.:/(B::LocalOperator, α::Number) = scale(B, inv(α))
+Base.:-(B::LocalOperator) = scale(B, -1)
+Base.:-(a::LocalOperator, b::LocalOperator) = a + (-b)
 
 # `α` times the identity on `K` slots: the pass-through in every slot, which placement drops.
 function identityterm(::Type{I}, K::Int, α::Number) where {I}

@@ -192,12 +192,12 @@ end
 VectorInterface.scale(H::OperatorSum{I, L}, α::Number) where {I, L} =
     OperatorSum{I, L}(H.lattice, scale(H.terms, α), scale(H.channels, α))
 
-const _Scalable = Union{Term, Terms, LocalOperator, OperatorSum}
-Base.:*(α::Number, x::_Scalable) = scale(x, α)
-Base.:*(x::_Scalable, α::Number) = scale(x, α)
-Base.:/(x::_Scalable, α::Number) = scale(x, inv(α))
-Base.:-(x::_Scalable) = scale(x, -1)
-Base.:-(a::_Scalable, b::_Scalable) = a + (-b)
+Base.:*(α::Number, H::OperatorSum) = scale(H, α)
+Base.:*(H::OperatorSum, α::Number) = scale(H, α)
+Base.:/(H::OperatorSum, α::Number) = scale(H, inv(α))
+Base.:-(H::OperatorSum) = scale(H, -1)
+Base.:-(a::OperatorSum, b::Union{OperatorSum, Term, Terms}) = a + (-b)
+Base.:-(a::Union{Term, Terms}, b::OperatorSum) = a + (-b)
 
 function _samelattice(a::OperatorSum, b::OperatorSum, op)
     a.lattice == b.lattice || throw(
@@ -208,13 +208,9 @@ function _samelattice(a::OperatorSum, b::OperatorSum, op)
     return nothing
 end
 
-_channelsapprox(a::ExpSum, b::ExpSum; kwargs...) =
-    length(a.channels) == length(b.channels) &&
-    all(((k, v),) -> haskey(b.channels, k) && isapprox(v, b.channels[k]; kwargs...), pairs(a.channels))
-
 Base.isapprox(a::OperatorSum{I}, b::OperatorSum{I}; kwargs...) where {I} =
     a.lattice == b.lattice && isapprox(a.terms, b.terms; kwargs...) &&
-    _channelsapprox(a.channels, b.channels; kwargs...)
+    isapprox(a.channels, b.channels; kwargs...)
 """
     adjoint(H::OperatorSum)
     H'

@@ -213,6 +213,14 @@ VectorInterface.scale(ts::Terms{I}, α::Number) where {I} = Terms{I}(
     PendingTerm{I}[PendingTerm{I}(p.sites, p.factors, p.coeff * ComplexF64(α)) for p in ts.pending]
 )
 
+# scaling and negation; `a - b` is `a + (-b)`
+const _Scalable = Union{Term, Terms}
+Base.:*(α::Number, x::_Scalable) = scale(x, α)
+Base.:*(x::_Scalable, α::Number) = scale(x, α)
+Base.:/(x::_Scalable, α::Number) = scale(x, inv(α))
+Base.:-(x::_Scalable) = scale(x, -1)
+Base.:-(a::_Scalable, b::_Scalable) = a + (-b)
+
 # `one` is the term with no active sites; `zero` is the empty operator
 Base.one(::Union{Terms{I}, Type{Terms{I}}}) where {I} =
     Terms{I}(Term{I}[Term{I}(Int[], Factor{I}[], ComplexF64(1))])

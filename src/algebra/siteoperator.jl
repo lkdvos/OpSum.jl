@@ -12,6 +12,10 @@ using VectorInterface: VectorInterface, inner
 An unplaced single-site operator `Σₖ coeffs[k] · letters[k]`, from [`project`](@ref), [`spin_ops`](@ref)
 and friends or [`scalarop`](@ref); combine with `+ - * /` and place with `A[i]` (a [`Terms`](@ref) bag).
 The constructor sorts the letters, sums duplicates and drops zero coefficients.
+
+The identity is the pass-through letter: `one(A)` (or `one(SiteOperator{I})`), `scalarop(c, B)` for `c·𝟙`,
+and `isone`. Placed, it is the scalar term (`one(Terms{I})`), which instantiates to the identity on the
+lattice. It is an operand of `+`, `-` and scaling, not of [`couple`](@ref) or `dot`, which need a charged letter.
 """
 struct SiteOperator{I <: Sector}
     letters::Vector{Letter{I}}
@@ -105,6 +109,9 @@ Base.:*(x::Letter, a::Number) = SiteOperator(x) * a
 Base.:*(a::Number, x::Letter) = SiteOperator(x) * a
 
 VectorInterface.scale(x::SiteOperator, a::Number) = x * a
+# `y β + x α`; `α`, `β` may be VectorInterface's `One`/`Zero`
+VectorInterface.add(y::SiteOperator{I}, x::SiteOperator{I}, α::Number, β::Number) where {I} =
+    scale(y, β) + scale(x, α)
 
 """
     scalarop(c::Number, B::Basis)

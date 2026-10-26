@@ -43,7 +43,9 @@ Vc = space(Bc)
 `Basis(ops)` builds a complete basis of your own from neutral operators: yours come first, completed by matrix units.
 Bases are compared by identity (`==` is `===`), so keep one object per kind of site; the stock bases are memoised.
 Operators that appear in your Hamiltonian should be elements of the basis: the same model in a poorer basis (e.g. matrix units) has more letters per term and a larger bond dimension.
-`scalarop(c, I)` is a multiple of the identity, which is a pass-through and dropped on placement.
+The identity stays available as an operator: `one(A)` / `one(SiteOperator{I})` and `scalarop(c, B)` (or `scalarop(c, I)`) are the on-site identity and its multiples, `one(Terms{I})` the placed one, and `one(B)` the identity on the slots of a `LocalOperator`.
+On placement the identity is a pass-through: it is dropped, leaving a scalar term that instantiates to `c` times the identity on the lattice.
+It is an operator to add and scale, not an operand of `couple` or `dot`, which need a charged operator in every term.
 
 ## Placing and multiplying
 
@@ -68,7 +70,7 @@ four = ex[1, 3] * ex[2, 4]           # interleaved sites
 (typeof(three), typeof(four))
 ```
 
-`LocalOperator`s add, subtract and scale, and `B + α` adds a pass-through slot.
+`LocalOperator`s add, subtract and scale, and `B + α`, `B - α` add a multiple of the identity, `α * one(B)`.
 Placed and unplaced operands cannot be mixed in one call.
 
 ### Projecting a block

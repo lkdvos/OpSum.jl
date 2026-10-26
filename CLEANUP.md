@@ -56,8 +56,8 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 2 | Letters | letters, siteoperator, instantiate | done (full suite green at 4b54d6f) |
 | 3 | Terms | terms, couple | done (full suite green at bf826f5) |
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | done (full suite green at f9990dc) |
-| 5 | Unplaced operators and products | localoperator, products, letterproducts | implementing |
-| 6 | Container and channels | operatorsum, expterms | decided (after chunk 5) |
+| 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite running) |
+| 6 | Container and channels | operatorsum, expterms | implementing |
 | 7 | The sweep | compression/termtable, graph | pending |
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | pending |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | pending |
@@ -195,6 +195,13 @@ its slot, like the placed form, so `couple(ops...)[sites] ≡ couple((op[site] f
 identity stays available as an operator: `one(SiteOperator{I})`/`scalarop(c, B)`, `one(::Terms)`, a `LocalOperator`
 identity, `B ± α`; documented together.
 (f) P5.6: issue for per-fusion-channel structure constants (unify on-site products, non-abelian `taylor_mpo`). → #45.
+As applied: edc25ba (a, renames), 0c71220 (b), 124743e (d), 1c0e109 (e), 18ef149 (identity docs, `one(::LocalOperator)`,
+`VectorInterface.add` for `SiteOperator`, removes the long-standing warning). Re-coupling uses TensorKit 0.17.2
+`permute(::FusionTreeBlock, …)` (plain tree `permute` asserts `UniqueFusion`) and `merge`; `FusionTreeBlock` is
+semi-internal TensorKit API. `RECOUPLE_ATOL = 1e-13` stays (structural zeros come out as ~1e-17 noise and would change
+the cover); `BASIS_RTOL`, `PRODUCT_RTOL` named. `_RECOUPLE_CACHE` kept: dropping it makes re-coupling workloads 1.3–2.2×
+slower hot. Equivalence: 95/95 bitwise identical to pre-chunk; new vs old re-coupling ≤4.4e-16 on 3600 random cases,
+exact on all 100 cases the tests hit. `mpo` and model construction unchanged. `test/algebra/test_recouple.jl` new.
 
 **D13 Chunk 6 (OperatorSum and decaying channels).**
 (a) P6.1: one collector: `opsum!` reuses `collect_terms!` (extended with a channel slot), so `Terms(…)` and `opsum`

@@ -56,7 +56,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 2 | Letters | letters, siteoperator, instantiate | done (full suite green at 4b54d6f) |
 | 3 | Terms | terms, couple | done (full suite green at bf826f5) |
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | done (full suite green at f9990dc) |
-| 5 | Unplaced operators and products | localoperator, products, letterproducts | pending |
+| 5 | Unplaced operators and products | localoperator, products, letterproducts | implementing |
 | 6 | Container and channels | operatorsum, infinite/expterms | pending |
 | 7 | The sweep | irreptermtable (table), irrepinterning, irrepgraph | pending |
 | 8 | Bond bases | irrepgraph_vc, irrepgraph_svd, metric | pending |
@@ -183,6 +183,19 @@ Residuals ≤ 7.5e-15. `project` 1.4–2.6× faster, ~half the allocations; mode
 chunk 3 build cost); `mpo` unchanged. Lattice letter-range check is weaker (complete same-space bases have equal
 letter counts). `benchmark/n2` got a local `rebasis` helper, still unrunnable (chunk 14).
 
+**D12 Chunk 5 (unplaced operators, products, letter products).**
+(a) P5.1: new `algebra/recouple.jl` (included before `couple.jl`) holds re-coupling (`recouple`, `concat`, helpers);
+`products.jl` keeps placed `*` and pending-product resolution.
+(b) P5.2: re-couple through TensorKit's fusion-tree operations instead of dense charge-only tensors (`_treetensor`,
+`_expand`, the `1e-13` cutoff go); fall back to the current route only if the API cannot express it.
+(c) P5.3: drop `_RECOUPLE_CACHE` if (b) makes re-coupling cheap (timed); `_PRODUCT_CACHE` stays.
+(d) P5.4: named, documented tolerances instead of bare literals. P5.5: D7 renames.
+(e) Scalars in coupling are not supported: unplaced `couple`/`dot` reject an operand term without a charged letter in
+its slot, like the placed form, so `couple(ops...)[sites] ≡ couple((op[site] for …)...)` including errors. The
+identity stays available as an operator: `one(SiteOperator{I})`/`scalarop(c, B)`, `one(::Terms)`, a `LocalOperator`
+identity, `B ± α`; documented together.
+(f) P5.6: issue for per-fusion-channel structure constants (unify on-site products, non-abelian `taylor_mpo`).
+
 ## Possible improvements
 
 ## Open items
@@ -201,5 +214,6 @@ letter counts). `benchmark/n2` got a local `rebasis` helper, still unrunnable (c
 
 ## Resume here
 
-D1–D5 decided; initial reorg applied. Chunk 0 presented; D6 recorded. Chunk 1 applied; full suite green at 1ed3d91. Chunk 2 decided (D9); implementation delegated.
-Equivalence harness: scratchpad/equiv/{equiv,compare}.jl, base result scratchpad/equiv/base.jls, base worktree scratchpad/base.
+Chunks 0–4 done, full suite green at f9990dc (139496). Chunk 5 decided (D12), implementation delegated. Chunks 6–14
+then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+pre-chunk references pre3.jls, pre4.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

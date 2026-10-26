@@ -194,7 +194,7 @@ letter counts). `benchmark/n2` got a local `rebasis` helper, still unrunnable (c
 its slot, like the placed form, so `couple(ops...)[sites] ≡ couple((op[site] for …)...)` including errors. The
 identity stays available as an operator: `one(SiteOperator{I})`/`scalarop(c, B)`, `one(::Terms)`, a `LocalOperator`
 identity, `B ± α`; documented together.
-(f) P5.6: issue for per-fusion-channel structure constants (unify on-site products, non-abelian `taylor_mpo`).
+(f) P5.6: issue for per-fusion-channel structure constants (unify on-site products, non-abelian `taylor_mpo`). → #45.
 
 ## Possible improvements
 

@@ -30,7 +30,7 @@ end
 
 # `Factor` at site `s` of term `t`: the stored key on an active site, else the pass-through carrying
 # the running bond charge to its left (which preserves block-diagonality).
-function _factor_at(tt::TermTable{I}, t::Int, s::Int) where {I}
+function factor_at(tt::TermTable{I}, t::Int, s::Int) where {I}
     lastbond = unit(I)
     @inbounds for j in 1:size(tt.sites, 1)
         st = tt.sites[j, t]
@@ -72,7 +72,7 @@ end
 # `sufid[j, t]`: id of the factor list `j:K` of term `t` (0 = exhausted). Equal ids mean equal factor
 # lists, not equal suffix paths: idle sites carry the running bond charge, so a path is
 # `(sufid[j, t], running bond charge)`.
-function _suffix_ids(tt::TermTable{I}) where {I}
+function suffix_ids(tt::TermTable{I}) where {I}
     K, M = arity(tt), nterms(tt)
     sufid = zeros(Int, K + 1, M)      # row K+1 and every padded position stay 0 == exhausted
     intern = Dictionary{Tuple{Int, Factor{I}, Int}, Int}()
@@ -82,7 +82,7 @@ end
 
 # `preid[j, t]`: id of the factor list `1:j-1` (0 = empty). Equal ids are equal prefix paths (the
 # running charge is fixed by the factors). Used by `IndependentSVD`.
-function _prefix_ids(tt::TermTable{I}) where {I}
+function prefix_ids(tt::TermTable{I}) where {I}
     K, M = arity(tt), nterms(tt)
     preid = zeros(Int, K + 1, M)      # row 1 stays 0 == the empty prefix
     intern = Dictionary{Tuple{Int, Int, Factor{I}}, Int}()
@@ -90,9 +90,9 @@ function _prefix_ids(tt::TermTable{I}) where {I}
     return preid
 end
 
-# Translation-invariant `_suffix_ids`: conses `(gap to the next factor, Factor, tail id)` instead of
-# the absolute site; with distance and charge it names a right vertex (`_rdesc`).
-function _rel_suffix_ids(tt::TermTable{I}) where {I}
+# Translation-invariant `suffix_ids`: conses `(gap to the next factor, Factor, tail id)` instead of
+# the absolute site; with distance and charge it names a right vertex (`rdesc`).
+function rel_suffix_ids(tt::TermTable{I}) where {I}
     K, M = arity(tt), nterms(tt)
     relid = zeros(Int, K + 1, M)
     intern = Dictionary{Tuple{Int, Factor{I}, Int}, Int}()

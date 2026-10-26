@@ -10,7 +10,7 @@ using TensorKit: Sector, Vect, block, sectors, space, dim
 using MatrixAlgebraKit: svd_trunc, trunctol
 using SparseArrays: SparseMatrixCSC
 
-# The strategies with a `_bond_basis!` method (`IndependentSVD` has its own sweep).
+# The strategies with a `bond_basis!` method (`IndependentSVD` has its own sweep).
 const GraphStrategy = Union{VertexCover, SequentialSVD}
 
 # A left (prefix) vertex: it entered the current site on bond index `link` and applies `key` here.
@@ -19,7 +19,7 @@ struct LeftVertex{I <: Sector}
     key::Factor{I}
 end
 
-# The persistent bipartite graph over an `TermTable`, handed from one site step to the next. A right
+# The persistent bipartite graph over a `TermTable`, handed from one site step to the next. A right
 # vertex is a suffix class: classes enter at their term's first active site and thereafter only merge.
 # `lefts` ↔ right vertices, with per-left adjacency `radj`/`wadj` (right id, weight; zeros never kept).
 # Geometric (`ExpChannel`) classes: `rchan[r] > 0` is an automaton state, `-1` the synthetic exhausted
@@ -30,7 +30,7 @@ mutable struct SweepGraph{I <: Sector}
     N::Int
     K::Int                 # arity(tt): rows of tt.sites / tt.factors
     sufid::Matrix{Int}     # (K+1) × M interned id of the column suffix j:K (0 == exhausted)
-    relsufid::Matrix{Int}  # (K+1) × M same, interned by shape instead of position (`_rel_suffix_ids`)
+    relsufid::Matrix{Int}  # (K+1) × M same, interned by shape instead of position (`rel_suffix_ids`)
     channels::Vector{ExpChannel{I}}   # lowered exponentially decaying interactions (may be empty)
     lastentry::Int         # last site at which a channel may still enter (0 if there are none)
     rrepr::Vector{Int}     # right vertex -> representative term id (0 for a geometric class)
@@ -65,7 +65,7 @@ end
 # Canonical translation-invariant name `(kind, distance, shape, charge)` of right vertex `r` at bond
 # `i`: translates of each other share it. Kind 1 is a geometric class (named by its state); the
 # synthetic exhausted class shares the exhausted term class's name; the sentinel is `(-1, -1, -1, 1)`.
-function _rdesc(g::SweepGraph{I}, r::Int, i::Int) where {I}
+function rdesc(g::SweepGraph{I}, r::Int, i::Int) where {I}
     r > length(g.rrepr) && return (-1, -1, -1, unit(I))    # the sentinel
     c = g.rchan[r]
     c == -1 && return (0, 0, 0, g.rbond[r])                # synthetic exhausted class
@@ -96,8 +96,8 @@ function _signature!(g::SweepGraph{I}, r::Int, i::Int) where {I}
     return (g.sufid[j, t], g.rbond[r])
 end
 
-# Is this a *cyclic* channel state (forced into the cover, see `_forced_cover`)? channel state (live at every bond, forced into the cover, see `_forced_cover`)?
-function _iscyclic(g::SweepGraph, r::Int)
+# Is this a *cyclic* channel state (live at every bond, so forced into the cover, see `_forced_cover`)?
+function iscyclic(g::SweepGraph, r::Int)
     r <= length(g.rchan) || return false          # the sentinel
     c = g.rchan[r]
     return c > 0 && g.channels[c].states[g.rstate[r]].cyclic
@@ -140,8 +140,8 @@ function SweepGraph(
     M = nterms(tt)
     (lazy || isempty(channels)) ||
         throw(ArgumentError("exponentially decaying channels need the lazy sweep"))
-    sufid = _suffix_ids(tt)
-    relsufid = _rel_suffix_ids(tt)
+    sufid = suffix_ids(tt)
+    relsufid = rel_suffix_ids(tt)
     # (1 for a `K=0` identity term)
     firstsite = Int[max(1, tt.sites[1, t]) for t in 1:nterms(tt)]
     lastent = maximum(c -> lastentry(c, N), channels; init = 0)
@@ -157,7 +157,7 @@ function SweepGraph(
 
     for t in 1:M
         (lazy && firstsite[t] > 1) && continue
-        b = _bucket!(buckets, lefts, radj, wadj, 1, _factor_at(tt, t, 1))
+        b = _bucket!(buckets, lefts, radj, wadj, 1, factor_at(tt, t, 1))
         inserted[t] = true
         push!(radj[b], _push_right!(g0, t, 1, unit(I), 0, 0))
         push!(wadj[b], tt.coeffs[t])
@@ -264,7 +264,7 @@ function _grow_scratch!(g::SweepGraph, nV::Int)
 end
 
 # Insert every not-yet-started term whose suffix class *coincides* with a live one at bond `i`.
-# `_factor_at` pads idle sites with a pass-through at the running charge, so a started term whose charge
+# `factor_at` pads idle sites with a pass-through at the running charge, so a started term whose charge
 # fused back to `unit` is indistinguishable from a pending one; the eager sweep would merge their right
 # vertices, and this reproduces that at the earliest bond where it applies (one probe per live vertex).
 function _promote_pending!(g::SweepGraph{I}, i::Int) where {I}
@@ -287,14 +287,14 @@ function _promote_pending!(g::SweepGraph{I}, i::Int) where {I}
     return g
 end
 
-# Renumber the right vertices into ascending `_rdesc` order and sort every adjacency list, so the sweep
+# Renumber the right vertices into ascending `rdesc` order and sort every adjacency list, so the sweep
 # depends only on the canonical graph, not its construction history (Hopcroft–Karp and König depend on
 # scan order). Needed on a periodic lattice, where the bond basis must converge exactly, not up to
 # permutation. Called before the sentinel is attached.
 function _canonicalise_rights!(g::SweepGraph{I}, i::Int) where {I}
     R = length(g.rrepr)
     if R > 1
-        descs = [_rdesc(g, r, i) for r in 1:R]
+        descs = [rdesc(g, r, i) for r in 1:R]
         if !issorted(descs)
             perm = sortperm(descs)
             newid = Vector{Int}(undef, R)
@@ -374,7 +374,7 @@ function _build_next_graph!(
         g::SweepGraph{I}, i::Int, nout::Int,
         nextedges_global::Vector{Vector{Tuple{Int, ComplexF64}}}
     ) where {I}
-    # the key each term class applies at `i+1` (`_factor_at` in `O(1)` from the cursor); channel
+    # the key each term class applies at `i+1` (`factor_at` in `O(1)` from the cursor); channel
     # states are handled below
     nextkeys = map(eachindex(g.rrepr)) do r
         t = g.rrepr[r]
@@ -464,23 +464,27 @@ function _build_next_graph!(
     return g
 end
 
-# One site step: `_prepare_bond!`, the strategy's `_bond_basis!`, `_build_next_graph!`. Returns
+# One site step: `_prepare_bond!`, the strategy's `bond_basis!`, `_build_next_graph!`. Returns
 # `(W_i, bondsectors_i, startidx, finishidx)`.
-function _at_site!(g::SweepGraph{I}, i::Int, strategy::GraphStrategy = VertexCover()) where {I}
+function at_site!(g::SweepGraph{I}, i::Int, strategy::GraphStrategy = VertexCover()) where {I}
     nU, nV = _prepare_bond!(g, i)
     g.startidx = 0
     g.finishidx = 0
-    nout, site_dict, secW, nextedges_global = _bond_basis!(g, i, nU, nV, strategy)
+    nout, site_dict, secW, nextedges_global = bond_basis!(g, i, nU, nV, strategy)
     Ws_i = sparse_from_dict(site_dict, (g.nlinks, nout))
     i < g.N && _build_next_graph!(g, i, nout, nextedges_global)
     return Ws_i, secW, g.startidx, g.finishidx
 end
 
-# The sparse adjacency makes lazy insertion pay off; the SVD builds a dense matrix anyway.
+# Lazy insertion represents the not-yet-started terms by a sentinel right vertex and injects them later
+# through the start channel's bond index (`startidx`). Only the vertex cover reserves such an index (the
+# sentinel is never covered, so its left vertex is covered-left). `SequentialSVD` would take the sentinel
+# for an ordinary column of its dense matrix, carry it forward as a vertex that does not exist, and have no
+# start channel to inject on (tried: `BoundsError` in `_build_next_graph!`), so it seeds every term up front.
 _graph_lazy(::VertexCover) = true
 _graph_lazy(::SequentialSVD) = false
 
-_emptysweep(::Type{I}) where {I} = (; Ws = SparseMatrixCSC{SiteOperator{I}, Int}[], bondsectors = Vector{I}[], starts = Int[], finishes = Int[])
+emptysweep(::Type{I}) where {I} = (; Ws = SparseMatrixCSC{SiteOperator{I}, Int}[], bondsectors = Vector{I}[], starts = Int[], finishes = Int[])
 
 # The reduced-MPO sweep of a term table over `N` sites, as the named tuple `(; Ws, bondsectors, starts,
 # finishes)`; `starts[i]`/`finishes[i]` are the bond indices of the start/finish identity channels right of
@@ -490,14 +494,14 @@ function sweep(
         tt::TermTable{I}, N::Int, strategy::GraphStrategy;
         jordan::Bool = true, channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
     ) where {I}
-    (nterms(tt) == 0 && isempty(channels)) && return _emptysweep(I)
+    (nterms(tt) == 0 && isempty(channels)) && return emptysweep(I)
     g = SweepGraph(tt, N; lazy = _graph_lazy(strategy), jordan, channels)
     Ws = Vector{SparseMatrixCSC{SiteOperator{I}, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)
     starts = zeros(Int, N)
     finishes = zeros(Int, N)
     for i in 1:N
-        Ws[i], bondsectors[i], starts[i], finishes[i] = _at_site!(g, i, strategy)
+        Ws[i], bondsectors[i], starts[i], finishes[i] = at_site!(g, i, strategy)
     end
     return (; Ws, bondsectors, starts, finishes)
 end

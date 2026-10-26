@@ -3,7 +3,7 @@ using TensorKit
 using LinearAlgebra: dot
 using OpSum
 using OpSum: couple, unitcell_terms, window_terms, maxspan,
-    TermTable, SweepGraph, _rdesc, _entriesequal, _identity_channels, _infinite_window, _at_site!
+    TermTable, SweepGraph, rdesc, _entriesequal, _identity_channels, _infinite_window, at_site!
 
 # Translation covariance of the sweep: live suffix-class names repeat with the unit cell, and the result
 # does not depend on the order terms were written in.
@@ -28,8 +28,8 @@ const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter
         tt = TermTable(window_terms(gen, InfiniteChain(spaces), ncells))
         g = SweepGraph(tt, N)
         names = map(1:N) do i
-            _at_site!(g, i)
-            return sort([_rdesc(g, r, i) for r in eachindex(g.rrepr)])
+            at_site!(g, i)
+            return sort([rdesc(g, r, i) for r in eachindex(g.rrepr)])
         end
         guard = 4L + maxspan(gen)
         @test all(i -> names[i] == names[i + L], (guard + 1):(N - guard))

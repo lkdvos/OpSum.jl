@@ -6,7 +6,7 @@ using Test
 using OpSum
 using OpSum: mpo, mpo_tensors, mpo_terms, instantiate, couple, scalarop, opsum
 using OpSum: VertexCover, IndependentSVD, SequentialSVD
-using OpSum: TermTable, sweep, SweepGraph, _at_site!
+using OpSum: TermTable, sweep, SweepGraph, at_site!
 using OpSum: Letter
 using TensorKit
 using TensorKit: @tensor
@@ -264,8 +264,8 @@ end
     tt = TermTable(H)
 
     # the two classes agree on the remaining factors at bond 2 but not on the running charge
-    @test OpSum._factor_at(tt, 1, 4) == OpSum._factor_at(tt, 2, 4)
-    @test OpSum._factor_at(tt, 1, 3) != OpSum._factor_at(tt, 2, 3)
+    @test OpSum.factor_at(tt, 1, 4) == OpSum.factor_at(tt, 2, 4)
+    @test OpSum.factor_at(tt, 1, 3) != OpSum.factor_at(tt, 2, 3)
 
     Wg, sg = reduced(mpo(opsum(sites, H), VertexCover()))
     back = mpo_terms(Wg, sg)
@@ -283,7 +283,7 @@ end
     H = Terms(couple(A[1], B[3]; to = unit(Trivial)), 0.5 * B[3])
     tt = TermTable(H)
 
-    @test OpSum._factor_at(tt, 1, 3) == OpSum._factor_at(tt, 2, 3)
+    @test OpSum.factor_at(tt, 1, 3) == OpSum.factor_at(tt, 2, 3)
 
     Wg, sg = reduced(mpo(opsum(sites, H), VertexCover()))
     @test length.(sg) == [1, 1, 1]
@@ -302,7 +302,7 @@ end
         g = SweepGraph(TermTable(H), N)
         counts = Int[]
         for i in 1:N
-            _at_site!(g, i, VertexCover())
+            at_site!(g, i, VertexCover())
             push!(counts, length(g.rrepr))
         end
         @test counts[end] == 1                 # only the exhausted ("done") suffix class survives

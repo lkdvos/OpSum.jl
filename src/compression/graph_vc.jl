@@ -128,14 +128,14 @@ end
 function _forced_cover(
         g::SweepGraph, localadj::Vector{Vector{Int}}, nus::Int, nvs::Int, vs::Vector{Int}
     )
-    forced = BitVector(_iscyclic(g, vs[p]) for p in 1:nvs)
+    forced = BitVector(iscyclic(g, vs[p]) for p in 1:nvs)
     any(forced) || return minimum_vertex_cover(localadj, nus, nvs)
     residual = [filter(p -> !forced[p], adj) for adj in localadj]
     cUbits, cVbits = minimum_vertex_cover(residual, nus, nvs)
     return cUbits, cVbits .| forced
 end
 
-# Reorder the assembled bond canonically: covered-left by `(link, key)`, then covered-right by `_rdesc`.
+# Reorder the assembled bond canonically: covered-left by `(link, key)`, then covered-right by `rdesc`.
 # Both are translation-invariant given a canonical incoming bond, so bonds `i` and `i+L` of a periodic
 # model get identical bases, not merely isomorphic ones.
 function _canonicalise_bond!(
@@ -147,7 +147,7 @@ function _canonicalise_bond!(
     covleft = [m for m in 1:nout if iszero(origins_global[m][1])]
     covright = [m for m in 1:nout if isone(origins_global[m][1])]
     sort!(covleft; by = m -> (lv = g.lefts[origins_global[m][2]]; (lv.link, lv.key)))
-    sort!(covright; by = m -> _rdesc(g, origins_global[m][2], i))
+    sort!(covright; by = m -> rdesc(g, origins_global[m][2], i))
     order = vcat(covleft, covright)
     issorted(order) && return site_dict, secW, nextedges_global
 
@@ -165,9 +165,9 @@ function _canonicalise_bond!(
     return newdict, secW[order], nextedges_global[order]
 end
 
-# `_bond_basis!` for `VertexCover`: cover each connected component and concatenate the ranks.
+# `bond_basis!` for `VertexCover`: cover each connected component and concatenate the ranks.
 # Returns `(nout, site_dict, secW, nextedges_global)`.
-function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) where {I}
+function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) where {I}
     LOp = SiteOperator{I}
     us_of_comp, vs_of_comp = connected_components(g.radj, nV)
 

@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: TermTable, _factor_at, arity, nterms, ispassthrough,
+using OpSum: TermTable, factor_at, arity, nterms, ispassthrough,
     Term, Terms, scalarop, couple, mpo, instantiate, opsum
 using OpSum: Letter
 using TensorKit
@@ -23,10 +23,10 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
         end
     end
 
-    @testset "_factor_at reconstructs the running-bond pass-through path" begin
+    @testset "factor_at reconstructs the running-bond pass-through path" begin
         tt = TermTable(Terms(dot(spinvector(unitbasis(su2))[1], spinvector(unitbasis(su2))[3])))
         @test nterms(tt) == 1
-        path = [_factor_at(tt, 1, s) for s in 1:4]
+        path = [factor_at(tt, 1, s) for s in 1:4]
 
         # active sites carry the letter and the outgoing (running) bond charge
         @test !ispassthrough(path[1].letter)
@@ -44,7 +44,7 @@ u1 = Rep[U₁](0 => 1, 1 => 1)
         raise = LO(Letter(U1Irrep(1), 1))
         lower = LO(Letter(U1Irrep(-1), 1))
         tt = TermTable(Terms(dot(raise[1], lower[4])))
-        path = [_factor_at(tt, 1, s) for s in 1:5]
+        path = [factor_at(tt, 1, s) for s in 1:5]
         @test all(s -> path[s].bond == U1Irrep(1), 2:3)
         @test path[4].bond == U1Irrep(0)
         @test path[5].bond == U1Irrep(0)

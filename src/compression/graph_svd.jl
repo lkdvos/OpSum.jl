@@ -62,10 +62,10 @@ function _svd_flatten_block(
     return (; U = Umat, secs, R = Rmat)
 end
 
-# `_bond_basis!` for `SequentialSVD`: the whole bond's coefficient matrix is a charge-graded
+# `bond_basis!` for `SequentialSVD`: the whole bond's coefficient matrix is a charge-graded
 # `C : Ppre ← Psuf`; its truncated `U` is the compressed basis (index `m` emits `key.letter * U[u, m]`) and
 # `R = S·Vᴴ` becomes the forwarded edge weights (folded into the block at the last site).
-function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::SequentialSVD) where {I}
+function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::SequentialSVD) where {I}
     LOp = SiteOperator{I}
     N = g.N
     coeff = zeros(ComplexF64, nU, nV)   # dense `coeff[u, v]` from the sparse adjacency
@@ -130,7 +130,7 @@ function _bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Sequ
 end
 
 # `IndependentSVD`: not a graph sweep, since each bond is compressed on the raw prefix/suffix classes
-# (`_prefix_ids`; `(_suffix_ids, charge)`) regardless of its neighbours' bases. One charge-graded
+# (`prefix_ids`; `(suffix_ids, charge)`) regardless of its neighbours' bases. One charge-graded
 # `C_b : Ppre ← Psuf` per bond, `U_b` as its basis, then `W_op = U_{i-1}' · C_op · U_i` per letter.
 function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
     trunc = strategy.trunc
@@ -138,11 +138,11 @@ function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
     Op = Factor{I}
     LOp = SiteOperator{I}
     M = nterms(tt)
-    M == 0 && return _emptysweep(I)
+    M == 0 && return emptysweep(I)
 
     K = arity(tt)
-    preid = _prefix_ids(tt)
-    sufid = _suffix_ids(tt)
+    preid = prefix_ids(tt)
+    sufid = suffix_ids(tt)
     nb = max(N - 1, 0)
 
     # 1. per internal bond: `bond_Us[b]` the (n_pre × r_b) isometry, `bond_secs[b]` its column charges,

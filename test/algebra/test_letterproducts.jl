@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: SiteOperator, Letter, scalarop, letter_product, site_product, _written_block,
+using OpSum: SiteOperator, Letter, scalarop, letter_product, site_product, written_block,
     Factor, ispassthrough
 using TensorKit
 using LinearAlgebra: norm
@@ -36,7 +36,7 @@ abelian_bases = [
             P = letter_product(B, x, y)
             tot = only(x.c ⊗ y.c)
             keys = Factor{I}[Factor{I}(x, x.c), Factor{I}(y, tot)]
-            blk = _written_block(keys, [1, 1], [B])
+            blk = written_block(keys, [1, 1], [B])
             sgn = (OpSum.isfermionodd(x.c) && OpSum.isfermionodd(y.c)) ? -1 : 1
             if isempty(P)
                 @test norm(blk) < 1.0e-12

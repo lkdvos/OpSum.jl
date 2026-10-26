@@ -38,9 +38,9 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   constructor and operation restores it, `+` is a merge, reading never mutates); pending products are kept apart.
   `≈` compares canonical terms as sparse vectors; `==` is exact.
 * **`couple`/`dot`/`*`** (`algebra/couple.jl`) are order-free. Abelian (`canreorder`): legs inserted with R-symbols (fermionic signs).
-  Non-abelian (`_canrecouple`): written in order, re-coupled by `_recouple` (`products.jl`). Two fermion-odd operands
+  Non-abelian (`_canrecouple`): written in order, re-coupled by `recouple` (`products.jl`). Two fermion-odd operands
   pick up the graded sign. `a[i] * b[i]` is a `PendingTerm`, resolved in the sites' bases when added to an
-  `OperatorSum` (`_resolve`); a bag with pending products has no normal form.
+  `OperatorSum` (`resolve`); a bag with pending products has no normal form.
 * **Sweep** (`compression/graph*.jl`): `SweepGraph` walked site by site (`_at_site!`); the bond basis comes from
   a `BondStrategy` (`VertexCover` default via Hopcroft–Karp + König in `utility/bipartite.jl`; `IndependentSVD`,
   `SequentialSVD`). Load-bearing invariant: the pending↔started suffix-class collision (`_promote_pending!`), guarded

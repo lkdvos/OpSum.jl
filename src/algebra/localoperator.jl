@@ -72,7 +72,7 @@ function Base.getindex(B::LocalOperator{I}, ind::Integer, inds::Integer...) wher
         if increasing    # a pure relabelling
             push!(out.terms, Term{I}(sites[keep], t.factors[keep], t.coeff))
         else    # a product in slot order
-            _written!(out, sites[keep], t.factors[keep], t.coeff)
+            written!(out, sites[keep], t.factors[keep], t.coeff)
         end
     end
     return Terms{I}(out)

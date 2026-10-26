@@ -117,12 +117,12 @@ end
     @test dense(lath, E[1, 2] * E[2, 2]) ≈ dense(lath, E[1, 2]) * dense(lath, E[2, 2])
 end
 
-# Re-coupling oracle: the written-order caterpillar materialised by `_written_block`, against the site-order terms.
+# Re-coupling oracle: the written-order caterpillar materialised by `written_block`, against the site-order terms.
 function recouples(sites, keys, coeff, Vs)
     I = sectortype(first(Vs))
     bag = OpSum.TermBag{I}()
-    OpSum._written!(bag, sites, keys, ComplexF64(coeff))
-    return OpSum.dense(Terms{I}(bag), Vs) ≈ coeff * OpSum._written_block(keys, sites, Vs)
+    OpSum.written!(bag, sites, keys, ComplexF64(coeff))
+    return OpSum.dense(Terms{I}(bag), Vs) ≈ coeff * OpSum.written_block(keys, sites, Vs)
 end
 
 @testset "non-abelian re-coupling against the written-order product" begin
@@ -146,15 +146,15 @@ end
     x = couple(Terms{J}([a]), S1[2]; to = J(1))
     keys = vcat(a.factors, OpSum.Factor{J}(letter(S1[2]), J(1)))
     @test OpSum.dense(x, Vs) ≈
-        a.coeff * only(S1[2]).coeff * OpSum._written_block(keys, [1, 3, 2], Vs)
+        a.coeff * only(S1[2]).coeff * OpSum.written_block(keys, [1, 3, 2], Vs)
 
     # under an abelian symmetry the re-coupling is the R-symbol bookkeeping
     t = only(couple(F.cd[1], F.c[2], F.cd[3], F.c[4]))
     for p in ([3, 1, 4, 2], [2, 4, 1, 3], [4, 3, 2, 1])
         bag = OpSum.TermBag{FermionParity}()
-        OpSum._written!(bag, p, t.factors, 1.0 + 0im)
+        OpSum.written!(bag, p, t.factors, 1.0 + 0im)
         out = Terms{FermionParity}(bag)
-        @test Terms{FermionParity}(OpSum._recouple(p, t.factors, 1.0 + 0im)) ≈ out
+        @test Terms{FermionParity}(OpSum.recouple(p, t.factors, 1.0 + 0im)) ≈ out
     end
 
     # fermions under SU(2): E[q, p] = E[p, q]†, and interleaved products of spin-summed hoppings

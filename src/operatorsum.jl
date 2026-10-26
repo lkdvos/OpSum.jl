@@ -44,7 +44,7 @@ function opsum!(H::OperatorSum{I}, args...) where {I}
     end
     terms = buf.terms
     # on-site products are resolved here, where the sites' bases are known
-    isempty(buf.pending) || append!(terms, _resolve(buf.pending, H.lattice))
+    isempty(buf.pending) || append!(terms, resolve(buf.pending, H.lattice))
     _checkinsert(H.lattice, terms, chans)
     merge_terms!(H.terms, terms)
     if !isempty(chans)

@@ -45,6 +45,7 @@ function instantiate end
 include("algebra/letters.jl")
 include("algebra/siteoperator.jl")
 include("algebra/terms.jl")
+include("algebra/recouple.jl")
 include("algebra/couple.jl")
 include("algebra/instantiate.jl")
 include("algebra/localoperator.jl")

@@ -49,7 +49,7 @@ isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(c
 # letter)` (`nothing` drops the pair). A leg right of all of `a` is appended; otherwise it is inserted
 # at its site position (`canreorder`), the running charges after it recomputed and one R-symbol
 # picked up per leg it braids past (for fermions, the anticommutation sign). Under a non-abelian
-# symmetry it is appended in written order and re-coupled into site order (`_recouple`), which may
+# symmetry it is appended in written order and re-coupled into site order (`recouple`), which may
 # give several terms.
 function couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
     out = Term{I}[]
@@ -91,7 +91,7 @@ function couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             if p <= na && !reorder
                 # non-abelian: append in written order, then re-couple into site order
                 keys_w = vcat(ta.factors, Factor{I}(opb, tot))
-                append!(out, _recouple(vcat(ta.sites, sb), keys_w, coeff))
+                append!(out, recouple(vcat(ta.sites, sb), keys_w, coeff))
                 continue
             end
             sites = Vector{Int}(undef, na + 1)

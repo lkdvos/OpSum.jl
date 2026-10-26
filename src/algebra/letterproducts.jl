@@ -1,5 +1,5 @@
 # On-site products of letters as pure coefficient arithmetic: the structure constants `e_x · e_y = Σ_z N[x,y]_z e_z`
-# of a `Basis` are computed once per pair from the tensors (the written-order block `_written_block`, projected
+# of a `Basis` are computed once per pair from the tensors (the written-order block `written_block`, projected
 # back by the single-site route) and memoised in `B.products`; products of `SiteOperator`s then never touch
 # a tensor.
 #
@@ -8,7 +8,7 @@
 
 using TensorKit: Sector, FusionStyle, BraidingStyle
 
-function _checkkron(::Type{I}) where {I <: Sector}
+function checkkron(::Type{I}) where {I <: Sector}
     canreorder(I) || throw(
         ArgumentError(
             "on-site products of letters need an abelian symmetry (unique fusion, symmetric braiding), " *
@@ -23,10 +23,10 @@ function letter_product(B::Basis{I}, x::Letter{I}, y::Letter{I}) where {I}
     ispassthrough(x) && return SiteOperator(y)
     ispassthrough(y) && return SiteOperator(x)
     return cached(B.products, (x, y)) do
-        _checkkron(I)                    # once per pair, not per product
+        checkkron(I)                    # once per pair, not per product
         tot = only(x.c ⊗ y.c)
         keys = Factor{I}[Factor{I}(x, x.c), Factor{I}(y, tot)]
-        h = _written_block(keys, [1, 1], [B])
+        h = written_block(keys, [1, 1], [B])
         coeff = (isfermionodd(x.c) && isfermionodd(y.c)) ? -1.0 : 1.0
         return project(h, B) * coeff
     end

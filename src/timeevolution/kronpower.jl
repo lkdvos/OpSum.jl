@@ -74,7 +74,7 @@ represents `H^N` for the boundary vector `(2, …, 2)`, and the other levels are
 """
 function _mpo_power(W::SymbolicMPO{I}, N::Integer; closed::Bool = false) where {I}
     N >= 1 || throw(ArgumentError("the power must be at least 1, got $N"))
-    _checkkron(I)
+    checkkron(I)
     return _mpo_power(W, Val(Int(N)), closed)
 end
 

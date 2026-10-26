@@ -13,6 +13,14 @@ using SparseArrays: SparseMatrixCSC
 # The strategies with a `bond_basis!` method (`IndependentSVD` has its own sweep).
 const GraphStrategy = Union{VertexCover, SequentialSVD}
 
+# What a right vertex is: a suffix class of the terms, a state of a lowered `ExpChannel`'s automaton (its
+# channel index in `rchan`), or the synthetic exhausted class a channel exits onto.
+@enum RightKind TermClass AutomatonState ExhaustedClass
+
+# The kind of a vertex in its canonical name (`rdesc`). The declaration order is the sort order of the names:
+# sentinel, then term classes (the exhausted class included), then automaton states.
+@enum DescKind SentinelDesc TermDesc AutomatonDesc
+
 # A left (prefix) vertex: it entered the current site on bond index `link` and applies `key` here.
 struct LeftVertex{I <: Sector}
     link::Int
@@ -22,8 +30,8 @@ end
 # The persistent bipartite graph over a `TermTable`, handed from one site step to the next. A right
 # vertex is a suffix class: classes enter at their term's first active site and thereafter only merge.
 # `lefts` ↔ right vertices, with per-left adjacency `radj`/`wadj` (right id, weight; zeros never kept).
-# Geometric (`ExpChannel`) classes: `rchan[r] > 0` is an automaton state, `-1` the synthetic exhausted
-# class a channel exits onto. `startleft`/`startidx` (sentinel's left vertex and the start channel's
+# `rkind[r]` says what right vertex `r` is; `rchan[r]` is its channel index for an `AutomatonState` (0
+# otherwise) and `rstate[r]` its state there. `startleft`/`startidx` (sentinel's left vertex and the start channel's
 # outgoing index) and `rfinish`/`finishleft`/`finishidx` (the mirror) are 0 when absent.
 Base.@kwdef mutable struct SweepGraph{I <: Sector}
     tt::TermTable{I}
@@ -33,10 +41,11 @@ Base.@kwdef mutable struct SweepGraph{I <: Sector}
     relsufid::Matrix{Int}  # (K+1) × M same, interned by shape instead of position (`rel_suffix_ids`)
     channels::Vector{ExpChannel{I}}   # lowered exponentially decaying interactions (may be empty)
     lastentry::Int         # last site at which a channel may still enter (0 if there are none)
-    rrepr::Vector{Int}     # right vertex -> representative term id (0 for a geometric class)
+    rrepr::Vector{Int}     # right vertex -> representative term id (0 for an automaton state)
     rcur::Vector{Int}      # right vertex -> first column j with sites[j, rrepr] > current site
     rbond::Vector{I}       # right vertex -> running bond charge just past the current site
-    rchan::Vector{Int}     # right vertex -> 0 term class / >0 channel index / -1 exhausted class
+    rkind::Vector{RightKind}  # right vertex -> term class / automaton state / exhausted class
+    rchan::Vector{Int}     # right vertex -> channel index (0 unless an automaton state)
     rstate::Vector{Int}    # right vertex -> automaton state within `channels[rchan]` (0 otherwise)
     lefts::Vector{LeftVertex{I}}
     radj::Vector{Vector{Int}}
@@ -63,26 +72,26 @@ Base.@kwdef mutable struct SweepGraph{I <: Sector}
 end
 
 # Canonical translation-invariant name `(kind, distance, shape, charge)` of right vertex `r` at bond
-# `i`: translates of each other share it. Kind 1 is a geometric class (named by its state); the
-# synthetic exhausted class shares the exhausted term class's name; the sentinel is `(-1, -1, -1, 1)`.
+# `i`: translates of each other share it. An automaton state is named by its state; the synthetic
+# exhausted class shares the exhausted term class's name; the sentinel is `(SentinelDesc, 0, 0, unit)`.
 function rdesc(g::SweepGraph{I}, r::Int, i::Int) where {I}
-    r > length(g.rrepr) && return (-1, -1, -1, unit(I))    # the sentinel
-    c = g.rchan[r]
-    c == -1 && return (0, 0, 0, g.rbond[r])                # synthetic exhausted class
-    c > 0 && return (1, 0, g.channels[c].states[g.rstate[r]].name, g.rbond[r])
+    r > length(g.rrepr) && return (SentinelDesc, 0, 0, unit(I))
+    kind = g.rkind[r]
+    kind == ExhaustedClass && return (TermDesc, 0, 0, g.rbond[r])     # synthetic exhausted class
+    kind == AutomatonState && return (AutomatonDesc, 0, g.channels[g.rchan[r]].states[g.rstate[r]].name, g.rbond[r])
     t = g.rrepr[r]
     j = g.rcur[r]
     s = j <= g.K ? g.tt.sites[j, t] : 0
-    return (0, iszero(s) ? 0 : s - i, g.relsufid[j, t], g.rbond[r])
+    return (TermDesc, iszero(s) ? 0 : s - i, g.relsufid[j, t], g.rbond[r])
 end
 
 # Advance `r`'s cursor past every factor at a site `<= i` (amortised `O(1)`) and return its suffix
-# signature `(factor-list id, running bond charge)`. A geometric class takes a negative id (disjoint
+# signature `(factor-list id, running bond charge)`. An automaton state takes a negative id (disjoint
 # from `sufid`); the synthetic exhausted class takes `(0, charge)`, merging with exhausted term classes.
 function _signature!(g::SweepGraph{I}, r::Int, i::Int) where {I}
-    c = g.rchan[r]
-    c == -1 && return (0, g.rbond[r])
-    c > 0 && return (-g.channels[c].states[g.rstate[r]].name, g.rbond[r])
+    kind = g.rkind[r]
+    kind == ExhaustedClass && return (0, g.rbond[r])
+    kind == AutomatonState && return (-g.channels[g.rchan[r]].states[g.rstate[r]].name, g.rbond[r])
     t = g.rrepr[r]
     sites, keys = g.tt.sites, g.tt.factors
     j = g.rcur[r]
@@ -98,24 +107,24 @@ end
 
 # Is this a *cyclic* channel state (live at every bond, so forced into the cover, see `_forced_cover`)?
 function iscyclic(g::SweepGraph, r::Int)
-    r <= length(g.rchan) || return false          # the sentinel
-    c = g.rchan[r]
-    return c > 0 && g.channels[c].states[g.rstate[r]].cyclic
+    r <= length(g.rkind) || return false          # the sentinel
+    g.rkind[r] == AutomatonState || return false
+    return g.channels[g.rchan[r]].states[g.rstate[r]].cyclic
 end
 
 # No remaining factors (term classes with a spent cursor and the synthetic exit class).
 function _isexhausted(g::SweepGraph, r::Int)
-    g.rchan[r] == -1 && return true
-    return iszero(g.rchan[r]) && iszero(g.sufid[g.rcur[r], g.rrepr[r]])
+    g.rkind[r] == ExhaustedClass && return true
+    return g.rkind[r] == TermClass && iszero(g.sufid[g.rcur[r], g.rrepr[r]])
 end
 
-# Append a right vertex (term class, geometric `(chan, state)`, or `chan == -1` exhausted) and return its id.
-function _push_right!(arrs::Tuple, repr::Int, cur::Int, bond, chan::Int, state::Int)
-    rrepr, rcur, rbond, rchan, rstate = arrs
-    push!(rrepr, repr); push!(rcur, cur); push!(rbond, bond); push!(rchan, chan); push!(rstate, state)
+# Append a right vertex (a term class, an automaton `(chan, state)`, or the exhausted class) and return its id.
+function _push_right!(arrs::Tuple, repr::Int, cur::Int, bond, kind::RightKind, chan::Int, state::Int)
+    rrepr, rcur, rbond, rkind, rchan, rstate = arrs
+    push!(rrepr, repr); push!(rcur, cur); push!(rbond, bond); push!(rkind, kind); push!(rchan, chan); push!(rstate, state)
     return length(rrepr)
 end
-_push_right!(g::SweepGraph, args...) = _push_right!((g.rrepr, g.rcur, g.rbond, g.rchan, g.rstate), args...)
+_push_right!(g::SweepGraph, args...) = _push_right!((g.rrepr, g.rcur, g.rbond, g.rkind, g.rchan, g.rstate), args...)
 
 # The left vertex for `(link, key)`, created on first use.
 function _bucket!(buckets, lefts, radj, wadj, link::Int, key)
@@ -148,18 +157,19 @@ function SweepGraph(
 
     rrepr, rcur, rchan, rstate = Int[], Int[], Int[], Int[]
     rbond = I[]
+    rkind = RightKind[]
     inserted = falses(M)
     lefts = LeftVertex{I}[]
     radj = Vector{Int}[]
     wadj = Vector{ComplexF64}[]
     buckets = Dictionary{Tuple{Int, Factor{I}}, Int}()
-    g0 = (rrepr, rcur, rbond, rchan, rstate)
+    g0 = (rrepr, rcur, rbond, rkind, rchan, rstate)
 
     for t in 1:M
         (lazy && firstsite[t] > 1) && continue
         b = _bucket!(buckets, lefts, radj, wadj, 1, factor_at(tt, t, 1))
         inserted[t] = true
-        push!(radj[b], _push_right!(g0, t, 1, unit(I), 0, 0))
+        push!(radj[b], _push_right!(g0, t, 1, unit(I), TermClass, 0, 0))
         push!(wadj[b], tt.coeffs[t])
     end
 
@@ -167,7 +177,7 @@ function SweepGraph(
     for (ci, c) in enumerate(channels)
         isentry(c, 1, N) || continue
         b = _bucket!(buckets, lefts, radj, wadj, 1, c.entrykey)
-        push!(radj[b], _push_right!(g0, 0, arity(tt) + 1, c.states[c.start].bond, ci, c.start))
+        push!(radj[b], _push_right!(g0, 0, arity(tt) + 1, c.states[c.start].bond, AutomatonState, ci, c.start))
         push!(wadj[b], c.coeff)
     end
 
@@ -189,7 +199,7 @@ function SweepGraph(
     cap = length(rrepr) + 1   # right-vertex ids are at most one sentinel beyond the live ones
     return SweepGraph{I}(;
         tt, N, K = arity(tt), sufid, relsufid, channels, lastentry = lastent,
-        rrepr, rcur, rbond, rchan, rstate, lefts, radj, wadj, nlinks = 1,
+        rrepr, rcur, rbond, rkind, rchan, rstate, lefts, radj, wadj, nlinks = 1,
         lazy, firstsite, pend_at, pendbysig, inserted, nremaining,
         rsent = 0, startleft, startidx = 0, rfinish = 0, finishleft = 0, finishidx = 0, jordan,
         slot = zeros(Int, cap), vlocal = zeros(Int, cap), firstleft = zeros(Int, cap), remap = zeros(Int, cap),
@@ -205,17 +215,17 @@ function _suffix_merge!(g::SweepGraph{I}, i::Int) where {I}
     remap = g.remap
     length(remap) < R && resize!(remap, R)
 
-    new = (Int[], Int[], I[], Int[], Int[])
+    new = (Int[], Int[], I[], RightKind[], Int[], Int[])
     for r in 1:R
         sig = _signature!(g, r, i)
         b = get(groups, sig, 0)
         if iszero(b)
-            b = _push_right!(new, g.rrepr[r], g.rcur[r], g.rbond[r], g.rchan[r], g.rstate[r])
+            b = _push_right!(new, g.rrepr[r], g.rcur[r], g.rbond[r], g.rkind[r], g.rchan[r], g.rstate[r])
             insert!(groups, sig, b)
         end
         remap[r] = b
     end
-    g.rrepr, g.rcur, g.rbond, g.rchan, g.rstate = new
+    g.rrepr, g.rcur, g.rbond, g.rkind, g.rchan, g.rstate = new
     return remap
 end
 
@@ -274,7 +284,7 @@ function _promote_pending!(g::SweepGraph{I}, i::Int) where {I}
     iszero(lv) && invariant_violation("pending terms with no start channel to inject them on")
     promoted = false
     for r in eachindex(g.rrepr)
-        iszero(g.rchan[r]) || continue     # geometric classes have no factor list to collide with
+        g.rkind[r] == TermClass || continue     # the other kinds have no factor list to collide with
         t = get(g.pendbysig, (g.sufid[g.rcur[r], g.rrepr[r]], g.rbond[r]), 0)
         (iszero(t) || g.inserted[t]) && continue
         g.inserted[t] = true
@@ -303,7 +313,7 @@ function _canonicalise_rights!(g::SweepGraph{I}, i::Int) where {I}
                 newid[perm[p]] = p
             end
             g.rrepr, g.rcur, g.rbond = g.rrepr[perm], g.rcur[perm], g.rbond[perm]
-            g.rchan, g.rstate = g.rchan[perm], g.rstate[perm]
+            g.rkind, g.rchan, g.rstate = g.rkind[perm], g.rchan[perm], g.rstate[perm]
             for radj in g.radj
                 @inbounds for k in eachindex(radj)
                     radj[k] = newid[radj[k]]
@@ -369,7 +379,7 @@ end
 # vertices linked by outgoing index `j` and keyed by the right vertex's next-site key.
 # `nextedges_global[j]` = the `(right vertex, weight)` edges index `j` forwards.
 # Lazy insertion injects here: terms and channel entries starting at `i+1` hang off the start channel.
-# A geometric state has one successor per automaton transition (continue with weight `λ·c`, or exit);
+# An automaton state has one successor per automaton transition (continue with weight `λ·c`, or exit);
 # transitions that cannot complete inside `1:N` are dropped.
 function _build_next_graph!(
         g::SweepGraph{I}, i::Int, nout::Int,
@@ -393,21 +403,21 @@ function _build_next_graph!(
     geom = Dictionary{Tuple{Int, Int}, Int}()
     exhausted = Dictionary{I, Int}()
     for r in eachindex(g.rrepr)
-        if g.rchan[r] > 0
+        if g.rkind[r] == AutomatonState
             insert!(geom, (g.rchan[r], g.rstate[r]), r)
-        elseif g.rchan[r] == -1 || _isexhausted(g, r)
+        elseif _isexhausted(g, r)
             haskey(exhausted, g.rbond[r]) || insert!(exhausted, g.rbond[r], r)
         end
     end
     function geomvertex!(chan::Int, state::Int, bond::I)
-        iszero(state) && return get!(() -> _push_right!(g, 0, g.K + 1, bond, -1, 0), exhausted, bond)
-        return get!(() -> _push_right!(g, 0, g.K + 1, bond, chan, state), geom, (chan, state))
+        iszero(state) && return get!(() -> _push_right!(g, 0, g.K + 1, bond, ExhaustedClass, 0, 0), exhausted, bond)
+        return get!(() -> _push_right!(g, 0, g.K + 1, bond, AutomatonState, chan, state), geom, (chan, state))
     end
 
     for j in 1:nout
         for (rid, w) in nextedges_global[j]
-            chan = g.rchan[rid]
-            if chan > 0
+            if g.rkind[rid] == AutomatonState
+                chan = g.rchan[rid]
                 c = g.channels[chan]
                 for (key, target, tw) in c.states[g.rstate[rid]].trans
                     bond = iszero(target) ? key.bond : c.states[target].bond
@@ -434,7 +444,7 @@ function _build_next_graph!(
             g.inserted[t] = true
             g.nremaining -= 1
             b = bucket!(startidx, g.tt.factors[1, t])
-            push!(next_radj[b], _push_right!(g, t, 1, unit(I), 0, 0))
+            push!(next_radj[b], _push_right!(g, t, 1, unit(I), TermClass, 0, 0))
             push!(next_wadj[b], g.tt.coeffs[t])
         end
         # channels whose phase matches `i+1` enter on the start channel

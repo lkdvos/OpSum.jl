@@ -303,7 +303,7 @@ end
         counts = Int[]
         for i in 1:N
             at_site!(g, i, VertexCover())
-            push!(counts, length(g.rrepr))
+            push!(counts, length(g.right.repr))
         end
         @test counts[end] == 1                 # only the exhausted ("done") suffix class survives
         # right-vertex visits summed over the sweep are linear in N

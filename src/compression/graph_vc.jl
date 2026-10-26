@@ -23,7 +23,7 @@ end
 # weights and emits the bare letter; covered-right resets the weight to 1 and folds `op × weight` into
 # every uncovered neighbour's block. `Θ(E_component)`.
 #
-# Finish channel: only `g.rfinish` or `g.finishleft` can carry it; with `g.jordan` `_force_finish!`
+# Finish channel: only `g.bound.rfinish` or `g.bound.finishleft` can carry it; with `g.jordan` `_force_finish!`
 # covers `rfinish` so the pass-through folds in, otherwise whichever the cover takes is read. The
 # sentinel is never covered (see `_force_finish!`); the covered-right case is its unreachable dual.
 function _vc_component(
@@ -34,19 +34,19 @@ function _vc_component(
     nus, nvs = length(us), length(vs)
 
     # component-local right-vertex numbering
-    vlocal = g.vlocal
+    vlocal = g.scratch.vlocal
     @inbounds for p in 1:nvs
         vlocal[vs[p]] = p
     end
     localadj = Vector{Vector{Int}}(undef, nus)
     @inbounds for k in 1:nus
-        radj = g.radj[us[k]]
+        radj = g.left.radj[us[k]]
         localadj[k] = Int[vlocal[rid] for rid in radj]
     end
 
     cUbits, cVbits = _forced_cover(g, localadj, nus, nvs, vs)
-    if g.jordan && !iszero(g.rfinish)
-        pf = findfirst(==(g.rfinish), vs)     # `Θ(|vs|)`, i.e. `Θ(nV)` summed over the components
+    if g.jordan && !iszero(g.bound.rfinish)
+        pf = findfirst(==(g.bound.rfinish), vs)     # `Θ(|vs|)`, i.e. `Θ(nV)` summed over the components
         pf === nothing || _force_finish!(cUbits, cVbits, localadj, pf)
     end
     cU = findall(cUbits)
@@ -64,19 +64,19 @@ function _vc_component(
     # covered-left vertices → indices 1 … nleft
     for (m, lu) in enumerate(cU)
         iu = us[lu]
-        lv = g.lefts[iu]
+        lv = g.left.vertex[iu]
         secs[m] = lv.key.bond
         origins[m] = (0, iu)
-        iu == g.startleft && (startidx = m)
-        iu == g.finishleft && (finishidx = m)
+        iu == g.bound.startleft && (startidx = m)
+        iu == g.bound.finishleft && (finishidx = m)
         if i == N
-            iszero(g.rsent) || invariant_violation("the sentinel must be gone by the last site")
-            push!(blocks, (lv.link, m, lv.key.letter * sum(g.wadj[iu]; init = zero(ComplexF64))))
+            iszero(g.bound.rsent) || invariant_violation("the sentinel must be gone by the last site")
+            push!(blocks, (lv.link, m, lv.key.letter * sum(g.left.wadj[iu]; init = zero(ComplexF64))))
         else
             push!(blocks, (lv.link, m, convert(LOp, lv.key.letter)))
             edges = nextedges[m]
-            for (rid, w) in zip(g.radj[iu], g.wadj[iu])
-                (rid == g.rsent || iszero(w)) && continue   # the sentinel is regenerated, not carried
+            for (rid, w) in zip(g.left.radj[iu], g.left.wadj[iu])
+                (rid == g.bound.rsent || iszero(w)) && continue   # the sentinel is regenerated, not carried
                 push!(edges, (rid, w))
             end
         end
@@ -90,13 +90,13 @@ function _vc_component(
         bondof[lvv] = m
         origins[m] = (1, iv)
         # components are charge-pure (`_prepare_bond!`), so any incident left gives the charge
-        secs[m] = g.lefts[g.firstleft[iv]].key.bond
-        if iv == g.rfinish
+        secs[m] = g.left.vertex[g.scratch.firstleft[iv]].key.bond
+        if iv == g.bound.rfinish
             iszero(finishidx) ||
                 invariant_violation("finish channel covered on both sides (the cover is not minimum)")
             finishidx = m
         end
-        if iv == g.rsent
+        if iv == g.bound.rsent
             iszero(startidx) || invariant_violation("start channel covered on both sides")
             startidx = m                        # the sentinel *is* the start channel here
         elseif i != N
@@ -110,8 +110,8 @@ function _vc_component(
     for k in 1:nus
         coveredU[k] && continue
         iu = us[k]
-        lv = g.lefts[iu]
-        for (rid, w) in zip(g.radj[iu], g.wadj[iu])
+        lv = g.left.vertex[iu]
+        for (rid, w) in zip(g.left.radj[iu], g.left.wadj[iu])
             iszero(w) && continue
             m = bondof[vlocal[rid]]
             iszero(m) && invariant_violation("edge left uncovered by the minimum vertex cover")
@@ -146,7 +146,7 @@ function _canonicalise_bond!(
     nout <= 1 && return site_dict, secW, nextedges_global
     covleft = [m for m in 1:nout if iszero(origins_global[m][1])]
     covright = [m for m in 1:nout if isone(origins_global[m][1])]
-    sort!(covleft; by = m -> (lv = g.lefts[origins_global[m][2]]; (lv.link, lv.key)))
+    sort!(covleft; by = m -> (lv = g.left.vertex[origins_global[m][2]]; (lv.link, lv.key)))
     sort!(covright; by = m -> rdesc(g, origins_global[m][2], i))
     order = vcat(covleft, covright)
     issorted(order) && return site_dict, secW, nextedges_global
@@ -160,8 +160,8 @@ function _canonicalise_bond!(
         l, m = Tuple(idx)
         increaseindex!(newdict, CartesianIndex(l, pos[m]), op)
     end
-    iszero(g.startidx) || (g.startidx = pos[g.startidx])
-    iszero(g.finishidx) || (g.finishidx = pos[g.finishidx])
+    iszero(g.bound.startidx) || (g.bound.startidx = pos[g.bound.startidx])
+    iszero(g.bound.finishidx) || (g.bound.finishidx = pos[g.bound.finishidx])
     return newdict, secW[order], nextedges_global[order]
 end
 
@@ -169,7 +169,7 @@ end
 # Returns `(nout, site_dict, secW, nextedges_global)`.
 function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) where {I}
     LOp = SiteOperator{I}
-    us_of_comp, vs_of_comp = connected_components(g.radj, nV)
+    us_of_comp, vs_of_comp = connected_components(g.left.radj, nV)
 
     secW = I[]
     nextedges_global = Vector{Tuple{Int, ComplexF64}}[]
@@ -188,14 +188,14 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) 
             push!(origins_global, origins[m])
         end
         if !iszero(startidx)
-            iszero(g.startidx) ||
+            iszero(g.bound.startidx) ||
                 invariant_violation("the start channel appeared in more than one component")
-            g.startidx = offset + startidx
+            g.bound.startidx = offset + startidx
         end
         if !iszero(finishidx)
-            iszero(g.finishidx) ||
+            iszero(g.bound.finishidx) ||
                 invariant_violation("the finish channel appeared in more than one component")
-            g.finishidx = offset + finishidx
+            g.bound.finishidx = offset + finishidx
         end
         offset += rank
     end
@@ -203,7 +203,7 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) 
     site_dict, secW, nextedges_global = _canonicalise_bond!(
         g, i, nout, site_dict, secW, nextedges_global, origins_global
     )
-    (iszero(g.startidx) || g.startidx != g.finishidx) ||
+    (iszero(g.bound.startidx) || g.bound.startidx != g.bound.finishidx) ||
         invariant_violation("the start and finish channels resolved to the same bond index")
     return nout, site_dict, secW, nextedges_global
 end

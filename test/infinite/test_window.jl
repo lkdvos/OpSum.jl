@@ -29,7 +29,7 @@ const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter
         g = SweepGraph(tt, N)
         names = map(1:N) do i
             at_site!(g, i)
-            return sort([rdesc(g, r, i) for r in eachindex(g.rrepr)])
+            return sort([rdesc(g, r, i) for r in eachindex(g.right.repr)])
         end
         guard = 4L + maxspan(gen)
         @test all(i -> names[i] == names[i + L], (guard + 1):(N - guard))

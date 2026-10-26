@@ -70,13 +70,13 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Seque
     N = g.N
     coeff = zeros(ComplexF64, nU, nV)   # dense `coeff[u, v]` from the sparse adjacency
     for iu in 1:nU
-        for (rid, w) in zip(g.radj[iu], g.wadj[iu])
+        for (rid, w) in zip(g.left.radj[iu], g.left.wadj[iu])
             coeff[iu, rid] += w
         end
     end
 
     # bond charge of each prefix and suffix state (a right vertex orphaned by truncation has none)
-    uCharge = I[g.lefts[u].key.bond for u in 1:nU]
+    uCharge = I[g.left.vertex[u].key.bond for u in 1:nU]
     vCharge = Vector{I}(undef, nV)
     vactive = falses(nV)
     for v in 1:nV
@@ -114,7 +114,7 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Seque
         for u in 1:nU
             w = Umat[u, m]
             iszero(w) && continue
-            lv = g.lefts[u]
+            lv = g.left.vertex[u]
             # last site: the single trivial suffix folds R into the block
             increaseindex!(site_dict, CartesianIndex(lv.link, m), lv.key.letter * (i == N ? w * Rmat[m, 1] : w))
         end

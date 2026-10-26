@@ -57,11 +57,11 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 3 | Terms | terms, couple | done (full suite green at bf826f5) |
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | done (full suite green at f9990dc) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | implementing |
-| 6 | Container and channels | operatorsum, infinite/expterms | pending |
-| 7 | The sweep | irreptermtable (table), irrepinterning, irrepgraph | pending |
-| 8 | Bond bases | irrepgraph_vc, irrepgraph_svd, metric | pending |
-| 9 | Output | symbolicmpo, irrepmpo, jordanmpo, ext/ | pending |
-| 10 | Infinite chains | infinite/infinitechain, infinitegraph | pending |
+| 6 | Container and channels | operatorsum, expterms | decided (after chunk 5) |
+| 7 | The sweep | compression/termtable, graph | pending |
+| 8 | Bond bases | compression/graph_vc, graph_svd, metric | pending |
+| 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | pending |
+| 10 | Infinite chains | infinite/unitcell, window | pending |
 | 11 | Time evolution | timeevolution/ | pending |
 | 12 | Organisation revisit | — | pending |
 | 13 | Tests | test/ | pending |
@@ -195,6 +195,20 @@ its slot, like the placed form, so `couple(ops...)[sites] ≡ couple((op[site] f
 identity stays available as an operator: `one(SiteOperator{I})`/`scalarop(c, B)`, `one(::Terms)`, a `LocalOperator`
 identity, `B ± α`; documented together.
 (f) P5.6: issue for per-fusion-channel structure constants (unify on-site products, non-abelian `taylor_mpo`). → #45.
+
+**D13 Chunk 6 (OperatorSum and decaying channels).**
+(a) P6.1: one collector: `opsum!` reuses `collect_terms!` (extended with a channel slot), so `Terms(…)` and `opsum`
+accept and reject the same inputs (numbers, unplaced operators, `OperatorSum`s rejected by both).
+(b) P6.2: arithmetic in each type's own file (scaling/`-` for Term/Terms → terms.jl, LocalOperator → localoperator.jl);
+`≈` on `ExpSum` in expterms.jl; `ExpSum` accumulation helper so `opsum!` stops writing `.channels.channels`.
+(c) P6.3: exact `==`/`hash` on `OperatorSum` (lattice, terms, channels) and `ExpSum`.
+(d) P6.4: `ExpKey(support, exitsite, decay, string::SiteOperator{I})` (no `Term`, no dead coefficient, no
+`Union{Nothing}`); `isless` on `ExpKey` replaces `_channelorder`; `@assert` → `invariant_violation`.
+(e) P6.5: automaton (`ExpChannel`, `ChannelState`, `lower_channels`, `lastentry`, `isentry`) → `compression/channels.jl`;
+descriptor, `expterm` and the expansion oracle stay in `expterms.jl`.
+(f) P6.6: `merge_terms!` shortcut when the target is empty, kept only if it measurably helps building `H`.
+(g) P6.7: D7 renames (`lower_channels`, `checkinsert`, `checkchannels`, `checklattice`, `checkgenerator`, `resolve`
+as applicable); readable `_checkchannels` errors.
 
 ## Possible improvements
 

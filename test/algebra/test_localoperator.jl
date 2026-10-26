@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: LocalOperator, nsites, project, instantiate, couple, couple_channels, spin_ops,
-    spin_basis, scalarop, opsum, Terms, FiniteChain
+    spin_basis, scalarop, opsum, Terms, FiniteChain, SiteOperator
 using TensorKit
 using LinearAlgebra: dot
 
@@ -77,28 +77,75 @@ end
     @test (b + 1 / 4)[1] == dot(S[1], S[2]) + one(I0) / 4
     @test (1 / 4 - b)[2, 5] ≈ one(I0) / 4 - dot(S[2], S[5])
     @test nsites(b - 1 / 4) == 2
-
-    # a scalar part of an operand becomes a pass-through slot
-    @test couple(Sz + scalarop(0.5, Vu1), Sz)[2, 4] ≈ couple(Sz[2], Sz[4]) + Sz[4] / 2
     @test LocalOperator(scalarop(2.0, Vsu2))[3] == scalarop(2.0, Vsu2)[3]
 
-    # inside a charged caterpillar the idle slot carries the running bond charge, contiguous and gapped
-    α = 0.3
-    B = couple(Sp, Sz + scalarop(α, Vu1), Sm)
-    ref(i, j, k) = couple(Sp[i], Sz[j], Sm[k]) + α * couple(Sp[i], Sm[k])
+    # inside a charged caterpillar the idle slot of a LocalOperator carries the running bond charge
+    B = project(instantiate(opsum(FiniteChain(Vu1, 2), couple(Sp[1], Sm[2]))), Vu1)   # S⁺ ⊗ S⁻
+    A = couple(B, Sz; to = unit(U1Irrep))
+    @test nsites(A) == 3
     for sites in ([1, 2, 3], [1, 3, 4], [2, 3, 5])
-        @test B[sites...] ≈ ref(sites...)
-        lat = FiniteChain(Vu1, maximum(sites))
-        @test densop(B[sites...], lat) ≈ densop(ref(sites...), lat)
+        @test A[sites...] ≈ couple(couple(Sp[sites[1]], Sm[sites[2]]), Sz[sites[3]]; to = unit(U1Irrep))
     end
-    β = 0.5
-    Bf = couple(F.cd, F.n + scalarop(β, Vf), F.c)
-    reff(i, j, k) = couple(F.cd[i], F.n[j], F.c[k]) + β * couple(F.cd[i], F.c[k])
-    for sites in ([1, 2, 3], [1, 3, 4], [1, 2, 4])
-        @test Bf[sites...] ≈ reff(sites...)
-        lat = FiniteChain(Vf, maximum(sites))
-        @test densop(Bf[sites...], lat) ≈ densop(reff(sites...), lat)
+end
+
+@testset "scalars are not coupled" begin
+    Sz1 = Sz + scalarop(0.5, Vu1)
+    # unplaced couple, couple_channels and dot reject a scalar part, as the placed forms do
+    @test_throws ArgumentError couple(Sz[1] + scalarop(0.5, Vu1)[1], Sz[2])
+    @test_throws ArgumentError couple(Sz, Sz1)
+    @test_throws ArgumentError couple(Sz1, Sz)
+    @test_throws ArgumentError couple(Sz, Sz1, Sz)
+    @test_throws ArgumentError couple(Sz, Sz, Sz1; to = unit(U1Irrep))
+    @test_throws ArgumentError couple_channels(Sz, Sz1, Sz)
+    @test_throws ArgumentError couple_channels(Sz1, Sz)
+    @test_throws ArgumentError dot(Sz, Sz1)
+    @test_throws ArgumentError dot(Sz1, Sz)
+    @test_throws ArgumentError couple(scalarop(2.0, Vsu2), S)
+    @test_throws ArgumentError couple(S, scalarop(2.0, Vsu2))
+    @test_throws ArgumentError couple(one(dot(S, S)), S)
+    @test_throws ArgumentError couple(dot(S, S) + 1, S)
+    # the unplaced error is the placed one
+    err(f) = try
+        f()
+        nothing
+    catch e
+        e.msg
     end
+    @test err(() -> couple(Sz1, Sz)) == err(() -> couple(Sz1[1], Sz[2]))
+    @test err(() -> couple(Sz, Sz1)) == err(() -> couple(Sz[1], Sz1[2]))
+    @test err(() -> couple_channels(Sz, Sz1, Sz)) == err(() -> couple_channels(Sz[1], Sz1[2], Sz[3]))
+    @test err(() -> dot(Sz, Sz1)) == err(() -> dot(Sz[1], Sz1[2]))
+end
+
+@testset "the identity stays an operator" begin
+    for (V, N) in ((Vsu2, 3), (Vu1, 3), (Vf, 2))
+        lat = FiniteChain(V, N)
+        idN = id(foldl(⊗, (space(V) for _ in 1:N)))
+        I1 = sectortype(V)
+        # SiteOperator: one(op), one(type), scalarop(c, basis | sector)
+        @test isone(one(SiteOperator{I1})) && isone(one(scalarop(2, V)))
+        @test one(SiteOperator{I1})[2] == one(Terms{I1}) == scalarop(1, V)[N]
+        @test densop(one(SiteOperator{I1})[2], lat) ≈ idN
+        @test densop(scalarop(2.5, V)[1], lat) ≈ 2.5 * idN
+        @test densop(scalarop(2.5, I1)[N], lat) ≈ 2.5 * idN
+        # Terms: one(Terms), also scaled
+        @test densop(one(Terms{I1}), lat) ≈ idN
+        @test densop(3 * one(Terms{I1}), lat) ≈ 3 * idN
+        # LocalOperator: one(B), B ± α (one slot here, two below)
+        B = LocalOperator(scalarop(1.0, V))
+        @test nsites(one(B)) == 1
+        @test densop(one(B)[2], lat) ≈ idN
+        @test one(B) + 2.0 ≈ 3.0 * one(B)
+        @test densop((one(B) + 2.0)[1], lat) ≈ 3 * idN
+    end
+    # a two-slot operator: B + α is B plus α·id on the lattice, and one(B) is the identity on its slots
+    B2 = dot(S, S)
+    lat = FiniteChain(Vsu2, 3)
+    idN = id(foldl(⊗, (space(Vsu2) for _ in 1:3)))
+    @test nsites(one(B2)) == 2
+    @test densop(one(B2)[2], lat) ≈ idN
+    @test densop((B2 + 0.25)[1, 3], lat) ≈ densop(B2[1, 3], lat) + 0.25 * idN
+    @test densop((0.25 - B2)[2], lat) ≈ 0.25 * idN - densop(B2[2], lat)
 end
 
 @testset "errors" begin

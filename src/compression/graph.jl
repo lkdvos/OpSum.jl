@@ -25,7 +25,7 @@ end
 # Geometric (`ExpChannel`) classes: `rchan[r] > 0` is an automaton state, `-1` the synthetic exhausted
 # class a channel exits onto. `startleft`/`startidx` (sentinel's left vertex and the start channel's
 # outgoing index) and `rfinish`/`finishleft`/`finishidx` (the mirror) are 0 when absent.
-mutable struct SweepGraph{I <: Sector}
+Base.@kwdef mutable struct SweepGraph{I <: Sector}
     tt::TermTable{I}
     N::Int
     K::Int                 # arity(tt): rows of tt.sites / tt.factors
@@ -187,12 +187,13 @@ function SweepGraph(
         _bucket!(buckets, lefts, radj, wadj, 1, Factor{I}(passthrough(I), unit(I))) : 0
 
     cap = length(rrepr) + 1   # right-vertex ids are at most one sentinel beyond the live ones
-    return SweepGraph{I}(
-        tt, N, arity(tt), sufid, relsufid, channels, lastent,
-        rrepr, rcur, rbond, rchan, rstate, lefts, radj, wadj, 1,
-        lazy, firstsite, pend_at, pendbysig, inserted, nremaining, 0, startleft, 0, 0, 0, 0, jordan,
-        zeros(Int, cap), zeros(Int, cap), zeros(Int, cap), zeros(Int, cap),
-        Dictionary{Tuple{Int, I}, Int}()
+    return SweepGraph{I}(;
+        tt, N, K = arity(tt), sufid, relsufid, channels, lastentry = lastent,
+        rrepr, rcur, rbond, rchan, rstate, lefts, radj, wadj, nlinks = 1,
+        lazy, firstsite, pend_at, pendbysig, inserted, nremaining,
+        rsent = 0, startleft, startidx = 0, rfinish = 0, finishleft = 0, finishidx = 0, jordan,
+        slot = zeros(Int, cap), vlocal = zeros(Int, cap), firstleft = zeros(Int, cap), remap = zeros(Int, cap),
+        siggroups = Dictionary{Tuple{Int, I}, Int}()
     )
 end
 

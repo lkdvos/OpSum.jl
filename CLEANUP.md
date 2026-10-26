@@ -57,7 +57,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 3 | Terms | terms, couple | done (full suite green at bf826f5) |
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | done (full suite green at f9990dc) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite green at a53c9c4) |
-| 6 | Container and channels | operatorsum, expterms | done (full suite running) |
+| 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
 | 7 | The sweep | compression/termtable, graph | pending |
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | pending |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | pending |

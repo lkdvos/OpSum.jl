@@ -9,7 +9,14 @@ using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightu
 using LinearAlgebra: LinearAlgebra, Hermitian, eigvals, norm
 
 """
-    Basis(ops::AbstractVector; atol = 0, rtol = 1e-12)
+Default relative tolerance of `Basis` construction: elements parallel to (or, for the matrix-unit completion,
+spanned by) earlier ones of their charge, and coefficients of a rank factorisation, are judged against it
+relative to their norm / largest entry.
+"""
+const BASIS_RTOL = 1.0e-12
+
+"""
+    Basis(ops::AbstractVector; atol = 0, rtol = BASIS_RTOL)
 
 A complete, ordered basis of on-site operators on one space `V`: the alphabet that [`project`](@ref)
 expresses operators in. Each entry of `ops` is a charge-neutral operator `V ← V` (or a plain matrix,
@@ -101,7 +108,7 @@ completed_elements(V, elems) = AbstractTensorMap[elems; [matrixunit(mu, V) for m
 
 identityelement(V) = isomorphism(ComplexF64, V ← V ⊗ Vect[sectortype(V)](unit(sectortype(V)) => 1))
 
-function Basis(ops::AbstractVector; atol::Real = 0, rtol::Real = 1.0e-12)
+function Basis(ops::AbstractVector; atol::Real = 0, rtol::Real = BASIS_RTOL)
     isempty(ops) && throw(ArgumentError("Basis: needs at least one operator to fix the space"))
     tensors = map(ops) do t
         t isa AbstractMatrix || return t
@@ -144,7 +151,7 @@ end
 # an earlier one, check independence and completeness, precompute the dual elements and the metric. With
 # `skipdependent` an element in the span of the earlier ones of its charge is dropped instead of throwing.
 function basis_from_elements(
-        V::ElementarySpace, elems::AbstractVector; rtol::Real = 1.0e-12, skipdependent::Bool = false
+        V::ElementarySpace, elems::AbstractVector; rtol::Real = BASIS_RTOL, skipdependent::Bool = false
     )
     I = sectortype(V)
     kept, letters, bycharge = _select_elements(V, elems; rtol, skipdependent)
@@ -183,7 +190,7 @@ function basis_from_elements(
 end
 
 function _select_elements(
-        V::ElementarySpace, elems::AbstractVector; rtol::Real = 1.0e-12, skipdependent::Bool = false
+        V::ElementarySpace, elems::AbstractVector; rtol::Real = BASIS_RTOL, skipdependent::Bool = false
     )
     I = sectortype(V)
     els = map(elems) do e
@@ -245,7 +252,7 @@ _chargeunits(V, c) = filter(mu -> mu.c == c, matrixunits(V))
 # pivot columns of `M` and `R` its reduced row echelon form; the pieces are the columns of `C` and rows
 # of `R`, each scaled so its first entry above `rtol` is 1 (`S⁺ ⊗ S⁻ + S⁻ ⊗ S⁺` gives `S⁺`, `S⁻`, not a
 # mixture). The scale is put back as the pair's coefficient by `project`.
-function factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = 1.0e-12)
+function factorise_pair(h::AbstractTensorMap; atol::Real = 0, rtol::Real = BASIS_RTOL)
     V = codomain(h)[1]
     I = sectortype(V)
     bych = Dictionary{I, Vector{Term{I}}}()

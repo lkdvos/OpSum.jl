@@ -8,6 +8,12 @@
 
 using TensorKit: Sector, FusionStyle, BraidingStyle
 
+"""
+Coefficients of a `SiteOperator` product below this, relative to the larger of one and the largest
+coefficient, are cancellation noise of the structure constants and the letter is dropped.
+"""
+const PRODUCT_RTOL = 1.0e-14
+
 function checkkron(::Type{I}) where {I <: Sector}
     canreorder(I) || throw(
         ArgumentError(
@@ -44,6 +50,6 @@ function site_product(B::Basis{I}, X::SiteOperator{I}, Y::SiteOperator{I}) where
     end
     letters = sort!(collect(keys(acc)))
     coeffs = ComplexF64[acc[l] for l in letters]
-    keep = abs.(coeffs) .> 1.0e-14 * max(1.0, maximum(abs, coeffs; init = 0.0))
+    keep = abs.(coeffs) .> PRODUCT_RTOL * max(1.0, maximum(abs, coeffs; init = 0.0))
     return SiteOperator{I}(letters[keep], coeffs[keep])
 end

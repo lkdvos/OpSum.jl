@@ -42,7 +42,9 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   pick up the graded sign. `a[i] * b[i]` is a `PendingTerm`, resolved in the sites' bases when added to an
   `OperatorSum` (`resolve`, `products.jl`); a bag with pending products has no normal form. Operands of `couple`/`dot`
   need a charged letter in every term (the identity is an operator, not an operand), placed or unplaced alike.
-* **Sweep** (`compression/graph*.jl`): `SweepGraph` walked site by site (`at_site!`); the bond basis comes from
+* **Sweep** (`compression/graph*.jl`): `sweep(TermTable(ts), N, strategy)` → `(; Ws, bondsectors, starts, finishes)`;
+  it walks a `SweepGraph` site by site (`at_site!`; right-vertex kinds are the `RightKind` enum, SVD
+  sweeps seed eagerly, the cover lazily); the bond basis comes from
   a `BondStrategy` (`VertexCover` default via Hopcroft–Karp + König in `utility/bipartite.jl`; `IndependentSVD`,
   `SequentialSVD`). Load-bearing invariant: the pending↔started suffix-class collision (`_promote_pending!`), guarded
   in `test/compression/test_graph.jl` in all three sectors. Truncating SVD works in the bases' Hilbert–Schmidt metric (`metric.jl`).

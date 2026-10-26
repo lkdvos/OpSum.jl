@@ -59,6 +59,7 @@ include("algebra/stockbases.jl")
 
 include("compression/termtable.jl")
 include("expterms.jl")
+include("compression/channels.jl")
 include("operatorsum.jl")
 include("compression/algorithms.jl")
 include("mpo/symbolicmpo.jl")

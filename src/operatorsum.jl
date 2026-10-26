@@ -1,6 +1,5 @@
 # The lattice-carrying container; terms are checked against the lattice as they enter.
 
-using Dictionaries: Dictionary, setwith!
 using TensorKit: Sector
 
 """

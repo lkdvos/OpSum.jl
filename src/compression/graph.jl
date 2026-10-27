@@ -529,10 +529,10 @@ end
 _graph_lazy(::VertexCover) = true
 _graph_lazy(::SequentialSVD) = false
 
-emptysweep(::Type{I}) where {I} = (; Ws = SparseMatrixCSC{SiteOperator{I}, Int}[], bondsectors = Vector{I}[], starts = Int[], finishes = Int[])
+emptysweep(::Type{I}) where {I} = (; Ws = SparseMatrixCSC{SiteOperator{I}, Int}[], bondsectors = Vector{I}[], start = Int[], finish = Int[])
 
-# The reduced-MPO sweep of a term table over `N` sites, as the named tuple `(; Ws, bondsectors, starts,
-# finishes)`; `starts[i]`/`finishes[i]` are the bond indices of the start/finish identity channels right of
+# The reduced-MPO sweep of a term table over `N` sites, as the named tuple `(; Ws, bondsectors, start,
+# finish)`; `start[i]`/`finish[i]` are the bond indices of the start/finish identity channels right of
 # site `i` (0 where the cover spent none). `jordan` forces the finish class into the cover (which can cost
 # one index, e.g. a constant next to two-site terms); without it the cover is free to be one index smaller.
 function sweep(
@@ -543,10 +543,10 @@ function sweep(
     g = SweepGraph(tt, N; lazy = _graph_lazy(strategy), jordan, channels)
     Ws = Vector{SparseMatrixCSC{SiteOperator{I}, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)
-    starts = zeros(Int, N)
-    finishes = zeros(Int, N)
+    start = zeros(Int, N)
+    finish = zeros(Int, N)
     for i in 1:N
-        Ws[i], bondsectors[i], starts[i], finishes[i] = at_site!(g, i, strategy)
+        Ws[i], bondsectors[i], start[i], finish[i] = at_site!(g, i, strategy)
     end
-    return (; Ws, bondsectors, starts, finishes)
+    return (; Ws, bondsectors, start, finish)
 end

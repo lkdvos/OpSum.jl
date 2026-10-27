@@ -241,5 +241,5 @@ function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
 
     bondsectors = Vector{I}[i < N ? bond_secs[i] : I[unit(I)] for i in 1:N]
     Ws = map(sparse_from_dict, dicts, sizes)
-    return (; Ws, bondsectors, starts = zeros(Int, N), finishes = zeros(Int, N))
+    return (; Ws, bondsectors, start = zeros(Int, N), finish = zeros(Int, N))
 end

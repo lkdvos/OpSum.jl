@@ -50,7 +50,8 @@ finish channel is forced into the cover for that, except with decaying channels.
 [`IndependentSVD`](@ref) or [`SequentialSVD`](@ref) (finite chains without channels only).
 """
 function mpo(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy = VertexCover()) where {I}
-    return SymbolicMPO(H.lattice, _compress(H, alg)...)
+    (; Ws, bondsectors, start, finish) = _compress(H, alg)
+    return SymbolicMPO(H.lattice, Ws, bondsectors, start, finish)
 end
 
 mpo(H::OperatorSum{I, <:InfiniteChain}, ::VertexCover = VertexCover()) where {I} =

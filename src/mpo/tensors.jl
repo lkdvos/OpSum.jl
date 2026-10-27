@@ -21,7 +21,7 @@ function _compress_channels(H::OperatorSum{I, <:FiniteChain}, ::VertexCover) whe
     (; Ws, bondsectors) = sweep(
         TermTable(H.terms), N, VertexCover(); jordan = false, channels = lower_channels(H.channels, 1)
     )
-    return (; Ws, bondsectors, starts = Int[], finishes = Int[])
+    return (; Ws, bondsectors, start = Int[], finish = Int[])
 end
 _compress_channels(::OperatorSum, ::Union{IndependentSVD, SequentialSVD}) = throw(
     ArgumentError(

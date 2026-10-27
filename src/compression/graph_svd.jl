@@ -230,10 +230,10 @@ function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
 
         for (key, C_op) in pairs(op_coeffs)
             W_op = U_left' * C_op * U_right
-            atol = SVD_ATOL * maximum(abs, C_op)
+            atol2 = abs2(SVD_ATOL) * maximum(abs2, C_op)
             lop = convert(LOp, key.letter)
             for col in 1:size(W_op, 2), row in 1:size(W_op, 1)
-                abs(W_op[row, col]) <= atol && continue
+                abs2(W_op[row, col]) <= atol2 && continue
                 increaseindex!(dicts[i], CartesianIndex(row, col), lop * W_op[row, col])
             end
         end

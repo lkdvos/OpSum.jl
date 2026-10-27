@@ -167,20 +167,3 @@ function _taylor_mpo(W::SymbolicMPO, N::Integer, passes)
     _prune_orphans!(work)
     return _taylor_finish(work, Int(N))
 end
-
-"""
-    instantiate(W::TaylorMPO, τ::Number)
-
-MPSKit's `FiniteMPO` or `InfiniteMPO` of `exp(τH)` for `W`, evaluated at `τ` (see [`mpo_tensors`](@ref)).
-Requires MPSKit to be loaded; with it, `make_time_mpo(H::OperatorSum, dt, TaylorCluster(; N, extension,
-compression))` builds `taylor_mpo(H, N; extension, compression)` and instantiates it at `τ = -dt` (imaginary
-evolution) or `τ = -i dt`.
-"""
-instantiate(W::TaylorMPO, τ::Number) = _mpskit_mpo(W, τ)
-
-# the one fallback of both `instantiate`s; the MPSKit extension adds the methods
-_mpskit_mpo(args...) = throw(
-    ArgumentError(
-        "instantiate(::SymbolicMPO) and instantiate(::TaylorMPO, τ) build MPSKit MPOs: load MPSKit first (`using MPSKit`)"
-    )
-)

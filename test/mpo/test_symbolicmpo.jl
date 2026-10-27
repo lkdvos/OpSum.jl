@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, scalarop, couple, opsum
+using OpSum: mpo, instantiate, scalarop, couple, opsum
 using OpSum: Letter
 using TensorKit
 using LinearAlgebra: dot
@@ -51,4 +51,21 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, islossless
     H3 = Terms(couple(couple(raise[1], raise[2]; to = U1Irrep(2)), lower[3]; to = U1Irrep(1)))
     _, secs = reduced(mpo(opsum(fill(unitbasis(Vu), 3), H3)))
     @test U1Irrep(2) in secs[2]                     # the inner-line charge
+end
+
+# `instantiate` of a symbolic MPO is a method of the MPSKit extension; this file never loads MPSKit
+@testset "instantiate without MPSKit says what to load" begin
+    @test Base.get_extension(OpSum, :OpSumMPSKitExt) === nothing
+    B = unitbasis(Rep[U₁](0 => 1, 1 => 1))
+    raise, lower = LO(Letter(U1Irrep(1), 1)), LO(Letter(U1Irrep(-1), 1))
+    W = mpo(opsum(fill(B, 3), Terms(dot(raise[i], lower[i + 1]) for i in 1:2)))
+    errtext(args...) = try
+        instantiate(args...)
+        ""
+    catch e
+        sprint(showerror, e)
+    end
+    @test occursin("using MPSKit", errtext(W))
+    @test occursin("using MPSKit", errtext(OpSum.taylor_mpo(W, 2), 0.1))
+    @test !occursin("using MPSKit", errtext(1))
 end

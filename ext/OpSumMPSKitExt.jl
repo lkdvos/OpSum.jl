@@ -20,15 +20,15 @@ function _jordan(W)
     return O
 end
 
-OpSum._mpskit_mpo(W::SymbolicMPO{I, <:FiniteChain}) where {I} =
+OpSum.instantiate(W::SymbolicMPO{I, <:FiniteChain}) where {I} =
     FiniteMPOHamiltonian(map(_jordan, jordan_mpo_tensors(W)))
-OpSum._mpskit_mpo(W::SymbolicMPO{I, <:InfiniteChain}) where {I} =
+OpSum.instantiate(W::SymbolicMPO{I, <:InfiniteChain}) where {I} =
     InfiniteMPOHamiltonian(map(_jordan, jordan_mpo_tensors(W)))
 
 # `instantiate(W::TaylorMPO, τ)`: the evaluated site tensors `B ⊗ V ← V ⊗ B` are MPSKit's `MPO` tensors as they
 # stand (finite: one-dimensional boundary bonds).
-OpSum._mpskit_mpo(W::TaylorMPO{I, <:FiniteChain}, τ::Number) where {I} = FiniteMPO(mpo_tensors(W, τ))
-OpSum._mpskit_mpo(W::TaylorMPO{I, <:InfiniteChain}, τ::Number) where {I} = InfiniteMPO(mpo_tensors(W, τ))
+OpSum.instantiate(W::TaylorMPO{I, <:FiniteChain}, τ::Number) where {I} = FiniteMPO(mpo_tensors(W, τ))
+OpSum.instantiate(W::TaylorMPO{I, <:InfiniteChain}, τ::Number) where {I} = InfiniteMPO(mpo_tensors(W, τ))
 
 # Route MPSKit's own entry point to the symbolic builder: `exp(-i dt H)`, or `exp(-dt H)` for imaginary time.
 # `tol` is accepted for signature parity; the symbolic construction has nothing to drop.

@@ -23,11 +23,6 @@ gap3(h2, V) = permute(h2 ⊗ id(V), ((1, 3, 2), (4, 6, 5)))
 
 centre(secs, b) = sum(dim, secs[b])
 
-@testset "without MPSKit's methods the fallback says what to load" begin
-    @test_throws ArgumentError OpSum._mpskit_mpo(nothing)
-    @test_throws ArgumentError OpSum._mpskit_mpo(nothing, 0.1)
-end
-
 # One spinless-fermion site (parity only) shared by the testsets, so each MPSKit method compiles for
 # one sector type
 P = Trivial

@@ -71,11 +71,3 @@ mpo(::Union{Term, Terms, ExpSum}, args...) = throw(
 
 SymbolicMPO(lat::L, Ws, secs::Vector{Vector{I}}, start, finish) where {I, L} =
     SymbolicMPO{I, L}(lat, Ws, secs, start, finish)
-
-"""
-    instantiate(W::SymbolicMPO)
-
-MPSKit's `FiniteMPOHamiltonian` or `InfiniteMPOHamiltonian` for `W`, built from its Jordan form.
-Requires MPSKit to be loaded.
-"""
-instantiate(W::SymbolicMPO) = _mpskit_mpo(W)

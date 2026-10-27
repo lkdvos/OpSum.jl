@@ -36,9 +36,17 @@ include("utility/bipartite.jl")
 
 """
     instantiate(op, B)
+    instantiate(H::OperatorSum)
+    instantiate(W::SymbolicMPO)
+    instantiate(W::TaylorMPO, τ::Number)
 
-Materialize a symbolic operator as a `TensorMap`: a letter or on-site operator in a [`Basis`](@ref OpSum.Basis),
-or an `OperatorSum` on its lattice.
+Materialize a symbolic object. A letter or on-site operator in a [`Basis`](@ref OpSum.Basis), or an
+`OperatorSum` on its lattice, becomes a `TensorMap`. With MPSKit loaded (`using MPSKit`), a
+[`SymbolicMPO`](@ref) becomes MPSKit's `FiniteMPOHamiltonian` or `InfiniteMPOHamiltonian`, built from its
+Jordan form ([`jordan_mpo_tensors`](@ref)), and a [`TaylorMPO`](@ref) its `FiniteMPO` or `InfiniteMPO` of
+`exp(τH)` evaluated at `τ` (see [`mpo_tensors`](@ref)); `make_time_mpo(H::OperatorSum, dt,
+TaylorCluster(; N, extension, compression))` builds `taylor_mpo(H, N; extension, compression)` and
+instantiates it at `τ = -dt` (imaginary evolution) or `τ = -i dt`.
 """
 function instantiate end
 
@@ -74,5 +82,17 @@ include("mpo/jordan.jl")
 include("timeevolution/kronpower.jl")
 include("timeevolution/taylormpo.jl")
 include("timeevolution/taylor.jl")
+
+function __init__()
+    # `instantiate` of the symbolic MPOs is a method of the MPSKit extension
+    Base.Experimental.register_error_hint(MethodError) do io, exc, argtypes, kwargs
+        if exc.f === instantiate && !isempty(argtypes) && argtypes[1] <: Union{SymbolicMPO, TaylorMPO} &&
+                Base.get_extension(OpSum, :OpSumMPSKitExt) === nothing
+            print(io, "\ninstantiate of a ", nameof(argtypes[1]), " builds MPSKit MPOs: load MPSKit first (`using MPSKit`).")
+        end
+        return nothing
+    end
+    return nothing
+end
 
 end

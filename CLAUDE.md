@@ -57,7 +57,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   (a method of the MPSKit extension, `ext/`) emit tensors; the `(Ws, bondsectors)` forms are internal
   (`reduced_terms`, `reduced_tensors`). `H'` goes through dense blocks (`adjoint_terms`).
 * **Infinite chains** (`infinite/`): `mpo` on an `InfiniteChain` unrolls a window, runs the same sweep and finds the
-  translation-invariant cell (`_infinite_window`); the suffix canonicalisation (`_canonicalise_rights!`) is required
+  translation-invariant cell (`infinite_window`); the suffix canonicalisation (`_canonicalise_rights!`) is required
   for the cell to close. `expterm` channels (`src/expterms.jl`; the automaton is `compression/channels.jl`) lower to weighted automata: cyclic states are forced into
   the cover, and λ rides as an edge weight so every emitted entry carries a letter.
 * **Time evolution** (`timeevolution/{kronpower,taylormpo,taylor}.jl`, `algebra/letterproducts.jl`):

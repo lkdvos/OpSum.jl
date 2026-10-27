@@ -5,7 +5,7 @@ using OpSum
 using OpSum: mpo, mpo_tensors, jordan_mpo_tensors, mpo_terms, window_terms,
     unitcell_terms, maxspan, translate, couple, scalarop, instantiate,
     expterm, expand_channels, chain_terms, channelspan, ExpSum, lower_channels,
-    _entriesequal, _infinite_window, storedpairs, ispassthrough
+    infinite_window, storedpairs, ispassthrough
 using OpSum: Letter
 
 const VSU2 = SU2Space(1 // 2 => 1)
@@ -216,12 +216,12 @@ end
     for (name, H, spaces) in reference_models()
         L = length(spaces)
         gen = unitcell_terms(H)
-        base = _infinite_window(gen)
+        base = infinite_window(gen)
         for nc in (13, 21)
-            alt = _infinite_window(gen; ncells = nc)
+            alt = infinite_window(gen; ncells = nc)
             @test alt.bondsectors == base.bondsectors
             @test (alt.start, alt.finish) == (base.start, base.finish)
-            @test all(j -> _entriesequal(alt.Ws[j], base.Ws[j]), 1:L)
+            @test alt.Ws == base.Ws
         end
     end
 
@@ -231,12 +231,12 @@ end
         0.3 * dot(S[1], S[2]),
     ]
     chain1 = InfiniteChain([BSU2])
-    base = _infinite_window(unitcell_terms(opsum(chain1, parts...)))
+    base = infinite_window(unitcell_terms(opsum(chain1, parts...)))
     for perm in (reverse(eachindex(parts)), circshift(collect(eachindex(parts)), 1))
-        alt = _infinite_window(unitcell_terms(opsum(chain1, parts[collect(perm)]...)))
+        alt = infinite_window(unitcell_terms(opsum(chain1, parts[collect(perm)]...)))
         @test alt.bondsectors == base.bondsectors
         @test (alt.start, alt.finish) == (base.start, base.finish)
-        @test _entriesequal(only(alt.Ws), only(base.Ws))
+        @test only(alt.Ws) == only(base.Ws)
     end
 end
 
@@ -349,10 +349,10 @@ end
     H = dot(S[1], S[2]) + 0.5 * dot(S[1], S[3])
     chain = InfiniteChain([BSU2])
     a = mpo(opsum(chain, H))
-    b = _infinite_window(unitcell_terms(opsum(chain, H, ExpSum{SU2Irrep}())))
+    b = infinite_window(unitcell_terms(opsum(chain, H, ExpSum{SU2Irrep}())))
     @test a.bondsectors == b.bondsectors
     @test (a.start, a.finish) == (b.start, b.finish)
-    @test _entriesequal(only(a.Ws), only(b.Ws))
+    @test only(a.Ws) == only(b.Ws)
 end
 
 @testset "expterm input validation" begin

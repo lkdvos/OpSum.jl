@@ -3,7 +3,7 @@ using TensorKit
 using LinearAlgebra: dot
 using OpSum
 using OpSum: couple, unitcell_terms, window_terms, maxspan,
-    TermTable, SweepGraph, rdesc, _entriesequal, _infinite_window, at_site!
+    TermTable, SweepGraph, rdesc, infinite_window, at_site!
 
 # Translation covariance of the sweep: live suffix-class names repeat with the unit cell, and the result
 # does not depend on the order terms were written in.
@@ -62,19 +62,19 @@ end
     ]
     for (name, L, V, parts) in cases
         chain = InfiniteChain(fill(V, L))
-        base = _infinite_window(unitcell_terms(opsum(chain, parts)))
+        base = infinite_window(unitcell_terms(opsum(chain, parts)))
         for perm in (reverse(eachindex(parts)), circshift(collect(eachindex(parts)), 1))
-            alt = _infinite_window(unitcell_terms(opsum(chain, parts[collect(perm)])))
+            alt = infinite_window(unitcell_terms(opsum(chain, parts[collect(perm)])))
             @test alt.bondsectors == base.bondsectors
             @test (alt.start, alt.finish) == (base.start, base.finish)
-            @test all(j -> _entriesequal(alt.Ws[j], base.Ws[j]), 1:L)
+            @test alt.Ws == base.Ws
         end
     end
 end
 
 @testset "the cell's identity channels" begin
     S = spinvector(BSU2)
-    H = _infinite_window(unitcell_terms(opsum(InfiniteChain([BSU2]), dot(S[1], S[2]))))
+    H = infinite_window(unitcell_terms(opsum(InfiniteChain([BSU2]), dot(S[1], S[2]))))
     W = H.Ws[1]
     s, d = H.start[1], H.finish[1]
     @test H.bondsectors[1][s] == H.bondsectors[1][d] == unit(SU2Irrep)

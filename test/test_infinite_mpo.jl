@@ -163,12 +163,12 @@ end
     for (name, H, spaces) in reference_models()
         L = length(spaces)
         gen = unitcell_terms(opsum(InfiniteChain(spaces), H))
-        base = OpSum._infinite_window(gen)
+        base = OpSum.infinite_window(gen)
         for nc in (12, 19, 26)
-            alt = OpSum._infinite_window(gen; ncells = nc)
+            alt = OpSum.infinite_window(gen; ncells = nc)
             @test alt.bondsectors == base.bondsectors
             @test (alt.start, alt.finish) == (base.start, base.finish)
-            @test all(j -> OpSum._entriesequal(alt.Ws[j], base.Ws[j]), 1:L)
+            @test alt.Ws == base.Ws
         end
     end
 end

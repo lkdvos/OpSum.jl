@@ -2,26 +2,17 @@
 # This is the finite sweep with one difference: the bond basis closes on itself (`V_0 ≅ V_L`), so both
 # identity channels are live at every bond.
 #
-# `_infinite_window` unrolls a window of cells, runs the unchanged finite sweep, and reads off a cell
+# `infinite_window` unrolls a window of cells, runs the unchanged finite sweep, and reads off a cell
 # that has reached the translation-invariant fixed point. Closure is checked, not assumed.
 
 using SparseArrays: SparseMatrixCSC
 
 # --- the window construction ------------------------------------------------------------------
 
-# Entry-for-entry equality of two reduced bond matrices.
-function _entriesequal(A::SparseMatrixCSC, B::SparseMatrixCSC)
-    size(A) == size(B) || return false
-    pa = Dict(storedpairs(A))
-    pb = Dict(storedpairs(B))
-    keys(pa) == keys(pb) || return false
-    return all(pa[k] == pb[k] for k in keys(pa))
-end
-
 # Do cells `c` and `c+1` of an unrolled sweep carry identical site tensors?
 function _cellsequal(Ws::Vector{<:SparseMatrixCSC}, L::Int, c::Int)
     a, b = (c - 1) * L, c * L
-    return all(j -> _entriesequal(Ws[a + j], Ws[b + j]), 1:L)
+    return all(j -> Ws[a + j] == Ws[b + j], 1:L)
 end
 
 # Index of the first unit cell that has reached the translation-invariant fixed point (0 if none): it
@@ -43,7 +34,7 @@ end
 # The window is unrolled and *searched* for the fixed point rather than sized by a formula (the
 # residual coefficients on a bond take a further reset to settle); if none is found it doubles, twice.
 # `ncells` overrides the initial size, so a test can check the answer does not depend on it.
-function _infinite_window(
+function infinite_window(
         gen::OperatorSum{I, <:InfiniteChain};
         ncells::Union{Nothing, Int} = nothing
     ) where {I}

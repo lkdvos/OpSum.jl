@@ -54,7 +54,7 @@ function mpo(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy = VertexCover()
 end
 
 mpo(H::OperatorSum{I, <:InfiniteChain}, ::VertexCover = VertexCover()) where {I} =
-    _infinite_window(unitcell_terms(H))
+    infinite_window(unitcell_terms(H))
 
 mpo(::OperatorSum{I, <:InfiniteChain}, ::Union{IndependentSVD, SequentialSVD}) where {I} = throw(
     ArgumentError(

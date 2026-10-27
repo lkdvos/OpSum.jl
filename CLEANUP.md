@@ -59,8 +59,8 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite green at a53c9c4) |
 | 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
 | 7 | The sweep | compression/termtable, graph | done (full suite green at ea13cfe, 139814) |
-| 8 | Bond bases | compression/graph_vc, graph_svd, metric | implemented, verification incomplete (agent stopped) |
-| 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | decided (D16), waits for chunk 8 |
+| 8 | Bond bases | compression/graph_vc, graph_svd, metric | done (full suite with chunk 9) |
+| 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | implementing |
 | 10 | Infinite chains | infinite/unitcell, window | decided (D17), after chunk 9 |
 | 11 | Time evolution | timeevolution/ | pending |
 | 12 | Organisation revisit | — | pending |
@@ -253,6 +253,15 @@ strategies no longer write into the graph as a side channel.
 (f) P8.6: `vlocal` for the finish-vertex lookup; `IndependentSVD`/`SequentialSVD` docstrings say they agree in bond
 dimension, not gauge; document that `NoTruncation` SVD truncates at `eps`.
 (g) `IndependentSVD` is kept.
+As applied: 5e504d7 + 1a6c7b7 (c), ed6482b (b), 6db9c93 (f), 522404f (d; `BondBasis`, `ComponentCover`), f67cc18 (e),
+1ca3a5c + 5024f49 (a), 68ec223 (CLAUDE.md). Bitwise 95/95 at f67cc18 vs df25411 (= pre7). After (a): VertexCover 23/23
+bitwise; lossless SVD ≤7.3e-15 relative to the reference; truncating unchanged to 2.9e-16; stored entries IndependentSVD
+4614 → 3450, SequentialSVD 7369 → 4326 (lossless); one case (hubbard_ly4 N=32 seq lossless) has bond sum 1493 → 1496
+(near-eps rank decisions). Scale deviation: `SequentialSVD` cuts `U` at absolute `SVD_ATOL` (isometry) and `R` at
+`SVD_ATOL·‖S‖∞`; `IndependentSVD` cuts per letter block at `SVD_ATOL·max|C_op|` (`C_op` is a 0/1 structure matrix
+except at site N, so a singular value is the wrong scale there); documented at `SVD_ATOL`. Perf vs df25411: VertexCover
+−2.6…+1.6%, ≤288 B; SequentialSVD −15…−37%; IndependentSVD +3.7…+7.1% (threshold pass). TTFX unchanged (4.79 s).
+Targeted tests green at 1ae8bab. Full suite to run with chunk 9.
 
 **D16 Chunk 9 (output: SymbolicMPO, tensors, Jordan form, MPSKit extension).**
 (a) P9.1: finite chains with channels sweep with `jordan = true` if that stays lossless and satisfies the Jordan
@@ -295,5 +304,5 @@ Implemented by a separate agent after chunk 9.
 
 ## Resume here
 
-Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 decided (D15), implementation delegated. Chunk 9 decided (D16), to delegate after chunk 8 (same files). Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 (D16) implementing; chunk 10 (D17) after it. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

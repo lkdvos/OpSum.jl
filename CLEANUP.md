@@ -58,7 +58,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | done (full suite green at f9990dc) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite green at a53c9c4) |
 | 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
-| 7 | The sweep | compression/termtable, graph | done (full suite running) |
+| 7 | The sweep | compression/termtable, graph | done (full suite green at ea13cfe, 139814) |
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | implementing |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | pending |
 | 10 | Infinite chains | infinite/unitcell, window | pending |
@@ -272,5 +272,5 @@ dimension, not gauge; document that `NoTruncation` SVD truncates at `eps`.
 
 ## Resume here
 
-Chunks 0–7 done (chunk 7 full suite pending). Chunk 8 decided (D15), implementation delegated. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 decided (D15), implementation delegated. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

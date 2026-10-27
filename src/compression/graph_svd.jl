@@ -17,7 +17,8 @@ function _class!(dense, Qs, deg, mult, key, q)
     return c
 end
 
-# `NoTruncation` is lossless up to machine precision.
+# `NoTruncation` is lossless up to machine precision: it truncates at `eps(Float64)`, relative to the norm of
+# the singular values.
 _svd_trunc(trunc::TruncationStrategy) = trunc
 _svd_trunc(::NoTruncation) = trunctol(rtol = eps(Float64))
 
@@ -130,7 +131,8 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Seque
 end
 
 # `IndependentSVD`: not a graph sweep, since each bond is compressed on the raw prefix/suffix classes
-# (`prefix_ids`; `(suffix_ids, charge)`) regardless of its neighbours' bases. One charge-graded
+# (`prefix_ids`; `(suffix_ids, charge)`) regardless of its neighbours' bases (so it matches `SequentialSVD`
+# in bond dimension when lossless, not in gauge). One charge-graded
 # `C_b : Ppre ← Psuf` per bond, `U_b` as its basis, then `W_op = U_{i-1}' · C_op · U_i` per letter.
 function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
     trunc = strategy.trunc

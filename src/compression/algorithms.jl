@@ -22,8 +22,9 @@ struct VertexCover <: BondStrategy end
 
 Every bond is compressed independently by an SVD over the raw prefix/suffix classes. `trunc` is a
 `MatrixAlgebraKit.TruncationStrategy`; the default `notrunc()` is lossless, `truncrank(k)` keeps `k`
-indices per bond, and `svd_trunc`-style strategies truncate globally across charge sectors. Finite chains
-without decaying channels only.
+indices per bond, and `svd_trunc`-style strategies truncate globally across charge sectors. The default
+`notrunc()` still truncates at `eps(Float64)` relative to the norm of the singular values, to discard round-off.
+Finite chains without decaying channels only.
 """
 struct IndependentSVD{T <: TruncationStrategy} <: BondStrategy
     trunc::T
@@ -34,8 +35,9 @@ IndependentSVD() = IndependentSVD(notrunc())
     SequentialSVD(trunc = notrunc())
 
 Left-to-right sweep compressing each bond in the basis left by the previous one, so `truncrank(k)` keeps
-`k` indices after upstream truncation (`trunc` as in [`IndependentSVD`](@ref)). Agrees with
-[`IndependentSVD`](@ref) when lossless. Finite chains without decaying channels only.
+`k` indices after upstream truncation (`trunc` as in [`IndependentSVD`](@ref)). When lossless it has the
+same bond dimensions as [`IndependentSVD`](@ref), but not the same gauge. Finite chains without decaying
+channels only.
 """
 struct SequentialSVD{T <: TruncationStrategy} <: BondStrategy
     trunc::T

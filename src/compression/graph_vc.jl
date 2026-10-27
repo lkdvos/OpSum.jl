@@ -46,8 +46,8 @@ function _vc_component(
 
     cUbits, cVbits = _forced_cover(g, localadj, nus, nvs, vs)
     if g.jordan && !iszero(g.bound.rfinish)
-        pf = findfirst(==(g.bound.rfinish), vs)     # `Θ(|vs|)`, i.e. `Θ(nV)` summed over the components
-        pf === nothing || _force_finish!(cUbits, cVbits, localadj, pf)
+        pf = vlocal[g.bound.rfinish]                # stale unless `rfinish` is in this component
+        (1 <= pf <= nvs && vs[pf] == g.bound.rfinish) && _force_finish!(cUbits, cVbits, localadj, pf)
     end
     cU = findall(cUbits)
     cV = findall(cVbits)

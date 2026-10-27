@@ -135,7 +135,7 @@ end
         @test densedim(trunc.bondsectors[1]) == 3Rmax + 2      # grows with the range …
         @test densedim(geo.bondsectors[1]) == 5                # … and this one does not
 
-        for t in window_terms(gen, chain, ncells)
+        for t in window_terms(gen, 1, ncells)
             maximum(t.sites) <= ncells - Rmax - 1 || continue
             @test haskey(got, OpSum.support(t)) && got[OpSum.support(t)] ≈ t.coeff
         end
@@ -369,10 +369,14 @@ end
     @test_throws ArgumentError opsum(
         lat, expterm(couple(S[1], S[2]; to = SU2Irrep(1)); decay = 0.5)
     )
-    # one representative per translation class, exactly as for terms
-    @test_throws ArgumentError mpo(
-        opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[2], S[3]); decay = 0.5))
-    )
+    # one representative per translation class, exactly as for terms; the message names both generators
+    err = try
+        mpo(opsum(lat, expterm(dot(S[1], S[2]); decay = 0.5), expterm(dot(S[2], S[3]); decay = 0.5)))
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("sites [2, 3] and [1, 2]", err.msg)
     # … but the same two on a two-site cell is a different, legitimate model
     @test mpo(
         opsum(

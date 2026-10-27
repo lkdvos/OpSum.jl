@@ -25,7 +25,7 @@ const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter
         gen = unitcell_terms(H, L)
         ncells = 12
         N = ncells * L
-        tt = TermTable(window_terms(gen, InfiniteChain(spaces), ncells))
+        tt = TermTable(window_terms(gen, L, ncells))
         g = SweepGraph(tt, N)
         names = map(1:N) do i
             at_site!(g, i)

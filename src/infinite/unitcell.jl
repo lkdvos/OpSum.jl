@@ -64,11 +64,13 @@ end
 function unitcell_terms(es::ExpSum{I}, L::Int) where {I}
     L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
     d = Dictionary{ExpKey{I}, ComplexF64}()
+    origin = Dictionary{ExpKey{I}, Vector{Int}}()   # the support each shifted key was written with
     for (k, v) in pairs(es.channels)
         checkgenerator(k)
         ck = translate(k, _cellshift(k.support[1], L))
-        haskey(d, ck) && _translates_error("the decaying channels", k.support[1], ck.support[1], L)
+        haskey(d, ck) && _translates_error("the decaying channels", k.support[1], origin[ck], L)
         insert!(d, ck, v)
+        insert!(origin, ck, k.support[1])
     end
     return ExpSum{I}(d)
 end
@@ -83,12 +85,11 @@ end
 # Every translate of the generating set (terms and channels) inside `ncells` cells.
 function window_terms(H::OperatorSum{I, <:InfiniteChain}, ncells::Int) where {I}
     L = length(H.lattice)
-    return Terms(window_terms(H.terms, H.lattice, ncells), expand_channels(H.channels, L, ncells * L))
+    return Terms(window_terms(H.terms, L, ncells), expand_channels(H.channels, L, ncells * L))
 end
 
 # Translates sticking out of either end are dropped, so only the bulk agrees with the periodic problem.
-function window_terms(gen::Terms{I}, lat::InfiniteChain, ncells::Int) where {I}
-    L = length(lat)
+function window_terms(gen::Terms{I}, L::Int, ncells::Int) where {I}
     N = ncells * L
     out = Term{I}[]
     for t in gen.terms

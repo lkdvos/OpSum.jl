@@ -6,26 +6,6 @@
 # orthonormal `(c, m)` is `Σ_{n ≤ m} A⁻¹[n, m] (c, n)`; the identity is element 1 with `A[1, 1] = 1`, so
 # pass-throughs are untouched.
 
-using LinearAlgebra: cholesky, Hermitian, UpperTriangular
-
-# Per charge of one site: `(A, A⁻¹)`, or `nothing` when the letters are already orthonormal. Computed from
-# the per-charge Gram matrices when a `Basis` is built, and stored in it (`B.metric`).
-function lettermetric(grams::Dictionary{I, Matrix{ComplexF64}}) where {I}
-    z = real(grams[unit(I)][1, 1])    # ⟨𝟙, 𝟙⟩, the identity being element 1
-    out = Dictionary{I, NTuple{2, Matrix{ComplexF64}}}()
-    trivial = true
-    for (c, Gc) in pairs(grams)
-        G = Gc ./ (dim(c) * z)
-        # exact zeros where elements are orthogonal, so `A` keeps their structure
-        θ = 1.0e-13 * maximum(abs, G)
-        G[abs.(G) .< θ] .= 0
-        A = Matrix(cholesky(Hermitian(G)).U)
-        trivial &= isapprox(A, one(A); atol = 1.0e-13)
-        insert!(out, c, (A, Matrix(inv(UpperTriangular(A)))))
-    end
-    return trivial ? nothing : out
-end
-
 # `ts` over the orthonormal letters (`metrics[s]` for site `s`); identity components are dropped.
 function orthonormal_terms(ts::Terms{I}, metrics) where {I}
     out = Term{I}[]

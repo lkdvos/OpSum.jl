@@ -6,7 +6,7 @@
 
 using TensorKit: AbstractTensorMap, ElementarySpace, numin, numout, insertrightunit, space,
     isomorphism, ComplexSpace, Trivial, dual, sectors, fuse
-using LinearAlgebra: LinearAlgebra, Hermitian, eigvals, norm
+using LinearAlgebra: LinearAlgebra, Hermitian, UpperTriangular, cholesky, eigvals, norm
 
 """
 Default relative tolerance of `Basis` construction: elements parallel to (or, for the matrix-unit completion,
@@ -242,6 +242,25 @@ function _gramblocks(kept, bycharge::Dictionary{I}, rtol::Real) where {I}
         insert!(grams, c, G)
     end
     return grams
+end
+
+# Per charge of one site: `(A, A⁻¹)` with `G_c / (dim(c) · ⟨𝟙, 𝟙⟩) = A'A` (Cholesky), or `nothing` when the
+# letters are already orthonormal. Computed from the per-charge Gram matrices when a `Basis` is built, and
+# stored in it (`B.metric`); the SVD backends use it to compress in the basis' own inner product (metric.jl).
+function lettermetric(grams::Dictionary{I, Matrix{ComplexF64}}) where {I}
+    z = real(grams[unit(I)][1, 1])    # ⟨𝟙, 𝟙⟩, the identity being element 1
+    out = Dictionary{I, NTuple{2, Matrix{ComplexF64}}}()
+    trivial = true
+    for (c, Gc) in pairs(grams)
+        G = Gc ./ (dim(c) * z)
+        # exact zeros where elements are orthogonal, so `A` keeps their structure
+        θ = 1.0e-13 * maximum(abs, G)
+        G[abs.(G) .< θ] .= 0
+        A = Matrix(cholesky(Hermitian(G)).U)
+        trivial &= isapprox(A, one(A); atol = 1.0e-13)
+        insert!(out, c, (A, Matrix(inv(UpperTriangular(A)))))
+    end
+    return trivial ? nothing : out
 end
 
 # The matrix-unit letters of charge `c` on `V`.

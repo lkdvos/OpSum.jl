@@ -47,7 +47,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   `Pending`, `Boundary`, `Scratch`; right-vertex kinds are the `RightKind` enum, SVD
   sweeps seed eagerly, the cover lazily); the bond basis comes from
   a `BondStrategy` (`VertexCover` default via Hopcroft–Karp + König in `utility/bipartite.jl`; `IndependentSVD`,
-  `SequentialSVD`). Load-bearing invariant: the pending↔started suffix-class collision (`_promote_pending!`), guarded
+  `SequentialSVD`; each `bond_basis!` returns a `BondBasis`, SVD entries below `SVD_ATOL` are dropped). Load-bearing invariant: the pending↔started suffix-class collision (`_promote_pending!`), guarded
   in `test/compression/test_graph.jl` in all three sectors. Truncating SVD works in the bases' Hilbert–Schmidt metric (`metric.jl`).
 * **Container and output** (`operatorsum.jl`, `mpo/{symbolicmpo,tensors,jordan}.jl`): `OperatorSum` holds
   lattice + `Terms` + `ExpSum` channels and validates on insertion (`checkinsert`, `checkchannels`). `mpo(H[, alg])`

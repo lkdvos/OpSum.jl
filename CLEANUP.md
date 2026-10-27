@@ -59,7 +59,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite green at a53c9c4) |
 | 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
 | 7 | The sweep | compression/termtable, graph | done (full suite running) |
-| 8 | Bond bases | compression/graph_vc, graph_svd, metric | pending |
+| 8 | Bond bases | compression/graph_vc, graph_svd, metric | implementing |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | pending |
 | 10 | Infinite chains | infinite/unitcell, window | pending |
 | 11 | Time evolution | timeevolution/ | pending |
@@ -237,10 +237,22 @@ As applied: 47fa34d (a+b; `_compress_channels` and `window.jl` call `sweep(...; 
 `_prepare_bond!`, `_build_next_graph!`, `_force_finish!`, `_forced_cover`, `_canonicalise_*` keep `_`), 3b8e1b0 (c, keyword
 construction only), 7bb5e55 (d; `RightKind` with its own `rkind` column, `DescKind`), 690482f (CLAUDE.md). 95/95 bitwise vs
 pre7.jls, 0 operator mismatches. (c) grouping implemented (8f7fdc6, branch `cleanup-grouped-sweepgraph`, 95/95 bitwise,
-time within noise) but reverted for +16–368 bytes per `mpo`; pending the user's call. (e) not possible: the SVD forwards
+time within noise) reverted for +16–368 bytes per `mpo`, then taken back by the user's call (1f2e5ac). (e) not possible: the SVD forwards
 the lazy sentinel as a dense column (BoundsError in `_build_next_graph!`) and has no start index to inject pending terms;
 eager mode stays, documented at `_graph_lazy`. The `rkind` column costs ~0.4% allocation (+2–236 KB per `mpo`); mpo time
 +0–3% (seq_hubbard +5.5% min, median within noise); TTFX unchanged (4.6–4.8 s).
+
+**D15 Chunk 8 (bond bases).**
+(a) P8.1: SVD routes drop entries below a named `SVD_ATOL` relative to the bond's largest singular value (~1e-14),
+in both `SequentialSVD` (`U`, `R`) and `IndependentSVD` (`U'·C·U`); not bitwise, checked at operator level.
+(b) P8.2: one metric path; `compress_in_metric` never returns `nothing`, the fallback branch in `_compress` goes.
+(c) P8.3: `lettermetric` moves to `algebra/basis.jl`, its `1e-13` tolerances named.
+(d) P8.4: named results for `_vc_component` and `_bond_basis!` (a `BondBasis` struct incl. start/finish indices);
+strategies no longer write into the graph as a side channel.
+(e) P8.5: `_svd_flatten_block` split into `U` and `R` parts; `SequentialSVD` fills `C` directly, no dense `coeff`.
+(f) P8.6: `vlocal` for the finish-vertex lookup; `IndependentSVD`/`SequentialSVD` docstrings say they agree in bond
+dimension, not gauge; document that `NoTruncation` SVD truncates at `eps`.
+(g) `IndependentSVD` is kept.
 
 ## Possible improvements
 
@@ -260,6 +272,5 @@ eager mode stays, documented at `_graph_lazy`. The `rkind` column costs ~0.4% al
 
 ## Resume here
 
-Chunks 0–7 done (chunk 7 full suite pending). Chunk 8 presented, awaiting answers (P8.1–P8.6, keep IndependentSVD?,
-take grouped SweepGraph 8f7fdc6?). Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done (chunk 7 full suite pending). Chunk 8 decided (D15), implementation delegated. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

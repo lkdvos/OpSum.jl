@@ -10,10 +10,7 @@ function _compress(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy) where {I
     N = length(H.lattice)
     if isempty(H.channels)
         # a truncation has to see the basis' own inner product (metric.jl)
-        if truncates(alg)
-            out = compress_in_metric(H.terms, H.lattice, alg)
-            out === nothing || return out
-        end
+        truncates(alg) && return compress_in_metric(H.terms, H.lattice, alg)
         return sweep(TermTable(H.terms), N, alg)
     end
     return _compress_channels(H, alg)

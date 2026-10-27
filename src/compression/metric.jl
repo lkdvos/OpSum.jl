@@ -51,12 +51,11 @@ function _from_orthonormal(op::SiteOperator{I}, metric) where {I}
     return SiteOperator{I}(letters, coeffs)
 end
 
-# `sweep` in the orthonormal letters, entries mapped back to each site's basis; `nothing`
-# when every site is already orthonormal.
+# `sweep` in the orthonormal letters, entries mapped back to each site's basis (the identity on a site
+# whose letters are already orthonormal).
 function compress_in_metric(tt_terms::Terms{I}, lat::FiniteChain, strategy) where {I}
     N = length(lat)
     metrics = [lat[s].metric for s in 1:N]
-    all(isnothing, metrics) && return nothing
     tt = TermTable(orthonormal_terms(tt_terms, metrics))
     result = sweep(tt, N, strategy)
     for (s, W) in enumerate(result.Ws)

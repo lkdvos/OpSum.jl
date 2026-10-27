@@ -59,9 +59,9 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite green at a53c9c4) |
 | 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
 | 7 | The sweep | compression/termtable, graph | done (full suite green at ea13cfe, 139814) |
-| 8 | Bond bases | compression/graph_vc, graph_svd, metric | implementing |
+| 8 | Bond bases | compression/graph_vc, graph_svd, metric | implemented, verification incomplete (agent stopped) |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | decided (D16), waits for chunk 8 |
-| 10 | Infinite chains | infinite/unitcell, window | pending |
+| 10 | Infinite chains | infinite/unitcell, window | decided (D17), after chunk 9 |
 | 11 | Time evolution | timeevolution/ | pending |
 | 12 | Organisation revisit | — | pending |
 | 13 | Tests | test/ | pending |
@@ -266,6 +266,16 @@ use `mpo_terms(W)`; the infinite `mpo_tensors` moves to `tensors.jl`. `mpo_terms
 (e) P9.5: `closed`/`_close_right` move to `timeevolution/`; `jordan_layout` loses its underscore (D7).
 (f) P9.6: concretely typed caches in `_mpo_tensors` (no function barriers), type-stable `blk` accumulator in
 `_jordan_tensors`; kept only if time and allocations are not worse.
+
+**D17 Chunk 10 (infinite chains).**
+(a) P10.1: the window reads `start`/`finish` of the fixed-point cell from the sweep (after D16(a)); `_identity_links`,
+`_closed_chains`, `_identity_channels` go, kept only if the cells are bitwise identical (same `W`s and indices).
+(b) P10.2: remaining internal failures throw via `invariant_violation`; `done` → `finish`; stale research-note ref goes.
+(c) P10.3: `contract_open` goes (tests use `window_operator`); `mpo_terms_window` moves to `test/testutils.jl`.
+(d) P10.4: `_infinite_window` → `infinite_window`; `_entriesequal` → `==` if equivalent, else `entriesequal`.
+(e) P10.5: the `ExpSum` translates error names the clashing generator; `window_terms(ts, L, ncells)`; the window-size
+numbers become named constants with their reason.
+Implemented by a separate agent after chunk 9.
 
 ## Possible improvements
 

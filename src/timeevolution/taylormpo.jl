@@ -112,9 +112,7 @@ end
 
 (W::TaylorMPO)(τ::Number) = evaluate(W, τ)
 
-# the evaluated bond matrices carry no identity channels (`start`/`finish` empty: unknown), only the tiling
-mpo_tensors(W::TaylorMPO, τ::Number) =
-    mpo_tensors(SymbolicMPO(W.lattice, evaluate(W, τ), W.bondsectors, Int[], Int[]))
+mpo_tensors(W::TaylorMPO, τ::Number) = reduced_tensors(evaluate(W, τ), W.bondsectors, W.lattice)
 
 """
     taylor_mpo(H::OperatorSum, N::Integer; extension = true, compression = false) -> TaylorMPO

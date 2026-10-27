@@ -155,7 +155,7 @@ end
 
 function mpo_matches_oracle(H::OperatorSum; alg = VertexCover())
     m = mpo(H, alg)
-    return mpo_tensormap(mpo_tensors(m.Ws, m.bondsectors, H.lattice)) ≈ instantiate(H)
+    return mpo_tensormap(mpo_tensors(m)) ≈ instantiate(H)
 end
 
 # **3. Spectrum** — the physics check, and the only honest route for fermions when comparing

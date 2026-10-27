@@ -4,7 +4,7 @@
 
 using Test
 using OpSum
-using OpSum: mpo, mpo_tensors, mpo_terms, instantiate, couple, scalarop, opsum
+using OpSum: mpo, reduced_tensors, reduced_terms, instantiate, couple, scalarop, opsum
 using OpSum: VertexCover, IndependentSVD, SequentialSVD
 using OpSum: TermTable, sweep, SweepGraph, at_site!
 using OpSum: Letter
@@ -33,7 +33,7 @@ function bondprofile(secs)
     end
 end
 
-mpo_operator(Ws, secs, sites) = instantiate(opsum(sites, mpo_terms(Ws, secs)))
+mpo_operator(Ws, secs, sites) = instantiate(opsum(sites, reduced_terms(Ws, secs)))
 
 # Reference Hamiltonians (SU2, U1, trivial; K ∈ 0..3) as `(name, terms, lattice)`.
 function reference_hamiltonians()
@@ -152,12 +152,12 @@ const HEISENBERG8_BONDS = [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["I
         N = length(sites)
         Ws, secs = reduced(mpo(opsum(sites, H), VertexCover()))
         @testset "$name" begin
-            @test mpo_terms(Ws, secs) ≈ H
+            @test reduced_terms(Ws, secs) ≈ H
             @test bondprofile(secs) == EXPECTED_BONDS[name]
             # dense oracle; `physmatrix` needs a dim-1 total charge, `contractN` covers N ∈ {2, 3}
             if 2 <= N <= 3 && all(c -> dim(c) == 1, secs[end])
                 d = dim(TensorKit.space(sites[1]))
-                Mmpo = physmatrix(contractN(mpo_tensors(Ws, secs, sites)), N, d)
+                Mmpo = physmatrix(contractN(reduced_tensors(Ws, secs, sites)), N, d)
                 @test Mmpo ≈ physmatrix(instantiate(opsum(sites, H)), N, d)
             end
         end
@@ -187,7 +187,7 @@ end
         Wg, sg = reduced(mpo(opsum(sites, H), SequentialSVD()))
         # needs a dim-1 total charge (excludes the spin-1 field sum)
         all(c -> dim(c) == 1, sg[end]) || continue
-        Mgraph = physmatrix(contractN(mpo_tensors(Wg, sg, sites)), N, d)
+        Mgraph = physmatrix(contractN(reduced_tensors(Wg, sg, sites)), N, d)
         Mexact = physmatrix(instantiate(opsum(sites, H)), N, d)
         @testset "$name" begin
             @test Mgraph ≈ Mexact
@@ -234,7 +234,7 @@ end
         @testset "$name" begin
             @test bondprofile(secs) == EXPECTED_BONDS[name]
             @test islossless(opsum(sites, H))
-            @test mpo_tensormap(mpo_tensors(Ws, secs, sites)) ≈ instantiate(opsum(sites, H))
+            @test mpo_tensormap(reduced_tensors(Ws, secs, sites)) ≈ instantiate(opsum(sites, H))
         end
     end
 
@@ -244,7 +244,7 @@ end
     (; Ws, bondsectors) = OpSum.sweep(tt, 3, OpSum.VertexCover(); jordan = false)
     secs = bondsectors
     @test bondprofile(secs) == [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]]
-    @test mpo_terms(Ws, secs) ≈ H.terms
+    @test reduced_terms(Ws, secs) ≈ H.terms
 end
 
 @testset "suffix signature needs the running bond charge" begin
@@ -268,7 +268,7 @@ end
     @test OpSum.factor_at(tt, 1, 3) != OpSum.factor_at(tt, 2, 3)
 
     Wg, sg = reduced(mpo(opsum(sites, H), VertexCover()))
-    back = mpo_terms(Wg, sg)
+    back = reduced_terms(Wg, sg)
     @test back ≈ H
 end
 
@@ -287,9 +287,9 @@ end
 
     Wg, sg = reduced(mpo(opsum(sites, H), VertexCover()))
     @test length.(sg) == [1, 1, 1]
-    @test mpo_terms(Wg, sg) ≈ H
+    @test reduced_terms(Wg, sg) ≈ H
     d = dim(V)
-    @test physmatrix(contract3(mpo_tensors(Wg, sg, sites)), N, d) ≈
+    @test physmatrix(contract3(reduced_tensors(Wg, sg, sites)), N, d) ≈
         physmatrix(instantiate(opsum(sites, H)), N, d)
 end
 

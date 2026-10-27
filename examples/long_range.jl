@@ -129,7 +129,7 @@ function truncation_error(H, alg; oracle = instantiate(H))
     ## an *empty* trailing charge leg, and subtracting the oracle throws a `SpaceMismatch` rather
     ## than returning a number. So report it instead of measuring it.
     any(iszero, bonds) && return (; D, bonds, error = NaN)
-    O = mpo_tensormap(mpo_tensors(m.Ws, secs, H.lattice))
+    O = mpo_tensormap(mpo_tensors(m))
     return (; D, bonds, error = norm(O - oracle) / norm(oracle))
 end
 

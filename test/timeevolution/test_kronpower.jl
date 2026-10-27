@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, _jordan_layout, _mpo_power, site_product
+using OpSum: mpo, mpo_tensors, reduced_tensors, opsum, expterm, SiteOperator, storedpairs, _jordan_layout, _mpo_power, site_product
 using TensorKit
 using SparseArrays: nnz
 
@@ -77,7 +77,7 @@ end
             @test J.bondsectors[i][1] == J.bondsectors[i][end] == unit(sectortype(H.lattice))
         end
         # nothing instantiated, yet the same operator
-        T = mpo_tensors(J.Ws, J.bondsectors[2:end], H.lattice)
+        T = reduced_tensors(J.Ws, J.bondsectors[2:end], H.lattice)
         @test plain(mpo_tensormap(T)) ≈ densify(H)
     end
 end

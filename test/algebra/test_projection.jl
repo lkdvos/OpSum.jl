@@ -1,7 +1,7 @@
 using Test
 using OpSum
-using OpSum: project, instantiate, scalarop, couple, mpo, opsum, FiniteChain,
-    mpo_tensors, mpo_terms, Term, Terms, total, letters, tree, bondcharges,
+using OpSum: project, instantiate, reduced_terms, reduced_tensors, scalarop, couple, mpo, opsum, FiniteChain,
+    Term, Terms, total, letters, tree, bondcharges,
     caterpillar_trees, project_units
 using OpSum: Letter
 using TensorKit
@@ -317,10 +317,10 @@ end
             Ws, secs = reduced(mpo(opsum(lat, H)))
             @test length(secs) == N
 
-            @test mpo_terms(Ws, secs) ≈ H
+            @test reduced_terms(Ws, secs) ≈ H
 
             # and the assembled tensors contract to the operator
-            T = mpo_tensors(Ws, secs, lat)
+            T = reduced_tensors(Ws, secs, lat)
             @tensor Op[o1 o2 o3 bL; bR i1 i2 i3] :=
                 T[1][bL o1; i1 b1] * T[2][b1 o2; i2 b2] * T[3][b2 o3; i3 bR]
             @test physmatrix(Op, N, d) ≈ physmatrix(instantiate(opsum(lat, H)), N, d)

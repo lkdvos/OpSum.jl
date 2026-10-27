@@ -30,17 +30,18 @@ _compress_channels(::OperatorSum, ::Union{IndependentSVD, SequentialSVD}) = thro
     )
 )
 
-mpo_terms(W::SymbolicMPO{I, <:FiniteChain}) where {I} = mpo_terms(W.Ws, W.bondsectors)
-
 """
-    mpo_terms(Ws, bondsectors; leftidx = 1, rightidx = nothing) -> Terms
+    mpo_terms(W::SymbolicMPO) -> Terms
 
-Reconstruct the operator a reduced MPO generates, as a latticeless [`Terms`](@ref): enumerate every
-path through the bond matrices and read off the letters with their outgoing bond charges.
-`mpo_terms(mpo(H)) ≈ H.terms` is [`islossless`](@ref). `leftidx`/`rightidx` are the boundary indices
-(default `1` and "any"); for an infinite MPO tiled over a window they are the two identity channels.
+Reconstruct the operator `W` generates, as a latticeless [`Terms`](@ref): enumerate every path through the
+bond matrices and read off the letters with their outgoing bond charges. `mpo_terms(mpo(H)) ≈ H.terms` is
+[`islossless`](@ref). Finite chains only.
 """
-function mpo_terms(
+mpo_terms(W::SymbolicMPO{I, <:FiniteChain}) where {I} = reduced_terms(W.Ws, W.bondsectors)
+
+# The paths of the bond matrices `Ws` from index `leftidx` of the first bond to index `rightidx` of the last
+# (default `1` and "any"); for an infinite MPO tiled over a window they are the two identity channels.
+function reduced_terms(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
         bondsectors::Vector{Vector{I}};
         leftidx::Int = 1, rightidx::Union{Nothing, Int} = nothing
@@ -112,33 +113,34 @@ end
 
 """
     mpo_tensors(W::SymbolicMPO) -> Vector{<:AbstractTensorMap}
-    mpo_tensors(Ws, bondsectors, lat)
 
 Dense symmetric site tensors `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit convention) of an [`mpo`](@ref), each
 entry read in its site's basis; the boundary bonds of a finite chain are one-dimensional. On an
-[`InfiniteChain`](@ref) they are the `L` tensors of the unit cell, which tile. The second form takes the
-reduced data `(W.Ws, W.bondsectors)` and the lattice.
+[`InfiniteChain`](@ref) they are the `L` tensors of the unit cell, which tile.
 """
-function mpo_tensors(
+mpo_tensors(W::SymbolicMPO) = reduced_tensors(W.Ws, W.bondsectors, W.lattice)
+
+# The tensors of bond matrices `Ws` with the bond charges `bondsectors` of the bonds right of each site, on
+# `lat` (or a finite chain of the given sites).
+function reduced_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
-        bondsectors::Vector{Vector{I}}, lat::AbstractLattice
+        bondsectors::Vector{Vector{I}}, lat::FiniteChain
     ) where {I}
     return _mpo_tensors(Ws, vcat([I[unit(I)]], bondsectors), lat)
 end
-function mpo_tensors(
+# the unit cell: the bond left of site 1 is bond `L`, so the tensors tile
+function reduced_tensors(
+        Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
+        bondsectors::Vector{Vector{I}}, lat::InfiniteChain
+    ) where {I}
+    L = length(Ws)
+    return _mpo_tensors(Ws, Vector{I}[bondsectors[mod1(j - 1, L)] for j in 1:(L + 1)], lat)
+end
+function reduced_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
         bondsectors::Vector{Vector{I}}, sites::AbstractVector{<:Basis}
     ) where {I}
-    return mpo_tensors(Ws, bondsectors, FiniteChain(sites))
-end
-
-mpo_tensors(W::SymbolicMPO{I, <:FiniteChain}) where {I} =
-    mpo_tensors(W.Ws, W.bondsectors, W.lattice)
-# the unit cell: as the finite assembly, but the bond left of site 1 is bond `L`, so the tensors tile
-function mpo_tensors(W::SymbolicMPO{I, <:InfiniteChain}) where {I}
-    L = length(W)
-    bsecs = Vector{I}[W.bondsectors[mod1(j - 1, L)] for j in 1:(L + 1)]
-    return _mpo_tensors(W.Ws, bsecs, W.lattice)
+    return reduced_tensors(Ws, bondsectors, FiniteChain(sites))
 end
 
 # `bsecs[i]` is the bond to the *left* of site i (length N+1); finite and infinite differ in `bsecs[1]`.

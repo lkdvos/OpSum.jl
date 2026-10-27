@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, mpo_terms, instantiate
+using OpSum: mpo, instantiate
 using TensorKit
 using LinearAlgebra: norm
 
@@ -57,7 +57,7 @@ end
         Ws, secs = W.Ws, W.bondsectors
         @test length(secs) == N
 
-        @test mpo_terms(Ws, secs) ≈ H.terms
+        @test mpo_terms(W) ≈ H.terms
 
         if haskey(EXPECTED, spec.key)
             e = EXPECTED[spec.key]

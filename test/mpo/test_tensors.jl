@@ -28,7 +28,7 @@ end
     ]
     for (name, B, N, H) in cases
         sites = fill(B, N)
-        T = mpo_tensors(reduced(mpo(opsum(sites, H)))..., sites)
+        T = mpo_tensors(mpo(opsum(sites, H)))
         M = physmatrix(N == 2 ? contract2(T) : contract3(T), N, 2)
         @test M ≈ physmatrix(instantiate(opsum(sites, H)), N, 2)
         if name == "SU2 S·S"

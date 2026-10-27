@@ -173,7 +173,7 @@ function mpo_terms_window(H::SymbolicMPO{I, <:InfiniteChain}, ncells::Int) where
     N = ncells * L
     Ws = [H.Ws[mod1(j, L)] for j in 1:N]
     secs = [H.bondsectors[mod1(j, L)] for j in 1:N]
-    return mpo_terms(Ws, secs; leftidx = H.start[L], rightidx = H.finish[L])
+    return reduced_terms(Ws, secs; leftidx = H.start[L], rightidx = H.finish[L])
 end
 
 _cap_left(cap, W) = @tensor out[a o; i b] := cap[a; x] * W[x o; i b]

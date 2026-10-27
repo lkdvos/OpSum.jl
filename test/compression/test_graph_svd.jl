@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, mpo_tensors, mpo_terms, instantiate, scalarop, couple, opsum
+using OpSum: mpo, reduced_tensors, reduced_terms, instantiate, scalarop, couple, opsum
 using OpSum: VertexCover, IndependentSVD, SequentialSVD
 using OpSum: Letter
 using TensorKit
@@ -16,7 +16,7 @@ function contract3(T)
 end
 
 # operator the reduced MPO represents, via path enumeration (valid for any rotated/truncated bond basis)
-mpo_operator(Ws, secs, sites) = instantiate(opsum(sites, mpo_terms(Ws, secs)))
+mpo_operator(Ws, secs, sites) = instantiate(opsum(sites, reduced_terms(Ws, secs)))
 
 @testset "lossless SVD reproduces the operator and matches the bipartite bond dimensions" begin
     Vs = SU2Space(1 // 2 => 1)
@@ -69,7 +69,7 @@ end
     @test densedim(st, 1) < densedim(sb, 1)
     @test length(st[1]) == 1
 
-    Mtrunc = physmatrix(contract3(mpo_tensors(Wt, st, sites)), N, 2)
+    Mtrunc = physmatrix(contract3(reduced_tensors(Wt, st, sites)), N, 2)
     Mexact = physmatrix(instantiate(opsum(sites, H)), N, 2)
     @test size(Mtrunc) == size(Mexact)
     @test !(Mtrunc ≈ Mexact)

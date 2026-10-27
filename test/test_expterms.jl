@@ -327,7 +327,7 @@ end
         Ws, secs = W.Ws, W.bondsectors
         @test length(secs[N]) == 1                      # vacuum-terminated, as on a FiniteChain
         want = termdict(chain_terms(H))
-        got = termdict(mpo_terms(Ws, secs))
+        got = termdict(mpo_terms(W))
         @test length(got) == length(want)
         @test all(
             haskey(want, t) && want[t] ≈ v for (t, v) in got

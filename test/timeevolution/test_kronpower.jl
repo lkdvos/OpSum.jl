@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, mpo_tensors, reduced_tensors, opsum, expterm, SiteOperator, storedpairs, _jordan_layout, _mpo_power, site_product
+using OpSum: mpo, mpo_tensors, reduced_tensors, opsum, expterm, SiteOperator, storedpairs, jordan_layout, _mpo_power, site_product
 using TensorKit
 using SparseArrays: nnz
 
@@ -30,7 +30,7 @@ end
 @testset "levels, sectors and identity channels" begin
     H = only(finite_models("t-V fermions (U1)"))[2]
     W = mpo(H)
-    J = _jordan_layout(W)
+    J = jordan_layout(W)
     n = length.(J.bondsectors)                           # N + 1 bonds
     L = length(W)
     for N in 1:3
@@ -62,7 +62,7 @@ end
 @testset "jordan layout" begin
     for (name, H) in finite_models("Ising (Trivial)", "t-V fermions (U1)", "t-V fermions (parity), next-nearest hop")
         W = mpo(H)
-        J = _jordan_layout(W)
+        J = jordan_layout(W)
         L = length(W)
         Ts = jordan_mpo_tensors(H)
         @test J.start == vcat([1], fill(1, L - 1), [0])
@@ -88,19 +88,19 @@ end
     h = 0.5 * (S.S_plus_S_min[1, 2] + S.S_min_S_plus[1, 2]) + S.S_z_S_z[1, 2]
     Hd = opsum(FiniteChain(B, 4), expterm(h; decay = 0.5))
     @test_throws ArgumentError jordan_mpo_tensors(Hd)
-    @test_throws ArgumentError _jordan_layout(mpo(Hd))
+    @test_throws ArgumentError jordan_layout(mpo(Hd))
     @test_throws ArgumentError _mpo_power(mpo(Hd), 2)
     @test_throws ArgumentError _mpo_power(mpo(Hd), 0)
     # a charged operator has no neutral right boundary
     Sp = matrixunit(B, U1Irrep(1 // 2), U1Irrep(-1 // 2))
     Hc = opsum(FiniteChain(B, 3), Sp[1] + Sp[2])
-    @test_throws ArgumentError _jordan_layout(mpo(Hc))
+    @test_throws ArgumentError jordan_layout(mpo(Hc))
 end
 
 # The memo: every distinct active word (per site) is multiplied once, and the memoised entries are those of the
 # naive product of the layer entries.
 function naive_power(W, N)
-    J = _jordan_layout(W)
+    J = jordan_layout(W)
     L = length(W)
     return map(1:L) do i
         B = W.lattice[i]

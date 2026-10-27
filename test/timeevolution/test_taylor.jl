@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, _scaled, site_product,
-    _jordan_layout, _mpo_power, _taylor_work, _taylor_mpo, _fold_passive!, _merge_equivalent!, _prune_orphans!,
+    jordan_layout, close_right, _mpo_power, _taylor_work, _taylor_mpo, _fold_passive!, _merge_equivalent!, _prune_orphans!,
     _extend!, _compress!, _kron_entry!, _rowbond, _bond_space, _deg_indices
 using TensorKit
 using TensorKit: @tensor
@@ -21,7 +21,7 @@ ising() = only(finite_models("Ising (Trivial)"))
 const CHEAP = ("Ising (Trivial)",)
 
 @testset "TaylorEntry" begin
-    A = _jordan_layout(mpo(ising()[2])).Ws[2][1, end]   # a one-letter operator
+    A = jordan_layout(mpo(ising()[2])).Ws[2][1, end]   # a one-letter operator
     z = zero(TaylorEntry{Trivial})
     @test iszero(z) && iszero(TaylorEntry(zero(SiteOperator{Trivial})))
     e = TaylorEntry(A, 1) + TaylorEntry(A * 2.0, 3) + TaylorEntry(one(SiteOperator{Trivial}))
@@ -45,7 +45,7 @@ end
     H = ising()[2]
     W = mpo(H)
     L = length(W)
-    J = _jordan_layout(W; closed = true)
+    J = close_right(jordan_layout(W))
     @test J.bondsectors[L + 1] == fill(unit(sectortype(H.lattice)), 2)
     @test J.start[L + 1] == 1 && J.finish[L + 1] == 2
     @test isone(J.Ws[L][1, 1])
@@ -82,7 +82,7 @@ poly(I, pairs...) = foldl(+, (TaylorEntry(op, p) for (p, op) in pairs); init = z
     I = sectortype(H.lattice)
     i = 3
     B = H.lattice[i]
-    J = _jordan_layout(W)
+    J = jordan_layout(W)
     n = length(J.bondsectors[i + 1])
     Wb = J.Ws[i]
     @test size(Wb) == (length(J.bondsectors[i]), n)
@@ -120,7 +120,7 @@ end
     I = sectortype(H.lattice)
     i = 3
     B = H.lattice[i]
-    J = _jordan_layout(W)
+    J = jordan_layout(W)
     n = length(J.bondsectors[i + 1])
     chi = n - 2
     op(l, r) = J.Ws[i][l, r]
@@ -193,7 +193,7 @@ end
     # letter (`S⁺S⁺ = 0`, charge conservation) leaves some levels unreachable, which are pruned: below the formula.
     for (name, higher) in (("Ising (Trivial)", [8, 15]), ("XXZ (U1)", nothing), ("J1-J2 (U1)", nothing))
         W = mpo(only(finite_models(name))[2])
-        chi = length(_jordan_layout(W).bondsectors[4]) - 2
+        chi = length(jordan_layout(W).bondsectors[4]) - 2
         for N in 1:2
             D = bonddims(taylor_mpo(W, N; extension = false))
             full = N == 1 ? 1 + chi : 1 + 2chi + chi^2
@@ -213,7 +213,7 @@ end
     )[N]
     for (name, observed) in (("Ising (Trivial)", [2, 3, 6, 12]), ("XXZ (U1)", [4, 13, 42, 130]))
         W = mpo(only(finite_models(name))[2])
-        chi = length(_jordan_layout(W).bondsectors[4]) - 2
+        chi = length(jordan_layout(W).bondsectors[4]) - 2
         name == "Ising (Trivial)" && @test chi == 1
         for N in 1:4
             D = bonddims(taylor_mpo(W, N; extension = true, compression = true))
@@ -318,7 +318,7 @@ end
     I = sectortype(H.lattice)
     i = 3
     B = H.lattice[i]
-    J = _jordan_layout(W)
+    J = jordan_layout(W)
     n = length(J.bondsectors[i + 1])
     mids = 2:(n - 1)
     D, Id = J.Ws[i][1, n], J.Ws[i][1, 1]

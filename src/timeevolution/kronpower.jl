@@ -52,10 +52,30 @@ _fuse(secs) = reduce((a, b) -> only(a ⊗ b), secs)
 # All levels of a bond with `n` indices, layer 1 varying fastest.
 _levels(n::Int, ::Val{N}) where {N} = vec(collect(Tuple(c) for c in CartesianIndices(ntuple(_ -> n, Val(N)))))
 
+# The layout with the right boundary of a finite chain given its start channel as well: two indices `(1, 2)` of
+# charge `unit`, the start channel carrying the identity at `(1, 1)` of the last site and the old column
+# moving to `2`.
+function close_right(layout::JordanLayout{I}) where {I}
+    N = length(layout)
+    M = layout.Ws[N]
+    pairs_ = collect(storedpairs(M))
+    rows = Int[1; [first(Tuple(k)) for (k, _) in pairs_]]
+    cols = fill(2, length(rows))
+    cols[1] = 1
+    vals = SiteOperator{I}[one(SiteOperator{I}); [v for (_, v) in pairs_]]
+    Ws = copy(layout.Ws)
+    Ws[N] = sparse(rows, cols, vals, size(M, 1), 2)
+    bondsectors = copy(layout.bondsectors)
+    bondsectors[N + 1] = fill(unit(I), 2)
+    start, finish = copy(layout.start), copy(layout.finish)
+    start[N + 1], finish[N + 1] = 1, 2
+    return JordanLayout{I}(Ws, bondsectors, start, finish)
+end
+
 """
     _mpo_power(W::SymbolicMPO, N::Integer; closed = false) -> (; mpo, levels, stats, sites)
 
-The `N`-fold Kronecker power of the Jordan form of `W` (`_jordan_layout`): a [`SymbolicMPO`](@ref)
+The `N`-fold Kronecker power of the Jordan form of `W` (`jordan_layout`): a [`SymbolicMPO`](@ref)
 `mpo` whose bond indices are levels, `NTuple{N,Int}`s of Jordan indices, so that
 `mpo_tensors(mpo)` contracts to `H^N` for `W` an MPO of `H` (layer 1 leftmost, see the file header).
 Throws where `jordan_mpo_tensors` does, and for a non-abelian symmetry.
@@ -68,7 +88,7 @@ such channel: the right boundary of a finite chain has no start). `stats` counts
 is the `KronSite` of site `i`: its layer entries and word trie, from which any single entry of a power
 of any order is available lazily (`_kron_entry!`).
 
-`closed = true` gives the right boundary of a finite chain its start channel too (`_jordan_layout`), so it has
+`closed = true` gives the right boundary of a finite chain its start channel too (`jordan_layout`), so it has
 the two identity indices `1, 2` like every other bond and `levels[N]` is all of `{1, 2}^N`: the power then
 represents `H^N` for the boundary vector `(2, …, 2)`, and the other levels are what `taylor_mpo` folds.
 """
@@ -79,7 +99,8 @@ function _mpo_power(W::SymbolicMPO{I}, N::Integer; closed::Bool = false) where {
 end
 
 function _mpo_power(W::SymbolicMPO{I}, ::Val{N}, closed) where {I, N}
-    layout = _jordan_layout(W; closed)
+    layout = jordan_layout(W)
+    closed && W.lattice isa FiniteChain && (layout = close_right(layout))
     L = length(W)
     # bond `b` is left of site `b`; the right bond of an infinite chain is the first again
     levels = Vector{Vector{NTuple{N, Int}}}(undef, L + 1)

@@ -3,7 +3,7 @@ using TensorKit
 using LinearAlgebra: dot
 using OpSum
 using OpSum: couple, unitcell_terms, window_terms, maxspan,
-    TermTable, SweepGraph, rdesc, _entriesequal, _identity_channels, _infinite_window, at_site!
+    TermTable, SweepGraph, rdesc, _entriesequal, _infinite_window, at_site!
 
 # Translation covariance of the sweep: live suffix-class names repeat with the unit cell, and the result
 # does not depend on the order terms were written in.
@@ -72,23 +72,16 @@ end
     end
 end
 
-@testset "identity-channel detection" begin
+@testset "the cell's identity channels" begin
     S = spinvector(BSU2)
     H = _infinite_window(unitcell_terms(opsum(InfiniteChain([BSU2]), dot(S[1], S[2]))))
-    @test _identity_channels(H.Ws, H.bondsectors) == (H.start, H.finish)
-
     W = H.Ws[1]
     s, d = H.start[1], H.finish[1]
-    @test count(idx -> Tuple(idx)[2] == s, first.(collect(OpSum.storedpairs(W)))) == 1
-    @test count(idx -> Tuple(idx)[1] == d, first.(collect(OpSum.storedpairs(W)))) == 1
-
-    # a cell whose only entry is a charged letter has no closed pass-through backbone at all
-    LOp = OpSum.SiteOperator{SU2Irrep}
-    d = OpSum.Dictionary{CartesianIndex{2}, LOp}()
-    OpSum.increaseindex!(
-        d, CartesianIndex(1, 1), OpSum.SiteOperator(OpSum.Letter(SU2Irrep(1), 1))
-    )
-    @test_throws ArgumentError _identity_channels(
-        [OpSum.sparse_from_dict(d, (1, 1))], [[SU2Irrep(1)]]
-    )
+    @test H.bondsectors[1][s] == H.bondsectors[1][d] == unit(SU2Irrep)
+    @test s != d
+    # nothing enters the start channel but itself, nothing leaves the finish channel but itself
+    entries = collect(OpSum.storedpairs(W))
+    @test count(p -> Tuple(first(p))[2] == s, entries) == 1
+    @test count(p -> Tuple(first(p))[1] == d, entries) == 1
+    @test isone(W[s, s]) && isone(W[d, d])
 end

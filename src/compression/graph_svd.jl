@@ -64,6 +64,14 @@ function _flatten_R(R, Wb, colQ::Vector{I}, coldeg::Vector{Int}, colactive::BitV
     return Rmat
 end
 
+# Zero the entries of `M` of magnitude at most `atol`.
+function _dropsmall!(M::AbstractArray, atol::Real)
+    for k in eachindex(M)
+        abs(M[k]) <= atol && (M[k] = zero(eltype(M)))
+    end
+    return M
+end
+
 # `bond_basis!` for `SequentialSVD`: the whole bond's coefficient matrix is a charge-graded
 # `C : Ppre ← Psuf`; its truncated `U` is the compressed basis (index `m` emits `key.letter * U[u, m]`) and
 # `R = S·Vᴴ` becomes the forwarded edge weights (folded into the block at the last site).
@@ -105,6 +113,8 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Seque
     Wb = space(S, 1)   # retained bond space
     Umat, secW = _flatten_U(U, Wb, uCharge, udeg)   # column m = compressed prefix basis vector
     Rmat = _flatten_R(S * Vt, Wb, vCharge, vdeg, vactive)
+    _dropsmall!(Umat, SVD_ATOL)
+    _dropsmall!(Rmat, SVD_ATOL * LinearAlgebra.norm(S, Inf))
     r = length(secW)
 
     site_dict = Dictionary{CartesianIndex{2}, LOp}()
@@ -220,9 +230,10 @@ function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
 
         for (key, C_op) in pairs(op_coeffs)
             W_op = U_left' * C_op * U_right
+            atol = SVD_ATOL * maximum(abs, C_op)
             lop = convert(LOp, key.letter)
             for col in 1:size(W_op, 2), row in 1:size(W_op, 1)
-                iszero(W_op[row, col]) && continue
+                abs(W_op[row, col]) <= atol && continue
                 increaseindex!(dicts[i], CartesianIndex(row, col), lop * W_op[row, col])
             end
         end

@@ -44,6 +44,11 @@ struct SequentialSVD{T <: TruncationStrategy} <: BondStrategy
 end
 SequentialSVD() = SequentialSVD(notrunc())
 
+# The SVD strategies drop entries below `SVD_ATOL` times the scale of their bond (the largest singular value
+# for `R = S·Vᴴ`, 1 for the isometry `U`, the largest coefficient of the operator block for `IndependentSVD`):
+# round-off, which would otherwise be stored as a letter with a ~1e-16 coefficient.
+const SVD_ATOL = 1.0e-14
+
 # does the strategy truncate (and so need the basis' own metric, metric.jl)?
 truncates(::VertexCover) = false
 truncates(s::Union{IndependentSVD, SequentialSVD}) = !(s.trunc isa NoTruncation)

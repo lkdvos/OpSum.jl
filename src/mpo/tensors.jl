@@ -2,7 +2,7 @@
 # `mpo_tensors`.
 
 using SparseArrays: SparseMatrixCSC
-using TensorKit: Vect, fusiontrees, permute, unit, @tensor, ncon, removeunit
+using TensorKit: FusionTree, Vect, fusiontrees, permute, unit, @tensor, ncon, removeunit
 
 # Bond matrices, bond sectors and per-bond identity-channel indices (empty with decaying channels, where
 # they are unknown). Without channels `sweep` forces the finish channel into the cover.
@@ -88,26 +88,17 @@ function _deg_indices(sec::Vector{I}) where {I}
     return [counts[c] = get(counts, c, 0) + 1 for c in sec]
 end
 
-# Function barriers: the memo tables are `Any`-typed.
-function _add_bond_entry!(W, O, κ)
-    @tensor W[bl o; ii br] += O[o; ii cc] * κ[bl cc; br]
-    return W
-end
-function _add_coupler_coeff!(κ, f1, f2, dL::Int, dR::Int, coeff)
-    κ[f1, f2][dL, 1, dR] += coeff
-    return κ
-end
-
 # One letter's block for a single `(bL, bR)` bond-charge pair (no bond degeneracy), for `jordan_mpo_tensors`.
-function _letter_block(letter::Letter{I}, site, bL::I, bR::I) where {I}
+function _letter_block(letter::Letter{I}, site::Basis{I}, bL::I, bR::I) where {I}
     c = letter.c
     V = space(site)
     f1 = only(fusiontrees((bL, c), bR, (false, false)))
     f2 = only(fusiontrees((bR,), bR, (false,)))
     κ = zeros(ComplexF64, Vect[I](bL => 1) ⊗ Vect[I](c => 1) ← Vect[I](bR => 1))
-    _add_coupler_coeff!(κ, f1, f2, 1, 1, ComplexF64(1))
+    κ[f1, f2][1, 1, 1] = 1
     blk = zeros(ComplexF64, Vect[I](bL => 1) ⊗ V ← V ⊗ Vect[I](bR => 1))
-    _add_bond_entry!(blk, instantiate(letter, site), κ)
+    O = instantiate(letter, site)
+    @tensor blk[bl o; ii br] += O[o; ii cc] * κ[bl cc; br]
     return blk
 end
 
@@ -151,44 +142,47 @@ function _mpo_tensors(
     N = length(Ws)
     bspaces = map(_bond_space, bsecs)
     bdegs = map(_deg_indices, bsecs)
-
     return map(1:N) do i
-        site = sites[i]
-        V = space(site)
-        secL, secR = bsecs[i], bsecs[i + 1]
-        Bleft, Bright = bspaces[i], bspaces[i + 1]
-        degL, degR = bdegs[i], bdegs[i + 1]
-
-        W = zeros(ComplexF64, Bleft ⊗ V ← V ⊗ Bright)
-
-        # per *letter*: κ collects every coefficient carrying it, so `O(d²)` contractions, not `O(D_L D_R)`
-        ops = Dictionary{Letter{I}, Any}()
-        couplers = Dictionary{Letter{I}, Any}()
-        f1s = Dictionary{Tuple{I, I, I}, Any}()
-        f2s = Dictionary{I, Any}()
-
-        for (idx, localop) in storedpairs(Ws[i])
-            l, r = Tuple(idx)
-            bL, dL = secL[l], degL[l]
-            bR, dR = secR[r], degR[r]
-            for (letter, coeff) in pairs(localop)
-                c = letter.c
-                get!(() -> instantiate(letter, site), ops, letter)
-                # running bond FIRST, matching the caterpillar (charge-first flips the sign at 1⊗1→1)
-                κ = get!(couplers, letter) do
-                    return zeros(ComplexF64, Bleft ⊗ Vect[I](c => 1) ← Bright)
-                end
-                f1 = get!(() -> only(fusiontrees((bL, c), bR, (false, false))), f1s, (bL, c, bR))
-                f2 = get!(() -> only(fusiontrees((bR,), bR, (false,))), f2s, bR)
-                _add_coupler_coeff!(κ, f1, f2, dL, dR, coeff)
-            end
-        end
-
-        for (letter, κ) in pairs(couplers)
-            _add_bond_entry!(W, ops[letter], κ)
-        end
-        return W
+        return _site_tensor(sites[i], Ws[i], bsecs[i], bsecs[i + 1], bspaces[i], bspaces[i + 1], bdegs[i], bdegs[i + 1])
     end
+end
+
+# The tensor of one site; the arguments are concrete here, so the caches below are typed.
+function _site_tensor(
+        site::Basis{I, S, T}, M::SparseMatrixCSC{SiteOperator{I}}, secL::Vector{I}, secR::Vector{I},
+        Bleft, Bright, degL::Vector{Int}, degR::Vector{Int}
+    ) where {I, S, T}
+    V = space(site)
+    W = zeros(ComplexF64, Bleft ⊗ V ← V ⊗ Bright)
+
+    # per *letter*: κ collects every coefficient carrying it, so `O(d²)` contractions, not `O(D_L D_R)`
+    ops = Dictionary{Letter{I}, T}()
+    couplers = Dictionary{Letter{I}, typeof(zeros(ComplexF64, Bleft ⊗ Vect[I](unit(I) => 1) ← Bright))}()
+    f1s = Dictionary{Tuple{I, I, I}, FusionTree{I, 2, 0, 1}}()
+    f2s = Dictionary{I, FusionTree{I, 1, 0, 0}}()
+
+    for (idx, localop) in storedpairs(M)
+        l, r = Tuple(idx)
+        bL, dL = secL[l], degL[l]
+        bR, dR = secR[r], degR[r]
+        for (letter, coeff) in pairs(localop)
+            c = letter.c
+            get!(() -> instantiate(letter, site), ops, letter)
+            # running bond FIRST, matching the caterpillar (charge-first flips the sign at 1⊗1→1)
+            κ = get!(couplers, letter) do
+                return zeros(ComplexF64, Bleft ⊗ Vect[I](c => 1) ← Bright)
+            end
+            f1 = get!(() -> only(fusiontrees((bL, c), bR, (false, false))), f1s, (bL, c, bR))
+            f2 = get!(() -> only(fusiontrees((bR,), bR, (false,))), f2s, bR)
+            κ[f1, f2][dL, 1, dR] += coeff
+        end
+    end
+
+    for (letter, κ) in pairs(couplers)
+        O = ops[letter]
+        @tensor W[bl o; ii br] += O[o; ii cc] * κ[bl cc; br]
+    end
+    return W
 end
 
 """

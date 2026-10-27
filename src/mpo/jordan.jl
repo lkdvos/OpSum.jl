@@ -179,10 +179,11 @@ function _jordan_tensors(layout::JordanLayout{I}, sites) where {I}
                 )
                 continue
             end
-            blk = nothing
-            for (letter, coeff) in pairs(op)
+            (letter, coeff), rest = Iterators.peel(pairs(op))
+            blk = coeff * get!(() -> _letter_block(letter, site, bL, bR), blocks, (letter, bL, bR))
+            for (letter, coeff) in rest
                 B = get!(() -> _letter_block(letter, site, bL, bR), blocks, (letter, bL, bR))
-                blk = blk === nothing ? coeff * B : blk + coeff * B
+                add!(blk, B, coeff)
             end
             W[row, 1, 1, col] = blk
         end

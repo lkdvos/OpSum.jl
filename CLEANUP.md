@@ -59,8 +59,8 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite green at a53c9c4) |
 | 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
 | 7 | The sweep | compression/termtable, graph | done (full suite green at ea13cfe, 139814) |
-| 8 | Bond bases | compression/graph_vc, graph_svd, metric | done (full suite with chunk 9) |
-| 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite running) |
+| 8 | Bond bases | compression/graph_vc, graph_svd, metric | done (full suite green at ca2ce05, 139827) |
+| 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite green at ca2ce05, 139827) |
 | 10 | Infinite chains | infinite/unitcell, window | implementing |
 | 11 | Time evolution | timeevolution/ | pending |
 | 12 | Organisation revisit | — | pending |
@@ -311,5 +311,5 @@ Implemented by a separate agent after chunk 9.
 
 ## Resume here
 
-Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16). Chunk 10 (D17) implementing. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 (D17) implementing. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

@@ -22,45 +22,46 @@ end
 _svd_trunc(trunc::TruncationStrategy) = trunc
 _svd_trunc(::NoTruncation) = trunctol(rtol = eps(Float64))
 
-# SVD a charge-graded block `C : Ppre ← Psuf` (truncated by `trunc`) and flatten the
-# retained `U` into a dense `Umat[p, col]` with column charges `secs`. With `colQ`/`coldeg`/`colactive`
-# it also flattens `R = S · Vᴴ` into `Rmat` (what `SequentialSVD` forwards).
-function _svd_flatten_block(
-        C, trunc, rowQ::Vector{I}, rowdeg::Vector{Int};
-        colQ::Union{Nothing, Vector{I}} = nothing, coldeg::Union{Nothing, Vector{Int}} = nothing,
-        colactive::Union{Nothing, BitVector} = nothing
-    ) where {I}
-    U, S, Vt = svd_trunc(C; trunc = _svd_trunc(trunc))
-    Wb = space(S, 1)   # retained bond space
+# The retained `U : Ppre ← Wb` of a block SVD as a dense `Umat[p, col]` with column charges `secs`; `p`
+# runs over the rows with charge `rowQ[p]` and degeneracy index `rowdeg[p]`.
+function _flatten_U(U, Wb, rowQ::Vector{I}, rowdeg::Vector{Int}) where {I}
     T = eltype(U)
-    nrow = length(rowQ)
     r = sum(q -> dim(Wb, q), sectors(Wb); init = 0)
-    Umat = zeros(T, nrow, r)
+    Umat = zeros(T, length(rowQ), r)
     secs = Vector{I}(undef, r)
-    R = colQ === nothing ? nothing : S * Vt
-    Rmat = colQ === nothing ? nothing : zeros(T, r, length(colQ))
     col = 0
     for q in sectors(Wb)
         Ub = block(U, q)
-        Rb = colQ === nothing ? nothing : block(R, q)
         for localcol in 1:size(Ub, 2)
             col += 1
             secs[col] = q
-            for p in 1:nrow
+            for p in eachindex(rowQ)
                 rowQ[p] == q || continue
                 Umat[p, col] = Ub[rowdeg[p], localcol]
-            end
-            if colQ !== nothing
-                for v in eachindex(colQ)
-                    active = colactive === nothing || colactive[v]
-                    (active && colQ[v] == q) || continue
-                    Rmat[col, v] = Rb[localcol, coldeg[v]]
-                end
             end
         end
     end
     col == r || invariant_violation("retained bond space does not match its per-sector dimensions")
-    return (; U = Umat, secs, R = Rmat)
+    return Umat, secs
+end
+
+# `R = S · Vᴴ : Wb ← Psuf` as a dense `Rmat[col, v]`, columns in the order of `_flatten_U`; `v` runs over
+# the active columns with charge `colQ[v]` and degeneracy index `coldeg[v]`.
+function _flatten_R(R, Wb, colQ::Vector{I}, coldeg::Vector{Int}, colactive::BitVector) where {I}
+    r = sum(q -> dim(Wb, q), sectors(Wb); init = 0)
+    Rmat = zeros(eltype(R), r, length(colQ))
+    col = 0
+    for q in sectors(Wb)
+        Rb = block(R, q)
+        for localcol in 1:size(Rb, 1)
+            col += 1
+            for v in eachindex(colQ)
+                (colactive[v] && colQ[v] == q) || continue
+                Rmat[col, v] = Rb[localcol, coldeg[v]]
+            end
+        end
+    end
+    return Rmat
 end
 
 # `bond_basis!` for `SequentialSVD`: the whole bond's coefficient matrix is a charge-graded
@@ -69,24 +70,22 @@ end
 function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::SequentialSVD) where {I}
     LOp = SiteOperator{I}
     N = g.N
-    coeff = zeros(ComplexF64, nU, nV)   # dense `coeff[u, v]` from the sparse adjacency
-    for iu in 1:nU
-        for (rid, w) in zip(g.left.radj[iu], g.left.wadj[iu])
-            coeff[iu, rid] += w
-        end
-    end
 
     # bond charge of each prefix and suffix state (a right vertex orphaned by truncation has none)
     uCharge = I[g.left.vertex[u].key.bond for u in 1:nU]
     vCharge = Vector{I}(undef, nV)
     vactive = falses(nV)
-    for v in 1:nV
-        conn = findall(!iszero, @view coeff[:, v])
-        isempty(conn) && continue
-        q = vCharge[v] = uCharge[first(conn)]
-        all(uCharge[u] == q for u in conn) ||
-            invariant_violation("bond index not sector-pure (block-diagonality violated)")
-        vactive[v] = true
+    for u in 1:nU
+        for (rid, w) in zip(g.left.radj[u], g.left.wadj[u])
+            iszero(w) && continue
+            if vactive[rid]
+                vCharge[rid] == uCharge[u] ||
+                    invariant_violation("bond index not sector-pure (block-diagonality violated)")
+            else
+                vCharge[rid] = uCharge[u]
+                vactive[rid] = true
+            end
+        end
     end
 
     # degeneracy index within the charge sector, and per-sector multiplicities
@@ -94,19 +93,18 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Seque
     udeg = [_nextdeg!(umult, q) for q in uCharge]
     vdeg = [vactive[v] ? _nextdeg!(vmult, vCharge[v]) : 0 for v in 1:nV]
 
-    Ppre = Vect[I](umult)
-    Psuf = Vect[I](vmult)
-    C = zeros(ComplexF64, Ppre ← Psuf)
-    for v in 1:nV, u in 1:nU
-        iszero(coeff[u, v]) && continue
-        block(C, uCharge[u])[udeg[u], vdeg[v]] += coeff[u, v]
+    C = zeros(ComplexF64, Vect[I](umult) ← Vect[I](vmult))
+    for u in 1:nU
+        Cb = block(C, uCharge[u])
+        for (rid, w) in zip(g.left.radj[u], g.left.wadj[u])
+            iszero(w) || (Cb[udeg[u], vdeg[rid]] += w)
+        end
     end
 
-    flat = _svd_flatten_block(
-        C, strategy.trunc, uCharge, udeg;
-        colQ = vCharge, coldeg = vdeg, colactive = vactive
-    )
-    Umat, secW, Rmat = flat.U, flat.secs, flat.R   # column m = compressed prefix basis vector
+    U, S, Vt = svd_trunc(C; trunc = _svd_trunc(strategy.trunc))
+    Wb = space(S, 1)   # retained bond space
+    Umat, secW = _flatten_U(U, Wb, uCharge, udeg)   # column m = compressed prefix basis vector
+    Rmat = _flatten_R(S * Vt, Wb, vCharge, vdeg, vactive)
     r = length(secW)
 
     site_dict = Dictionary{CartesianIndex{2}, LOp}()
@@ -188,9 +186,8 @@ function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
             block(C, preQ[p])[pre_deg[p], suf_deg[s]] += tt.coeffs[t]
         end
 
-        flat = _svd_flatten_block(C, trunc, preQ, pre_deg)
-        bond_Us[b] = flat.U
-        bond_secs[b] = flat.secs
+        U, S, _ = svd_trunc(C; trunc = _svd_trunc(trunc))
+        bond_Us[b], bond_secs[b] = _flatten_U(U, space(S, 1), preQ, pre_deg)
     end
 
     # 2. project each vertex operator into the compressed bases (boundary bonds are 1×1)

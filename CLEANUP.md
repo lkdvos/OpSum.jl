@@ -61,7 +61,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 7 | The sweep | compression/termtable, graph | done (full suite green at ea13cfe, 139814) |
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | done (full suite green at ca2ce05, 139827) |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite green at ca2ce05, 139827) |
-| 10 | Infinite chains | infinite/unitcell, window | implementing |
+| 10 | Infinite chains | infinite/unitcell, window | done (full suite running) |
 | 11 | Time evolution | timeevolution/ | pending |
 | 12 | Organisation revisit | — | pending |
 | 13 | Tests | test/ | pending |
@@ -292,6 +292,11 @@ works on finite chains with `expterm` (checked to order N+1). 95 cases: bitwise 
 (e) P10.5: the `ExpSum` translates error names the clashing generator; `window_terms(ts, L, ncells)`; the window-size
 numbers become named constants with their reason.
 Implemented by a separate agent after chunk 9.
+As applied: a1193c1 (a+b; window sweeps with `jordan = true`, the backbone search is deleted), 1500245 (c), efb3c77 (d;
+`==` differs from `_entriesequal` only in treating a stored-but-empty entry as absent), 0ab7c59 (e; `WINDOW_EDGE_MARGIN`,
+`WINDOW_CHECK_CELLS`, `WINDOW_DOUBLINGS`). 95/95 bitwise vs pre10.jls; ncells independence tests pass; infinite `mpo`
+2–5% faster, 3–7 KB fewer allocations. Targeted tests green at 0ab7c59. The `Terms` translates error still reports the
+earlier term's shifted support.
 
 ## Possible improvements
 
@@ -311,5 +316,5 @@ Implemented by a separate agent after chunk 9.
 
 ## Resume here
 
-Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 (D17) implementing. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 done (D17). Chunk 11 presented, awaiting answers. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

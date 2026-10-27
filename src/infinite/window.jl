@@ -6,7 +6,6 @@
 # that has reached the translation-invariant fixed point. Closure is checked, not assumed.
 
 using SparseArrays: SparseMatrixCSC
-using TensorKit: Sector, unit, block, oneunit, ncon, removeunit, permute, @tensor
 
 # --- the window construction ------------------------------------------------------------------
 
@@ -77,47 +76,4 @@ function _infinite_window(
     cellsecs = bondsectors[(offset + 1):(offset + L)]
     cellstart, cellfinish = start[(offset + 1):(offset + L)], finish[(offset + 1):(offset + L)]
     return SymbolicMPO{I, typeof(lat)}(lat, cellWs, cellsecs, cellstart, cellfinish)
-end
-
-# --- faithfulness ---------------------------------------------------------------------------------
-
-# Terms an infinite MPO generates in a window of `ncells` cells (cell tiled, paths start → finish). A
-# sandwich against `window_terms`, not an equality: everything produced is a translate in the window at
-# its exact coefficient, but a path may run up to `R` sites past its term's support (the pending/started
-# collision), so only translates ending `R + 1` sites before the right edge are all produced.
-function mpo_terms_window(H::SymbolicMPO{I, <:InfiniteChain}, ncells::Int) where {I}
-    L = length(H)
-    N = ncells * L
-    Ws = [H.Ws[mod1(j, L)] for j in 1:N]
-    secs = [H.bondsectors[mod1(j, L)] for j in 1:N]
-    return reduced_terms(Ws, secs; leftidx = H.start[L], rightidx = H.finish[L])
-end
-
-_cap_left(cap, W) = @tensor out[a o; i b] := cap[a; x] * W[x o; i b]
-_cap_right(cap, W) = @tensor out[a o; i b] := W[a o; i x] * cap[x; b]
-
-# One-hot map onto index `idx` of a bond, as a `oneunit ← B` (left) or `B ← oneunit` (right) tensor.
-function _channel_cap(bondsec::Vector{I}, idx::Int, side::Symbol) where {I}
-    bondsec[idx] == unit(I) ||
-        throw(ArgumentError("boundary index $idx carries charge $(bondsec[idx]), expected $(unit(I))"))
-    B = _bond_space(bondsec)
-    deg = _deg_indices(bondsec)[idx]
-    if side === :left
-        cap = zeros(ComplexF64, oneunit(B) ← B)
-        block(cap, unit(I))[1, deg] = 1
-    else
-        cap = zeros(ComplexF64, B ← oneunit(B))
-        block(cap, unit(I))[deg, 1] = 1
-    end
-    return cap
-end
-
-# Operator between two bond-basis vectors of the shared boundary bond (capped by one-hot maps), in
-# `instantiate`'s convention. Exponential in `N`; for tests.
-function contract_open(Ts, bondsec::Vector{I}, leftidx::Int, rightidx::Int) where {I}
-    N = length(Ts)
-    capped = copy(collect(Ts))
-    capped[1] = _cap_left(_channel_cap(bondsec, leftidx, :left), capped[1])
-    capped[N] = _cap_right(_channel_cap(bondsec, rightidx, :right), capped[N])
-    return mpo_tensormap(capped)
 end

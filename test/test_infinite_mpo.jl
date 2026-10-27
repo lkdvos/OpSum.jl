@@ -2,7 +2,7 @@ using Test
 using TensorKit
 using LinearAlgebra: dot
 using OpSum
-using OpSum: mpo, mpo_tensors, mpo_terms_window, window_terms, unitcell_terms,
+using OpSum: mpo, mpo_tensors, window_terms, unitcell_terms,
     translate, maxspan, termspan, couple, scalarop, instantiate
 using OpSum: Letter
 
@@ -232,9 +232,8 @@ end
         sites = [spaces[mod1(j, L)] for j in 1:N]
 
         Ts = mpo_tensors(Hinf)
-        tiled = [Ts[mod1(j, L)] for j in 1:N]
-        O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.finish[L])
-        oracle = instantiate(opsum(sites, mpo_terms_window(Hinf, ncells)))
+        O = window_operator(Ts, Hinf.bondsectors, Hinf.start[L], Hinf.finish[L], ncells)
+        oracle = densify(opsum(sites, mpo_terms_window(Hinf, ncells)))
         @test O ≈ oracle || (println("  $name mismatch"); false)
     end
 end

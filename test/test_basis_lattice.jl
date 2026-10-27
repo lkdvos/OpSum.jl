@@ -143,7 +143,7 @@ end
     # the same on an infinite chain, against the explicit window
     Hi = opsum(InfiniteChain(f.B), expterm(f.h[1, 2]; decay = λ, string = p), 0.3 * f.n[1])
     W = mpo(Hi)
-    got = termdict(OpSum.mpo_terms_window(W, 6))
+    got = termdict(mpo_terms_window(W, 6))
     exact = termdict(OpSum.window_terms(Hi, 6))
     @test all(haskey(exact, t) && exact[t] ≈ v for (t, v) in got)
     @test all(haskey(got, t) for t in keys(exact) if maximum(first(t)) <= 4)

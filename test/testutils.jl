@@ -233,5 +233,17 @@ function window_operator(Ts, secs, s, f, cells)
     return plain(mpo_tensormap(window))
 end
 
+# Terms an infinite MPO generates in a window of `ncells` cells (cell tiled, paths start → finish). A
+# sandwich against `window_terms`, not an equality: everything produced is a translate in the window at
+# its exact coefficient, but a path may run up to `R` sites past its term's support (the pending/started
+# collision), so only translates ending `R + 1` sites before the right edge are all produced.
+function mpo_terms_window(H::SymbolicMPO{I, <:InfiniteChain}, ncells::Int) where {I}
+    L = length(H)
+    N = ncells * L
+    Ws = [H.Ws[mod1(j, L)] for j in 1:N]
+    secs = [H.bondsectors[mod1(j, L)] for j in 1:N]
+    return OpSum.reduced_terms(Ws, secs; leftidx = H.start[L], rightidx = H.finish[L])
+end
+
 # a term sum as a dictionary `support => coefficient`; `Term` equality includes the coefficient
 termdict(ts) = Dict(OpSum.support(t) => t.coeff for t in ts)

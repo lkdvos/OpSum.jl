@@ -495,16 +495,30 @@ function _build_next_graph!(
     return g
 end
 
+# The compressed basis of one bond, the result of every strategy's `bond_basis!`: its `nout` indices with
+# their charges (`sectors`), the entries `(incoming link, index) ↦ letter` of `W_i` (`site`), the
+# `(right vertex, weight)` edges each index forwards (`nextedges`, empty at the last site) and the indices
+# of the start/finish identity channels (0 when absent; only the vertex cover reserves them).
+struct BondBasis{I <: Sector}
+    nout::Int
+    site::Dictionary{CartesianIndex{2}, SiteOperator{I}}
+    sectors::Vector{I}
+    nextedges::Vector{Vector{Tuple{Int, ComplexF64}}}
+    startidx::Int
+    finishidx::Int
+end
+BondBasis{I}(nout, site, sectors, nextedges) where {I} = BondBasis{I}(nout, site, sectors, nextedges, 0, 0)
+
 # One site step: `_prepare_bond!`, the strategy's `bond_basis!`, `_build_next_graph!`. Returns
 # `(W_i, bondsectors_i, startidx, finishidx)`.
 function at_site!(g::SweepGraph{I}, i::Int, strategy::GraphStrategy = VertexCover()) where {I}
     nU, nV = _prepare_bond!(g, i)
-    g.bound.startidx = 0
-    g.bound.finishidx = 0
-    nout, site_dict, secW, nextedges_global = bond_basis!(g, i, nU, nV, strategy)
-    Ws_i = sparse_from_dict(site_dict, (g.left.nlinks, nout))
-    i < g.N && _build_next_graph!(g, i, nout, nextedges_global)
-    return Ws_i, secW, g.bound.startidx, g.bound.finishidx
+    b = bond_basis!(g, i, nU, nV, strategy)
+    g.bound.startidx = b.startidx
+    g.bound.finishidx = b.finishidx
+    Ws_i = sparse_from_dict(b.site, (g.left.nlinks, b.nout))
+    i < g.N && _build_next_graph!(g, i, b.nout, b.nextedges)
+    return Ws_i, b.sectors, b.startidx, b.finishidx
 end
 
 # Lazy insertion represents the not-yet-started terms by a sentinel right vertex and injects them later

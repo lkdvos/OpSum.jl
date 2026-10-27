@@ -127,7 +127,7 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Seque
         end
     end
 
-    return r, site_dict, secW, nextedges_global
+    return BondBasis{I}(r, site_dict, secW, nextedges_global)
 end
 
 # `IndependentSVD`: not a graph sweep, since each bond is compressed on the raw prefix/suffix classes

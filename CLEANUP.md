@@ -58,7 +58,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 4 | Bases and projection | basis, projection, stockbases, adjoint | done (full suite green at f9990dc) |
 | 5 | Unplaced operators and products | localoperator, products, letterproducts | done (full suite green at a53c9c4) |
 | 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
-| 7 | The sweep | compression/termtable, graph | implementing |
+| 7 | The sweep | compression/termtable, graph | done (full suite running) |
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | pending |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | pending |
 | 10 | Infinite chains | infinite/unitcell, window | pending |
@@ -233,6 +233,14 @@ beyond noise (else flat struct with keyword construction).
 `_rdesc` kind; the channel index stays a separate integer.
 (e) P7.5: lazy insertion for `SequentialSVD` too; if bitwise identical, eager mode, `lazy` and the seeding branch go.
 (f) P7.6: D7 renames for the cross-file sweep names; fix the garbled `_iscyclic` comment and "an `TermTable`".
+As applied: 47fa34d (a+b; `_compress_channels` and `window.jl` call `sweep(...; jordan = false)`), d7fa9ec (f; file-local
+`_prepare_bond!`, `_build_next_graph!`, `_force_finish!`, `_forced_cover`, `_canonicalise_*` keep `_`), 3b8e1b0 (c, keyword
+construction only), 7bb5e55 (d; `RightKind` with its own `rkind` column, `DescKind`), 690482f (CLAUDE.md). 95/95 bitwise vs
+pre7.jls, 0 operator mismatches. (c) grouping implemented (8f7fdc6, branch `cleanup-grouped-sweepgraph`, 95/95 bitwise,
+time within noise) but reverted for +16–368 bytes per `mpo`; pending the user's call. (e) not possible: the SVD forwards
+the lazy sentinel as a dense column (BoundsError in `_build_next_graph!`) and has no start index to inject pending terms;
+eager mode stays, documented at `_graph_lazy`. The `rkind` column costs ~0.4% allocation (+2–236 KB per `mpo`); mpo time
++0–3% (seq_hubbard +5.5% min, median within noise); TTFX unchanged (4.6–4.8 s).
 
 ## Possible improvements
 
@@ -252,6 +260,6 @@ beyond noise (else flat struct with keyword construction).
 
 ## Resume here
 
-Chunks 0–4 done, full suite green at f9990dc (139496). Chunk 5 decided (D12), implementation delegated. Chunks 6–14
-then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
-pre-chunk references pre3.jls, pre4.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).
+Chunks 0–7 done (chunk 7 full suite pending). Chunk 8 presented, awaiting answers (P8.1–P8.6, keep IndependentSVD?,
+take grouped SweepGraph 8f7fdc6?). Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

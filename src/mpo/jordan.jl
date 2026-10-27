@@ -12,8 +12,8 @@ using TensorKit: BraidingTensor, Vect, Sector, unit, tensormaptype
 site (of the chain or the unit cell), `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i`, with bond indices ordered
 `(start channel, everything else, finish channel)` and identities at `(1, 1)` and `(end, end)` emitted as
 `BraidingTensor`s. On a finite chain `H` must have total charge `unit(I)`. This is the shape MPSKit's
-`JordanMPOTensor` consumes; use [`mpo_tensors`](@ref) for dense `TensorMap`s. Not available for
-decaying channels on a finite chain; a truncating SVD [`BondStrategy`](@ref) that empties a bond is rejected.
+`JordanMPOTensor` consumes; use [`mpo_tensors`](@ref) for dense `TensorMap`s.
+A truncating SVD [`BondStrategy`](@ref) that empties a bond is rejected.
 """
 jordan_mpo_tensors(H::OperatorSum, args...) = jordan_mpo_tensors(mpo(H, args...))
 jordan_mpo_tensors(W::SymbolicMPO) = _jordan_tensors(jordan_layout(W), W.lattice)
@@ -52,12 +52,6 @@ end
 function _jordan_bonds(W::SymbolicMPO{I, <:FiniteChain}) where {I}
     isempty(W.Ws) && throw(
         ArgumentError("cannot emit a Jordan MPO for an empty operator: it has no bond structure")
-    )
-    length(W.start) == length(W) || throw(
-        ArgumentError(
-            "this SymbolicMPO does not know its identity channels (it has exponentially decaying " *
-                "channels on a finite chain), so it has no Jordan form yet"
-        )
     )
     N = length(W)
     W.bondsectors[N] == I[unit(I)] || throw(
@@ -106,8 +100,8 @@ end
 Base.length(J::JordanLayout) = length(J.Ws)
 
 # Steps 1-2 of the emission, symbolic: the entries of every site in Jordan order, the structural invariants
-# checked and the identity corners padded where missing. Throws where `jordan_mpo_tensors` does (no identity
-# channels known, non-trivial total charge, empty bond).
+# checked and the identity corners padded where missing. Throws where `jordan_mpo_tensors` does (non-trivial
+# total charge, empty bond).
 function jordan_layout(W::SymbolicMPO{I, L}) where {I, L}
     pos, jsec = _jordan_bonds(W)
     N = length(W)

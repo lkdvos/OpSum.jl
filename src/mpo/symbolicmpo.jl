@@ -7,8 +7,7 @@ using TensorKit: Sector, dim, unit
 A compressed MPO with symbolic entries, as [`mpo`](@ref) returns it: `W[i]` is the sparse bond matrix of
 site `i` (entries are [`SiteOperator`](@ref)s) and `W.bondsectors[i]` the charge of each index of the bond
 to its right (on an [`InfiniteChain`](@ref) bond `L` is the one left of site 1). `W.start[i]` and
-`W.finish[i]` are the two identity-channel indices on bond `i` (`0` if the compression spent none; both
-vectors are empty when unknown, i.e. decaying channels on a finite chain).
+`W.finish[i]` are the two identity-channel indices on bond `i` (`0` if the compression spent none).
 
 `instantiate(W)` gives MPSKit's `FiniteMPOHamiltonian` or `InfiniteMPOHamiltonian` once MPSKit is loaded.
 """
@@ -44,7 +43,7 @@ set: it represents `Σ_{n ∈ ℤ} translate(H, n·L)`, so each translation clas
 `FiniteChain` it represents the geometric sum truncated to the chain ([`chain_terms`](@ref)).
 
 The two identity channels of every bond are identified (the Jordan form needs them); on a finite chain the
-finish channel is forced into the cover for that, except with decaying channels.
+finish channel is forced into the cover for that.
 
 `alg` is a [`BondStrategy`](@ref): [`VertexCover`](@ref) (default, lossless minimum vertex cover),
 [`IndependentSVD`](@ref) or [`SequentialSVD`](@ref) (finite chains without channels only).

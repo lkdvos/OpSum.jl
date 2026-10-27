@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: LocalOperator, mpo_tensormap, mpo_tensors, jordan_mpo_tensors, mpo_terms
+using OpSum: LocalOperator, mpo_tensormap, mpo_tensors, jordan_mpo_tensors, mpo_terms, chain_terms
 using TensorKit
 using TensorKit: removeunit, numind, BraidingTensor
 using MPSKit: MPSKit, FiniteMPOHamiltonian, InfiniteMPOHamiltonian, FiniteMPS, InfiniteMPS,
@@ -137,12 +137,23 @@ end
     @test instantiate(op, B) isa AbstractTensorMap
     @test mpo_tensormap(mpo_tensors(W)) ≈ instantiate(H)
 
-    # decaying channels on a finite chain: compressed, but no Jordan form yet
-    Hd = opsum(FiniteChain(B, N), expterm(couple(n[1], n[2]); decay = 0.5))
+end
+
+@testset "a finite chain with a decaying interaction" begin
+    # Σ_{i<j} λ^{j-i-1} nᵢ nⱼ, truncated to the chain, against MPSKit's own construction
+    N, λ = 4, 0.5
+    Hd = opsum(FiniteChain(B, N), expterm(couple(n[1], n[2]); decay = λ))
     Wd = mpo(Hd)
-    @test isempty(Wd.start)
-    @test_throws ArgumentError jordan_mpo_tensors(Wd)
-    @test_throws ArgumentError instantiate(Wd)
+    @test length(Wd.start) == N && length(Wd.finish) == N
+    @test mpo_terms(Wd) ≈ chain_terms(Hd)
+    @test mpo_tensormap(mpo_tensors(Wd)) ≈ instantiate(Hd)
+    Hmps = instantiate(Wd)
+    @test Hmps isa FiniteMPOHamiltonian
+    nn = num ⊗ num
+    ref = FiniteMPOHamiltonian(fill(V, N), ((i, j) => λ^(j - i - 1) * nn for i in 1:(N - 1) for j in (i + 1):N)...)
+    ψ = FiniteMPS(randn, ComplexF64, N, V, Vmps)
+    @test expectation_value(ψ, Hmps) ≈ expectation_value(ψ, ref)
+    @test abs(expectation_value(ψ, ref)) > 1.0e-3
 end
 
 @testset "an infinite chain with a decaying interaction" begin

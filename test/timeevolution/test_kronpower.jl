@@ -87,14 +87,24 @@ end
     B = spin_basis(U1Irrep)
     h = 0.5 * (S.S_plus_S_min[1, 2] + S.S_min_S_plus[1, 2]) + S.S_z_S_z[1, 2]
     Hd = opsum(FiniteChain(B, 4), expterm(h; decay = 0.5))
-    @test_throws ArgumentError jordan_mpo_tensors(Hd)
-    @test_throws ArgumentError jordan_layout(mpo(Hd))
-    @test_throws ArgumentError _mpo_power(mpo(Hd), 2)
     @test_throws ArgumentError _mpo_power(mpo(Hd), 0)
     # a charged operator has no neutral right boundary
     Sp = matrixunit(B, U1Irrep(1 // 2), U1Irrep(-1 // 2))
     Hc = opsum(FiniteChain(B, 3), Sp[1] + Sp[2])
     @test_throws ArgumentError jordan_layout(mpo(Hc))
+end
+
+# a decaying channel on a finite chain has a Jordan form, so it can be powered
+@testset "decaying channel on a finite chain" begin
+    S = spin_ops(U1Irrep)
+    B = spin_basis(U1Irrep)
+    h = 0.5 * (S.S_plus_S_min[1, 2] + S.S_min_S_plus[1, 2]) + S.S_z_S_z[1, 2]
+    Hd = opsum(FiniteChain(B, 4), expterm(h; decay = 0.5))
+    D = densify(Hd)
+    @test length(jordan_mpo_tensors(Hd)) == 4
+    for N in 1:2
+        @test power_dense(_mpo_power(mpo(Hd), N)) ≈ D^N
+    end
 end
 
 # The memo: every distinct active word (per site) is multiplied once, and the memoised entries are those of the

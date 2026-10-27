@@ -517,17 +517,27 @@ end
     @test occursin("order = 2", sprint(show, T))
 end
 
-@testset "errors" begin
+# a decaying channel on a finite chain has a Jordan form, so it has a Taylor MPO of the right order
+@testset "finite chain with a decaying channel" begin
     S = spin_ops(U1Irrep)
     B = spin_basis(U1Irrep)
     h = 0.5 * (S.S_plus_S_min[1, 2] + S.S_min_S_plus[1, 2]) + S.S_z_S_z[1, 2]
+    Hd = opsum(FiniteChain(B, 4), expterm(h; decay = 0.5))
+    D = densify(Hd)
+    for N in 1:2
+        T = taylor_mpo(Hd, N)
+        @test error_slope(τ -> taylor_dense(T, τ), D, true) ≈ N + 1 atol = 0.15
+    end
+end
+
+@testset "errors" begin
+    S = spin_ops(U1Irrep)
+    B = spin_basis(U1Irrep)
     H = opsum(
         FiniteChain(B, 4),
         (0.5 * (S.S_plus_S_min[i, i + 1] + S.S_min_S_plus[i, i + 1]) + S.S_z_S_z[i, i + 1] for i in 1:3)
     )
     @test_throws ArgumentError taylor_mpo(H, 0)
-    Hd = opsum(FiniteChain(B, 4), expterm(h; decay = 0.5))
-    @test_throws ArgumentError taylor_mpo(Hd, 2)
     SU = spin_ops(SU2Irrep)
     Hs = opsum(FiniteChain(spin_basis(SU2Irrep), 3), (SU.S_exchange[i, i + 1] for i in 1:2))
     @test_throws ArgumentError taylor_mpo(Hs, 2)

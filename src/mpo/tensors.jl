@@ -4,8 +4,7 @@
 using SparseArrays: SparseMatrixCSC
 using TensorKit: FusionTree, Vect, fusiontrees, permute, unit, @tensor, ncon, removeunit
 
-# Bond matrices, bond sectors and per-bond identity-channel indices (empty with decaying channels, where
-# they are unknown). Without channels `sweep` forces the finish channel into the cover.
+# Bond matrices, bond sectors and per-bond identity-channel indices, with the finish channel forced into the cover.
 function _compress(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy) where {I}
     N = length(H.lattice)
     if isempty(H.channels)
@@ -17,11 +16,7 @@ function _compress(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy) where {I
 end
 
 function _compress_channels(H::OperatorSum{I, <:FiniteChain}, ::VertexCover) where {I}
-    N = length(H.lattice)
-    (; Ws, bondsectors) = sweep(
-        TermTable(H.terms), N, VertexCover(); jordan = false, channels = lower_channels(H.channels, 1)
-    )
-    return (; Ws, bondsectors, start = Int[], finish = Int[])
+    return sweep(TermTable(H.terms), length(H.lattice), VertexCover(); channels = lower_channels(H.channels, 1))
 end
 _compress_channels(::OperatorSum, ::Union{IndependentSVD, SequentialSVD}) = throw(
     ArgumentError(

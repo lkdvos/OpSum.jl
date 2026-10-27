@@ -138,6 +138,7 @@ end
     )
     @test instantiate(H) ≈ instantiate(want)
     @test mpo_tensormap(mpo_tensors(mpo(H))) ≈ instantiate(want)
+    @test mpo_tensormap(map(TensorMap, jordan_mpo_tensors(H))) ≈ instantiate(want)
 
     # the same on an infinite chain, against the explicit window
     Hi = opsum(InfiniteChain(f.B), expterm(f.h[1, 2]; decay = λ, string = p), 0.3 * f.n[1])

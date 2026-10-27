@@ -2,7 +2,7 @@ using Test
 using TensorKit
 using LinearAlgebra: dot
 using OpSum
-using OpSum: mpo, mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
+using OpSum: mpo, mpo_tensors, jordan_mpo_tensors, mpo_terms, mpo_terms_window, window_terms,
     unitcell_terms, maxspan, translate, couple, scalarop, instantiate,
     expterm, expand_channels, chain_terms, channelspan, ExpSum, lower_channels,
     _entriesequal, _infinite_window, storedpairs, ispassthrough
@@ -326,6 +326,8 @@ end
         W = mpo(H)
         Ws, secs = W.Ws, W.bondsectors
         @test length(secs[N]) == 1                      # vacuum-terminated, as on a FiniteChain
+        @test length(W.start) == N && length(W.finish) == N
+        @test length(jordan_mpo_tensors(W)) == N
         want = termdict(chain_terms(H))
         got = termdict(mpo_terms(W))
         @test length(got) == length(want)

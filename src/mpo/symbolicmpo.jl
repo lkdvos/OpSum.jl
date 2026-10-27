@@ -72,17 +72,6 @@ mpo(::Union{Term, Terms, ExpSum}, args...) = throw(
 SymbolicMPO(lat::L, Ws, secs::Vector{Vector{I}}, start, finish) where {I, L} =
     SymbolicMPO{I, L}(lat, Ws, secs, start, finish)
 
-mpo_terms(W::SymbolicMPO{I, <:FiniteChain}) where {I} = mpo_terms(W.Ws, W.bondsectors)
-
-mpo_tensors(W::SymbolicMPO{I, <:FiniteChain}) where {I} =
-    mpo_tensors(W.Ws, W.bondsectors, W.lattice)
-# the unit cell: as the finite assembly, but the bond left of site 1 is bond `L`, so the tensors tile
-function mpo_tensors(W::SymbolicMPO{I, <:InfiniteChain}) where {I}
-    L = length(W)
-    bsecs = Vector{I}[W.bondsectors[mod1(j - 1, L)] for j in 1:(L + 1)]
-    return _mpo_tensors(W.Ws, bsecs, W.lattice)
-end
-
 """
     instantiate(W::SymbolicMPO)
 

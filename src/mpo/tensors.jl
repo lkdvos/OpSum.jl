@@ -30,6 +30,8 @@ _compress_channels(::OperatorSum, ::Union{IndependentSVD, SequentialSVD}) = thro
     )
 )
 
+mpo_terms(W::SymbolicMPO{I, <:FiniteChain}) where {I} = mpo_terms(W.Ws, W.bondsectors)
+
 """
     mpo_terms(Ws, bondsectors; leftidx = 1, rightidx = nothing) -> Terms
 
@@ -128,6 +130,15 @@ function mpo_tensors(
         bondsectors::Vector{Vector{I}}, sites::AbstractVector{<:Basis}
     ) where {I}
     return mpo_tensors(Ws, bondsectors, FiniteChain(sites))
+end
+
+mpo_tensors(W::SymbolicMPO{I, <:FiniteChain}) where {I} =
+    mpo_tensors(W.Ws, W.bondsectors, W.lattice)
+# the unit cell: as the finite assembly, but the bond left of site 1 is bond `L`, so the tensors tile
+function mpo_tensors(W::SymbolicMPO{I, <:InfiniteChain}) where {I}
+    L = length(W)
+    bsecs = Vector{I}[W.bondsectors[mod1(j - 1, L)] for j in 1:(L + 1)]
+    return _mpo_tensors(W.Ws, bsecs, W.lattice)
 end
 
 # `bsecs[i]` is the bond to the *left* of site i (length N+1); finite and infinite differ in `bsecs[1]`.

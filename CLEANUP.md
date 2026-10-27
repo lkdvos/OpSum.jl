@@ -60,7 +60,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
 | 7 | The sweep | compression/termtable, graph | done (full suite green at ea13cfe, 139814) |
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | implementing |
-| 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | pending |
+| 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | decided (D16), waits for chunk 8 |
 | 10 | Infinite chains | infinite/unitcell, window | pending |
 | 11 | Time evolution | timeevolution/ | pending |
 | 12 | Organisation revisit | — | pending |
@@ -254,6 +254,19 @@ strategies no longer write into the graph as a side channel.
 dimension, not gauge; document that `NoTruncation` SVD truncates at `eps`.
 (g) `IndependentSVD` is kept.
 
+**D16 Chunk 9 (output: SymbolicMPO, tensors, Jordan form, MPSKit extension).**
+(a) P9.1: finite chains with channels sweep with `jordan = true` if that stays lossless and satisfies the Jordan
+invariants; then `start`/`finish` are always length `N`, the "unknown" state and its errors go, and `instantiate`
+works with `expterm`s on finite chains. If it does not work, keep the empty-vector state and record why.
+(b) P9.2: the sweep's result uses `start`/`finish`; `mpo` constructs `SymbolicMPO` by name, not by splatting.
+(c) P9.3: public output takes `SymbolicMPO` only (`mpo_terms(W)`, `mpo_tensors(W)`); the raw `(Ws, secs, …)` forms are
+unexported internal helpers (used by `window.jl`, `taylormpo.jl`, no fake `SymbolicMPO` in `TaylorMPO`); tests and docs
+use `mpo_terms(W)`; the infinite `mpo_tensors` moves to `tensors.jl`. `mpo_terms` on an infinite chain stays undefined.
+(d) P9.4: the extension adds `instantiate` methods directly; `_mpskit_mpo` goes; a `MethodError` hint says to load MPSKit.
+(e) P9.5: `closed`/`_close_right` move to `timeevolution/`; `jordan_layout` loses its underscore (D7).
+(f) P9.6: concretely typed caches in `_mpo_tensors` (no function barriers), type-stable `blk` accumulator in
+`_jordan_tensors`; kept only if time and allocations are not worse.
+
 ## Possible improvements
 
 ## Open items
@@ -272,5 +285,5 @@ dimension, not gauge; document that `NoTruncation` SVD truncates at `eps`.
 
 ## Resume here
 
-Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 decided (D15), implementation delegated. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 decided (D15), implementation delegated. Chunk 9 decided (D16), to delegate after chunk 8 (same files). Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

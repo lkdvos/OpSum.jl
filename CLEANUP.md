@@ -60,8 +60,8 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 6 | Container and channels | operatorsum, expterms | done (full suite green at 9bccca7) |
 | 7 | The sweep | compression/termtable, graph | done (full suite green at ea13cfe, 139814) |
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | done (full suite with chunk 9) |
-| 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | implementing |
-| 10 | Infinite chains | infinite/unitcell, window | decided (D17), after chunk 9 |
+| 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite running) |
+| 10 | Infinite chains | infinite/unitcell, window | implementing |
 | 11 | Time evolution | timeevolution/ | pending |
 | 12 | Organisation revisit | — | pending |
 | 13 | Tests | test/ | pending |
@@ -275,6 +275,13 @@ use `mpo_terms(W)`; the infinite `mpo_tensors` moves to `tensors.jl`. `mpo_terms
 (e) P9.5: `closed`/`_close_right` move to `timeevolution/`; `jordan_layout` loses its underscore (D7).
 (f) P9.6: concretely typed caches in `_mpo_tensors` (no function barriers), type-stable `blk` accumulator in
 `_jordan_tensors`; kept only if time and allocations are not worse.
+As applied: c73cc1c (b), 30199f0 + 58eb796 (c; internal `reduced_terms`/`reduced_tensors`), d55a2d3 (d; `instantiate`
+docstring on `function instantiate end`, hint tested in test/mpo/test_symbolicmpo.jl), 4dcfb12 (e; `close_right(layout)`
+in kronpower.jl), ca91e9b (f), d03630d (a), d5aed57 (CLAUDE.md). (a) works: 34 finite-channel models, bond dims identical
+(zero cost), lossless, Jordan form and MPSKit `instantiate` agree with the dense operator; side effect: `taylor_mpo` now
+works on finite chains with `expterm` (checked to order N+1). 95 cases: bitwise up to ca91e9b; after (a) only
+`hand/finite_expterm` differs (start/finish filled, Ws identical). `mpo_tensors` 1–11% faster, ≤ allocations; `mpo`
+±1.3%; TTFX first `mpo_tensors` 7.21 → 5.84 s. Targeted tests (19 files) and docs build green.
 
 **D17 Chunk 10 (infinite chains).**
 (a) P10.1: the window reads `start`/`finish` of the fixed-point cell from the sweep (after D16(a)); `_identity_links`,
@@ -304,5 +311,5 @@ Implemented by a separate agent after chunk 9.
 
 ## Resume here
 
-Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 (D16) implementing; chunk 10 (D17) after it. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16). Chunk 10 (D17) implementing. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

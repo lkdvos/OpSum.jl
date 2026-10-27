@@ -15,6 +15,12 @@ relative to their norm / largest entry.
 """
 const BASIS_RTOL = 1.0e-12
 
+# `lettermetric`: Gram entries below `METRIC_ZERO_RTOL · max|G|` are set to exact zero, so the Cholesky
+# factor keeps the orthogonality structure; a factor within `METRIC_TRIVIAL_ATOL` of the identity is
+# treated as orthonormal letters.
+const METRIC_ZERO_RTOL = 1.0e-13
+const METRIC_TRIVIAL_ATOL = 1.0e-13
+
 """
     Basis(ops::AbstractVector; atol = 0, rtol = BASIS_RTOL)
 
@@ -254,10 +260,10 @@ function lettermetric(grams::Dictionary{I, Matrix{ComplexF64}}) where {I}
     for (c, Gc) in pairs(grams)
         G = Gc ./ (dim(c) * z)
         # exact zeros where elements are orthogonal, so `A` keeps their structure
-        θ = 1.0e-13 * maximum(abs, G)
+        θ = METRIC_ZERO_RTOL * maximum(abs, G)
         G[abs.(G) .< θ] .= 0
         A = Matrix(cholesky(Hermitian(G)).U)
-        trivial &= isapprox(A, one(A); atol = 1.0e-13)
+        trivial &= isapprox(A, one(A); atol = METRIC_TRIVIAL_ATOL)
         insert!(out, c, (A, Matrix(inv(UpperTriangular(A)))))
     end
     return trivial ? nothing : out

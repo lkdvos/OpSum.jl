@@ -46,11 +46,11 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   it walks a `SweepGraph` site by site (`at_site!`; its fields are grouped in `RightVertices`, `LeftVertices`,
   `Pending`, `Boundary`, `Scratch`; right-vertex kinds are the `RightKind` enum, SVD
   sweeps seed eagerly, the cover lazily); the bond basis comes from
-  a `BondStrategy` (`VertexCover` default via Hopcroft–Karp + König in `utility/bipartite.jl`; `IndependentSVD`,
+  a `BondStrategy` (`compression/strategies.jl`; `VertexCover` default via Hopcroft–Karp + König in `utility/bipartite.jl`; `IndependentSVD`,
   `SequentialSVD`; each `bond_basis!` returns a `BondBasis`, SVD entries below `SVD_ATOL` are dropped). Load-bearing invariant: the pending↔started suffix-class collision (`_promote_pending!`), guarded
   in `test/compression/test_graph.jl` in all three sectors. Truncating SVD works in the bases' Hilbert–Schmidt metric (`metric.jl`).
-* **Container and output** (`operatorsum.jl`, `mpo/{symbolicmpo,tensors,jordan}.jl`): `OperatorSum` holds
-  lattice + `Terms` + `ExpSum` channels and validates on insertion (`checkinsert`, `checkchannels`). `mpo(H[, alg])`
+* **Container and output** (`operatorsum.jl`, `mpo/{symbolicmpo,tensors,jordan}.jl`: `symbolicmpo.jl` has `mpo`, its finite compression, `mpo_terms`, `islossless`; `tensors.jl` the dense assembly): `OperatorSum` holds
+  lattice + `Terms` + `ExpSum` channels and validates on insertion (`checkinsert`, `checkchannels`, `checkgenerator`). `mpo(H[, alg])`
   → `SymbolicMPO` (`start`/`finish` always have length `N`); on a finite chain the finish channel is forced into the
   cover (`_force_finish!`) so a Jordan form exists, with decaying channels too. `mpo_terms(W)` (finite) inverts it;
   `mpo_tensors(W)`, `jordan_mpo_tensors` (via `jordan_layout`; BlockTensorKit, MPSKit layout) and `instantiate(W)`

@@ -182,6 +182,13 @@ function _gather(t::NTuple{N, Int}, v::Int, front::Bool) where {N}
     return NTuple{N, Int}(front ? (same..., other...) : (other..., same...))
 end
 
+# Alg. 2's rule for the level `t` of a bond with top index `n`: whether it is a left-merge (at least as many starts
+# as finishes) and the level `s` it stands for (`s == t` if it is canonical).
+function _merge_class(t::NTuple{N, Int}, n::Int) where {N}
+    leftmerge = count(==(n), t) <= count(==(1), t)
+    return leftmerge, leftmerge ? _gather(t, 1, true) : _gather(t, n, false)
+end
+
 # Alg. 2 (exact on the plain power): a level with at least as many start channels as finish channels is merged
 # into the level with the starts in front, one with more finishes into the level with the finishes at the back,
 # the others' order kept (see the file header for which of the row and the column is added and which dropped).
@@ -195,9 +202,8 @@ function merge_equivalent!(w::TaylorWork; left::Bool = true, right::Bool = true)
         nxt = _nextsite(w, j)
         for (k, t) in enumerate(w.levels[j])
             w.alive[j][k] || continue
-            leftmerge = count(==(n), t) <= count(==(1), t)
+            leftmerge, s = _merge_class(t, n)
             (leftmerge ? left : right) || continue
-            s = leftmerge ? _gather(t, 1, true) : _gather(t, n, false)
             s == t && continue
             nxt == 0 && invariant_violation("level $t on the right boundary has to be merged: fold the passive levels first")
             target = w.index[j][s]
@@ -221,7 +227,11 @@ end
 # give the same level when they are next to the same letter, so each distinct entry is read once and carries
 # the multiplicity. Returns the number of entries of `H^{N+1}` read. Run before `fold_passive!` (see the file
 # header).
-function extend!(w::TaylorWork{I, L, N}) where {I, L, N}
+#
+# `skip_merged = true` also skips the rows of the levels that the right-merge of `merge_equivalent!` drops (more
+# finishes than starts, finishes not yet at the back), whose entries would be discarded unused. This is only valid
+# when `merge_equivalent!` runs with `right = true` afterwards, as in `taylor_mpo`; hence it is off by default.
+function extend!(w::TaylorWork{I, L, N}; skip_merged::Bool = false) where {I, L, N}
     nread = 0
     for i in 1:nsites(w)
         ks = w.sites[i]
@@ -234,6 +244,10 @@ function extend!(w::TaylorWork{I, L, N}) where {I, L, N}
             rb == 0 || w.alive[rb][r] || continue
             # the rows removed by Alg. 1
             rb != 0 && all(l -> l == 1 || l == nleft, a) && any(==(nleft), a) && continue
+            if skip_merged && rb != 0
+                leftmerge, s = _merge_class(a, nleft)
+                !leftmerge && s != a && continue
+            end
             acc = Dict{Int, SiteOperator{I}}()
             for c in 1:(N + 1)
                 # inserting the start next to another gives the same level, so the positions are taken by runs, the
@@ -398,7 +412,7 @@ site's basis, which is complete, so no product leaves it.
 """
 function taylor_mpo(W::SymbolicMPO, N::Integer; extension::Bool = true, compression::Bool = false)
     passes = Function[]
-    extension && push!(passes, extend!)
+    extension && push!(passes, w -> extend!(w; skip_merged = true))
     push!(passes, fold_passive!, merge_equivalent!)
     compression && push!(passes, compress_levels!)
     return run_passes(W, N, passes)

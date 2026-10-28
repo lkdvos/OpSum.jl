@@ -568,6 +568,23 @@ end
     @test_throws ArgumentError taylor_mpo(Hs, 2)
 end
 
+# `extend!(w; skip_merged = true)` skips rows that the right-merge drops anyway: same result when `merge_equivalent!` follows
+@testset "extension skipping merged rows: $name" for (name, H) in vcat(
+        finite_models("XXZ (U1)", "t-V fermions (U1)", "Hubbard (U1 x U1)"),
+        [(n, h) for (n, (h, _)) in infinite_models("Heisenberg (U1)")],
+    )
+    W = mpo(H)
+    skipping(w) = extend!(w; skip_merged = true)
+    for N in (2, 3), compress in (false, true)
+        tail = compress ? (fold_passive!, merge_equivalent!, compress_levels!) : (fold_passive!, merge_equivalent!)
+        T1 = run_passes(W, N, (extend!, tail...))
+        T2 = run_passes(W, N, (skipping, tail...))
+        @test T2.Ws == T1.Ws
+        @test T2.bondsectors == T1.bondsectors
+        @test T2.order == T1.order
+    end
+end
+
 # Infinite chains: a window of `cells` unit cells with the start level `1` on the left and the folded level `1` on
 # the right (for the Hamiltonian itself the start and finish channels).
 @testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models(

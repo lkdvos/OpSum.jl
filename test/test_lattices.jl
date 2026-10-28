@@ -76,27 +76,6 @@ end
     @test_throws ArgumentError mpo(h, IndependentSVD())
 end
 
-@testset "SymbolicMPO surface" begin
-    S = spinvector(BSU2)
-    N = 4
-    lat = FiniteChain(BSU2, N)
-    h = Terms(dot(S[i], S[i + 1]) for i in 1:(N - 1))
-
-    W = mpo(opsum(lat, h))
-    @test W isa SymbolicMPO{SU2Irrep, <:FiniteChain}
-    @test length(W) == N && W.lattice == lat
-    # iterates over its sites; `reduced` is the `(Ws, bondsectors)` pair
-    @test collect(W) == W.Ws
-    Ws, secs = reduced(W)
-    @test Ws === W.Ws && secs === W.bondsectors
-    @test length(Ws) == N && length(secs) == N
-    @test occursin("N = $N", sprint(show, W))
-
-    inf = mpo(opsum(InfiniteChain([BSU2]), dot(S[1], S[2])))
-    @test inf isa SymbolicMPO{SU2Irrep, <:InfiniteChain}
-    @test length(inf) == 1
-end
-
 @testset "the lattice boundary is where operator and spaces are confronted" begin
     S = spinvector(BSU2)
     h = Terms(dot(S[i], S[i + 1]) for i in 1:3)

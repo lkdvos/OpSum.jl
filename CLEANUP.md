@@ -62,7 +62,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | done (full suite green at ca2ce05, 139827) |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite green at ca2ce05, 139827) |
 | 10 | Infinite chains | infinite/unitcell, window | done (full suite green at dc5e5ce, 139829) |
-| 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) awaiting decision |
+| 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) option B at 9d641f0, targeted tests |
 | 12 | Organisation revisit | — | pending |
 | 13 | Tests | test/ | pending |
 | 14 | Examples, benchmarks, scripts, docs, research | | pending |
@@ -317,6 +317,10 @@ targeted tests, runic, names, strict docs green. (e) measured, not implemented: 
 ≤2% of `taylor_mpo` (extension on: `extend!` 70–80%, merge 15–19%, power 2–3%); 21–48% of the `n^N` levels are
 unreachable, but the reachable set must be closed under the extension and the left-merge classes. Cheapest real win:
 `extend!` skipping rows the right-merge discards (~8–22% at N = 3–4; oracle bound 14–45%). Numbers: scratchpad/p115/.
+Then option B (user decision): 9d641f0, `extend!(w; skip_merged = true)` from `taylor_mpo` only (default `false`
+keeps arbitrary `run_passes` sequences exact), predicate shared with the merge (`_merge_class`). 160/160 bitwise vs
+pre11.jls; `taylor_mpo` −8…−23% time, −10…−24% allocations (XXZ N=4 0.427 → 0.357 s, t-V N=4 0.258 → 0.198 s).
+The full redesign (skip every row that ends up unused, 14–45%) is left as an issue.
 
 ## Possible improvements
 
@@ -336,5 +340,5 @@ unreachable, but the reachable set must be closed under the extension and the le
 
 ## Resume here
 
-Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 done (D17), full suite green at dc5e5ce (139829). Chunk 11 agreed (D18): (a)–(d) by one agent, then (e) by a second. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 done (D17), full suite green at dc5e5ce (139829). Chunk 11 done (D18), full suite green at 59da1aa; 9d641f0 targeted only (full suite with chunk 12). Next: chunk 12 (organisation revisit). Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

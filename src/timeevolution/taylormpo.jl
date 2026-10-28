@@ -5,8 +5,7 @@ using TensorKit: Sector, dim
     TaylorEntry{I}
 
 A polynomial in `τ` with [`SiteOperator`](@ref) coefficients: parallel vectors of strictly ascending `powers`
-and the nonzero `ops` multiplying them. `+` adds, `scaled(e, c, k)` multiplies by `c τ^k`, `evaluate(e, τ)`
-gives the [`SiteOperator`](@ref) at a value of `τ`.
+and the nonzero `ops` multiplying them. `+` adds, `evaluate(e, τ)` gives the [`SiteOperator`](@ref) at a value of `τ`.
 """
 struct TaylorEntry{I <: Sector}
     powers::Vector{Int}
@@ -97,6 +96,10 @@ end
 
 Base.length(W::TaylorMPO) = length(W.Ws)
 Base.getindex(W::TaylorMPO, i::Integer) = W.Ws[i]
+Base.iterate(W::TaylorMPO, args...) = iterate(W.Ws, args...)
+Base.eltype(::Type{<:TaylorMPO{I}}) where {I} = SparseMatrixCSC{TaylorEntry{I}, Int}
+Base.firstindex(::TaylorMPO) = 1
+Base.lastindex(W::TaylorMPO) = length(W)
 
 function Base.show(io::IO, W::TaylorMPO{I, L}) where {I, L}
     D = [sum(dim, sec; init = 0) for sec in W.bondsectors]

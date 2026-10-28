@@ -86,7 +86,7 @@ site 1 on an infinite chain; the left boundary of a finite chain is the single l
 `mpo.start`/`mpo.finish` are the positions of `(1, …, 1)` and `(end, …, end)` (`0` where the bond has no
 such channel: the right boundary of a finite chain has no start). `stats` counts the work done, and `sites[i]`
 is the `KronSite` of site `i`: its layer entries and word trie, from which any single entry of a power
-of any order is available lazily (`_kron_entry!`).
+of any order is available lazily (`walk_words!`).
 
 `closed = true` gives the right boundary of a finite chain its start channel too (`jordan_layout`), so it has
 the two identity indices `1, 2` like every other bond and `levels[N]` is all of `{1, 2}^N`: the power then
@@ -212,20 +212,6 @@ function walk_words!(leaf, ks::KronSite{I}, n::Int, candidates, accept) where {I
     end
     visit(1, 1, 1.0)
     return
-end
-
-# `W^{⊗n}[(l₁, …, l_n), (r₁, …, r_n)]` as a `SiteOperator`, `nothing` if it is zero: one entry of a power, without
-# building the power.
-function _kron_entry!(ks::KronSite{I}, ls, rs) where {I}
-    n = length(ls)
-    length(rs) == n || throw(ArgumentError("a row and a column of the same number of layers are needed"))
-    out = nothing
-    candidates(k) = (e = get(ks.lookup, (ls[k], rs[k]), nothing); e === nothing ? () : (e,))
-    walk_words!(ks, n, candidates, (_, _) -> true) do _, node, sgn
-        out = sgn == 1 ? ks.prods[node] : ks.prods[node] * sgn
-        return
-    end
-    return out
 end
 
 # One site of the power: all nonzero entries, depth-first over the layers.

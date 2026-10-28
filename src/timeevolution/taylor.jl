@@ -26,7 +26,7 @@
 #     the entries `O[a, b]` with `1 ∉ b`, among them the all-finish column that Alg. 1 then folds (this is where
 #     the `τ³ DDD` of the `(1,1)` entry of Eq. (43) comes from), and skips the rows that Alg. 1 removes. The
 #     passes here run in the same order: extension, fold, merge, compression. The extension reads the entries of
-#     the next power lazily (`_kron_entry!`), through the word tries the power was built with.
+#     the next power lazily (`walk_words!`), through the word tries the power was built with.
 #   * Exactness. Alg. 2 is exact on the plain power, but not after the extension: the merge of the *starts* still
 #     is (it drops a column, and the columns with starts are not touched by the extension), the merge of the
 #     *finishes* is not (it drops a row, and the extension writes into rows with finishes, symmetrically in

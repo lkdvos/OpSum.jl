@@ -2,7 +2,7 @@ using Test
 using OpSum
 using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, scaled, site_product,
     jordan_layout, close_right, mpo_power, taylor_work, run_passes, fold_passive!, merge_equivalent!, prune_orphans!,
-    extend!, compress_levels!, _kron_entry!, rowbond, bond_space, deg_indices
+    extend!, compress_levels!, rowbond, bond_space, deg_indices, KronSite, walk_words!
 using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: norm
@@ -14,6 +14,21 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))
 # and the order of accuracy against the dense exponential.
 
 taylor_dense(T, τ) = plain(mpo_tensormap(mpo_tensors(T, τ)))
+
+# `W^{⊗n}[(l₁, …, l_n), (r₁, …, r_n)]` as a `SiteOperator`, `nothing` if it is zero: one entry of a power, without
+# building the power.
+function kron_entry!(ks::KronSite{I}, ls, rs) where {I}
+    n = length(ls)
+    length(rs) == n || throw(ArgumentError("a row and a column of the same number of layers are needed"))
+    out = nothing
+    candidates(k) = (e = get(ks.lookup, (ls[k], rs[k]), nothing); e === nothing ? () : (e,))
+    walk_words!(ks, n, candidates, (_, _) -> true) do _, node, sgn
+        out = sgn == 1 ? ks.prods[node] : ks.prods[node] * sgn
+        return
+    end
+    return out
+end
+
 const NOCOMPRESS = (fold_passive!,)
 
 # the models by name (see `finite_models` in testutils.jl)
@@ -279,7 +294,7 @@ end
         colindex = Dict(t => k for (k, t) in enumerate(cols))
         stored = Dict(Tuple(idx) => op for (idx, op) in storedpairs(P3.mpo.Ws[i]))
         for l in rows, r in cols
-            x = _kron_entry!(P2.sites[i], l, r)
+            x = kron_entry!(P2.sites[i], l, r)
             y = get(stored, (rowindex[l], colindex[r]), nothing)
             if y === nothing
                 @test x === nothing
@@ -291,7 +306,7 @@ end
     end
     @test ncompared > 0
     # a layer of identities is the identity
-    @test _kron_entry!(P2.sites[2], (1,), (1,)) ≈ one(SiteOperator{sectortype(H.lattice)})
+    @test kron_entry!(P2.sites[2], (1,), (1,)) ≈ one(SiteOperator{sectortype(H.lattice)})
 end
 
 @testset "Alg 3 reads a fraction of the next power: $name" for (name, H) in finite_models("Ising (Trivial)", "XXZ (U1)")
@@ -528,6 +543,16 @@ end
         T = taylor_mpo(Hd, N)
         @test error_slope(τ -> taylor_dense(T, τ), D, true) ≈ N + 1 atol = 0.15
     end
+end
+
+@testset "TaylorMPO is a collection of its bond matrices" begin
+    T = taylor_mpo(ising()[2], 2)
+    @test length(T) == length(T.Ws)
+    @test firstindex(T) == 1 && lastindex(T) == length(T)
+    @test T[end] === T.Ws[end] && T[begin] === T.Ws[1]
+    @test eltype(T) == eltype(T.Ws) && eltype(typeof(T)) == eltype(T.Ws)
+    @test collect(T) == T.Ws
+    @test all(M === T[i] for (i, M) in enumerate(T))
 end
 
 @testset "errors" begin

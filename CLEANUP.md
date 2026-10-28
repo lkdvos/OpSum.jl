@@ -62,7 +62,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | done (full suite green at ca2ce05, 139827) |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite green at ca2ce05, 139827) |
 | 10 | Infinite chains | infinite/unitcell, window | done (full suite green at dc5e5ce, 139829) |
-| 11 | Time evolution | timeevolution/ | pending |
+| 11 | Time evolution | timeevolution/ | agreed (D18), implementing |
 | 12 | Organisation revisit | — | pending |
 | 13 | Tests | test/ | pending |
 | 14 | Examples, benchmarks, scripts, docs, research | | pending |
@@ -298,6 +298,20 @@ As applied: a1193c1 (a+b; window sweeps with `jordan = true`, the backbone searc
 2–5% faster, 3–7 KB fewer allocations. Targeted tests green at 0ab7c59. The `Terms` translates error still reports the
 earlier term's shifted support.
 
+**D18 Chunk 11 (time evolution).**
+(a) P11.1 (D7): `_mpo_power` → `mpo_power`, `_taylor_work` → `taylor_work`, `_taylor_mpo` → `run_passes`, `_extend!` →
+`extend!`, `_fold_passive!` → `fold_passive!`, `_merge_equivalent!` → `merge_equivalent!`, `_compress!` →
+`compress_levels!`, `_prune_orphans!` → `prune_orphans!`, `_scaled` → `scaled`, `_walk!` → `walk_words!`, `_rowbond` →
+`rowbond`, `_bond_space`/`_deg_indices` → `bond_space`/`deg_indices`.
+(b) P11.2: `taylor_mpo` and the pass runner move to `taylor.jl` (move-only commit); `taylormpo.jl` keeps the types and
+`evaluate`.
+(c) P11.3: `_kron_entry!` moves to `test_taylor.jl`; the `taylor.jl` header stops citing it; the `TaylorEntry`
+docstring drops `_scaled`.
+(d) P11.4: `TaylorMPO` gets `iterate`, `eltype`, `firstindex`, `lastindex`.
+(e) P11.5: build the power over the levels that matter instead of all `n^N` (fixed now, not an issue): measure first
+where `taylor_mpo` spends its time and how many of the `n^N` levels survive; implement only what keeps the final
+`TaylorMPO` identical (bitwise, or to round-off if entries get summed in another order) for every pass sequence.
+
 ## Possible improvements
 
 ## Open items
@@ -316,5 +330,5 @@ earlier term's shifted support.
 
 ## Resume here
 
-Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 done (D17), full suite green at dc5e5ce (139829). Chunk 11 presented, awaiting answers. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 done (D17), full suite green at dc5e5ce (139829). Chunk 11 agreed (D18): (a)–(d) by one agent, then (e) by a second. Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

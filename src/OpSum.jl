@@ -65,20 +65,24 @@ include("algebra/products.jl")
 include("algebra/letterproducts.jl")
 include("algebra/stockbases.jl")
 
-include("compression/termtable.jl")
 include("expterms.jl")
-include("compression/channels.jl")
 include("operatorsum.jl")
+
+include("compression/termtable.jl")
 include("compression/strategies.jl")
-include("mpo/symbolicmpo.jl")
+include("compression/channels.jl")
 include("compression/graph.jl")
 include("compression/graph_vc.jl")
 include("compression/graph_svd.jl")
 include("compression/metric.jl")
+
 include("infinite/unitcell.jl")
 include("infinite/window.jl")
+
+include("mpo/symbolicmpo.jl")
 include("mpo/tensors.jl")
 include("mpo/jordan.jl")
+
 include("timeevolution/kronpower.jl")
 include("timeevolution/taylormpo.jl")
 include("timeevolution/taylor.jl")

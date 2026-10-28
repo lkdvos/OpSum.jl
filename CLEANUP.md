@@ -72,7 +72,7 @@ top level 0.7k), test 6.4k. Largest: compression/graph.jl 552, timeevolution/tay
 | 10 | Infinite chains | infinite/unitcell, window | done (full suite green at dc5e5ce, 139829) |
 | 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) option B at 9d641f0, targeted tests |
 | 12 | Organisation revisit | — | done (full suite green at 911f5ce, 139883) |
-| 13 | Tests | test/ | pending |
+| 13 | Tests | test/ | agreed (D20); measuring + (a)–(c) |
 | 14 | Examples, benchmarks, scripts, docs, research | | pending |
 
 ## Decisions
@@ -343,6 +343,16 @@ graph_vc, graph_svd, metric) → infinite → mpo → timeevolution.
 As applied: f56ae51 (a), 47f2435 (b; `_checkneutral` only called by `checkgenerator`, keeps its underscore), 1a0f709
 (c), ede617f (d; no deviation from the planned order), 64c386e (CLAUDE.md), 136e7d5 (e). 95 MPO records bitwise vs
 pre10.jls, 160 Taylor records bitwise vs pre11.jls; targeted tests, runic, names, strict docs green.
+
+**D20 Chunk 13 (tests).**
+(a) P13.1: "translate / unitcell_terms / maxspan" → new `test/infinite/test_unitcell.jl`; "SymbolicMPO surface" →
+`test/mpo/test_symbolicmpo.jl`; `test_basis_lattice.jl` → `test_site_bases.jl` (stays end-to-end).
+(b) P13.2: a source file gets its own test file only when it has unit tests of its own (no empty mirrors); recorded in
+CLAUDE.md's test convention.
+(c) P13.3: testutils `matrixunit(B, out, in)` → `ketbra(B, out, in)`.
+(d) P13.4: measure first (solo per-file time, compile share, configurations unique to a file, per-testset coverage);
+trims are decided from the table, not by the agent.
+(e) P13.5: `runtests.jl` worker RSS budget stays.
 
 ## Possible improvements
 

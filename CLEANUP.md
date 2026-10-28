@@ -63,7 +63,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite green at ca2ce05, 139827) |
 | 10 | Infinite chains | infinite/unitcell, window | done (full suite green at dc5e5ce, 139829) |
 | 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) option B at 9d641f0, targeted tests |
-| 12 | Organisation revisit | — | pending |
+| 12 | Organisation revisit | — | agreed (D19), implementing |
 | 13 | Tests | test/ | pending |
 | 14 | Examples, benchmarks, scripts, docs, research | | pending |
 
@@ -321,6 +321,17 @@ Then option B (user decision): 9d641f0, `extend!(w; skip_merged = true)` from `t
 keeps arbitrary `run_passes` sequences exact), predicate shared with the merge (`_merge_class`). 160/160 bitwise vs
 pre11.jls; `taylor_mpo` −8…−23% time, −10…−24% allocations (XXZ N=4 0.427 → 0.357 s, t-V N=4 0.258 → 0.198 s).
 The full redesign (skip every row that ends up unused, 14–45%) is left as an issue.
+
+**D19 Chunk 12 (organisation revisit).**
+(a) P12.1: `_compress`/`_compress_channels`, `mpo_terms`/`reduced_terms` and `islossless` move from `mpo/tensors.jl` to
+`mpo/symbolicmpo.jl` (next to `mpo`); `tensors.jl` keeps the dense assembly (move only).
+(b) P12.2: `checkgenerator`/`_checkneutral` move from `infinite/unitcell.jl` to `operatorsum.jl` (next to `checkinsert`).
+(c) P12.3: `compression/algorithms.jl` → `compression/strategies.jl`.
+(d) P12.4: include list grouped by folder: utility → algebra (letters … projection) → lattices → algebra (adjoint,
+products, letterproducts, stockbases) → expterms → operatorsum → compression (termtable, strategies, channels, graph,
+graph_vc, graph_svd, metric) → infinite → mpo → timeevolution.
+(e) P12.5: the global map and open items here are refreshed (by me, not the agent).
+(f) P12.6: `compression/graph.jl` stays one file.
 
 ## Possible improvements
 

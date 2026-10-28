@@ -14,8 +14,8 @@ const Vsu2 = unitbasis(SU2Space(1 // 2 => 1))
 const Vu1 = spin_basis(U1Irrep)
 const Vf = unitbasis(Vect[FermionNumber](0 => 1, 1 => 1))
 const S = spinvector(Vsu2)
-const Sp = matrixunit(Vu1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
-const Sm = matrixunit(Vu1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
+const Sp = ketbra(Vu1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+const Sm = ketbra(Vu1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
 const Sz = spin_ops(U1Irrep).S_z
 const F = fermionmode(Vf, FermionNumber(0), FermionNumber(1))
 

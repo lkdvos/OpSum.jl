@@ -80,8 +80,8 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
 * Invariant checks are `throw`s via `invariant_violation`, never `@assert`.
 * Model code uses neutral operators only (builders, `project`); never a hard-coded `Letter(c, n)`.
 * Verification: `islossless(H)` (= `mpo_terms(mpo(H)) ≈ chain_terms(H)`) and the dense oracle `instantiate(H)`.
-* Tests: `test/**/test_*.jl` (subfolders mirror `src/`, one file per source file; end-to-end ones sit at the top), discovered automatically; shared helpers in `test/testutils.jl` (`unitbasis`,
-  `spinvector`, `matrixunit`, `fermionmode`, `physmatrix`, `reduced`). MPSKit is a weak dependency tracked from
+* Tests: `test/**/test_*.jl` (subfolders mirror `src/`, a source file gets its own test file only when it has unit tests of its own, no empty mirrors; end-to-end ones sit at the top), discovered automatically; shared helpers in `test/testutils.jl` (`unitbasis`,
+  `spinvector`, `ketbra`, `fermionmode`, `physmatrix`, `reduced`). MPSKit is a weak dependency tracked from
   `main` (`url` + `rev` source); TensorKitTensors is a full dependency.
 * `benchmark/n2/n2_*_acceptance.jl` reproduce the #38 N₂ numbers (centre bond 102/192 vs 347/677 in matrix units) and
   check the spin-free Hamiltonian against an exact spectrum.

@@ -11,7 +11,7 @@ using OpSum: couple, unitcell_terms, window_terms, maxspan,
 const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
 
-include(joinpath(@__DIR__, "..", "testutils.jl"))   # unitbasis, matrixunit, spinvector
+include(joinpath(@__DIR__, "..", "testutils.jl"))   # unitbasis, ketbra, spinvector
 const BSU2 = unitbasis(VSU2)
 const BU1 = spin_basis(U1Irrep)   # stock basis: Sᶻ is one atomic letter
 
@@ -40,8 +40,8 @@ end
 @testset "the sweep does not depend on the order terms were written in" begin
     # a shuffled term list must give an identical reduced MPO, entry for entry
     S = spinvector(BSU2)
-    Sp = matrixunit(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
-    Sm = matrixunit(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
+    Sp = ketbra(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+    Sm = ketbra(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
     Sz = spin_ops(U1Irrep).S_z
     cases = [
         (

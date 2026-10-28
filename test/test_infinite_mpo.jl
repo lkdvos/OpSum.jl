@@ -6,7 +6,7 @@ using OpSum: mpo, mpo_tensors, window_terms, unitcell_terms,
     maxspan, couple, scalarop, instantiate
 using OpSum: Letter
 
-include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, element, matrixunit, spinvector
+include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, element, ketbra, spinvector
 
 # Reference models: `(name, generating term bag, unit-cell spaces)`; the operator is `Σ_n translate(H, n·L)`.
 
@@ -36,8 +36,8 @@ function su2_models()
 end
 
 function u1_models()
-    Sp = matrixunit(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
-    Sm = matrixunit(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
+    Sp = ketbra(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+    Sm = ketbra(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
     Sz = spin_ops(U1Irrep).S_z
     xxz(i, j; Δ = 1.0) =
         0.5 * couple(Sp[i], Sm[j]) + 0.5 * couple(Sm[i], Sp[j]) + Δ * couple(Sz[i], Sz[j])
@@ -53,7 +53,7 @@ end
 
 LO(x) = OpSum.SiteOperator(x)
 
-# `ℂ^2` has multiplicity 2 in the trivial sector, so `matrixunit` does not apply; use `element`
+# `ℂ^2` has multiplicity 2 in the trivial sector, so `ketbra` does not apply; use `element`
 function trivial_models()
     A, B = element(BTR, 2), element(BTR, 3)
     return [

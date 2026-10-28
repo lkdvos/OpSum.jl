@@ -12,7 +12,7 @@ const VSU2 = SU2Space(1 // 2 => 1)
 const VU1 = U1Space(-1 // 2 => 1, 1 // 2 => 1)
 const VTR = ComplexSpace(2)
 
-include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, element, matrixunit, spinvector
+include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, element, ketbra, spinvector
 const BSU2 = unitbasis(VSU2)
 const BU1 = spin_basis(U1Irrep)      # stock basis: Sᶻ is one atomic letter, so `couple(Sz, Sz)` is legal
 const BTR = unitbasis(VTR)
@@ -21,8 +21,8 @@ LO(x) = OpSum.SiteOperator(x)
 densedim(sec) = sum(dim, sec; init = 0)
 
 S = spinvector(BSU2)
-Sp = matrixunit(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
-Sm = matrixunit(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
+Sp = ketbra(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+Sm = ketbra(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
 Sz = spin_ops(U1Irrep).S_z
 xxz(i, j; Δ = 1.0) =
     0.5 * couple(Sp[i], Sm[j]) + 0.5 * couple(Sm[i], Sp[j]) + Δ * couple(Sz[i], Sz[j])

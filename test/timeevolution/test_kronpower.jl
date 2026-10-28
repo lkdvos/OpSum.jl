@@ -89,7 +89,7 @@ end
     Hd = opsum(FiniteChain(B, 4), expterm(h; decay = 0.5))
     @test_throws ArgumentError mpo_power(mpo(Hd), 0)
     # a charged operator has no neutral right boundary
-    Sp = matrixunit(B, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+    Sp = ketbra(B, U1Irrep(1 // 2), U1Irrep(-1 // 2))
     Hc = opsum(FiniteChain(B, 3), Sp[1] + Sp[2])
     @test_throws ArgumentError jordan_layout(mpo(Hc))
 end

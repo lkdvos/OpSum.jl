@@ -60,7 +60,7 @@ end
 element(B::Basis, n::Integer) = SiteOperator(B.letters[n])
 
 # The matrix unit `|out⟩⟨in|` (one-dimensional, multiplicity-one sectors) in the basis `B`.
-function matrixunit(B::Basis, out::I, in::I) where {I <: Sector}
+function ketbra(B::Basis, out::I, in::I) where {I <: Sector}
     V = TensorKit.space(B)
     c = only(⊗(out, dual(in)))
     t = zeros(ComplexF64, V ← V ⊗ Vect[I](c => 1))
@@ -83,15 +83,15 @@ function spinladder(B::Basis, sectors::AbstractVector)
     s = (n - 1) / 2
     m(k) = s - (k - 1)
     ladder(k) = sqrt(s * (s + 1) - m(k + 1) * (m(k + 1) + 1))
-    Sz = sum(m(k) * matrixunit(B, sectors[k], sectors[k]) for k in 1:n if !iszero(m(k)))
-    Sp = sum(ladder(k) * matrixunit(B, sectors[k], sectors[k + 1]) for k in 1:(n - 1))
-    Sm = sum(ladder(k) * matrixunit(B, sectors[k + 1], sectors[k]) for k in 1:(n - 1))
+    Sz = sum(m(k) * ketbra(B, sectors[k], sectors[k]) for k in 1:n if !iszero(m(k)))
+    Sp = sum(ladder(k) * ketbra(B, sectors[k], sectors[k + 1]) for k in 1:(n - 1))
+    Sm = sum(ladder(k) * ketbra(B, sectors[k + 1], sectors[k]) for k in 1:(n - 1))
     return (; Sp, Sm, Sz)
 end
 
 # `(; c, cd, n)` of a spinless fermionic mode between the sectors `vac` and `occ`, in the basis `B`.
 fermionmode(B::Basis, vac, occ) =
-    (; c = matrixunit(B, vac, occ), cd = matrixunit(B, occ, vac), n = matrixunit(B, occ, occ))
+    (; c = ketbra(B, vac, occ), cd = ketbra(B, occ, vac), n = ketbra(B, occ, occ))
 
 # Test models, `name => H`, built on demand: every model compiles its own operator-sum code on first use, so only the
 # requested ones are constructed. `finite_models()` gives all of them, `finite_models(names...)` the subset (in the given

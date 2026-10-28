@@ -1,3 +1,6 @@
+# `SymbolicMPO` and `mpo`: the finite compression behind it, `mpo_terms` (its inverse on the reduced level) and
+# the verification `islossless`.
+
 using SparseArrays: SparseMatrixCSC
 using TensorKit: Sector, dim, unit
 
@@ -70,3 +73,79 @@ mpo(::Union{Term, Terms, ExpSum}, args...) = throw(
 
 SymbolicMPO(lat::L, Ws, secs::Vector{Vector{I}}, start, finish) where {I, L} =
     SymbolicMPO{I, L}(lat, Ws, secs, start, finish)
+
+# Bond matrices, bond sectors and per-bond identity-channel indices, with the finish channel forced into the cover.
+function _compress(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy) where {I}
+    N = length(H.lattice)
+    if isempty(H.channels)
+        # a truncation has to see the basis' own inner product (metric.jl)
+        truncates(alg) && return compress_in_metric(H.terms, H.lattice, alg)
+        return sweep(TermTable(H.terms), N, alg)
+    end
+    return _compress_channels(H, alg)
+end
+
+function _compress_channels(H::OperatorSum{I, <:FiniteChain}, ::VertexCover) where {I}
+    return sweep(TermTable(H.terms), length(H.lattice), VertexCover(); channels = lower_channels(H.channels, 1))
+end
+_compress_channels(::OperatorSum, ::Union{IndependentSVD, SequentialSVD}) = throw(
+    ArgumentError(
+        "SVD strategies cannot compress an exponentially decaying interaction: they need the " *
+            "whole bond coefficient matrix up front. Use VertexCover() (the default)."
+    )
+)
+
+"""
+    mpo_terms(W::SymbolicMPO) -> Terms
+
+Reconstruct the operator `W` generates, as a latticeless [`Terms`](@ref): enumerate every path through the
+bond matrices and read off the letters with their outgoing bond charges. `mpo_terms(mpo(H)) ≈ H.terms` is
+[`islossless`](@ref). Finite chains only.
+"""
+mpo_terms(W::SymbolicMPO{I, <:FiniteChain}) where {I} = reduced_terms(W.Ws, W.bondsectors)
+
+# The paths of the bond matrices `Ws` from index `leftidx` of the first bond to index `rightidx` of the last
+# (default `1` and "any"); for an infinite MPO tiled over a window they are the two identity channels.
+function reduced_terms(
+        Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
+        bondsectors::Vector{Vector{I}};
+        leftidx::Int = 1, rightidx::Union{Nothing, Int} = nothing
+    ) where {I}
+    N = length(Ws)
+    N == 0 && return Terms{I}()
+    cols = Term{I}[]
+    function walk(i, l0, coeff, sites, keys)
+        if i > N
+            (rightidx === nothing || l0 == rightidx) &&
+                push!(cols, Term{I}(copy(sites), copy(keys), coeff))
+            return
+        end
+        for (idx, localop) in storedpairs(Ws[i])
+            l, r = Tuple(idx)
+            l == l0 || continue
+            for (letter, c) in pairs(localop)
+                pass = ispassthrough(letter)
+                pass || (push!(sites, i); push!(keys, Factor{I}(letter, bondsectors[i][r])))
+                walk(i + 1, r, coeff * c, sites, keys)
+                pass || (pop!(sites); pop!(keys))
+            end
+        end
+        return
+    end
+    walk(1, leftidx, ComplexF64(1), Int[], Factor{I}[])
+    return Terms{I}(cols)
+end
+
+"""
+    islossless(H::OperatorSum[, alg]) -> Bool
+
+Whether the compressed MPO reproduces `H` exactly: `mpo_terms(mpo(H)) ≈ chain_terms(H)`. Purely symbolic,
+finite chains only; after a truncating SVD [`BondStrategy`](@ref) `false` is expected.
+"""
+function islossless(H::OperatorSum{I, <:FiniteChain}, args...) where {I}
+    return mpo_terms(mpo(H, args...)) ≈ chain_terms(H)
+end
+
+islossless(::OperatorSum{I, <:InfiniteChain}, args...) where {I} = throw(
+    ArgumentError("islossless is not supported on an infinite chain")
+)

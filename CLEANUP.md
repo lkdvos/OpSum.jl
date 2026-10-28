@@ -311,6 +311,12 @@ docstring drops `_scaled`.
 (e) P11.5: build the power over the levels that matter instead of all `n^N` (fixed now, not an issue): measure first
 where `taylor_mpo` spends its time and how many of the `n^N` levels survive; implement only what keeps the final
 `TaylorMPO` identical (bitwise, or to round-off if entries get summed in another order) for every pass sequence.
+As applied: e8dda51 (a), 163ad1b (b, move only), 628f8c5 (c+d; `_kron_entry!` → `kron_entry!` in test_taylor.jl).
+160/160 Taylor records bitwise vs pre11.jls (new harness `scratchpad/equiv/taylor_equiv.jl`, `compare_taylor.jl`);
+targeted tests, runic, names, strict docs green. (e) measured, not implemented: level enumeration/index/sectors are
+≤2% of `taylor_mpo` (extension on: `extend!` 70–80%, merge 15–19%, power 2–3%); 21–48% of the `n^N` levels are
+unreachable, but the reachable set must be closed under the extension and the left-merge classes. Cheapest real win:
+`extend!` skipping rows the right-merge discards (~8–22% at N = 3–4; oracle bound 14–45%). Numbers: scratchpad/p115/.
 
 ## Possible improvements
 

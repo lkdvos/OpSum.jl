@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: mpo, mpo_tensors, reduced_tensors, opsum, expterm, SiteOperator, storedpairs, jordan_layout, _mpo_power, site_product
+using OpSum: mpo, mpo_tensors, reduced_tensors, opsum, expterm, SiteOperator, storedpairs, jordan_layout, mpo_power, site_product
 using TensorKit
 using SparseArrays: nnz
 
@@ -21,10 +21,10 @@ power_dense(P) = plain(mpo_tensormap(mpo_tensors(P.mpo)))
     W = mpo(H)
     D = densify(H)
     for N in Ns
-        P = _mpo_power(W, N)
+        P = mpo_power(W, N)
         @test power_dense(P) ≈ D^N
     end
-    name == "t-V fermions (U1)" && @test power_dense(_mpo_power(W, 1)) ≈ D   # the Jordan form of W itself
+    name == "t-V fermions (U1)" && @test power_dense(mpo_power(W, 1)) ≈ D   # the Jordan form of W itself
 end
 
 @testset "levels, sectors and identity channels" begin
@@ -34,7 +34,7 @@ end
     n = length.(J.bondsectors)                           # N + 1 bonds
     L = length(W)
     for N in 1:3
-        P = _mpo_power(W, N)
+        P = mpo_power(W, N)
         @test length(P.levels) == L
         for i in 1:L
             nb = n[i + 1]
@@ -87,7 +87,7 @@ end
     B = spin_basis(U1Irrep)
     h = 0.5 * (S.S_plus_S_min[1, 2] + S.S_min_S_plus[1, 2]) + S.S_z_S_z[1, 2]
     Hd = opsum(FiniteChain(B, 4), expterm(h; decay = 0.5))
-    @test_throws ArgumentError _mpo_power(mpo(Hd), 0)
+    @test_throws ArgumentError mpo_power(mpo(Hd), 0)
     # a charged operator has no neutral right boundary
     Sp = matrixunit(B, U1Irrep(1 // 2), U1Irrep(-1 // 2))
     Hc = opsum(FiniteChain(B, 3), Sp[1] + Sp[2])
@@ -103,7 +103,7 @@ end
     D = densify(Hd)
     @test length(jordan_mpo_tensors(Hd)) == 4
     for N in 1:2
-        @test power_dense(_mpo_power(mpo(Hd), N)) ≈ D^N
+        @test power_dense(mpo_power(mpo(Hd), N)) ≈ D^N
     end
 end
 
@@ -145,7 +145,7 @@ end
     finite_models("Ising (Trivial)", "t-V fermions (U1)", "Hubbard (U1 x U1)")
     W = mpo(H)
     for N in 2:3
-        P = _mpo_power(W, N)
+        P = mpo_power(W, N)
         ref = naive_power(W, N)
         @test P.stats.nmul == sum(length(r[2]) for r in ref)
         @test P.stats.nentries == sum(length(r[1]) for r in ref)
@@ -171,7 +171,7 @@ end
     Ts = mpo_tensors(W)
     Hwin = window_operator(Ts, W.bondsectors, W.start[L], W.finish[L], cells)
     for N in 2:3
-        P = _mpo_power(W, N)
+        P = mpo_power(W, N)
         TP = mpo_tensors(P.mpo)
         @test P.mpo.start[L] == 1
         @test P.mpo.finish[L] == length(P.levels[L])

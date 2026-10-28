@@ -5,7 +5,7 @@ using TensorKit: Sector, dim
     TaylorEntry{I}
 
 A polynomial in `τ` with [`SiteOperator`](@ref) coefficients: parallel vectors of strictly ascending `powers`
-and the nonzero `ops` multiplying them. `+` adds, `_scaled(e, c, k)` multiplies by `c τ^k`, `evaluate(e, τ)`
+and the nonzero `ops` multiplying them. `+` adds, `scaled(e, c, k)` multiplies by `c τ^k`, `evaluate(e, τ)`
 gives the [`SiteOperator`](@ref) at a value of `τ`.
 """
 struct TaylorEntry{I <: Sector}
@@ -48,7 +48,7 @@ function Base.:+(x::TaylorEntry{I}, y::TaylorEntry{I}) where {I}
 end
 
 # `c τ^k e`
-function _scaled(e::TaylorEntry{I}, c::Number, k::Integer = 0) where {I}
+function scaled(e::TaylorEntry{I}, c::Number, k::Integer = 0) where {I}
     iszero(c) && return TaylorEntry{I}()
     return TaylorEntry{I}(e.powers .+ Int(k), [op * c for op in e.ops])
 end
@@ -150,19 +150,19 @@ site's basis, which is complete, so no product leaves it.
 """
 function taylor_mpo(W::SymbolicMPO, N::Integer; extension::Bool = true, compression::Bool = false)
     passes = Function[]
-    extension && push!(passes, _extend!)
-    push!(passes, _fold_passive!, _merge_equivalent!)
-    compression && push!(passes, _compress!)
-    return _taylor_mpo(W, N, passes)
+    extension && push!(passes, extend!)
+    push!(passes, fold_passive!, merge_equivalent!)
+    compression && push!(passes, compress_levels!)
+    return run_passes(W, N, passes)
 end
 function taylor_mpo(H::OperatorSum, N::Integer; kwargs...)
     return taylor_mpo(mpo(H), N; kwargs...)
 end
 
 # The passes are `work -> count` and run in order; orphans are removed last.
-function _taylor_mpo(W::SymbolicMPO, N::Integer, passes)
-    work = _taylor_work(W, N)
+function run_passes(W::SymbolicMPO, N::Integer, passes)
+    work = taylor_work(W, N)
     foreach(pass -> pass(work), passes)
-    _prune_orphans!(work)
+    prune_orphans!(work)
     return _taylor_finish(work, Int(N))
 end

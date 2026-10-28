@@ -1,8 +1,8 @@
 using Test
 using OpSum
-using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, _scaled, site_product,
-    jordan_layout, close_right, _mpo_power, _taylor_work, _taylor_mpo, _fold_passive!, _merge_equivalent!, _prune_orphans!,
-    _extend!, _compress!, _kron_entry!, _rowbond, _bond_space, _deg_indices
+using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, scaled, site_product,
+    jordan_layout, close_right, mpo_power, taylor_work, run_passes, fold_passive!, merge_equivalent!, prune_orphans!,
+    extend!, compress_levels!, _kron_entry!, rowbond, bond_space, deg_indices
 using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: norm
@@ -14,7 +14,7 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))
 # and the order of accuracy against the dense exponential.
 
 taylor_dense(T, τ) = plain(mpo_tensormap(mpo_tensors(T, τ)))
-const NOCOMPRESS = (_fold_passive!,)
+const NOCOMPRESS = (fold_passive!,)
 
 # the models by name (see `finite_models` in testutils.jl)
 ising() = only(finite_models("Ising (Trivial)"))
@@ -30,11 +30,11 @@ const CHEAP = ("Ising (Trivial)",)
     # the same power accumulates, a cancelled one disappears
     f = e + TaylorEntry(-A, 1)
     @test f.powers == [0, 3]
-    @test iszero(e + _scaled(e, -1))
+    @test iszero(e + scaled(e, -1))
     # monomial scaling shifts the powers
-    g = _scaled(e, 0.5, 2)
+    g = scaled(e, 0.5, 2)
     @test g.powers == [2, 3, 5] && g.ops[2] ≈ A * 0.5
-    @test iszero(_scaled(e, 0))
+    @test iszero(scaled(e, 0))
     # evaluation
     τ = 0.3 - 0.2im
     @test evaluate(e, τ) ≈ one(SiteOperator{Trivial}) + A * τ + A * (2τ^3)
@@ -51,14 +51,14 @@ end
     @test isone(J.Ws[L][1, 1])
     D = densify(H)
     for N in 1:3
-        P = _mpo_power(W, N; closed = true)
+        P = mpo_power(W, N; closed = true)
         @test length(P.levels[L]) == 2^N
         Ts = mpo_tensors(P.mpo)
         sec = P.mpo.bondsectors[L]
         # the finish selects the power of H, the start the identity
         for (k, expected) in ((2^N, D^N), (1, one(D)))
-            Q = zeros(ComplexF64, _bond_space(sec) ← Vect[sectortype(H.lattice)](unit(sectortype(H.lattice)) => 1))
-            block(Q, unit(sectortype(H.lattice)))[_deg_indices(sec)[k], 1] = 1
+            Q = zeros(ComplexF64, bond_space(sec) ← Vect[sectortype(H.lattice)](unit(sectortype(H.lattice)) => 1))
+            block(Q, unit(sectortype(H.lattice)))[deg_indices(sec)[k], 1] = 1
             T = copy(Ts)
             @tensor R[bl o; i a] := T[end][bl o; i br] * Q[br; a]
             T[end] = R
@@ -69,7 +69,7 @@ end
 
 # the bond matrix entry of the (not yet compacted) work at site `i`, between levels given as tuples
 function level_entry(w, i, row, col)
-    rb = _rowbond(w, i)
+    rb = rowbond(w, i)
     return get(w.Ms[i].rows[rb == 0 ? 1 : w.index[rb][row]], w.index[i][col], zero(TaylorEntry{eltype(w.secs[1])}))
 end
 
@@ -90,8 +90,8 @@ poly(I, pairs...) = foldl(+, (TaylorEntry(op, p) for (p, op) in pairs); init = z
     mul(x, y) = site_product(B, x, y)
     mids = 2:(n - 1)
     D, Id = op(1, n), op(1, 1)
-    w = _taylor_work(W, 2)
-    @test _fold_passive!(w) == 3 * length(W)
+    w = taylor_work(W, 2)
+    @test fold_passive!(w) == 3 * length(W)
     # (32): the first column collects the folded columns with the weights 1, τ/2, τ/2, τ²/2
     @test level_entry(w, i, (1, 1), (1, 1)) ≈ poly(I, 0 => Id, 1 => D, 2 => mul(D, D) * 0.5)
     for a in mids
@@ -129,10 +129,10 @@ end
     D, Id = op(1, n), op(1, 1)
 
     # N = 1: [[1 + τD, C], [τB, A]]
-    w1 = _taylor_work(W, 1)
-    _fold_passive!(w1)
-    @test _merge_equivalent!(w1) == 0
-    _prune_orphans!(w1)
+    w1 = taylor_work(W, 1)
+    fold_passive!(w1)
+    @test merge_equivalent!(w1) == 0
+    prune_orphans!(w1)
     @test count(w1.alive[i]) == 1 + chi
     @test level_entry(w1, i, (1,), (1,)) ≈ poly(I, 0 => Id, 1 => D)
     for a in mids
@@ -145,10 +145,10 @@ end
 
     # N = 2: the levels (1,1), (1,a), (a,b), (a,n) of Eq. (39). A nilpotent letter (`S⁺S⁺ = 0`) leaves some
     # levels unreachable, which are pruned: only the entries between surviving levels are compared.
-    w2 = _taylor_work(W, 2)
-    @test _fold_passive!(w2) == 3 * length(W)
-    @test _merge_equivalent!(w2) > 0
-    _prune_orphans!(w2)
+    w2 = taylor_work(W, 2)
+    @test fold_passive!(w2) == 3 * length(W)
+    @test merge_equivalent!(w2) > 0
+    prune_orphans!(w2)
     canonical = Set([[(1, 1)]; [(1, a) for a in mids]; [(a, b) for a in mids for b in mids]; [(a, n) for a in mids]])
     alive = Set(t for (t, a) in zip(w2.levels[i], w2.alive[i]) if a)
     @test alive ⊆ canonical
@@ -234,19 +234,19 @@ end
 @testset "Alg 2 is exact: $name" for (name, H) in finite_models("Ising (Trivial)", "t-V fermions (U1)")
     W = mpo(H)
     D = densify(H)
-    merge_starts!(w) = _merge_equivalent!(w; right = false)
+    merge_starts!(w) = merge_equivalent!(w; right = false)
     taus = (-0.2im, 0.1 + 0.15im)
     for N in (name == "Ising (Trivial)" ? (2, 3) : (2,))
-        T1 = _taylor_mpo(W, N, NOCOMPRESS)
+        T1 = run_passes(W, N, NOCOMPRESS)
         T12 = taylor_mpo(W, N; extension = false)
         @test all(bonddims(T12)[2:(end - 1)] .< bonddims(T1)[2:(end - 1)])
         for τ in taus
             @test taylor_dense(T12, τ) ≈ taylor_dense(T1, τ)
         end
 
-        E1 = _taylor_mpo(W, N, (_extend!, _fold_passive!))
-        Es = _taylor_mpo(W, N, (_extend!, _fold_passive!, merge_starts!))
-        Ef = _taylor_mpo(W, N, (_extend!, _fold_passive!, _merge_equivalent!))
+        E1 = run_passes(W, N, (extend!, fold_passive!))
+        Es = run_passes(W, N, (extend!, fold_passive!, merge_starts!))
+        Ef = run_passes(W, N, (extend!, fold_passive!, merge_equivalent!))
         @test all(bonddims(Es)[2:(end - 1)] .< bonddims(E1)[2:(end - 1)])
         @test all(bonddims(Ef)[2:(end - 1)] .<= bonddims(Es)[2:(end - 1)])
         for τ in taus
@@ -269,8 +269,8 @@ end
     W = mpo(H)
     L = length(W)
     # the tries of the second power evaluate the entries of the third (words are order-free), signs included
-    P2 = _mpo_power(W, 2; closed = true)
-    P3 = _mpo_power(W, 3; closed = true)
+    P2 = mpo_power(W, 2; closed = true)
+    P3 = mpo_power(W, 3; closed = true)
     ncompared = 0
     for i in (1, 2, L)
         rows = i == 1 ? [(1, 1, 1)] : P3.levels[i - 1]
@@ -297,10 +297,10 @@ end
 @testset "Alg 3 reads a fraction of the next power: $name" for (name, H) in finite_models("Ising (Trivial)", "XXZ (U1)")
     W = mpo(H)
     for N in 1:3
-        w = _taylor_work(W, N)
+        w = taylor_work(W, N)
         nmul = w.stats.nmul
-        nread = _extend!(w)
-        full = _mpo_power(W, N + 1; closed = true).stats
+        nread = extend!(w)
+        full = mpo_power(W, N + 1; closed = true).stats
         @test 0 < nread < full.nentries
         # the products are looked up in the tries of the power, which the next power would build anew
         @test w.stats.nmul - nmul <= full.nmul
@@ -329,17 +329,17 @@ end
     Av(a, b) = J.Ws[i][a, b]
 
     function passes(N)
-        w = _taylor_work(W, N)
-        @test _extend!(w) > 0
-        _fold_passive!(w)
-        _merge_equivalent!(w)
+        w = taylor_work(W, N)
+        @test extend!(w) > 0
+        fold_passive!(w)
+        merge_equivalent!(w)
         return w
     end
 
     # N = 1: the extension alone (there is nothing to compress)
     w1 = passes(1)
-    @test _compress!(w1) == 0
-    _prune_orphans!(w1)
+    @test compress_levels!(w1) == 0
+    prune_orphans!(w1)
     @test level_entry(w1, i, (1,), (1,)) ≈ poly(I, 0 => Id, 1 => D, 2 => mul(D, D) * 0.5)
     for a in mids
         @test level_entry(w1, i, (1,), (a,)) ≈ poly(I, 0 => Cv(a), 1 => avg((Cv(a), D), (D, Cv(a))))
@@ -354,8 +354,8 @@ end
     # N = 2 with the compression: the levels (1,1), (1,c), (c,d); the sums over the orderings of the paper, each
     # letter carrying the index of its position among the letters that have one
     w2 = passes(2)
-    @test _compress!(w2) > 0
-    _prune_orphans!(w2)
+    @test compress_levels!(w2) > 0
+    prune_orphans!(w2)
     alive = Set(t for (t, a) in zip(w2.levels[i], w2.alive[i]) if a)
     canonical = Set([[(1, 1)]; [(1, a) for a in mids]; [(a, b) for a in mids for b in mids]])
     @test alive ⊆ canonical

@@ -69,7 +69,7 @@ end
 # Site tensors `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit leg convention).
 
 # bond space with the given per-index charges
-function _bond_space(sec::Vector{I}) where {I}
+function bond_space(sec::Vector{I}) where {I}
     counts = Dict{I, Int}()
     for c in sec
         counts[c] = get(counts, c, 0) + 1
@@ -78,7 +78,7 @@ function _bond_space(sec::Vector{I}) where {I}
 end
 
 # degeneracy index (within its charge sector) of each bond index
-function _deg_indices(sec::Vector{I}) where {I}
+function deg_indices(sec::Vector{I}) where {I}
     counts = Dict{I, Int}()
     return [counts[c] = get(counts, c, 0) + 1 for c in sec]
 end
@@ -135,8 +135,8 @@ function _mpo_tensors(
         bsecs::Vector{Vector{I}}, sites
     ) where {I}
     N = length(Ws)
-    bspaces = map(_bond_space, bsecs)
-    bdegs = map(_deg_indices, bsecs)
+    bspaces = map(bond_space, bsecs)
+    bdegs = map(deg_indices, bsecs)
     return map(1:N) do i
         return _site_tensor(sites[i], Ws[i], bsecs[i], bsecs[i + 1], bspaces[i], bspaces[i + 1], bdegs[i], bdegs[i + 1])
     end

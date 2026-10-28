@@ -1,6 +1,6 @@
 # The Taylor construction of Van Damme, Haegeman, McCulloch, Vanderstraeten, "Efficient higher-order matrix
 # product operators for time evolution" (SciPost Phys. 17, 135 (2024)): start from the `N`-fold Kronecker power
-# of the Jordan-form MPO (`_mpo_power`, which represents `H^N`), fold the "finished" levels back onto the start
+# of the Jordan-form MPO (`mpo_power`, which represents `H^N`), fold the "finished" levels back onto the start
 # level with the weights of the Taylor series (Alg. 1) and merge the levels that differ by a permutation (Alg. 2).
 # The result is an MPO of `exp(τH)` correct through `τ^N`, whose entries are polynomials in `τ`. Two optional
 # passes go beyond that: the extension (Alg. 3) adds the order `N + 1` terms that reuse the existing levels, and
@@ -12,7 +12,7 @@
 #     last index of the bond) the finish channel, the paper's `1` and `3`. A level is a position in
 #     `levels[j]`, the levels of bond `j`, which is right of site `j` (on an infinite chain bond `L` is the one
 #     left of site 1; the left boundary of a finite chain is the single level `(1, …, 1)`).
-#   * Right boundary. A finite chain is powered *closed* (`_mpo_power(…; closed = true)`): its last bond has
+#   * Right boundary. A finite chain is powered *closed* (`mpo_power(…; closed = true)`): its last bond has
 #     the start channel too, so it has all `2^N` levels of `{1, n}^N` and Alg. 1 folds them like it does on any
 #     bond. The Hamiltonian MPO itself lacks that channel only because its boundary vector selects the finish;
 #     the Taylor MPO selects the folded level `(1, …, 1)` instead.
@@ -88,7 +88,7 @@ end
 # `M[:, dst] += c τ^k M[:, src]`
 function _addcol!(M::WorkMatrix, dst::Int, src::Int, c::Number = 1, k::Integer = 0)
     for r in collect(M.cols[src])
-        _add!(M, r, dst, _scaled(M.rows[r][src], c, k))
+        _add!(M, r, dst, scaled(M.rows[r][src], c, k))
     end
     return M
 end
@@ -131,10 +131,10 @@ nsites(w::TaylorWork) = length(w.Ms)
 # the site whose rows are the levels of bond `j` (`0` at the right end of a finite chain)
 _nextsite(w::TaylorWork, j::Int) = j < nsites(w) ? j + 1 : (_isfinite(w) ? 0 : 1)
 # the bond whose levels are the rows of site `i` (`0` at the left end of a finite chain)
-_rowbond(w::TaylorWork, i::Int) = i > 1 ? i - 1 : (_isfinite(w) ? 0 : nsites(w))
+rowbond(w::TaylorWork, i::Int) = i > 1 ? i - 1 : (_isfinite(w) ? 0 : nsites(w))
 
-function _taylor_work(W::SymbolicMPO{I, L}, N::Integer) where {I, L}
-    P = _mpo_power(W, N; closed = true)
+function taylor_work(W::SymbolicMPO{I, L}, N::Integer) where {I, L}
+    P = mpo_power(W, N; closed = true)
     levels = P.levels
     Ms = map(P.mpo.Ws) do M
         wm = WorkMatrix{I}(size(M)...)
@@ -160,7 +160,7 @@ end
 
 # Alg. 1: every level `b` of `{1, n}^N` other than `(1, …, 1)`, with `a` finish channels, is folded into the
 # start level, `O[:, (1…1)] += τ^a (N - a)! / N! · O[:, b]`, and removed. Returns the number of levels removed.
-function _fold_passive!(w::TaylorWork{I, L, N}) where {I, L, N}
+function fold_passive!(w::TaylorWork{I, L, N}) where {I, L, N}
     removed = 0
     for j in 1:nsites(w)
         n = w.top[j]
@@ -187,7 +187,7 @@ end
 # the others' order kept (see the file header for which of the row and the column is added and which dropped).
 # `left = false` / `right = false` skip the merges of the starts / of the finishes. After the extension only
 # the merge of the starts is exact: see the file header. Returns the number of levels removed.
-function _merge_equivalent!(w::TaylorWork; left::Bool = true, right::Bool = true)
+function merge_equivalent!(w::TaylorWork; left::Bool = true, right::Bool = true)
     removed = 0
     for j in 1:nsites(w)
         n = w.top[j]
@@ -219,13 +219,13 @@ end
 # the columns `b` are enumerated over the nonzero layer entries (the finish forced in layer `d`, no start
 # anywhere), and every word is multiplied once, in the tries of the power. The `N + 1` positions of an insertion
 # give the same level when they are next to the same letter, so each distinct entry is read once and carries
-# the multiplicity. Returns the number of entries of `H^{N+1}` read. Run before `_fold_passive!` (see the file
+# the multiplicity. Returns the number of entries of `H^{N+1}` read. Run before `fold_passive!` (see the file
 # header).
-function _extend!(w::TaylorWork{I, L, N}) where {I, L, N}
+function extend!(w::TaylorWork{I, L, N}) where {I, L, N}
     nread = 0
     for i in 1:nsites(w)
         ks = w.sites[i]
-        rb = _rowbond(w, i)
+        rb = rowbond(w, i)
         n = w.top[i]
         nleft = rb == 0 ? 0 : w.top[rb]
         # the rows: the levels of the bond to the left (one level `(1, …, 1)` at the left end of a finite chain)
@@ -253,7 +253,7 @@ function _extend!(w::TaylorWork{I, L, N}) where {I, L, N}
                     end
                     # likewise for the finish: only the first of a run of finishes in `b` with one inserted
                     accept(es, k) = k != d || d == 1 || es[d - 1].col != n
-                    _walk!(ks, N + 1, candidates, accept) do es, node, sgn
+                    walk_words!(ks, N + 1, candidates, accept) do es, node, sgn
                         b = ntuple(j -> es[j < d ? j : j + 1].col, Val(N))
                         col = get(w.index[i], b, 0)
                         (col != 0 && w.alive[i][col]) || return
@@ -281,8 +281,8 @@ end
 # Alg. 4 (approximate compression): a level `a` with finish channels and no start channel is merged into the level
 # with the finishes turned into starts, `O[:, b] += τ^n (N - n)! / N! · O[:, a]` for `n` finishes in `a`, and its
 # row is dropped. The two agree through `τ^N`; the difference is of order `τ^{N+1}`. Returns the number of levels
-# removed. Run after `_merge_equivalent!` (see the file header).
-function _compress!(w::TaylorWork{I, L, N}) where {I, L, N}
+# removed. Run after `merge_equivalent!` (see the file header).
+function compress_levels!(w::TaylorWork{I, L, N}) where {I, L, N}
     removed = 0
     for j in 1:nsites(w)
         n = w.top[j]
@@ -306,14 +306,14 @@ end
 function _reachable(w::TaylorWork, forward::Bool)
     L = nsites(w)
     reach = [falses(length(lv)) for lv in w.levels]
-    seed = forward ? _rowbond(w, 1) : L           # the bond with a boundary level, if any
+    seed = forward ? rowbond(w, 1) : L           # the bond with a boundary level, if any
     seed == 0 || (reach[seed][1] = true)
     changed = true
     while changed
         changed = false
         for i in (forward ? (1:L) : (L:-1:1))
             M = w.Ms[i]
-            src, dst = forward ? (_rowbond(w, i), i) : (i, _rowbond(w, i))
+            src, dst = forward ? (rowbond(w, i), i) : (i, rowbond(w, i))
             dst == 0 && continue
             for (r, row) in enumerate(M.rows), c in keys(row)
                 from, to = forward ? (r, c) : (c, r)
@@ -330,7 +330,7 @@ end
 
 # Remove the levels that no path from the left boundary reaches, or from which no path reaches the right
 # boundary. Returns the number of levels removed.
-function _prune_orphans!(w::TaylorWork)
+function prune_orphans!(w::TaylorWork)
     fwd, bwd = _reachable(w, true), _reachable(w, false)
     removed = 0
     for j in 1:nsites(w), k in eachindex(w.alive[j])
@@ -347,7 +347,7 @@ end
 function _taylor_finish(w::TaylorWork{I}, order::Int) where {I}
     newidx = [cumsum(a) for a in w.alive]
     Ws = map(1:nsites(w)) do i
-        rb = _rowbond(w, i)
+        rb = rowbond(w, i)
         cb = i
         nr = rb == 0 ? 1 : count(w.alive[rb])
         dict = Dictionary{CartesianIndex{2}, TaylorEntry{I}}()

@@ -29,7 +29,7 @@
 using SparseArrays: SparseMatrixCSC, sparse
 using TensorKit: Sector, BraidingStyle, Bosonic, Rsymbol, dual, ⊗
 
-# Counters of one `_mpo_power`: `site_product` calls (one per distinct active word of length ≥ 2) and stored entries.
+# Counters of one `mpo_power`: `site_product` calls (one per distinct active word of length ≥ 2) and stored entries.
 mutable struct PowerStats
     nmul::Int
     nentries::Int
@@ -73,7 +73,7 @@ function close_right(layout::JordanLayout{I}) where {I}
 end
 
 """
-    _mpo_power(W::SymbolicMPO, N::Integer; closed = false) -> (; mpo, levels, stats, sites)
+    mpo_power(W::SymbolicMPO, N::Integer; closed = false) -> (; mpo, levels, stats, sites)
 
 The `N`-fold Kronecker power of the Jordan form of `W` (`jordan_layout`): a [`SymbolicMPO`](@ref)
 `mpo` whose bond indices are levels, `NTuple{N,Int}`s of Jordan indices, so that
@@ -92,13 +92,13 @@ of any order is available lazily (`_kron_entry!`).
 the two identity indices `1, 2` like every other bond and `levels[N]` is all of `{1, 2}^N`: the power then
 represents `H^N` for the boundary vector `(2, …, 2)`, and the other levels are what `taylor_mpo` folds.
 """
-function _mpo_power(W::SymbolicMPO{I}, N::Integer; closed::Bool = false) where {I}
+function mpo_power(W::SymbolicMPO{I}, N::Integer; closed::Bool = false) where {I}
     N >= 1 || throw(ArgumentError("the power must be at least 1, got $N"))
     checkkron(I)
-    return _mpo_power(W, Val(Int(N)), closed)
+    return mpo_power(W, Val(Int(N)), closed)
 end
 
-function _mpo_power(W::SymbolicMPO{I}, ::Val{N}, closed) where {I, N}
+function mpo_power(W::SymbolicMPO{I}, ::Val{N}, closed) where {I, N}
     layout = jordan_layout(W)
     closed && W.lattice isa FiniteChain && (layout = close_right(layout))
     L = length(W)
@@ -131,7 +131,7 @@ end
 
 # One site of a power: the layer entries `W[l, r]` with interned operators, and the trie of active words. A word is
 # multiplied once, however many level pairs carry it (and whatever the number of layers: the trie is the same for
-# a power of any order, which is what lets `_extend!` evaluate entries of the next power lazily). `node 1` is the
+# a power of any order, which is what lets `extend!` evaluate entries of the next power lazily). `node 1` is the
 # empty word; `children[(node, id)]` is the node of the word extended by entry `id`, `0` if the product vanishes.
 struct KronSite{I <: Sector}
     basis::Basis{I}
@@ -187,7 +187,7 @@ end
 # completions: layer `k` tries the entries of `candidates(k)` that `accept(es, k)` (given the entries `es[1:k]`
 # chosen so far), and `leaf(es, node, sgn)` is called with every complete choice, the node of its product and its
 # braiding sign (see the file header).
-function _walk!(leaf, ks::KronSite{I}, n::Int, candidates, accept) where {I}
+function walk_words!(leaf, ks::KronSite{I}, n::Int, candidates, accept) where {I}
     braided = !(BraidingStyle(I) isa Bosonic)
     es = Vector{LayerEntry{I}}(undef, n)
     function visit(k::Int, node::Int, sgn::Float64)
@@ -221,7 +221,7 @@ function _kron_entry!(ks::KronSite{I}, ls, rs) where {I}
     length(rs) == n || throw(ArgumentError("a row and a column of the same number of layers are needed"))
     out = nothing
     candidates(k) = (e = get(ks.lookup, (ls[k], rs[k]), nothing); e === nothing ? () : (e,))
-    _walk!(ks, n, candidates, (_, _) -> true) do _, node, sgn
+    walk_words!(ks, n, candidates, (_, _) -> true) do _, node, sgn
         out = sgn == 1 ? ks.prods[node] : ks.prods[node] * sgn
         return
     end
@@ -236,7 +236,7 @@ function _power_site(
     ks = KronSite(B, Wi, secL, secR, stats)
     rows, cols = Int[], Int[]
     vals = SiteOperator{I}[]
-    _walk!(ks, N, _ -> ks.entries, (_, _) -> true) do es, node, sgn
+    walk_words!(ks, N, _ -> ks.entries, (_, _) -> true) do es, node, sgn
         push!(rows, rowindex[ntuple(j -> es[j].row, Val(N))])
         push!(cols, colindex[ntuple(j -> es[j].col, Val(N))])
         push!(vals, sgn == 1 ? ks.prods[node] : ks.prods[node] * sgn)

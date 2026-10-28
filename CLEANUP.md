@@ -71,7 +71,7 @@ top level 0.7k), test 6.4k. Largest: compression/graph.jl 552, timeevolution/tay
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite green at ca2ce05, 139827) |
 | 10 | Infinite chains | infinite/unitcell, window | done (full suite green at dc5e5ce, 139829) |
 | 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) option B at 9d641f0, targeted tests |
-| 12 | Organisation revisit | — | agreed (D19), implementing |
+| 12 | Organisation revisit | — | done (D19); full suite pending |
 | 13 | Tests | test/ | pending |
 | 14 | Examples, benchmarks, scripts, docs, research | | pending |
 
@@ -340,6 +340,9 @@ products, letterproducts, stockbases) → expterms → operatorsum → compressi
 graph_vc, graph_svd, metric) → infinite → mpo → timeevolution.
 (e) P12.5: the global map and open items here are refreshed (by me, not the agent).
 (f) P12.6: `compression/graph.jl` stays one file.
+As applied: f56ae51 (a), 47f2435 (b; `_checkneutral` only called by `checkgenerator`, keeps its underscore), 1a0f709
+(c), ede617f (d; no deviation from the planned order), 64c386e (CLAUDE.md), 136e7d5 (e). 95 MPO records bitwise vs
+pre10.jls, 160 Taylor records bitwise vs pre11.jls; targeted tests, runic, names, strict docs green.
 
 ## Possible improvements
 

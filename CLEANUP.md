@@ -71,7 +71,7 @@ top level 0.7k), test 6.4k. Largest: compression/graph.jl 552, timeevolution/tay
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite green at ca2ce05, 139827) |
 | 10 | Infinite chains | infinite/unitcell, window | done (full suite green at dc5e5ce, 139829) |
 | 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) option B at 9d641f0, targeted tests |
-| 12 | Organisation revisit | — | done (D19); full suite pending |
+| 12 | Organisation revisit | — | done (full suite green at 911f5ce, 139883) |
 | 13 | Tests | test/ | pending |
 | 14 | Examples, benchmarks, scripts, docs, research | | pending |
 

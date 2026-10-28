@@ -353,6 +353,8 @@ CLAUDE.md's test convention.
 (d) P13.4: measure first (solo per-file time, compile share, configurations unique to a file, per-testset coverage);
 trims are decided from the table, not by the agent.
 (e) P13.5: `runtests.jl` worker RSS budget stays.
+As applied: 9d1b8b7 (a; 18 + 8 tests moved, counts unchanged), 52cd673 (b+c). Changed files pass standalone; runic,
+names clean.
 
 ## Possible improvements
 

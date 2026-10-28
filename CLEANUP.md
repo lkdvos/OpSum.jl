@@ -62,7 +62,7 @@ Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, inf
 | 8 | Bond bases | compression/graph_vc, graph_svd, metric | done (full suite green at ca2ce05, 139827) |
 | 9 | Output | mpo/symbolicmpo, tensors, jordan, ext/ | done (full suite green at ca2ce05, 139827) |
 | 10 | Infinite chains | infinite/unitcell, window | done (full suite green at dc5e5ce, 139829) |
-| 11 | Time evolution | timeevolution/ | agreed (D18), implementing |
+| 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) awaiting decision |
 | 12 | Organisation revisit | — | pending |
 | 13 | Tests | test/ | pending |
 | 14 | Examples, benchmarks, scripts, docs, research | | pending |

@@ -1,7 +1,7 @@
 # Infinite chains: translation, and the canonicalisation of a generating set (one representative per
 # translation class) for `Σ_n translate(H, n·L)`.
 
-using TensorKit: Sector, ElementarySpace, unit
+using TensorKit: Sector, ElementarySpace
 
 translate(t::Term{I}, Δ) where {I} = Term{I}(t.sites .+ Int(Δ), t.factors, t.coeff)
 translate(ts::Terms{I}, Δ) where {I} =
@@ -12,27 +12,6 @@ maxspan(ts::Terms) = maximum(termspan, ts.terms; init = 0)
 maxspan(es::ExpSum) = maximum(channelspan, keys(es.channels); init = 0)
 # range of the shortest translates (a channel's actual range is unbounded)
 maxspan(H::OperatorSum) = max(maxspan(H.terms), maxspan(H.channels))
-
-# The sweep's running bond charge is referenced to the left vacuum, so terms must be neutral.
-function _checkneutral(sites, factors::Vector{Factor{I}}) where {I}
-    charge = isempty(factors) ? unit(I) : last(factors).bond
-    return charge == unit(I) || throw(
-        ArgumentError(
-            "infinite MPO construction requires charge-neutral terms, got total charge " *
-                "$charge on sites $sites; charged infinite MPOs are out of scope"
-        )
-    )
-end
-
-function checkgenerator(t::Term)
-    isempty(t.sites) && throw(
-        ArgumentError(
-            "an infinite MPO cannot represent a K = 0 identity term: `Σ_n c·𝟙` does not converge"
-        )
-    )
-    return _checkneutral(t.sites, t.factors)
-end
-checkgenerator(k::ExpKey) = _checkneutral(k.support...)
 
 # shift putting the leftmost site into `1:L`
 _cellshift(sites, L) = -L * fld(minimum(sites) - 1, L)

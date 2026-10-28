@@ -1,6 +1,6 @@
 # The lattice-carrying container; terms are checked against the lattice as they enter.
 
-using TensorKit: Sector
+using TensorKit: Sector, unit
 
 """
     OperatorSum{I<:Sector, L<:AbstractLattice}
@@ -135,6 +135,27 @@ function checkchannels(lat::AbstractLattice, chans::ExpSum{I}) where {I}
     end
     return nothing
 end
+
+# The sweep's running bond charge is referenced to the left vacuum, so terms must be neutral.
+function _checkneutral(sites, factors::Vector{Factor{I}}) where {I}
+    charge = isempty(factors) ? unit(I) : last(factors).bond
+    return charge == unit(I) || throw(
+        ArgumentError(
+            "infinite MPO construction requires charge-neutral terms, got total charge " *
+                "$charge on sites $sites; charged infinite MPOs are out of scope"
+        )
+    )
+end
+
+function checkgenerator(t::Term)
+    isempty(t.sites) && throw(
+        ArgumentError(
+            "an infinite MPO cannot represent a K = 0 identity term: `Σ_n c·𝟙` does not converge"
+        )
+    )
+    return _checkneutral(t.sites, t.factors)
+end
+checkgenerator(k::ExpKey) = _checkneutral(k.support...)
 
 _mixedbases_message(::FiniteChain) =
     "a decaying channel on a finite chain moves by one site, so its letters land on sites with " *

@@ -14,38 +14,46 @@ Performance claims need same-node A/B runs submitted by the user.
 
 ## Global map
 
-Layers (include order in `src/OpSum.jl`; arrows = "is used by"):
+Refreshed in chunk 12 (D19), with the include order of `src/OpSum.jl` after D19(d); arrows = "is used by".
 
 ```
-utility/ (linalg, memo)   datastructures/ (bipartite, connectedcomponents)   compression/algorithms.jl (strategy types)
-        │                                                                          │
-lattices.jl ──► algebra/  letters: IrrepTensorOperators(IrrepOperator) → irrepkey(ITOKey) → siteoperator(SiteOperator)
-                          terms:   irrepalgebra(Term, PendingTerm, Terms, opsum, couple) → irrepinstantiate
-                          blocks:  localoperator(LocalOperator) → irrepprojection(_project_units) → basis(Basis, project)
-                          misc:    builders(adjoint!) → products(*, _recouple, _resolve) → letterproducts → stockbases
-        ──► compression/irreptermtable (canonicalize! + ITOTermTable) ─► infinite/expterms (ExpSum, channels)
-        ──► operatorsum (OperatorSum) ─► compression/symbolicmpo (mpo, SymbolicMPO)
-        ──► compression/irrepinterning → irrepgraph (ITOGraph, sweep) → irrepgraph_vc | irrepgraph_svd → metric
-        ──► infinite/infinitechain → infinitegraph (_infinite_window)
-        ──► compression/irrepmpo (_compress, mpo_terms, tensors) → jordanmpo
-        ──► timeevolution/kronpower → taylormpo (TaylorEntry, TaylorMPO) → taylor (the passes)
+utility/ (helpers: invariant_violation, memo lock; bipartite: Hopcroft–Karp, König, components)
+  ──► algebra/  letters (Letter, Factor) → siteoperator (SiteOperator, scalarop) → terms (Term, Terms, PendingTerm)
+                → recouple → couple (couple, dot) → instantiate → localoperator (LocalOperator)
+                → basis (Basis: duals, metric, letter products) → projection (project, project_units)
+  ──► lattices (AbstractLattice, FiniteChain, InfiniteChain)
+  ──► algebra/  adjoint (adjoint_terms) → products (resolve) → letterproducts (letter_product, site_product)
+                → stockbases (spin_basis …, spin_ops …; memoised)
+  ──► expterms (expterm, ExpSum, ExpKey, ExpChannel) ──► operatorsum (OperatorSum, opsum, checkinsert, checkgenerator)
+  ──► compression/ termtable (TermTable, suffix/prefix ids) → strategies (BondStrategy, VertexCover, IndependentSVD,
+                   SequentialSVD, SVD_ATOL) → channels (ChannelState automaton) → graph (SweepGraph, sweep, at_site!,
+                   BondBasis) → graph_vc (ComponentCover) | graph_svd → metric (compress_in_metric)
+  ──► infinite/ unitcell (translate, unitcell_terms, window_terms) → window (infinite_window)
+  ──► mpo/      symbolicmpo (SymbolicMPO, mpo, mpo_terms, islossless) → tensors (mpo_tensors, mpo_tensormap)
+                → jordan (JordanLayout, jordan_layout, jordan_mpo_tensors)
+  ──► timeevolution/ kronpower (mpo_power, KronSite) → taylormpo (TaylorEntry, TaylorMPO, evaluate)
+                     → taylor (TaylorWork, the passes, taylor_mpo, run_passes)
 ext/OpSumMPSKitExt (instantiate → MPSKit MPOs, TaylorCluster)
 ```
 
-Main path: `opsum(lat, ops...)` → `OperatorSum` (`_checkinsert`) → `mpo(H, alg)` (symbolicmpo.jl) → `_compress`
-(irrepmpo.jl) → `ITOTermTable` → `_irrep_channels` → `ITOGraph` + `_at_site!` per site → `_bond_basis!`
-(VC / SVD) → `SymbolicMPO(lat, Ws, bondsectors, starts, finishes)` → `irrep_mpo_tensors` / `jordan_mpo_tensors` /
-`instantiate` (ext).
+Main path: `opsum(lat, ops...)` → `OperatorSum` (`checkinsert`, `resolve`) → `mpo(H, alg)` (symbolicmpo.jl) →
+finite: `_compress` → `TermTable` → `sweep(tt, N, alg; channels)` → per site `at_site!` → `bond_basis!` (VC / SVD,
+`BondBasis`) → `SymbolicMPO(lat, Ws, bondsectors, start, finish)`; infinite: `unitcell_terms` → `infinite_window` (same
+sweep, `jordan = true`, fixed-point cell) → `mpo_tensors` / `jordan_mpo_tensors` / `instantiate` (ext) /
+`taylor_mpo` (`mpo_power` → passes → `TaylorMPO` → `evaluate`).
 
-Core types: `IrrepOperator` (letter) · `ITOKey` (letter + outgoing bond charge) · `SiteOperator` (sparse sum of
-letters) · `Term`/`Terms`/`PendingTerm` · `LocalOperator` (unplaced K-site) · `Basis` · `OperatorSum` · `ExpSum`/
-`ExpChannel` · `ITOTermTable` · `ITOGraph` · `SymbolicMPO` · `JordanLayout` · `TaylorEntry`/`TaylorMPO`/`TaylorWork`.
+Core types: `Letter` · `Factor` (letter + outgoing bond charge) · `SiteOperator` (sparse sum of letters) · `Term`/`Terms`/
+`PendingTerm` · `LocalOperator` · `Basis` · `FiniteChain`/`InfiniteChain` · `ExpSum` · `OperatorSum` · `TermTable` ·
+`SweepGraph` · `BondStrategy` · `SymbolicMPO` · `JordanLayout` · `TaylorEntry`/`TaylorMPO`/`TaylorWork`.
 
-Global mutable state: 5 `Dict{Any,Any}` / `IdDict` memo caches (stock bases, adjoint, recouple, pending products,
-letter products) under one `ReentrantLock` (`utility/memo.jl`); never cleared.
+Global mutable state: memo caches `_STOCK_CACHE`, `_ADJOINT_CACHE`, `_RECOUPLE_CACHE`, `_PRODUCT_CACHE` (`Dict{Any,Any}`)
+under `OPCACHE_LOCK`; letter products are memoised per `Basis`. Never cleared.
 
-Sizes (lines): src 5.8k (algebra 2.0k, compression 1.8k, timeevolution 0.8k, infinite 0.7k), test 5.6k, examples
-2.0k, benchmark 0.6k, scripts 0.4k, research 0.2k. Largest: irrepalgebra.jl 586, irrepgraph.jl 514, expterms.jl 424.
+Named tolerances: `BASIS_RTOL`, `METRIC_ZERO_RTOL`, `METRIC_TRIVIAL_ATOL`, `RECOUPLE_ATOL`, `PRODUCT_RTOL`, `SVD_ATOL`;
+window sizes `WINDOW_EDGE_MARGIN`, `WINDOW_CHECK_CELLS`, `WINDOW_DOUBLINGS`.
+
+Sizes (lines, at 0e811bc): src 5.9k (algebra 2.3k, compression 1.4k, timeevolution 0.8k, mpo 0.5k, infinite 0.2k,
+top level 0.7k), test 6.4k. Largest: compression/graph.jl 552, timeevolution/taylor.jl 430, algebra/terms.jl 382.
 
 ## Chunks
 
@@ -337,17 +345,14 @@ graph_vc, graph_svd, metric) → infinite → mpo → timeevolution.
 
 ## Open items
 
-- Tour findings, to decide in their chunks: `mpo(H)` canonicalises `H.terms` in place (7); `TermTable.nvertices` is
-  really `N` (7); four-way `_compress` branching + silent `nothing` fallback from the metric path (1/8, with O7);
-  `_sweep` = `_sweep_channels(; jordan=false)[1:2]` (7); 35-field `SweepGraph` with positional constructor (7);
-  tri-state `start`/`finish` (9); `mpo_tensors(Ws, secs, sites)` / `mpo_terms(Ws, secs)` public raw forms (9);
-  `_invariant` defined in graph.jl but used across layers → utility (1); `ComplexF64` everywhere (question).
-- Stale refs to removed design notes: `src/infinite/window.jl:3` (research/infinite-mpo.md), `src/algebra/basis.jl:3`
-  (research/operator-bases.md).
 - `benchmark/n2` includes `MPSKitExperimental.jl/examples/opsum_qchem_su2.jl` (outside this repo), which still uses
   `OpSum.IrrepOperator` → needs `Letter` there; and an out-of-repo include is fragile (chunk 14).
-- `scalarop` landed in `algebra/instantiate.jl`; `siteoperator.jl` may be its home (chunk 2).
-- `test/utility/test_bipartite_components.jl` could merge into `test_bipartite.jl` (chunk 13).
+- Tests (chunk 13): no test file for `algebra/adjoint`, `algebra/instantiate`, `compression/channels`,
+  `compression/graph_vc`, `infinite/unitcell`, `utility/helpers`; `test_basis_lattice.jl` at top level;
+  `test/utility/test_bipartite_components.jl` merge (if still separate); `matrixunit` clash in testutils.
+- Issues to open at the end: `Terms` translates error reports the shifted support; IndependentSVD 3.7–7.1% slower
+  after the SVD_ATOL cut; hubbard_ly4 N=32 SequentialSVD bond sum +3; Taylor extension skipping every unused row
+  (14–45%, D18e); ComplexF64 (#43 exists).
 
 ## Resume here
 

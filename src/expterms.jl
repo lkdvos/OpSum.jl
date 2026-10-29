@@ -123,11 +123,6 @@ function VectorInterface.scale(a::ExpSum{I}, α::Number) where {I}
     end
     return ExpSum{I}(d)
 end
-Base.:*(α::Number, a::ExpSum) = scale(a, α)
-Base.:*(a::ExpSum, α::Number) = scale(a, α)
-Base.:/(a::ExpSum, α::Number) = scale(a, inv(α))
-Base.:-(a::ExpSum) = scale(a, -1)
-Base.:-(a::ExpSum, b::ExpSum) = a + (-b)
 
 # --- collecting -----------------------------------------------------------------------------------
 

@@ -72,7 +72,7 @@ top level 0.7k), test 6.4k. Largest: compression/graph.jl 552, timeevolution/tay
 | 10 | Infinite chains | infinite/unitcell, window | done (full suite green at dc5e5ce, 139829) |
 | 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) option B at 9d641f0, targeted tests |
 | 12 | Organisation revisit | — | done (full suite green at 911f5ce, 139883) |
-| 13 | Tests | test/ | agreed (D20); measuring + (a)–(c) |
+| 13 | Tests | test/ | done (D20); full suite green at b22b586, 139868 (−15: fewer sites in shrunk oracles) |
 | 14 | Examples, benchmarks, scripts, docs, research | | pending |
 
 ## Decisions
@@ -379,9 +379,10 @@ sector-preserving shrink changes their time). The tiled testsets have no fermion
   `test/utility/test_bipartite_components.jl` merge (if still separate); `matrixunit` clash in testutils.
 - Issues to open at the end: `Terms` translates error reports the shifted support; IndependentSVD 3.7–7.1% slower
   after the SVD_ATOL cut; hubbard_ly4 N=32 SequentialSVD bond sum +3; Taylor extension skipping every unused row
-  (14–45%, D18e); ComplexF64 (#43 exists).
+  (14–45%, D18e); ComplexF64 (#43 exists); tiled-MPO oracles have no fermionic case, and in test_taylor only "order of
+  accuracy" detects a broken sign (D20f); whether MPSKit loaded in a worker slows test_expterms/test_infinite_mpo.
 
 ## Resume here
 
-Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 done (D17), full suite green at dc5e5ce (139829). Chunk 11 done (D18), full suite green at 59da1aa; 9d641f0 targeted only (full suite with chunk 12). Next: chunk 12 (organisation revisit). Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 done (D17), full suite green at dc5e5ce (139829). Chunk 11 done (D18), full suite green at 59da1aa; 9d641f0 targeted only (full suite with chunk 12). Chunks 12–13 done (D19, D20). Next: chunk 14 (examples, benchmarks, docs). Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

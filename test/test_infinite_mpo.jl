@@ -179,6 +179,13 @@ end
 
     # a translation class written twice (seen across the whole set, so checked when the MPO is formed)
     @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[2]) + dot(S[2], S[3])))
+    # the error names both terms on the sites they were written on, not shifted into the cell
+    err = try
+        mpo(opsum(lat, dot(S[2], S[3]) + dot(S[4], S[5])))
+    catch e
+        e
+    end
+    @test err isa ArgumentError && occursin("[4, 5] and [2, 3]", err.msg)
     # ... but the same pair of bonds is fine on a two-site cell
     @test mpo(
         opsum(InfiniteChain([BSU2, BSU2]), dot(S[1], S[2]) + dot(S[2], S[3]))

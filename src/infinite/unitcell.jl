@@ -29,12 +29,14 @@ function unitcell_terms(ts::Terms{I}, L::Int) where {I}
     L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
     seen = Dictionary{Support{I}, Int}()   # by support: translates with other coefficients still clash
     out = Term{I}[]
+    origin = Vector{Int}[]   # the sites each shifted term was written on
     for t in ts.terms
         checkgenerator(t)
         ct = translate(t, _cellshift(t.sites, L))
         prev = get(seen, support(ct), 0)
-        iszero(prev) || _translates_error("terms", t.sites, out[prev].sites, L)
+        iszero(prev) || _translates_error("terms", t.sites, origin[prev], L)
         push!(out, ct)
+        push!(origin, t.sites)
         insert!(seen, support(ct), length(out))
     end
     return Terms{I}(out)

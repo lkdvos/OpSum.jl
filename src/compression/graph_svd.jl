@@ -1,17 +1,25 @@
 # The SVD bond-basis backends: SequentialSVD (rides the persistent graph, dense per-bond SVD)
 # and IndependentSVD (compresses each bond independently, sharing only the interning helpers).
 
-_nextdeg!(mult, q) = mult[q] = get(mult, q, 0) + 1
+# The dense classes of one side of a bond, keyed by `K`: each class's bond charge `Q`, its degeneracy index
+# `deg` within its charge sector, and the per-sector multiplicities `mult`.
+struct ClassTable{K, I <: Sector}
+    index::Dictionary{K, Int}
+    Q::Vector{I}
+    deg::Vector{Int}
+    mult::Dict{I, Int}
+end
+ClassTable{K, I}() where {K, I} = ClassTable{K, I}(Dictionary{K, Int}(), I[], Int[], Dict{I, Int}())
 
-# Dense class of `key` in `dense`, created on a miss with the next degeneracy index of charge `q`.
-function _class!(dense, Qs, deg, mult, key, q)
-    c = get(dense, key, 0)
+# Dense class of `key`, created on a miss with the next degeneracy index of charge `q`.
+function _class!(tbl::ClassTable, key, q)
+    c = get(tbl.index, key, 0)
     if iszero(c)
-        push!(Qs, q)
-        push!(deg, _nextdeg!(mult, q))
-        c = length(Qs)
-        insert!(dense, key, c)
-    elseif Qs[c] != q
+        push!(tbl.Q, q)
+        push!(tbl.deg, nextdeg!(tbl.mult, q))
+        c = length(tbl.Q)
+        insert!(tbl.index, key, c)
+    elseif tbl.Q[c] != q
         invariant_violation("class not sector-pure")
     end
     return c
@@ -98,8 +106,8 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, strategy::Seque
 
     # degeneracy index within the charge sector, and per-sector multiplicities
     umult, vmult = Dict{I, Int}(), Dict{I, Int}()
-    udeg = [_nextdeg!(umult, q) for q in uCharge]
-    vdeg = [vactive[v] ? _nextdeg!(vmult, vCharge[v]) : 0 for v in 1:nV]
+    udeg = [nextdeg!(umult, q) for q in uCharge]
+    vdeg = [vactive[v] ? nextdeg!(vmult, vCharge[v]) : 0 for v in 1:nV]
 
     C = zeros(ComplexF64, Vect[I](umult) ← Vect[I](vmult))
     for u in 1:nU
@@ -159,25 +167,15 @@ function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
     #    `predense[b]` interned prefix id -> dense column
     bond_Us = Vector{Matrix{T}}(undef, nb)
     bond_secs = Vector{Vector{I}}(undef, nb)
-    predense = [Dictionary{Int, Int}() for _ in 1:nb]
+    predense = Vector{Dictionary{Int, Int}}(undef, nb)
 
     cursor = zeros(Int, M)          # term -> #active factors at sites <= b (monotone in b)
     pterm = zeros(Int, M)           # term -> dense prefix column at the current bond
     sterm = zeros(Int, M)           # term -> dense suffix column at the current bond
-    preQ, sufQ = I[], I[]           # dense class -> bond charge
-    pre_deg, suf_deg = Int[], Int[] # dense class -> degeneracy index within its charge sector
-    pre_mult, suf_mult = Dict{I, Int}(), Dict{I, Int}()
-    sufdense = Dictionary{Tuple{Int, I}, Int}()
 
     for b in 1:nb
-        pd = predense[b]
-        empty!(sufdense)
-        empty!(preQ)
-        empty!(sufQ)
-        empty!(pre_deg)
-        empty!(suf_deg)
-        empty!(pre_mult)
-        empty!(suf_mult)
+        pre = ClassTable{Int, I}()
+        suf = ClassTable{Tuple{Int, I}, I}()
 
         for t in 1:M
             j = cursor[t]
@@ -186,18 +184,19 @@ function sweep(tt::TermTable{I}, N::Int, strategy::IndependentSVD) where {I}
             end
             cursor[t] = j
             q = iszero(j) ? unit(I) : tt.factors[j, t].bond
-            pterm[t] = _class!(pd, preQ, pre_deg, pre_mult, preid[j + 1, t], q)
-            sterm[t] = _class!(sufdense, sufQ, suf_deg, suf_mult, (sufid[j + 1, t], q), q)
+            pterm[t] = _class!(pre, preid[j + 1, t], q)
+            sterm[t] = _class!(suf, (sufid[j + 1, t], q), q)
         end
 
-        C = zeros(T, Vect[I](pre_mult) ← Vect[I](suf_mult))
+        C = zeros(T, Vect[I](pre.mult) ← Vect[I](suf.mult))
         for t in 1:M
             p, s = pterm[t], sterm[t]
-            block(C, preQ[p])[pre_deg[p], suf_deg[s]] += tt.coeffs[t]
+            block(C, pre.Q[p])[pre.deg[p], suf.deg[s]] += tt.coeffs[t]
         end
 
         U, S, _ = svd_trunc(C; trunc = _svd_trunc(trunc))
-        bond_Us[b], bond_secs[b] = _flatten_U(U, space(S, 1), preQ, pre_deg)
+        bond_Us[b], bond_secs[b] = _flatten_U(U, space(S, 1), pre.Q, pre.deg)
+        predense[b] = pre.index
     end
 
     # 2. project each vertex operator into the compressed bases (boundary bonds are 1×1)

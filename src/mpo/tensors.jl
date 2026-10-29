@@ -5,19 +5,11 @@ using TensorKit: FusionTree, Vect, fusiontrees, permute, unit, @tensor, ncon, re
 
 # Site tensors `W_i : B_{i-1} ⊗ V_i ← V_i ⊗ B_i` (MPSKit leg convention).
 
-# bond space with the given per-index charges
+# bond space with the given per-index charges, and the degeneracy index (within its charge sector) of each index
 function bond_space(sec::Vector{I}) where {I}
-    counts = Dict{I, Int}()
-    for c in sec
-        counts[c] = get(counts, c, 0) + 1
-    end
-    return Vect[I](counts)
-end
-
-# degeneracy index (within its charge sector) of each bond index
-function deg_indices(sec::Vector{I}) where {I}
-    counts = Dict{I, Int}()
-    return [counts[c] = get(counts, c, 0) + 1 for c in sec]
+    mult = Dict{I, Int}()
+    degs = [nextdeg!(mult, c) for c in sec]
+    return Vect[I](mult), degs
 end
 
 # One letter's block for a single `(bL, bR)` bond-charge pair (no bond degeneracy), for `jordan_mpo_tensors`.
@@ -72,8 +64,8 @@ function _mpo_tensors(
         bsecs::Vector{Vector{I}}, sites
     ) where {I}
     N = length(Ws)
-    bspaces = map(bond_space, bsecs)
-    bdegs = map(deg_indices, bsecs)
+    bonds = map(bond_space, bsecs)
+    bspaces, bdegs = first.(bonds), last.(bonds)
     return map(1:N) do i
         return _site_tensor(sites[i], Ws[i], bsecs[i], bsecs[i + 1], bspaces[i], bspaces[i + 1], bdegs[i], bdegs[i + 1])
     end

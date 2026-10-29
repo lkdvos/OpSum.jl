@@ -2,7 +2,7 @@ using Test
 using OpSum
 using OpSum: mpo, mpo_tensors, opsum, expterm, SiteOperator, storedpairs, TaylorEntry, evaluate, scaled, site_product,
     jordan_layout, close_right, mpo_power, taylor_work, run_passes, fold_passive!, merge_equivalent!, prune_orphans!,
-    extend!, compress_levels!, rowbond, bond_space, deg_indices, KronSite, walk_words!
+    extend!, compress_levels!, rowbond, bond_space, KronSite, walk_words!
 using TensorKit
 using TensorKit: @tensor
 using LinearAlgebra: norm
@@ -72,8 +72,8 @@ end
         sec = P.mpo.bondsectors[L]
         # the finish selects the power of H, the start the identity
         for (k, expected) in ((2^N, D^N), (1, one(D)))
-            Q = zeros(ComplexF64, bond_space(sec) ← Vect[sectortype(H.lattice)](unit(sectortype(H.lattice)) => 1))
-            block(Q, unit(sectortype(H.lattice)))[deg_indices(sec)[k], 1] = 1
+            Q = zeros(ComplexF64, first(bond_space(sec)) ← Vect[sectortype(H.lattice)](unit(sectortype(H.lattice)) => 1))
+            block(Q, unit(sectortype(H.lattice)))[last(bond_space(sec))[k], 1] = 1
             T = copy(Ts)
             @tensor R[bl o; i a] := T[end][bl o; i br] * Q[br; a]
             T[end] = R

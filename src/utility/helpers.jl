@@ -15,6 +15,9 @@ function sparse_from_dict(
     return sparse(rows, cols, vals, sz...)
 end
 
+# Next degeneracy index of charge `q`, counted in `mult` (the per-sector multiplicities so far).
+nextdeg!(mult, q) = mult[q] = get(mult, q, 0) + 1
+
 # stored entries of `A` as `CartesianIndex(row, col) => value`, column-major (unlike `pairs(A)`)
 function storedpairs(A::SparseMatrixCSC)
     rows, vals = rowvals(A), nonzeros(A)

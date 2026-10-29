@@ -39,7 +39,7 @@ densify(H) = plain(instantiate(H))
 
 using TensorKit: TensorKit, ElementarySpace, Sector, Vect, sectortype, block, dual, unit, sectors,
     isomorphism, numind, numout, removeunit, ⊗, ←, Trivial, U1Irrep, @tensor
-using OpSum: opsum, expterm, mpo_tensormap, bond_space, deg_indices
+using OpSum: opsum, expterm, mpo_tensormap, bond_space
 
 # The complete basis of matrix units on `V`: the identity, then every matrix unit except the first of
 # trivial charge (dependent on the identity), so a fermion's `n` is one letter. Memoised per space.
@@ -237,16 +237,16 @@ end
 function select_left(T, sec, k)
     I = eltype(sec)
     sec[k] == unit(I) || error("not a neutral index")
-    P = zeros(ComplexF64, Vect[I](unit(I) => 1) ← bond_space(sec))
-    block(P, unit(I))[1, deg_indices(sec)[k]] = 1
+    P = zeros(ComplexF64, Vect[I](unit(I) => 1) ← first(bond_space(sec)))
+    block(P, unit(I))[1, last(bond_space(sec))[k]] = 1
     @tensor R[a o; i br] := P[a; bl] * T[bl o; i br]
     return R
 end
 function select_right(T, sec, k)
     I = eltype(sec)
     sec[k] == unit(I) || error("not a neutral index")
-    Q = zeros(ComplexF64, bond_space(sec) ← Vect[I](unit(I) => 1))
-    block(Q, unit(I))[deg_indices(sec)[k], 1] = 1
+    Q = zeros(ComplexF64, first(bond_space(sec)) ← Vect[I](unit(I) => 1))
+    block(Q, unit(I))[last(bond_space(sec))[k], 1] = 1
     @tensor R[bl o; i a] := T[bl o; i br] * Q[br; a]
     return R
 end

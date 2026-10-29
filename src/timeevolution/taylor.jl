@@ -145,7 +145,7 @@ function taylor_work(W::SymbolicMPO{I, L}, N::Integer) where {I, L}
         return wm
     end
     return TaylorWork{I, L, Int(N)}(
-        W.lattice, P.sites, P.stats, Ms, levels, [Dict(t => k for (k, t) in enumerate(lv)) for lv in levels],
+        W.lattice, P.sites, P.stats, Ms, levels, P.index,
         [maximum(maximum, lv) for lv in levels], P.mpo.bondsectors, [trues(length(lv)) for lv in levels]
     )
 end

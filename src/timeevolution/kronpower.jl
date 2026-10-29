@@ -73,7 +73,7 @@ function close_right(layout::JordanLayout{I}) where {I}
 end
 
 """
-    mpo_power(W::SymbolicMPO, N::Integer; closed = false) -> (; mpo, levels, stats, sites)
+    mpo_power(W::SymbolicMPO, N::Integer; closed = false) -> (; mpo, levels, index, stats, sites)
 
 The `N`-fold Kronecker power of the Jordan form of `W` (`jordan_layout`): a [`SymbolicMPO`](@ref)
 `mpo` whose bond indices are levels, `NTuple{N,Int}`s of Jordan indices, so that
@@ -83,8 +83,8 @@ Throws where `jordan_mpo_tensors` does, and for a non-abelian symmetry.
 `levels[i]` lists the levels of the bond right of site `i` (the index of `mpo`'s bond `i` is the position
 in this vector, layer 1 varying fastest), so `levels[N]` is the bond left of
 site 1 on an infinite chain; the left boundary of a finite chain is the single level `(1, …, 1)`.
-`mpo.start`/`mpo.finish` are the positions of `(1, …, 1)` and `(end, …, end)` (`0` where the bond has no
-such channel: the right boundary of a finite chain has no start). `stats` counts the work done, and `sites[i]`
+`index[i]` is its inverse (level ↦ position). `mpo.start`/`mpo.finish` are the positions of `(1, …, 1)` and
+`(end, …, end)` (`0` where the bond has no such channel: the right boundary of a finite chain has no start). `stats` counts the work done, and `sites[i]`
 is the `KronSite` of site `i`: its layer entries and word trie, from which any single entry of a power
 of any order is available lazily (`walk_words!`).
 
@@ -125,8 +125,8 @@ function mpo_power(W::SymbolicMPO{I}, ::Val{N}, closed) where {I, N}
     pick(b, has, t) = has ? get(index[b], t, 0) : 0
     start = [pick(b, !iszero(layout.start[b]), first_) for b in 2:(L + 1)]
     finish = [pick(b, !iszero(layout.finish[b]), last_(b)) for b in 2:(L + 1)]
-    mpo = SymbolicMPO(W.lattice, Ws, secs[2:(L + 1)], start, finish)
-    return (; mpo, levels = levels[2:(L + 1)], stats, sites)
+    mpo = SymbolicMPO{I, typeof(W.lattice)}(W.lattice, Ws, secs[2:(L + 1)], start, finish)
+    return (; mpo, levels = levels[2:(L + 1)], index = index[2:(L + 1)], stats, sites)
 end
 
 # One site of a power: the layer entries `W[l, r]` with interned operators, and the trie of active words. A word is

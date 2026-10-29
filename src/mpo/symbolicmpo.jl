@@ -51,9 +51,23 @@ finish channel is forced into the cover for that.
 `alg` is a [`BondStrategy`](@ref): [`VertexCover`](@ref) (default, lossless minimum vertex cover),
 [`IndependentSVD`](@ref) or [`SequentialSVD`](@ref) (finite chains without channels only).
 """
-function mpo(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy = VertexCover()) where {I}
-    (; Ws, bondsectors, start, finish) = _compress(H, alg)
-    return SymbolicMPO(H.lattice, Ws, bondsectors, start, finish)
+function mpo(H::OperatorSum{I, L}, alg::BondStrategy = VertexCover()) where {I, L <: FiniteChain}
+    N = length(H.lattice)
+    if !isempty(H.channels)
+        alg isa VertexCover || throw(
+            ArgumentError(
+                "SVD strategies cannot compress an exponentially decaying interaction: they need the " *
+                    "whole bond coefficient matrix up front. Use VertexCover() (the default)."
+            )
+        )
+        compressed = sweep(TermTable(H.terms), N, alg; channels = lower_channels(H.channels, 1))
+    elseif truncates(alg)
+        compressed = compress_in_metric(H.terms, H.lattice, alg)   # a truncation has to see the basis' own inner product (metric.jl)
+    else
+        compressed = sweep(TermTable(H.terms), N, alg)
+    end
+    (; Ws, bondsectors, start, finish) = compressed
+    return SymbolicMPO{I, L}(H.lattice, Ws, bondsectors, start, finish)
 end
 
 mpo(H::OperatorSum{I, <:InfiniteChain}, ::VertexCover = VertexCover()) where {I} =
@@ -69,30 +83,6 @@ mpo(::OperatorSum{I, <:InfiniteChain}, ::Union{IndependentSVD, SequentialSVD}) w
 
 mpo(::Union{Term, Terms, ExpSum}, args...) = throw(
     ArgumentError("mpo takes an OperatorSum: put the terms on a lattice first, `mpo(opsum(lat, h))`")
-)
-
-SymbolicMPO(lat::L, Ws, secs::Vector{Vector{I}}, start, finish) where {I, L} =
-    SymbolicMPO{I, L}(lat, Ws, secs, start, finish)
-
-# Bond matrices, bond sectors and per-bond identity-channel indices, with the finish channel forced into the cover.
-function _compress(H::OperatorSum{I, <:FiniteChain}, alg::BondStrategy) where {I}
-    N = length(H.lattice)
-    if isempty(H.channels)
-        # a truncation has to see the basis' own inner product (metric.jl)
-        truncates(alg) && return compress_in_metric(H.terms, H.lattice, alg)
-        return sweep(TermTable(H.terms), N, alg)
-    end
-    return _compress_channels(H, alg)
-end
-
-function _compress_channels(H::OperatorSum{I, <:FiniteChain}, ::VertexCover) where {I}
-    return sweep(TermTable(H.terms), length(H.lattice), VertexCover(); channels = lower_channels(H.channels, 1))
-end
-_compress_channels(::OperatorSum, ::Union{IndependentSVD, SequentialSVD}) = throw(
-    ArgumentError(
-        "SVD strategies cannot compress an exponentially decaying interaction: they need the " *
-            "whole bond coefficient matrix up front. Use VertexCover() (the default)."
-    )
 )
 
 """

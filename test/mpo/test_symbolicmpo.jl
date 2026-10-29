@@ -53,9 +53,15 @@ include(joinpath(@__DIR__, "..", "testutils.jl"))   # LO, islossless
     @test U1Irrep(2) in secs[2]                     # the inner-line charge
 end
 
-# `instantiate` of a symbolic MPO is a method of the MPSKit extension; this file never loads MPSKit
+# `instantiate` of a symbolic MPO is a method of the MPSKit extension. Test workers are reused, so
+# MPSKit may already be loaded here; the hint is checked in a fresh process that never loads it.
 @testset "instantiate without MPSKit says what to load" begin
-    @test Base.get_extension(OpSum, :OpSumMPSKitExt) === nothing
+    script = """
+    using OpSum, TensorKit
+    using LinearAlgebra: dot
+    using OpSum: mpo, opsum, instantiate, Letter, Terms
+    include($(repr(joinpath(@__DIR__, "..", "testutils.jl"))))
+    Base.get_extension(OpSum, :OpSumMPSKitExt) === nothing || error("MPSKit is loaded")
     B = unitbasis(Rep[U₁](0 => 1, 1 => 1))
     raise, lower = LO(Letter(U1Irrep(1), 1)), LO(Letter(U1Irrep(-1), 1))
     W = mpo(opsum(fill(B, 3), Terms(dot(raise[i], lower[i + 1]) for i in 1:2)))
@@ -65,9 +71,12 @@ end
     catch e
         sprint(showerror, e)
     end
-    @test occursin("using MPSKit", errtext(W))
-    @test occursin("using MPSKit", errtext(OpSum.taylor_mpo(W, 2), 0.1))
-    @test !occursin("using MPSKit", errtext(1))
+    println(occursin("using MPSKit", errtext(W)))
+    println(occursin("using MPSKit", errtext(OpSum.taylor_mpo(W, 2), 0.1)))
+    println(occursin("using MPSKit", errtext(1)))
+    """
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project()) -e $script`
+    @test split(readchomp(cmd)) == ["true", "true", "false"]
 end
 
 @testset "SymbolicMPO surface" begin

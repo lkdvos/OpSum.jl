@@ -289,10 +289,7 @@ function Terms(args...)
                 "for the empty operator"
         )
     )
-    out = nothing
-    for a in args
-        out = collect_any(out, a)
-    end
+    out = collect_any(nothing, args)
     out === nothing && throw(
         ArgumentError(
             "Terms: every argument was empty, so the symmetry sector cannot be inferred; write " *
@@ -303,11 +300,7 @@ function Terms(args...)
 end
 
 function Terms{I}(args...) where {I <: Sector}
-    bag = TermBag{I}()
-    for a in args
-        collect_terms!(bag, a, I)
-    end
-    return Terms{I}(bag)
+    return Terms{I}(collect_terms!(TermBag{I}(), args, I))
 end
 
 # The accumulator is `nothing` until the first term fixes `I`; after that the typed collector runs.
@@ -365,10 +358,7 @@ end
 Append terms to `ts` in place, keeping its normal form; the arguments are as for [`Terms`](@ref).
 """
 function Base.append!(ts::Terms{I}, args...) where {I}
-    bag = TermBag{I}()
-    for a in args
-        collect_terms!(bag, a, I)
-    end
+    bag = collect_terms!(TermBag{I}(), args, I)
     append!(ts.pending, bag.pending)
     return merge_terms!(ts, bag.terms)
 end

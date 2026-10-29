@@ -41,10 +41,7 @@ Add `Term`s, `Terms`, `ExpSum`s or (nested) iterables of those to `H` in place. 
 against the lattice before anything is added.
 """
 function opsum!(H::OperatorSum{I}, args...) where {I}
-    buf = TermBag{I}(ExpSum{I}())
-    for a in args
-        collect_terms!(buf, a, I)
-    end
+    buf = collect_terms!(TermBag{I}(ExpSum{I}()), args, I)
     terms = buf.terms
     # on-site products are resolved here, where the sites' bases are known
     isempty(buf.pending) || append!(terms, resolve(buf.pending, H.lattice))

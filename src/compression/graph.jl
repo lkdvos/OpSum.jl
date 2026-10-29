@@ -58,17 +58,14 @@ Base.@kwdef mutable struct Pending{I <: Sector}
     remaining::Int                              # terms not yet inserted (all start strictly right of here)
 end
 
-# Where the identity channels sit in the current bond; 0 when absent. `startleft`/`startidx`: the left
-# vertex carrying the sentinel and the start channel's outgoing index. `rfinish`/`finishleft`/`finishidx`
-# are the mirror (the exhausted, trivial-charge class, the left vertex its pass-through enters on, and the
-# finish channel's outgoing index). `rsent` is the sentinel right vertex's id.
+# Where the identity channels sit in the current bond; 0 when absent. `startleft`: the left vertex carrying
+# the sentinel. `rfinish`/`finishleft` are the mirror (the exhausted, trivial-charge class and the left
+# vertex its pass-through enters on). `rsent` is the sentinel right vertex's id.
 Base.@kwdef mutable struct Boundary
     rsent::Int = 0
     startleft::Int = 0
-    startidx::Int = 0
     rfinish::Int = 0
     finishleft::Int = 0
-    finishidx::Int = 0
 end
 
 # Per-bond scratch, all-zero between uses (see `_grow_scratch!`) except `siggroups`, emptied per use.
@@ -98,6 +95,9 @@ Base.@kwdef mutable struct SweepGraph{I <: Sector}
     scratch::Scratch{I}
 end
 
+# The automaton state of an `AutomatonState` right vertex.
+_automaton_state(g::SweepGraph, r::Int) = g.channels[g.right.chan[r]].states[g.right.state[r]]
+
 # Canonical translation-invariant name `(kind, distance, shape, charge)` of right vertex `r` at bond
 # `i`: translates of each other share it. An automaton state is named by its state; the synthetic
 # exhausted class shares the exhausted term class's name; the sentinel is `(SentinelDesc, 0, 0, unit)`.
@@ -105,7 +105,7 @@ function rdesc(g::SweepGraph{I}, r::Int, i::Int) where {I}
     r > length(g.right.repr) && return (SentinelDesc, 0, 0, unit(I))
     kind = g.right.kind[r]
     kind == ExhaustedClass && return (TermDesc, 0, 0, g.right.bond[r])     # synthetic exhausted class
-    kind == AutomatonState && return (AutomatonDesc, 0, g.channels[g.right.chan[r]].states[g.right.state[r]].name, g.right.bond[r])
+    kind == AutomatonState && return (AutomatonDesc, 0, _automaton_state(g, r).name, g.right.bond[r])
     t = g.right.repr[r]
     j = g.right.cur[r]
     s = j <= arity(g.tt) ? g.tt.sites[j, t] : 0
@@ -118,7 +118,7 @@ end
 function _signature!(g::SweepGraph{I}, r::Int, i::Int) where {I}
     kind = g.right.kind[r]
     kind == ExhaustedClass && return (0, g.right.bond[r])
-    kind == AutomatonState && return (-g.channels[g.right.chan[r]].states[g.right.state[r]].name, g.right.bond[r])
+    kind == AutomatonState && return (-_automaton_state(g, r).name, g.right.bond[r])
     t = g.right.repr[r]
     sites, keys = g.tt.sites, g.tt.factors
     j = g.right.cur[r]
@@ -136,7 +136,7 @@ end
 function iscyclic(g::SweepGraph, r::Int)
     r <= length(g.right.kind) || return false          # the sentinel
     g.right.kind[r] == AutomatonState || return false
-    return g.channels[g.right.chan[r]].states[g.right.state[r]].cyclic
+    return _automaton_state(g, r).cyclic
 end
 
 # No remaining factors (term classes with a spent cursor and the synthetic exit class).
@@ -227,7 +227,7 @@ function SweepGraph(
     )
 end
 
-# Phase 1: merge right vertices with equal `_signature!`; returns `remap[old] -> new` and replaces `g.right`.
+# Merge right vertices with equal `_signature!`; returns `remap[old] -> new` and replaces `g.right`.
 function _suffix_merge!(g::SweepGraph{I}, i::Int) where {I}
     R = length(g.right.repr)
     groups = g.scratch.siggroups
@@ -356,7 +356,7 @@ function _canonicalise_rights!(g::SweepGraph{I}, i::Int) where {I}
     return g
 end
 
-# Phases 1 & 2 (shared by the strategies): suffix-merge, promote colliding pending terms, canonicalise,
+# The first half of a site step, shared by the strategies: suffix-merge, promote colliding pending terms, canonicalise,
 # attach the sentinel for the still-pending ones (id one past the real right vertices, discarded each
 # bond), and record `g.scratch.firstleft` while checking charge purity. Returns `(nU, nV)`.
 function _prepare_bond!(g::SweepGraph{I}, i::Int) where {I}
@@ -399,16 +399,27 @@ function _prepare_bond!(g::SweepGraph{I}, i::Int) where {I}
     return nU, nV
 end
 
-# Phase 5: turn `g` into the graph for bond `i → i+1` on the same right vertices, with fresh left
+# The compressed basis of one bond, the result of every strategy's `bond_basis!`: its `nout` indices with
+# their charges (`sectors`), the entries `(incoming link, index) ↦ letter` of `W_i` (`site`), the
+# `(right vertex, weight)` edges each index forwards (`nextedges`, empty at the last site) and the indices
+# of the start/finish identity channels (0 when absent; only the vertex cover reserves them).
+struct BondBasis{I <: Sector}
+    nout::Int
+    site::Dictionary{CartesianIndex{2}, SiteOperator{I}}
+    sectors::Vector{I}
+    nextedges::Vector{Vector{Tuple{Int, ComplexF64}}}
+    startidx::Int
+    finishidx::Int
+end
+BondBasis{I}(nout, site, sectors, nextedges) where {I} = BondBasis{I}(nout, site, sectors, nextedges, 0, 0)
+
+# Turn `g` into the graph for bond `i → i+1` on the same right vertices, with fresh left
 # vertices linked by outgoing index `j` and keyed by the right vertex's next-site key.
-# `nextedges_global[j]` = the `(right vertex, weight)` edges index `j` forwards.
+# `basis.nextedges[j]` = the `(right vertex, weight)` edges index `j` forwards.
 # Lazy insertion injects here: terms and channel entries starting at `i+1` hang off the start channel.
 # An automaton state has one successor per automaton transition (continue with weight `λ·c`, or exit);
 # transitions that cannot complete inside `1:N` are dropped.
-function _build_next_graph!(
-        g::SweepGraph{I}, i::Int, nout::Int,
-        nextedges_global::Vector{Vector{Tuple{Int, ComplexF64}}}
-    ) where {I}
+function _build_next_graph!(g::SweepGraph{I}, i::Int, basis::BondBasis{I}) where {I}
     # the key each term class applies at `i+1` (`factor_at` in `O(1)` from the cursor); channel
     # states are handled below
     nextkeys = map(eachindex(g.right.repr)) do r
@@ -418,7 +429,7 @@ function _build_next_graph!(
         return Factor{I}(passthrough(I), g.right.bond[r])
     end
     buckets = Dictionary{Tuple{Int, Factor{I}}, Int}()
-    next = LeftVertices{I}(; nlinks = nout)
+    next = LeftVertices{I}(; nlinks = basis.nout)
     bucket!(j, key) = _bucket!(buckets, next, j, key)
 
     # automaton successor states and the exit class are created on demand
@@ -436,12 +447,12 @@ function _build_next_graph!(
         return get!(() -> _push_right!(g.right, 0, arity(g.tt) + 1, bond, AutomatonState, chan, state), geom, (chan, state))
     end
 
-    for j in 1:nout
-        for (rid, w) in nextedges_global[j]
+    for j in 1:basis.nout
+        for (rid, w) in basis.nextedges[j]
             if g.right.kind[rid] == AutomatonState
                 chan = g.right.chan[rid]
                 c = g.channels[chan]
-                for (key, target, tw) in c.states[g.right.state[rid]].trans
+                for (key, target, tw) in _automaton_state(g, rid).trans
                     bond = iszero(target) ? key.bond : c.states[target].bond
                     minremain = iszero(target) ? 0 : c.states[target].minremain
                     i + 1 + minremain <= g.N || continue
@@ -458,7 +469,7 @@ function _build_next_graph!(
     end
 
     if g.lazy
-        startidx = g.bound.startidx
+        startidx = basis.startidx
         ((iszero(g.pending.remaining) && i + 1 > g.lastentry) || !iszero(startidx)) ||
             invariant_violation("terms remain to the right of site $i with no start channel to enter on")
         for t in g.pending.at[i + 1]
@@ -484,8 +495,8 @@ function _build_next_graph!(
 
     # the finish channel forwards one edge, to the exhausted class, via the trivial pass-through
     g.bound.finishleft = 0
-    if !iszero(g.bound.finishidx)
-        g.bound.finishleft = get(buckets, (g.bound.finishidx, Factor{I}(passthrough(I), unit(I))), 0)
+    if !iszero(basis.finishidx)
+        g.bound.finishleft = get(buckets, (basis.finishidx, Factor{I}(passthrough(I), unit(I))), 0)
         iszero(g.bound.finishleft) &&
             invariant_violation("the finish channel at bond $i forwards nothing to site $(i + 1)")
     end
@@ -494,29 +505,13 @@ function _build_next_graph!(
     return g
 end
 
-# The compressed basis of one bond, the result of every strategy's `bond_basis!`: its `nout` indices with
-# their charges (`sectors`), the entries `(incoming link, index) ↦ letter` of `W_i` (`site`), the
-# `(right vertex, weight)` edges each index forwards (`nextedges`, empty at the last site) and the indices
-# of the start/finish identity channels (0 when absent; only the vertex cover reserves them).
-struct BondBasis{I <: Sector}
-    nout::Int
-    site::Dictionary{CartesianIndex{2}, SiteOperator{I}}
-    sectors::Vector{I}
-    nextedges::Vector{Vector{Tuple{Int, ComplexF64}}}
-    startidx::Int
-    finishidx::Int
-end
-BondBasis{I}(nout, site, sectors, nextedges) where {I} = BondBasis{I}(nout, site, sectors, nextedges, 0, 0)
-
 # One site step: `_prepare_bond!`, the strategy's `bond_basis!`, `_build_next_graph!`. Returns
 # `(W_i, bondsectors_i, startidx, finishidx)`.
 function at_site!(g::SweepGraph{I}, i::Int, strategy::GraphStrategy = VertexCover()) where {I}
     nU, nV = _prepare_bond!(g, i)
     b = bond_basis!(g, i, nU, nV, strategy)
-    g.bound.startidx = b.startidx
-    g.bound.finishidx = b.finishidx
     Ws_i = sparse_from_dict(b.site, (g.left.nlinks, b.nout))
-    i < g.N && _build_next_graph!(g, i, b.nout, b.nextedges)
+    i < g.N && _build_next_graph!(g, i, b)
     return Ws_i, b.sectors, b.startidx, b.finishidx
 end
 

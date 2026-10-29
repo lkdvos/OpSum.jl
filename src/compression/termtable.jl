@@ -51,9 +51,10 @@ end
 # Walk/insert-on-miss behind the three id matrices. `dir = -1` walks columns `K:-1:1` writing
 # `id[j, t]`; `dir = +1` walks `1:K` writing `id[j + 1, t]` and stopping at padding. `keyfn(j, t, s)`
 # builds the tuple to intern from column `j` (site `s`).
-function _intern_columns!(intern::Dictionary, id::Matrix{Int}, tt::TermTable, M::Int, K::Int, dir::Int, keyfn)
+function _intern_columns!(intern::Dictionary, id::Matrix{Int}, tt::TermTable, dir::Int, keyfn)
+    K = arity(tt)
     nid = 0
-    for t in 1:M
+    for t in 1:nterms(tt)
         for j in (dir < 0 ? (K:-1:1) : (1:K))
             s = tt.sites[j, t]
             iszero(s) && (dir < 0 ? continue : break)
@@ -73,31 +74,29 @@ end
 # lists, not equal suffix paths: idle sites carry the running bond charge, so a path is
 # `(sufid[j, t], running bond charge)`.
 function suffix_ids(tt::TermTable{I}) where {I}
-    K, M = arity(tt), nterms(tt)
-    sufid = zeros(Int, K + 1, M)      # row K+1 and every padded position stay 0 == exhausted
+    sufid = zeros(Int, arity(tt) + 1, nterms(tt))      # row K+1 and every padded position stay 0 == exhausted
     intern = Dictionary{Tuple{Int, Factor{I}, Int}, Int}()
-    _intern_columns!(intern, sufid, tt, M, K, -1, (j, t, s) -> (s, tt.factors[j, t], sufid[j + 1, t]))
+    _intern_columns!(intern, sufid, tt, -1, (j, t, s) -> (s, tt.factors[j, t], sufid[j + 1, t]))
     return sufid
 end
 
 # `preid[j, t]`: id of the factor list `1:j-1` (0 = empty). Equal ids are equal prefix paths (the
 # running charge is fixed by the factors). Used by `IndependentSVD`.
 function prefix_ids(tt::TermTable{I}) where {I}
-    K, M = arity(tt), nterms(tt)
-    preid = zeros(Int, K + 1, M)      # row 1 stays 0 == the empty prefix
+    preid = zeros(Int, arity(tt) + 1, nterms(tt))      # row 1 stays 0 == the empty prefix
     intern = Dictionary{Tuple{Int, Int, Factor{I}}, Int}()
-    _intern_columns!(intern, preid, tt, M, K, 1, (j, t, s) -> (preid[j, t], s, tt.factors[j, t]))
+    _intern_columns!(intern, preid, tt, 1, (j, t, s) -> (preid[j, t], s, tt.factors[j, t]))
     return preid
 end
 
 # Translation-invariant `suffix_ids`: conses `(gap to the next factor, Factor, tail id)` instead of
 # the absolute site; with distance and charge it names a right vertex (`rdesc`).
 function rel_suffix_ids(tt::TermTable{I}) where {I}
-    K, M = arity(tt), nterms(tt)
-    relid = zeros(Int, K + 1, M)
+    K = arity(tt)
+    relid = zeros(Int, K + 1, nterms(tt))
     intern = Dictionary{Tuple{Int, Factor{I}, Int}, Int}()
     _intern_columns!(
-        intern, relid, tt, M, K, -1,
+        intern, relid, tt, -1,
         function (j, t, s)
             nxt = j < K ? tt.sites[j + 1, t] : 0
             return (iszero(nxt) ? 0 : nxt - s, tt.factors[j, t], relid[j + 1, t])   # gap 0 == last factor

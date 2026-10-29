@@ -95,11 +95,11 @@ end
     H = random_termsum(Xoshiro(11), B, N, [0, 1, 2, 2, 3])
     exact = instantiate(opsum(sites, H))
     Ws, secs = reduced(mpo(opsum(sites, H)))
-    @test mpo_tensormap(reduced_tensors(Ws, secs, fill(B, N))) ≈ exact
+    @test mpo_tensormap(reduced_tensors(Ws, secs, FiniteChain(fill(B, N)))) ≈ exact
     @test mpo_tensormap(map(TensorMap, jordan_mpo_tensors(opsum(sites, H)))) ≈ exact
     for alg in (IndependentSVD(), SequentialSVD())
         Wsv, ssv = reduced(mpo(opsum(sites, H), alg))
-        @test mpo_tensormap(reduced_tensors(Wsv, ssv, fill(B, N))) ≈ exact
+        @test mpo_tensormap(reduced_tensors(Wsv, ssv, FiniteChain(fill(B, N)))) ≈ exact
     end
 end
 
@@ -122,7 +122,7 @@ const TRUNC_NORM = norm(TRUNC_EXACT)
 # Relative error of the assembled MPO against the exact operator (`islossless` is unreliable for SVD bases).
 function mpo_relerror(alg)
     Ws, secs = reduced(mpo(opsum(TRUNC_LAT, TRUNC_H), alg))
-    Os = reduced_tensors(Ws, secs, fill(TRUNC_B, TRUNC_N))
+    Os = reduced_tensors(Ws, secs, FiniteChain(fill(TRUNC_B, TRUNC_N)))
     return norm(mpo_tensormap(Os) - TRUNC_EXACT) / TRUNC_NORM
 end
 

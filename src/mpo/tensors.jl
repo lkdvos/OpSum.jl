@@ -35,8 +35,7 @@ entry read in its site's basis; the boundary bonds of a finite chain are one-dim
 """
 mpo_tensors(W::SymbolicMPO) = reduced_tensors(W.Ws, W.bondsectors, W.lattice)
 
-# The tensors of bond matrices `Ws` with the bond charges `bondsectors` of the bonds right of each site, on
-# `lat` (or a finite chain of the given sites).
+# The tensors of bond matrices `Ws` with the bond charges `bondsectors` of the bonds right of each site, on `lat`.
 function reduced_tensors(
         Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
         bondsectors::Vector{Vector{I}}, lat::FiniteChain
@@ -50,12 +49,6 @@ function reduced_tensors(
     ) where {I}
     L = length(Ws)
     return _mpo_tensors(Ws, Vector{I}[bondsectors[mod1(j - 1, L)] for j in 1:(L + 1)], lat)
-end
-function reduced_tensors(
-        Ws::Vector{<:SparseMatrixCSC{SiteOperator{I}}},
-        bondsectors::Vector{Vector{I}}, sites::AbstractVector{<:Basis}
-    ) where {I}
-    return reduced_tensors(Ws, bondsectors, FiniteChain(sites))
 end
 
 # `bsecs[i]` is the bond to the *left* of site i (length N+1); finite and infinite differ in `bsecs[1]`.

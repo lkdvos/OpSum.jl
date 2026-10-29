@@ -69,7 +69,7 @@ end
     @test densedim(st, 1) < densedim(sb, 1)
     @test length(st[1]) == 1
 
-    Mtrunc = physmatrix(contract3(reduced_tensors(Wt, st, sites)), N, 2)
+    Mtrunc = physmatrix(contract3(reduced_tensors(Wt, st, FiniteChain(sites))), N, 2)
     Mexact = physmatrix(instantiate(opsum(sites, H)), N, 2)
     @test size(Mtrunc) == size(Mexact)
     @test !(Mtrunc ≈ Mexact)

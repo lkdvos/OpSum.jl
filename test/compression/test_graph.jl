@@ -234,7 +234,7 @@ end
         @testset "$name" begin
             @test bondprofile(secs) == EXPECTED_BONDS[name]
             @test islossless(opsum(sites, H))
-            @test mpo_tensormap(reduced_tensors(Ws, secs, sites)) ≈ instantiate(opsum(sites, H))
+            @test mpo_tensormap(reduced_tensors(Ws, secs, FiniteChain(sites))) ≈ instantiate(opsum(sites, H))
         end
     end
 end
@@ -281,7 +281,7 @@ end
     @test length.(sg) == [1, 1, 1]
     @test reduced_terms(Wg, sg) ≈ H
     d = dim(V)
-    @test physmatrix(contract3(reduced_tensors(Wg, sg, sites)), N, d) ≈
+    @test physmatrix(contract3(reduced_tensors(Wg, sg, FiniteChain(sites))), N, d) ≈
         physmatrix(instantiate(opsum(sites, H)), N, d)
 end
 

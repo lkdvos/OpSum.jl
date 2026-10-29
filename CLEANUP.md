@@ -361,6 +361,12 @@ expensive ones are the independent-oracle checks (dense `H^N`, tiled dense opera
 exact). User chose (A): shrink them instead (fewer sites/order/models, keep every model's sector type), each still
 failing when the fermion sign rule is broken. Noted: an MPSKit-preloaded, loaded-machine batch took ~1 h for
 test_expterms/test_infinite_mpo/test_mpskit_ext (250/175/578 s at low load); cause not separated.
+As applied: 3004340 (kronpower oracles at 3 sites, tiled windows of 3 sites; new 3-site models in testutils), then
+SU(2) L = 2 restored to two cells (the single cell lost the closure check). Solo: kronpower 387 → 321 s, expterms
+253 → 223 s, infinite_mpo ≈ unchanged after the restore. Cost is compile per (sector, number of legs) of the dense
+`ncon`, not dense size, so shrinking only helps when every user of a rank in a file shrinks. Sign no-op in
+`walk_words!` still caught by all three fermionic kronpower oracles; `test_jordan`/`test_taylor` unchanged (no
+sector-preserving shrink changes their time). The tiled testsets have no fermionic case (pre-existing).
 
 ## Possible improvements
 

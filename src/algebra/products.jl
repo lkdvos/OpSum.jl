@@ -46,7 +46,7 @@ several terms). A shared site, `a[i] * b[i]`, stays unevaluated until the operat
 function Base.:*(a::Terms{I}, b::Terms{I}) where {I}
     out = TermBag{I}()
     for (sa, ka, ca) in _factors(a), (sb, kb, cb) in _factors(b)
-        ta, tb = writtentotal(ka), writtentotal(kb)
+        ta, tb = total(ka), total(kb)
         cs = collect(ta ⊗ tb)
         (length(cs) == 1 && isone(Nsymbol(ta, tb, only(cs)))) || throw(
             ArgumentError(
@@ -54,8 +54,7 @@ function Base.:*(a::Terms{I}, b::Terms{I}) where {I}
                     "$ta and $tb fuse to $(join(cs, ", ")); use `couple(...; to = c)` to name one"
             )
         )
-        coeff = ca * cb
-        isfermionodd(ta) && isfermionodd(tb) && (coeff = -coeff)
+        coeff = ca * cb * gradedsign(ta, tb)
         for (keys, x) in concat(ka, kb, only(cs))
             written!(out, vcat(sa, sb), keys, coeff * x)
         end
@@ -116,7 +115,7 @@ function written_block(keys::Vector{Factor{I}}, pos::Vector{Int}, Bs) where {I}
             T = permute(R, (ntuple(identity, m), dom))                  # W ← W ⊗ Cs ⊗ C
         end
     end
-    X = _treetensor(I[k.letter.c for k in keys], I[k.bond for k in keys])
+    X = _treetensor(lettercharges(keys), bondcharges(keys))
     W = foldl(⊗, (space(B) for B in Bs))
     return T * (id(W) ⊗ X)                                              # W ← W ⊗ C_tot
 end

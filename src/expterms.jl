@@ -40,7 +40,7 @@ end
 
 function Base.show(io::IO, k::ExpKey)
     sites, factors = k.support
-    print(io, "ExpKey(sites=", sites, ", ops=", [f.letter for f in factors], ", exitsite=", k.exitsite, ", decay=", k.decay)
+    print(io, "ExpKey(sites=", sites, ", ops=", letters(factors), ", exitsite=", k.exitsite, ", decay=", k.decay)
     isone(k.string) || print(io, ", string=", k.string)
     return print(io, ")")
 end
@@ -222,8 +222,8 @@ function _expand_channel!(
         d::Dictionary{Support{I}, ComplexF64}, k::ExpKey{I}, coeff, P::Int, N::Int
     ) where {I}
     sites, factors = k.support
-    ops = [key.letter for key in factors]
-    bonds = [key.bond for key in factors]
+    ops = letters(factors)
+    bonds = bondcharges(factors)
     ne = count(<(k.exitsite), sites)                     # size of the entry block
     entry, exit_ = sites[1:ne], sites[(ne + 1):end]
     entrybond = bonds[ne]                                # running charge along the string

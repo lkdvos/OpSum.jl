@@ -95,6 +95,13 @@ function Base.show(io::IO, k::Factor)
     return print(io, "Factor(", k.letter, ", bond=", k.bond, ")")
 end
 
+# A caterpillar's factors, read as its letters, their charges, its running bond charges and its total
+# (the last bond; the unit for no factors).
+letters(factors::Vector{Factor{I}}) where {I} = Letter{I}[f.letter for f in factors]
+lettercharges(factors::Vector{Factor{I}}) where {I} = I[f.letter.c for f in factors]
+bondcharges(factors::Vector{Factor{I}}) where {I} = I[f.bond for f in factors]
+total(factors::Vector{Factor{I}}) where {I} = isempty(factors) ? unit(I) : last(factors).bond
+
 # all left-nested fusion trees of `charges` fusing to `total`, in TensorKit's canonical order
 function caterpillar_trees(charges::NTuple{K, I}, total::I) where {K, I <: Sector}
     K == 0 && throw(ArgumentError("empty charge tuple"))

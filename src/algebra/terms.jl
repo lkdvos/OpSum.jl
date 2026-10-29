@@ -44,13 +44,13 @@ TensorKit.sectortype(::Type{Term{I}}) where {I} = I
 
 arity(t::Term) = length(t.sites)
 
-letters(t::Term{I}) where {I} = Letter{I}[k.letter for k in t.factors]
+letters(t::Term) = letters(t.factors)
 
 # running bond charge after the last site
-total(t::Term{I}) where {I} = isempty(t.factors) ? unit(I) : last(t.factors).bond
+total(t::Term) = total(t.factors)
 
 # the caterpillar coupling tree, rebuilt from the running bond charges
-tree(t::Term{I}) where {I} = tree_from_bonds(I[k.letter.c for k in t.factors], I[k.bond for k in t.factors])
+tree(t::Term) = tree_from_bonds(lettercharges(t.factors), bondcharges(t.factors))
 
 Base.:(==)(x::Term{I}, y::Term{I}) where {I} =
     x.sites == y.sites && x.factors == y.factors && x.coeff == y.coeff

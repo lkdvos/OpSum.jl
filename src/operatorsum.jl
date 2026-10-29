@@ -135,7 +135,7 @@ end
 
 # The sweep's running bond charge is referenced to the left vacuum, so terms must be neutral.
 function _checkneutral(sites, factors::Vector{Factor{I}}) where {I}
-    charge = isempty(factors) ? unit(I) : last(factors).bond
+    charge = total(factors)
     return charge == unit(I) || throw(
         ArgumentError(
             "infinite MPO construction requires charge-neutral terms, got total charge " *

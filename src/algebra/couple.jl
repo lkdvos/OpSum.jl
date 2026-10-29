@@ -45,6 +45,9 @@ canreorder(::Type{I}) where {I <: Sector} =
 # Fermion-odd: a fermionic sector whose twist is -1 (not SU(2)'s half-integer spin, which is bosonic).
 isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(c)) < 0
 
+# The sign of the graded tensor product of two charges: -1 iff both are fermion-odd.
+gradedsign(a::Sector, b::Sector) = isfermionodd(a) && isfermionodd(b) ? -1 : 1
+
 # Extend every term of `a` by every single-site term of `b`, fusing to `target(running total, b's
 # letter)` (`nothing` drops the pair). The extension is written in order (b's leg last) and `written!`
 # puts it in site order: R-symbols per leg braided past when abelian, `recouple` otherwise (which may
@@ -74,9 +77,7 @@ function couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             iszero(nsym) && continue
             isone(nsym) || invariant_violation("expected a unique coupling channel, got $nsym")
 
-            # graded tensor product: -1 iff both are fermion-odd
-            coeff = ta.coeff * tb.coeff
-            isfermionodd(run) && isfermionodd(opb.c) && (coeff = -coeff)
+            coeff = ta.coeff * tb.coeff * gradedsign(run, opb.c)
             written!(out, vcat(ta.sites, sb), vcat(ta.factors, Factor{I}(opb, tot)), coeff)
         end
     end

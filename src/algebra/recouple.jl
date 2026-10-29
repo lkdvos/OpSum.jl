@@ -6,9 +6,6 @@ using TensorKit
 using TensorKit: Sector, unit, FusionTreeBlock, permute, BraidingStyle, SymmetricBraiding,
     FusionStyle, GenericFusion
 
-# The total of a written-order caterpillar.
-writtentotal(keys::Vector{Factor{I}}) where {I} = isempty(keys) ? unit(I) : last(keys).bond
-
 # Re-coupling under a non-abelian symmetry. A caterpillar is a left-nested fusion tree of the letters'
 # charges; the running bond charges *are* its inner lines. Permuting the legs, or fusing two caterpillars,
 # rewrites it as a combination of trees (TensorKit's `permute` and `merge` on fusion trees), whose inner
@@ -64,12 +61,11 @@ function recouple(sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64
     _checkrecouple(I)
     K = length(sites)
     perm = sortperm(sites)
-    charges = I[k.letter.c for k in keys]
-    bonds = I[k.bond for k in keys]
+    charges, bonds = lettercharges(keys), bondcharges(keys)
     terms = cached(_RECOUPLE_CACHE, (:permute, charges, bonds, perm)) do
         return _expansion(I, _permuted(charges, bonds, perm))
     end
-    sorted, ops = sites[perm], [keys[j].letter for j in perm]
+    sorted, ops = sites[perm], letters(keys)[perm]
     return Term{I}[
         Term{I}(sorted, Factor{I}[Factor{I}(ops[n], b[n]) for n in 1:K], coeff * x)
             for (b, x) in terms
@@ -79,19 +75,18 @@ end
 # Two written-order caterpillars fused to `tot`, as `(keys, coeff)` over the concatenated letters. When
 # the first is neutral (or the symmetry abelian) the second's running charges just continue.
 function concat(ka::Vector{Factor{I}}, kb::Vector{Factor{I}}, tot::I) where {I}
-    ta = writtentotal(ka)
+    ta = total(ka)
     if ta == unit(I) || canreorder(I)
         shifted = Factor{I}[Factor{I}(k.letter, only(ta ⊗ k.bond)) for k in kb]
         return [(vcat(ka, shifted), 1.0 + 0im)]
     end
     isempty(kb) && return [(ka, 1.0 + 0im)]
     _checkrecouple(I)
-    ca, cb = I[k.letter.c for k in ka], I[k.letter.c for k in kb]
-    ba, bb = I[k.bond for k in ka], I[k.bond for k in kb]
+    ca, cb, ba, bb = lettercharges(ka), lettercharges(kb), bondcharges(ka), bondcharges(kb)
     terms = cached(_RECOUPLE_CACHE, (:concat, ca, ba, cb, bb, tot)) do
         return _expansion(I, TensorKit.merge(tree_from_bonds(ca, ba), tree_from_bonds(cb, bb), tot))
     end
-    ops = vcat([k.letter for k in ka], [k.letter for k in kb])
+    ops = vcat(letters(ka), letters(kb))
     return [
         (Factor{I}[Factor{I}(ops[n], b[n]) for n in eachindex(ops)], x) for (b, x) in terms
     ]

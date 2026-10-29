@@ -33,8 +33,7 @@ function letter_product(B::Basis{I}, x::Letter{I}, y::Letter{I}) where {I}
         tot = only(x.c ⊗ y.c)
         keys = Factor{I}[Factor{I}(x, x.c), Factor{I}(y, tot)]
         h = written_block(keys, [1, 1], [B])
-        coeff = (isfermionodd(x.c) && isfermionodd(y.c)) ? -1.0 : 1.0
-        return project(h, B) * coeff
+        return project(h, B) * gradedsign(x.c, y.c)
     end
 end
 

@@ -286,11 +286,13 @@ end
 
 @testset "tiled MPO reproduces the enclosed operator densely" begin
     # Contract the tiled tensors between the identity-channel boundary vectors against `instantiate`.
+    # Windows of three sites (the L = 2 cell: two cells), the shortest with a bulk site: the dense contraction compiles per
+    # sector type and window length.
     cases = [
-        ("pure exp trivial", [expterm(couple(A3[1], B3[2]); decay = 0.4)], [BTR], 4),
+        ("pure exp trivial", [expterm(couple(A3[1], B3[2]); decay = 0.4)], [BTR], 3),
         (
             "exp with Sᶻ string",
-            [expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)], [BU1], 4,
+            [expterm(couple(Sp[1], Sm[2]); decay = 0.5, string = 2 * Sz)], [BU1], 3,
         ),
         (
             "exp L=2",

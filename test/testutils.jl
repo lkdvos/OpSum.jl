@@ -140,6 +140,31 @@ function finite_models(names::AbstractString...)
                 (0.3 * (F0.f_plus_f_min[i, i + 2] + F0.f_plus_f_min[i + 2, i]) for i in 1:2)
             )
         end,
+        # three-site versions for the dense oracles: the cost of a dense contraction is compilation, which grows with the
+        # number of legs (2L + 2) and is paid per (sector type, L), so the oracles use the shortest chain with the
+        # feature at stake (the parity fermions need three sites for a next-nearest hop)
+        "Ising (Trivial), 3 sites" => function ()
+            S = spin_ops(Trivial)
+            return opsum(
+                FiniteChain(spin_basis(Trivial), 3),
+                (-S.S_z_S_z[i, i + 1] for i in 1:2), (0.7 * S.S_x[i] for i in 1:3)
+            )
+        end,
+        "t-V fermions (U1), 3 sites" => function ()
+            F1 = fermion_ops(U1Irrep)
+            return opsum(
+                FiniteChain(fermion_basis(U1Irrep), 3),
+                (F1.f_plus_f_min[i, i + 1] + F1.f_plus_f_min[i + 1, i] + 2 * F1.f_num[i] * F1.f_num[i + 1] for i in 1:2)
+            )
+        end,
+        "t-V fermions (parity), next-nearest hop, 3 sites" => function ()
+            F0 = fermion_ops()
+            return opsum(
+                FiniteChain(fermion_basis(), 3),
+                (F0.f_plus_f_min[i, i + 1] + F0.f_plus_f_min[i + 1, i] + 2 * F0.f_num[i] * F0.f_num[i + 1] for i in 1:2),
+                0.3 * (F0.f_plus_f_min[1, 3] + F0.f_plus_f_min[3, 1])
+            )
+        end,
         "pairing (parity)" => function ()
             F0 = fermion_ops()
             return opsum(

@@ -13,9 +13,10 @@ power_dense(P) = plain(mpo_tensormap(mpo_tensors(P.mpo)))
 
 # the bosonic oracle on Ising (N = 2, 3); the fermionic sign rule on the U1 fermions (N = 2, 3), the parity fermions with
 # a next-nearest hop (N = 2) and Hubbard U1 x U1 (N = 2). Every further model only adds compilation.
+# (three-site models, see `finite_models`: a dense contraction compiles per sector type and number of sites)
 @testset "dense oracle: $name" for (name, Ns) in (
-        ("Ising (Trivial)", 2:3), ("t-V fermions (U1)", 2:3),
-        ("t-V fermions (parity), next-nearest hop", 2:2), ("Hubbard (U1 x U1)", 2:2),
+        ("Ising (Trivial), 3 sites", 2:3), ("t-V fermions (U1), 3 sites", 2:3),
+        ("t-V fermions (parity), next-nearest hop, 3 sites", 2:2), ("Hubbard (U1 x U1)", 2:2),
     )
     H = only(finite_models(name))[2]
     W = mpo(H)
@@ -24,7 +25,7 @@ power_dense(P) = plain(mpo_tensormap(mpo_tensors(P.mpo)))
         P = mpo_power(W, N)
         @test power_dense(P) ≈ D^N
     end
-    name == "t-V fermions (U1)" && @test power_dense(mpo_power(W, 1)) ≈ D   # the Jordan form of W itself
+    name == "t-V fermions (U1), 3 sites" && @test power_dense(mpo_power(W, 1)) ≈ D   # the Jordan form of W itself
 end
 
 @testset "levels, sectors and identity channels" begin
@@ -60,7 +61,9 @@ end
 end
 
 @testset "jordan layout" begin
-    for (name, H) in finite_models("Ising (Trivial)", "t-V fermions (U1)", "t-V fermions (parity), next-nearest hop")
+    for (name, H) in finite_models(
+            "Ising (Trivial), 3 sites", "t-V fermions (U1), 3 sites", "t-V fermions (parity), next-nearest hop, 3 sites"
+        )
         W = mpo(H)
         J = jordan_layout(W)
         L = length(W)
@@ -99,9 +102,9 @@ end
     S = spin_ops(U1Irrep)
     B = spin_basis(U1Irrep)
     h = 0.5 * (S.S_plus_S_min[1, 2] + S.S_min_S_plus[1, 2]) + S.S_z_S_z[1, 2]
-    Hd = opsum(FiniteChain(B, 4), expterm(h; decay = 0.5))
+    Hd = opsum(FiniteChain(B, 3), expterm(h; decay = 0.5))
     D = densify(Hd)
-    @test length(jordan_mpo_tensors(Hd)) == 4
+    @test length(jordan_mpo_tensors(Hd)) == 3
     for N in 1:2
         @test power_dense(mpo_power(mpo(Hd), N)) ≈ D^N
     end
@@ -165,10 +168,11 @@ end
     end
 end
 
-@testset "infinite chain window: $name" for (name, (H, cells)) in infinite_models("t-V fermions (U1)")
+@testset "infinite chain window: $name" for (name, (H, _)) in infinite_models("t-V fermions (U1)")
     W = mpo(H)
     L = length(W)
     Ts = mpo_tensors(W)
+    cells = 3   # a window of three sites has a bulk site, and shares its dense contraction with the oracles above
     Hwin = window_operator(Ts, W.bondsectors, W.start[L], W.finish[L], cells)
     for N in 2:3
         P = mpo_power(W, N)

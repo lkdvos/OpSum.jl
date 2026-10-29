@@ -16,29 +16,21 @@ function _force_finish!(cUbits, cVbits, localadj::Vector{Vector{Int}}, pf::Int)
     return true
 end
 
-# The cover of one component: `rank` indices, `blocks` `(incoming_link, local_bond_index, op)`, `nextedges`
-# (per local index, the `(right vertex, weight)` edges to forward; empty at the last site), `secs`,
-# `startidx`/`finishidx` (0 if not here) and `origins` (`(0, left)` / `(1, right)` per index, for canonical
-# ordering).
-struct ComponentCover{I <: Sector}
-    rank::Int
-    blocks::Vector{Tuple{Int, Int, SiteOperator{I}}}
-    nextedges::Vector{Vector{Tuple{Int, ComplexF64}}}
-    secs::Vector{I}
-    startidx::Int
-    finishidx::Int
-    origins::Vector{Tuple{Int, Int}}
-end
-
 # Minimum-vertex-cover backend for component `(us, vs)` (global ids). Covered-left forwards its
 # weights and emits the bare letter; covered-right resets the weight to 1 and folds `op × weight` into
 # every uncovered neighbour's block. `Θ(E_component)`.
 #
-# Finish channel: only `g.bound.rfinish` or `g.bound.finishleft` can carry it; `_force_finish!`
-# covers `rfinish` so the pass-through folds in. The sentinel is never
-# covered (see `_force_finish!`); the covered-right case is its unreachable dual.
+# The component's indices are appended to the bond under construction: `site` gets its blocks
+# `(incoming_link, index) ↦ op`, `secs` the charges, `nextedges` the `(right vertex, weight)` edges each index
+# forwards (empty at the last site) and `origins` `(0, left)` / `(1, right)` per index, for canonical ordering.
+# Returns the global indices of the start and finish channels (0 if not here).
+#
+# Finish channel: only `g.bound.rfinish` or `g.bound.finishleft` can carry it; `_force_finish!` covers
+# `rfinish` so the pass-through folds in. The sentinel is never covered (see `_force_finish!`); the
+# covered-right case is its unreachable dual.
 function _vc_component(
-        g::SweepGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int
+        g::SweepGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int, site::Dictionary{CartesianIndex{2}, SiteOperator{I}},
+        secs::Vector{I}, nextedges::Vector{Vector{Tuple{Int, ComplexF64}}}, origins::Vector{Tuple{Int, Int}}
     ) where {I}
     LOp = SiteOperator{I}
     N = g.N
@@ -63,29 +55,26 @@ function _vc_component(
     cU = findall(cUbits)
     cV = findall(cVbits)
     nleft = length(cU)
-    rank = nleft + length(cV)
 
-    blocks = Tuple{Int, Int, LOp}[]
-    nextedges = [Tuple{Int, ComplexF64}[] for _ in 1:rank]
-    secs = Vector{I}(undef, rank)
-    origins = Vector{Tuple{Int, Int}}(undef, rank)
-    startidx = 0
-    finishidx = 0
+    offset = length(secs)
+    startidx = finishidx = 0
 
     # covered-left vertices → indices 1 … nleft
-    for (m, lu) in enumerate(cU)
+    for (k, lu) in enumerate(cU)
+        m = offset + k
         iu = us[lu]
         lv = g.left.vertex[iu]
-        secs[m] = lv.key.bond
-        origins[m] = (0, iu)
+        push!(secs, lv.key.bond)
+        push!(origins, (0, iu))
+        edges = Tuple{Int, ComplexF64}[]
+        push!(nextedges, edges)
         iu == g.bound.startleft && (startidx = m)
         iu == g.bound.finishleft && (finishidx = m)
         if i == N
             iszero(g.bound.rsent) || invariant_violation("the sentinel must be gone by the last site")
-            push!(blocks, (lv.link, m, lv.key.letter * sum(g.left.wadj[iu]; init = zero(ComplexF64))))
+            increaseindex!(site, CartesianIndex(lv.link, m), lv.key.letter * sum(g.left.wadj[iu]; init = zero(ComplexF64)))
         else
-            push!(blocks, (lv.link, m, convert(LOp, lv.key.letter)))
-            edges = nextedges[m]
+            increaseindex!(site, CartesianIndex(lv.link, m), convert(LOp, lv.key.letter))
             for (rid, w) in zip(g.left.radj[iu], g.left.wadj[iu])
                 (rid == g.bound.rsent || iszero(w)) && continue   # the sentinel is regenerated, not carried
                 push!(edges, (rid, w))
@@ -93,15 +82,16 @@ function _vc_component(
         end
     end
 
-    # covered-right vertices → indices nleft+1 … rank; `bondof[p]` is 0 if not covered
+    # covered-right vertices → the indices after those; `bondof[p]` is 0 if not covered
     bondof = zeros(Int, nvs)
     for (p, lvv) in enumerate(cV)
-        m = nleft + p
+        m = offset + nleft + p
         iv = vs[lvv]
         bondof[lvv] = m
-        origins[m] = (1, iv)
+        push!(origins, (1, iv))
         # components are charge-pure (`_prepare_bond!`), so any incident left gives the charge
-        secs[m] = g.left.vertex[g.scratch.firstleft[iv]].key.bond
+        push!(secs, g.left.vertex[g.scratch.firstleft[iv]].key.bond)
+        push!(nextedges, Tuple{Int, ComplexF64}[])
         if iv == g.bound.rfinish
             iszero(finishidx) ||
                 invariant_violation("finish channel covered on both sides (the cover is not minimum)")
@@ -116,21 +106,19 @@ function _vc_component(
     end
 
     # every neighbour of an uncovered left vertex is covered: fold the coefficients
-    coveredU = falses(nus)
-    coveredU[cU] .= true
     for k in 1:nus
-        coveredU[k] && continue
+        cUbits[k] && continue
         iu = us[k]
         lv = g.left.vertex[iu]
         for (rid, w) in zip(g.left.radj[iu], g.left.wadj[iu])
             iszero(w) && continue
             m = bondof[vlocal[rid]]
             iszero(m) && invariant_violation("edge left uncovered by the minimum vertex cover")
-            push!(blocks, (lv.link, m, lv.key.letter * w))
+            increaseindex!(site, CartesianIndex(lv.link, m), lv.key.letter * w)
         end
     end
 
-    return ComponentCover{I}(rank, blocks, nextedges, secs, startidx, finishidx, origins)
+    return startidx, finishidx
 end
 
 # Minimum vertex cover of one component with every cyclic channel state forced into it: otherwise the
@@ -181,35 +169,23 @@ function bond_basis!(g::SweepGraph{I}, i::Int, nU::Int, nV::Int, ::VertexCover) 
     us_of_comp, vs_of_comp = connected_components(g.left.radj, nV)
 
     secW = I[]
-    nextedges_global = Vector{Tuple{Int, ComplexF64}}[]
-    origins_global = Tuple{Int, Int}[]
+    nextedges = Vector{Tuple{Int, ComplexF64}}[]
+    origins = Tuple{Int, Int}[]
     site_dict = Dictionary{CartesianIndex{2}, LOp}()
     startidx = finishidx = 0
-    offset = 0
     for (us, vs) in zip(us_of_comp, vs_of_comp)
-        comp = _vc_component(g, us, vs, i)
-        for (link, m, op) in comp.blocks
-            increaseindex!(site_dict, CartesianIndex(link, offset + m), op)
+        s, f = _vc_component(g, us, vs, i, site_dict, secW, nextedges, origins)
+        if !iszero(s)
+            iszero(startidx) || invariant_violation("the start channel appeared in more than one component")
+            startidx = s
         end
-        for m in 1:comp.rank
-            push!(secW, comp.secs[m])
-            push!(nextedges_global, comp.nextedges[m])
-            push!(origins_global, comp.origins[m])
+        if !iszero(f)
+            iszero(finishidx) || invariant_violation("the finish channel appeared in more than one component")
+            finishidx = f
         end
-        if !iszero(comp.startidx)
-            iszero(startidx) ||
-                invariant_violation("the start channel appeared in more than one component")
-            startidx = offset + comp.startidx
-        end
-        if !iszero(comp.finishidx)
-            iszero(finishidx) ||
-                invariant_violation("the finish channel appeared in more than one component")
-            finishidx = offset + comp.finishidx
-        end
-        offset += comp.rank
     end
     b = _canonicalise_bond(
-        g, i, BondBasis{I}(offset, site_dict, secW, nextedges_global, startidx, finishidx), origins_global
+        g, i, BondBasis{I}(length(secW), site_dict, secW, nextedges, startidx, finishidx), origins
     )
     (iszero(b.startidx) || b.startidx != b.finishidx) ||
         invariant_violation("the start and finish channels resolved to the same bond index")

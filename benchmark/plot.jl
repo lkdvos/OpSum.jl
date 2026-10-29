@@ -182,10 +182,10 @@ function integer_log_ticks(vals)
     return (Float64.(cands), string.(cands))
 end
 
-"`axislegend` throws when nothing on the axis carries a label; skip those panels."
+"`axislegend` and `Legend` throw when nothing on the axis carries a label; skip those panels."
+haslabels(ax) = any(p -> haskey(p.attributes, :label) && !isempty(String(to_value(p.label))), ax.scene.plots)
 function safe_legend!(ax; kwargs...)
-    any(p -> haskey(p.attributes, :label) && !isempty(String(to_value(p.label))), ax.scene.plots) ||
-        return nothing
+    haslabels(ax) || return nothing
     try
         axislegend(ax; kwargs...)
     catch err
@@ -194,11 +194,27 @@ function safe_legend!(ax; kwargs...)
     return nothing
 end
 
+"The legend of `ax` in the layout cell `pos`, beside the data rather than over it."
+function side_legend!(pos, ax; kwargs...)
+    haslabels(ax) || return nothing
+    try
+        Legend(pos, ax; framevisible = false, labelsize = 9, rowgap = 0, kwargs...)
+    catch err
+        @warn "could not draw legend" err
+    end
+    return nothing
+end
+
+# Series `idx` gets colour `idx` and a marker shifted by one every full colour cycle, so that every
+# (colour, marker) pair is distinct up to `length(COLOR_CYCLE) * length(MARKER_CYCLE)` series.
+series_color(idx) = COLOR_CYCLE[mod1(idx, length(COLOR_CYCLE))]
+series_marker(idx) = MARKER_CYCLE[mod1(idx + fld(idx - 1, length(COLOR_CYCLE)), length(MARKER_CYCLE))]
+
 function draw_series!(
         ax, d, idx, label; scale = 1.0, fitvar = "N", showfit = true, fitinlabel = false
     )
-    color = COLOR_CYCLE[mod1(idx, length(COLOR_CYCLE))]
-    marker = MARKER_CYCLE[mod1(idx, length(MARKER_CYCLE))]
+    color = series_color(idx)
+    marker = series_marker(idx)
     sizes, vals, lo, hi = d
     isempty(sizes) && return NaN
     y = vals .* scale
@@ -303,7 +319,7 @@ function plot_phases(metrics, suite, output_path)
     present = [k for k in keys_all if haskey(suite, k)]
     isempty(present) && (println("No timing data; skipping phases figure."); return nothing)
 
-    fig = Figure(; size = (660, 900))
+    fig = Figure(; size = (1000, 900))
     for (row, (ph, phname)) in enumerate(phases)
         ax = Axis(
             fig[row, 1];
@@ -321,7 +337,7 @@ function plot_phases(metrics, suite, output_path)
             s === nothing ||
                 draw_series!(ax, s, i, label_of(metrics, k); scale, fitinlabel = true)
         end
-        safe_legend!(ax; position = :lt, framevisible = false, labelsize = 7, nbanks = 3)
+        side_legend!(fig[row, 2], ax)
     end
 
     ax = Axis(
@@ -338,7 +354,7 @@ function plot_phases(metrics, suite, output_path)
         s === nothing ||
             draw_series!(ax, s, i, label_of(metrics, k); scale, fitinlabel = true)
     end
-    safe_legend!(ax; position = :lt, framevisible = false, labelsize = 7, nbanks = 3)
+    side_legend!(fig[3, 2], ax)
 
     rowgap!(fig.layout, 8)
     save(output_path, fig)
@@ -372,7 +388,7 @@ function plot_profile(metrics, output_path)
         append!(allvals, prof)
         lines!(
             ax, (1:length(prof)) ./ length(prof), prof;
-            color = COLOR_CYCLE[mod1(i, length(COLOR_CYCLE))], linewidth = 2,
+            color = series_color(i), linewidth = 2,
             label = "$(label_of(metrics, key)) (N=$(e.size))"
         )
     end

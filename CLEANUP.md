@@ -73,7 +73,7 @@ top level 0.7k), test 6.4k. Largest: compression/graph.jl 552, timeevolution/tay
 | 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) option B at 9d641f0, targeted tests |
 | 12 | Organisation revisit | — | done (full suite green at 911f5ce, 139883) |
 | 13 | Tests | test/ | done (D20); full suite green at b22b586, 139868 (−15: fewer sites in shrunk oracles) |
-| 14 | Examples, benchmarks, scripts, docs, research | | pending |
+| 14 | Examples, benchmarks, scripts, docs, research | | agreed (D21), implementing |
 
 ## Decisions
 
@@ -367,6 +367,14 @@ SU(2) L = 2 restored to two cells (the single cell lost the closure check). Solo
 `ncon`, not dense size, so shrinking only helps when every user of a rank in a file shrinks. Sign no-op in
 `walk_words!` still caught by all three fermionic kronpower oracles; `test_jordan`/`test_taylor` unchanged (no
 sector-preserving shrink changes their time). The tiled testsets have no fermionic case (pre-existing).
+
+**D21 Chunk 14 (examples, benchmarks, docs).**
+(a) P14.1: `benchmark/n2/` is deleted (it includes an out-of-repo file that still uses `IrrepOperator`); its numbers and
+recipe go in a comment on #38 (posted by me at the finish); the CLAUDE.md line goes.
+(b) P14.2: `scripts/plot_benchmarks.jl` → `benchmark/plot.jl`; `scripts/` goes; FIGURES.md, CLAUDE.md, usage lines.
+(c) P14.3: every benchmark script runs once in its smoke mode; breakage from the review is fixed; plots checked.
+(d) P14.4: the examples' use of documented non-exported names stays.
+(e) P14.5: the doc figures are refreshed at the end of this PR (full sweep run by the user on a quiet node).
 
 ## Possible improvements
 

@@ -73,7 +73,7 @@ top level 0.7k), test 6.4k. Largest: compression/graph.jl 552, timeevolution/tay
 | 11 | Time evolution | timeevolution/ | done (full suite green at 59da1aa, 139835); (e) option B at 9d641f0, targeted tests |
 | 12 | Organisation revisit | — | done (full suite green at 911f5ce, 139883) |
 | 13 | Tests | test/ | done (D20); full suite green at b22b586, 139868 (−15: fewer sites in shrunk oracles) |
-| 14 | Examples, benchmarks, scripts, docs, research | | agreed (D21), implementing |
+| 14 | Examples, benchmarks, scripts, docs, research | | done (D21); figures at the finish |
 
 ## Decisions
 
@@ -375,6 +375,10 @@ recipe go in a comment on #38 (posted by me at the finish); the CLAUDE.md line g
 (c) P14.3: every benchmark script runs once in its smoke mode; breakage from the review is fixed; plots checked.
 (d) P14.4: the examples' use of documented non-exported names stays.
 (e) P14.5: the doc figures are refreshed at the end of this PR (full sweep run by the user on a quiet node).
+As applied: 7e87510 (a; notes in scratchpad/c14/n2_notes.md for the #38 comment), 0b44cb4 (b; `BENCH_DIR = @__DIR__`,
+references in FIGURES.md, CLAUDE.md, examples/spin_chains.jl, examples/index.jl). (c) smoke runs all exit 0, no fixes
+needed: run.jl --sweep smoke --svd --internals (15 models), taylor.jl quick (xxz-U1 k=2 N=3 D=301 both sides, 198×),
+plot.jl --run --figure all (three PNGs render). Phases figure: legend overlaps data, 13 models share 7 colours.
 
 ## Possible improvements
 
@@ -392,5 +396,5 @@ recipe go in a comment on #38 (posted by me at the finish); the CLAUDE.md line g
 
 ## Resume here
 
-Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 done (D17), full suite green at dc5e5ce (139829). Chunk 11 done (D18), full suite green at 59da1aa; 9d641f0 targeted only (full suite with chunk 12). Chunks 12–13 done (D19, D20). Next: chunk 14 (examples, benchmarks, docs). Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
+Chunks 0–7 done, full suite green at ea13cfe (139814). Chunk 8 done (D15). Chunk 9 done (D16); full suite green at ca2ce05 (139827). Chunk 10 done (D17), full suite green at dc5e5ce (139829). Chunk 11 done (D18), full suite green at 59da1aa; 9d641f0 targeted only (full suite with chunk 12). Chunks 12–13 done (D19, D20). Chunk 14 done (D21). Next: finish (full suite, docs, Julia 1.10, issues, figures, PR text). Chunks 9–14 then finish. Equivalence harness: scratchpad/equiv/{equiv,compare,compare_op}.jl, base result scratchpad/equiv/base.jls;
 pre-chunk references pre3.jls … pre7.jls. Full suites run in a throwaway worktree (scratchpad/ft-chunkN).

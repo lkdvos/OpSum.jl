@@ -355,6 +355,12 @@ trims are decided from the table, not by the agent.
 (e) P13.5: `runtests.jl` worker RSS budget stays.
 As applied: 9d1b8b7 (a; 18 + 8 tests moved, counts unchanged), 52cd673 (b+c). Changed files pass standalone; runic,
 names clean.
+(f) Measurement (report: scratchpad/meas13-results/report.md): serial solo 5418 s, almost all compile; coverage 2900/2919
+src/ext lines; 25 testsets in 6 files cover no unique line or sector type (934 s, upper bound). Not deleted: the
+expensive ones are the independent-oracle checks (dense `H^N`, tiled dense operator, Jordan vs dense/MPSKit, Alg 2
+exact). User chose (A): shrink them instead (fewer sites/order/models, keep every model's sector type), each still
+failing when the fermion sign rule is broken. Noted: an MPSKit-preloaded, loaded-machine batch took ~1 h for
+test_expterms/test_infinite_mpo/test_mpskit_ext (250/175/578 s at low load); cause not separated.
 
 ## Possible improvements
 

@@ -46,37 +46,26 @@ canreorder(::Type{I}) where {I <: Sector} =
 isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(c)) < 0
 
 # Extend every term of `a` by every single-site term of `b`, fusing to `target(running total, b's
-# letter)` (`nothing` drops the pair). A leg right of all of `a` is appended; otherwise it is inserted
-# at its site position (`canreorder`), the running charges after it recomputed and one R-symbol
-# picked up per leg it braids past (for fermions, the anticommutation sign). Under a non-abelian
-# symmetry it is appended in written order and re-coupled into site order (`recouple`), which may
-# give several terms.
+# letter)` (`nothing` drops the pair). The extension is written in order (b's leg last) and `written!`
+# puts it in site order: R-symbols per leg braided past when abelian, `recouple` otherwise (which may
+# give several terms).
 function couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
-    out = Term{I}[]
-    sizehint!(out, length(a) * length(b))
-    reorder = canreorder(I)
+    out = TermBag{I}()
+    sizehint!(out.terms, length(a) * length(b))
     for tb in b.terms
         arity(tb) == 1 || throw(
             ArgumentError("couple: every term of the second operand must be a single-site charged operator")
         )
     end
     for ta in a.terms
-        na = arity(ta)
-        na >= 1 || throw(
+        arity(ta) >= 1 || throw(
             ArgumentError("couple: every term of the first operand must carry at least one charged operator")
         )
-        run = last(ta.factors).bond
+        run = total(ta)
         for tb in b.terms
             sb = only(tb.sites)
             opb = only(tb.factors).letter
-
-            # position of the first of `a`'s sites strictly right of `b`'s
-            p = na + 1
-            for j in 1:na
-                s = ta.sites[j]
-                s == sb && throw(ArgumentError("couple: operators must act on distinct sites"))
-                s > sb && (p = j; break)
-            end
+            sb in ta.sites && throw(ArgumentError("couple: operators must act on distinct sites"))
 
             tgt = target(run, opb)
             tgt === nothing && continue
@@ -85,38 +74,10 @@ function couple_terms(a::Terms{I}, b::Terms{I}, target) where {I}
             iszero(nsym) && continue
             isone(nsym) || invariant_violation("expected a unique coupling channel, got $nsym")
 
-            coeff = ta.coeff * tb.coeff
             # graded tensor product: -1 iff both are fermion-odd
+            coeff = ta.coeff * tb.coeff
             isfermionodd(run) && isfermionodd(opb.c) && (coeff = -coeff)
-            if p <= na && !reorder
-                # non-abelian: append in written order, then re-couple into site order
-                keys_w = vcat(ta.factors, Factor{I}(opb, tot))
-                append!(out, recouple(vcat(ta.sites, sb), keys_w, coeff))
-                continue
-            end
-            sites = Vector{Int}(undef, na + 1)
-            keys = Vector{Factor{I}}(undef, na + 1)
-            for j in 1:(p - 1)
-                sites[j] = ta.sites[j]
-                keys[j] = ta.factors[j]
-            end
-            sites[p] = sb
-            if p == na + 1
-                keys[p] = Factor{I}(opb, tot)
-            else
-                bond = p == 1 ? opb.c : only(ta.factors[p - 1].bond ⊗ opb.c)
-                keys[p] = Factor{I}(opb, bond)
-                for j in p:na
-                    op = ta.factors[j].letter
-                    coeff *= Rsymbol(op.c, opb.c, only(op.c ⊗ opb.c))
-                    bond = only(bond ⊗ op.c)
-                    sites[j + 1] = ta.sites[j]
-                    keys[j + 1] = Factor{I}(op, bond)
-                end
-                bond == tot ||
-                    invariant_violation("reordered coupling reached $bond, not the total $tot")
-            end
-            push!(out, Term{I}(sites, keys, coeff))
+            written!(out, vcat(ta.sites, sb), vcat(ta.factors, Factor{I}(opb, tot)), coeff)
         end
     end
     return Terms{I}(out)

@@ -97,7 +97,7 @@ back ≈ H.terms
 #   compressed MPO, and where the finite and infinite paths diverge.
 #
 # Construction time and bond dimension across system size are measured by the benchmark harness in
-# `benchmark/` and plotted with `scripts/plot_benchmarks.jl`.
+# `benchmark/` and plotted with `benchmark/plot.jl`.
 
 # ## Acknowledgements
 #

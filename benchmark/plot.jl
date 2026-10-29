@@ -2,7 +2,7 @@
 # Plot OpSum.jl benchmark results: maximum bond dimension and construction time versus system size.
 #
 # Usage:
-#   julia --project=benchmark scripts/plot_benchmarks.jl [options]
+#   julia --project=benchmark benchmark/plot.jl [options]
 #
 #   --run                Run the benchmark suite (as a subprocess) before plotting.
 #   --sweep NAME         smoke | ci | full                      [default: ci]
@@ -15,10 +15,10 @@
 #
 # Examples:
 #   # Full sweep, then the headline figure:
-#   julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full
+#   julia --project=benchmark benchmark/plot.jl --run --sweep full
 #
 #   # Re-plot previously saved results:
-#   julia --project=benchmark scripts/plot_benchmarks.jl --figure all
+#   julia --project=benchmark benchmark/plot.jl --figure all
 
 using BenchmarkTools
 using CairoMakie
@@ -27,7 +27,7 @@ using LaTeXStrings
 using Printf
 using Statistics
 
-const BENCH_DIR = joinpath(@__DIR__, "..", "benchmark")
+const BENCH_DIR = @__DIR__
 const RUN_SCRIPT = joinpath(BENCH_DIR, "run.jl")
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────

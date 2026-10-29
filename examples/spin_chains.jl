@@ -225,10 +225,10 @@ end
 #
 # Construction time and bond dimension across system size, for these and the other models, are
 # collected by the benchmark harness in `benchmark/` and plotted by
-# `scripts/plot_benchmarks.jl`. Reproduce the figure with
+# `benchmark/plot.jl`. Reproduce the figure with
 #
 # ```
-# julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full
+# julia --project=benchmark benchmark/plot.jl --run --sweep full
 # ```
 #
 # ![Bond dimension and construction time versus system size](../assets/scaling.png)

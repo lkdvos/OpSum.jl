@@ -11,7 +11,7 @@ julia --project -e 'using Pkg; Pkg.test()'          # all tests (ParallelTestRun
 julia --project=test test/compression/test_graph.jl  # one file; each is standalone
 julia --project=/tmp/runic -e 'using Pkg; Pkg.add("Runic"); using Runic; Runic.format_file("src/file.jl"; inplace=true)'
 julia --project=benchmark benchmark/run.jl --sweep ci                       # scaling benchmarks
-julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full --figure all
+julia --project=benchmark benchmark/plot.jl --run --sweep full --figure all
 julia --project=docs docs/make.jl                    # docs (strict cross-references)
 ```
 

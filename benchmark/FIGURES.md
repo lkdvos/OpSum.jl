@@ -3,7 +3,7 @@
 `docs/src/assets/{scaling,phases,profile}.png` are copied in by hand. To refresh:
 
 ```bash
-julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full --figure all
+julia --project=benchmark benchmark/plot.jl --run --sweep full --figure all
 cp benchmark/scaling_scaling.png docs/src/assets/scaling.png
 cp benchmark/scaling_phases.png  docs/src/assets/phases.png
 cp benchmark/scaling_profile.png docs/src/assets/profile.png

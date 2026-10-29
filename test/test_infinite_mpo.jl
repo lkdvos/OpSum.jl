@@ -194,14 +194,14 @@ end
 
 @testset "tiled MPO reproduces the enclosed operator densely" begin
     # contract the tiled tensors between the identity-channel boundary vectors against `instantiate`
-    # (the dense contraction compiles per sector type and window length: three sites, so that there is a bulk site, and the
-    # L = 2 cell once; the exponential channels are tiled over two cells in test_expterms.jl)
+    # (the dense contraction compiles per sector type and window length: three sites, so that there is a bulk site; the
+    # L = 2 cell over two cells, so that the closure of its last bond onto its first is checked)
     S = spinvector(BSU2)
     A, B = element(BTR, 2), element(BTR, 3)
     cases = [
         ("SU2 Heisenberg L=1", dot(S[1], S[2]), [BSU2], 3),
         ("trivial 2-site + on-site L=1", couple(A[1], B[2]) + 0.7 * B[1], [BTR], 3),
-        ("SU2 Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), [BSU2, BSU2], 1),
+        ("SU2 Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), [BSU2, BSU2], 2),
     ]
     for (name, H, spaces, ncells) in cases
         L = length(spaces)

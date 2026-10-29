@@ -109,15 +109,16 @@ function jordan_layout(W::SymbolicMPO{I, L}) where {I, L}
         nrows, ncols = length(jsec[i]), length(jsec[i + 1])
         posL, posR = pos[i], pos[i + 1]
         # 1. permute the reduced entries into Jordan order (a bijection)
-        entries = Dictionary{Tuple{Int, Int}, SiteOperator{I}}()
+        entries = Dictionary{CartesianIndex{2}, SiteOperator{I}}()
         for (idx, localop) in storedpairs(W.Ws[i])
             l, r = Tuple(idx)
             isempty(localop) && continue
-            insert!(entries, (posL[l], posR[r]), localop)
+            insert!(entries, CartesianIndex(posL[l], posR[r]), localop)
         end
 
         # 2. the structural invariants, then the identity corners (padded where missing)
-        for (row, col) in keys(entries)
+        for idx in keys(entries)
+            row, col = Tuple(idx)
             (ncols > 1 && col == 1 && row != 1) &&
                 invariant_violation("row $row of site $i enters the Jordan start channel")
             (nrows > 1 && row == nrows && col != ncols) &&
@@ -125,16 +126,14 @@ function jordan_layout(W::SymbolicMPO{I, L}) where {I, L}
         end
         for (row, col, needed) in ((1, 1, ncols > 1), (nrows, ncols, nrows > 1))
             needed || continue
-            op = get(entries, (row, col), nothing)
+            op = get(entries, CartesianIndex(row, col), nothing)
             if op === nothing
-                insert!(entries, (row, col), one(SiteOperator{I}))
+                insert!(entries, CartesianIndex(row, col), one(SiteOperator{I}))
             elseif !isone(op)
                 invariant_violation("the Jordan corner ($row, $col) of site $i is not the identity")
             end
         end
-        rows = Int[first(k) for k in keys(entries)]
-        cols = Int[last(k) for k in keys(entries)]
-        return sparse(rows, cols, collect(entries), nrows, ncols)
+        return sparse_from_dict(entries, (nrows, ncols))
     end
     ends = map(length, jsec)
     start = fill(1, N + 1)

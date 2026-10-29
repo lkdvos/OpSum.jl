@@ -59,12 +59,11 @@ function _embed_caterpillar(ops, positions, tree, sites)
     idle = [k for k in 1:N if !(k in positions)]
     full = isempty(idle) ? Wblock : Wblock ⊗ foldl(⊗, (id(_space(sites[k])) for k in idle))
 
-    cod_src = (positions..., idle...)
-    p_cod = ntuple(j -> findfirst(==(j), cod_src), N)
+    src = (positions..., idle...)                  # the same order on both sides
+    p_cod = ntuple(j -> findfirst(==(j), src), N)
 
-    dom_src = (positions..., idle...)
     charge_global = N + (K + 1)                    # charge leg sits after the K active in-legs
-    site_global(j) = let pos = findfirst(==(j), dom_src)
+    site_global(j) = let pos = findfirst(==(j), src)
         pos <= K ? N + pos : N + pos + 1           # idle in-legs shift by 1 past the charge leg
     end
     p_dom = (ntuple(j -> site_global(j), N)..., charge_global)

@@ -135,8 +135,7 @@ Base.isapprox(a::LocalOperator{I}, b::LocalOperator{I}; kwargs...) where {I} =
 const UnplacedOperator{I} = Union{SiteOperator{I}, LocalOperator{I}}
 
 # `O` placed on the slots after the first `offset` ones.
-_placed(O::SiteOperator, offset::Int) = O[offset + 1]
-_placed(B::LocalOperator, offset::Int) = B[offset + 1]
+_placed(O::UnplacedOperator, offset::Int) = O[offset + 1]
 
 function _slotoperands(ops::Tuple{UnplacedOperator{I}, Vararg{UnplacedOperator{I}}}) where {I}
     out = Terms{I}[]

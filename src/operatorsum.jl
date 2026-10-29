@@ -181,7 +181,9 @@ const _Summand{I} = Union{Term{I}, Terms{I}, ExpSum{I}}
 Base.:+(H::OperatorSum, x::_Summand) = opsum!(copy(H), x)
 Base.:+(x::_Summand, H::OperatorSum) = opsum!(copy(H), x)
 function Base.:+(a::OperatorSum, b::OperatorSum)
-    _samelattice(a, b, "+")
+    a.lattice == b.lattice || throw(
+        ArgumentError("cannot + two OperatorSums on different lattices: $(a.lattice) and $(b.lattice)")
+    )
     return opsum!(copy(a), b.terms, b.channels)
 end
 
@@ -195,15 +197,6 @@ Base.:*(x::_Scalable, α::Number) = scale(x, α)
 Base.:/(x::_Scalable, α::Number) = scale(x, inv(α))
 Base.:-(x::_Scalable) = scale(x, -1)
 Base.:-(a::_Scalable, b::_Scalable) = a + (-b)
-
-function _samelattice(a::OperatorSum, b::OperatorSum, op)
-    a.lattice == b.lattice || throw(
-        ArgumentError(
-            "cannot $op two OperatorSums on different lattices: $(a.lattice) and $(b.lattice)"
-        )
-    )
-    return nothing
-end
 
 Base.isapprox(a::OperatorSum{I}, b::OperatorSum{I}; kwargs...) where {I} =
     a.lattice == b.lattice && isapprox(a.terms, b.terms; kwargs...) &&

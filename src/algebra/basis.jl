@@ -219,7 +219,7 @@ function _select_elements(
             return abs2(inner(kept[k], e)) >= (1 - rtol) * real(inner(kept[k], kept[k])) * real(inner(e, e))
         end && continue
         if skipdependent
-            a = ComplexF64[inner(matrixunit(mu, V), e) for mu in _chargeunits(V, c)]
+            a = ComplexF64[inner(matrixunit(mu, V), e) for mu in matrixunits(V) if mu.c == c]
             Q = get(spans, c, zeros(ComplexF64, length(a), 0))
             r = a - Q * (Q' * a)
             norm(r) > sqrt(rtol) * norm(a) || continue
@@ -268,9 +268,6 @@ function lettermetric(grams::Dictionary{I, Matrix{ComplexF64}}) where {I}
     end
     return trivial ? nothing : out
 end
-
-# The matrix-unit letters of charge `c` on `V`.
-_chargeunits(V, c) = filter(mu -> mu.c == c, matrixunits(V))
 
 # Rank factorisation of a neutral two-site operator into charged single-site pieces. Per charge `c` of
 # the left factor, `M[a, b]` is the coefficient on the matrix units `eₐ ⊗ e_b` and `M = C R` with `C` the

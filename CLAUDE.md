@@ -56,7 +56,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
   `mpo_tensors(W)`, `jordan_mpo_tensors` (via `jordan_layout`; BlockTensorKit, MPSKit layout) and `instantiate(W)`
   (a method of the MPSKit extension, `ext/`) emit tensors; the `(Ws, bondsectors)` forms are internal
   (`reduced_terms`, `reduced_tensors`). `H'` goes through dense blocks (`adjoint_terms`).
-* **Infinite chains** (`infinite/`): `mpo` on an `InfiniteChain` unrolls a window, runs the same sweep (`jordan = true`) and takes the
+* **Infinite chains** (`infinite/`): `mpo` on an `InfiniteChain` unrolls a window, runs the same sweep and takes the
   translation-invariant cell with its `start`/`finish` from the result (`infinite_window`); the suffix canonicalisation (`_canonicalise_rights!`) is required
   for the cell to close. `expterm` channels (`src/expterms.jl`; the automaton is `compression/channels.jl`) lower to weighted automata: cyclic states are forced into
   the cover, and λ rides as an edge weight so every emitted entry carries a letter.

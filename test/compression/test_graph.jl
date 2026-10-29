@@ -171,7 +171,7 @@ end
     H = Terms((dot(spinvector(unitbasis(V))[i], spinvector(unitbasis(V))[i + 1]) for i in 1:(N - 1)))
     Wdef, sdef = reduced(mpo(opsum(sites, H)))
     Wsel, ssel = reduced(mpo(opsum(sites, H), VertexCover()))
-    (; Ws, bondsectors) = sweep(TermTable(H), N, VertexCover(); jordan = false)
+    (; Ws, bondsectors) = sweep(TermTable(H), N, VertexCover())
     Wstr, sstr = Ws, bondsectors
     @test bondprofile(sdef) == bondprofile(ssel) == bondprofile(sstr)
     @test mpo_operator(Wdef, sdef, sites) ≈ mpo_operator(Wsel, ssel, sites)
@@ -237,14 +237,6 @@ end
             @test mpo_tensormap(reduced_tensors(Ws, secs, sites)) ≈ instantiate(opsum(sites, H))
         end
     end
-
-    # without the forced finish channel the cover is one index smaller at bond 1
-    H = opsum(FiniteChain(sites), scalarop(-1.5, unitbasis(V))[1], dot(S[1], S[2]), dot(S[2], S[3]))
-    tt = OpSum.TermTable(H.terms)
-    (; Ws, bondsectors) = OpSum.sweep(tt, 3, OpSum.VertexCover(); jordan = false)
-    secs = bondsectors
-    @test bondprofile(secs) == [["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1, "Irrep[SU₂](1)" => 1], ["Irrep[SU₂](0)" => 1]]
-    @test reduced_terms(Ws, secs) ≈ H.terms
 end
 
 @testset "suffix signature needs the running bond charge" begin

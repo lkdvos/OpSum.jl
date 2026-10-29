@@ -34,9 +34,9 @@ end
 # weights and emits the bare letter; covered-right resets the weight to 1 and folds `op × weight` into
 # every uncovered neighbour's block. `Θ(E_component)`.
 #
-# Finish channel: only `g.bound.rfinish` or `g.bound.finishleft` can carry it; with `g.jordan` `_force_finish!`
-# covers `rfinish` so the pass-through folds in, otherwise whichever the cover takes is read. The
-# sentinel is never covered (see `_force_finish!`); the covered-right case is its unreachable dual.
+# Finish channel: only `g.bound.rfinish` or `g.bound.finishleft` can carry it; `_force_finish!`
+# covers `rfinish` so the pass-through folds in. The sentinel is never
+# covered (see `_force_finish!`); the covered-right case is its unreachable dual.
 function _vc_component(
         g::SweepGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int
     ) where {I}
@@ -56,7 +56,7 @@ function _vc_component(
     end
 
     cUbits, cVbits = _forced_cover(g, localadj, nus, nvs, vs)
-    if g.jordan && !iszero(g.bound.rfinish)
+    if !iszero(g.bound.rfinish)
         pf = vlocal[g.bound.rfinish]                # stale unless `rfinish` is in this component
         (1 <= pf <= nvs && vs[pf] == g.bound.rfinish) && _force_finish!(cUbits, cVbits, localadj, pf)
     end

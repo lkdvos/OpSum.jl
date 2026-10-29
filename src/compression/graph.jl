@@ -91,7 +91,6 @@ Base.@kwdef mutable struct SweepGraph{I <: Sector}
     channels::Vector{ExpChannel{I}}   # lowered exponentially decaying interactions (may be empty)
     lastentry::Int         # last site at which a channel may still enter (0 if there are none)
     lazy::Bool             # insert a term's right vertex only once it is reachable (else all up front)
-    jordan::Bool           # force the finish class into the cover (see `_force_finish!`)
     right::RightVertices{I}
     left::LeftVertices{I}
     pending::Pending{I}
@@ -168,10 +167,10 @@ end
 
 # Seed the graph in `Θ(M·K)`: only terms active at site 1 get a right vertex, the rest being represented by
 # a sentinel and inserted when reachable (`Θ(Σ span)` instead of `Θ(N·M)`) [lazy mode]. `channels` are
-# lowered `expterm`s; `jordan` forces the finish class into every cover. `lazy = false` seeds every term
+# lowered `expterm`s. `lazy = false` seeds every term
 # up front, which `SequentialSVD` needs (see `_graph_lazy`).
 function SweepGraph(
-        tt::TermTable{I}, N::Int; lazy::Bool = true, jordan::Bool = false,
+        tt::TermTable{I}, N::Int; lazy::Bool = true,
         channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
     ) where {I}
     M = nterms(tt)
@@ -221,7 +220,7 @@ function SweepGraph(
 
     cap = length(right) + 1   # right-vertex ids are at most one sentinel beyond the live ones
     return SweepGraph{I}(;
-        tt, N, sufid, relsufid, channels, lastentry = lastent, lazy, jordan, right, left,
+        tt, N, sufid, relsufid, channels, lastentry = lastent, lazy, right, left,
         pending = Pending{I}(; firstsite, at = pendingat, bysig, inserted, remaining),
         bound = Boundary(; startleft),
         scratch = Scratch{I}(; slot = zeros(Int, cap), vlocal = zeros(Int, cap), firstleft = zeros(Int, cap), remap = zeros(Int, cap))
@@ -533,14 +532,14 @@ emptysweep(::Type{I}) where {I} = (; Ws = SparseMatrixCSC{SiteOperator{I}, Int}[
 
 # The reduced-MPO sweep of a term table over `N` sites, as the named tuple `(; Ws, bondsectors, start,
 # finish)`; `start[i]`/`finish[i]` are the bond indices of the start/finish identity channels right of
-# site `i` (0 where the cover spent none). `jordan` forces the finish class into the cover (which can cost
-# one index, e.g. a constant next to two-site terms); without it the cover is free to be one index smaller.
+# site `i` (0 where the cover spent none). The finish class is forced into the cover (which can cost one
+# index, e.g. a constant next to two-site terms), as Jordan emission needs.
 function sweep(
         tt::TermTable{I}, N::Int, strategy::GraphStrategy;
-        jordan::Bool = true, channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
+        channels::Vector{ExpChannel{I}} = ExpChannel{I}[]
     ) where {I}
     (nterms(tt) == 0 && isempty(channels)) && return emptysweep(I)
-    g = SweepGraph(tt, N; lazy = _graph_lazy(strategy), jordan, channels)
+    g = SweepGraph(tt, N; lazy = _graph_lazy(strategy), channels)
     Ws = Vector{SparseMatrixCSC{SiteOperator{I}, Int}}(undef, N)
     bondsectors = Vector{Vector{I}}(undef, N)
     start = zeros(Int, N)

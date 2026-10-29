@@ -93,17 +93,17 @@ function _checksupport!(seen, lat::AbstractLattice, sites, factors::Vector{Facto
             ArgumentError("a term acts on site $s, outside the lattice `1:$N`")
         )
         V = lat[s]
-        info = get!(() -> alphabet(V, I), seen, V)
-        op = key.letter
-        nmax = get(info, op.c, 0)
-        1 <= op.n <= nmax || throw(
-            ArgumentError(
-                "letter $op does not exist on site $s ($V): that site carries " *
-                    "$nmax operator(s) of charge $(op.c)"
-            )
-        )
+        _checkletter(key.letter, get!(() -> alphabet(V, I), seen, V), "on site $s ($V)")
     end
     return nothing
+end
+
+# The letter `op` must be one of the `info[op.c]` operators of its charge (`info` is a basis' alphabet).
+function _checkletter(op::Letter, info, where)
+    nmax = get(info, op.c, 0)
+    return 1 <= op.n <= nmax || throw(
+        ArgumentError("letter $op does not exist $where: there are $nmax operator(s) of charge $(op.c)")
+    )
 end
 
 function checkinsert(lat::AbstractLattice, terms::Vector{Term{I}}, chans::ExpSum{I}) where {I}
@@ -116,18 +116,13 @@ end
 # A channel puts its letters on sites it does not name (translates, string), which must share one basis.
 function checkchannels(lat::AbstractLattice, chans::ExpSum{I}) where {I}
     for k in keys(chans.channels)
-        letters = Letter{I}[l for l in k.string.letters if !ispassthrough(l)]
-        lat isa FiniteChain && append!(letters, (f.letter for f in k.support[2]))
-        isempty(letters) && continue
+        ops = Letter{I}[l for l in k.string.letters if !ispassthrough(l)]
+        lat isa FiniteChain && append!(ops, letters(k.support[2]))
+        isempty(ops) && continue
         allequal(lat.sites) || throw(ArgumentError(_mixedbases_message(lat)))
         info = alphabet(first(lat.sites), I)
-        for op in letters
-            1 <= op.n <= get(info, op.c, 0) || throw(
-                ArgumentError(
-                    "letter $op of a decaying channel does not exist on the lattice ($(first(lat.sites))): " *
-                        "its sites carry $(get(info, op.c, 0)) operator(s) of charge $(op.c)"
-                )
-            )
+        for op in ops
+            _checkletter(op, info, "in a decaying channel on the lattice ($(first(lat.sites)))")
         end
     end
     return nothing
@@ -168,9 +163,9 @@ function checkgenerating(lat::InfiniteChain, terms::Vector{Term{I}}, chans::ExpS
         checkgenerator(t)
     end
     seen = Dict{eltype(lat), Dict{I, Int}}()
+    _checksector(I, lat)
     for k in keys(chans.channels)
         checkgenerator(k)
-        _checksector(I, lat)
         _checksupport!(seen, lat, k.support...)
     end
     return nothing

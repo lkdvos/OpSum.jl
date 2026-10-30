@@ -254,20 +254,7 @@ function _emit_stretched!(
         d::Dictionary{Support{I}, ComplexF64}, entry, exit_, ops, bonds, ne, entrybond,
         strsites, strpairs, w
     ) where {I}
-    nstr = length(strsites)
-    active = filter(p -> !ispassthrough(p[1]), strpairs)
-    if isempty(active) || nstr == 0
-        # all gap sites idle: one term, with the string's scalar part once per site
-        scalar = sum(c for (letter, c) in strpairs if ispassthrough(letter); init = zero(ComplexF64))
-        (nstr == 0 || !iszero(scalar)) || return d
-        wtot = nstr == 0 ? w : w * scalar^nstr
-        newsites = Int[entry..., exit_...]
-        newops = Letter{I}[ops...]
-        newbonds = eltype(bonds)[bonds...]
-        _insert_stretched!(d, newsites, newops, newbonds, wtot)
-        return d
-    end
-    for combo in Iterators.product(ntuple(_ -> strpairs, nstr)...)
+    for combo in Iterators.product(ntuple(_ -> strpairs, length(strsites))...)
         wtot = w
         strs = Tuple{Int, Letter{I}}[]
         for (s, (letter, c)) in zip(strsites, combo)
@@ -280,18 +267,11 @@ function _emit_stretched!(
         newbonds = eltype(bonds)[
             bonds[1:ne]..., ntuple(_ -> entrybond, length(strs))..., bonds[(ne + 1):end]...,
         ]
-        _insert_stretched!(d, newsites, newops, newbonds, wtot)
+        # multiplicity-free fusion: every vertex label is 1; keyed by support, so `setwith!` sums
+        # coincident terms
+        keys_ = Factor{I}[Factor{I}(o, b) for (o, b) in zip(newops, newbonds)]
+        setwith!(+, d, (newsites, keys_), ComplexF64(wtot))
     end
-    return d
-end
-
-function _insert_stretched!(
-        d::Dictionary{Support{I}, ComplexF64}, newsites, newops, newbonds, w
-    ) where {I}
-    # multiplicity-free fusion: every vertex label is 1
-    keys_ = Factor{I}[Factor{I}(o, b) for (o, b) in zip(newops, newbonds)]
-    # keyed by support, so `setwith!` sums coincident terms
-    setwith!(+, d, (newsites, keys_), ComplexF64(w))
     return d
 end
 

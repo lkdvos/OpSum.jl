@@ -1,21 +1,6 @@
 # VertexCover bond-basis backend: per-component minimum vertex cover, plus the finish-channel
 # forcing Jordan emission needs.
 
-# Move the finish class (local index `pf`) into the cover and drop left vertices that makes redundant.
-# A minimum cover may cover it from the left, whose index would emit the last factor's letter rather
-# than the identity; Jordan form needs the covered-right reading. Never costs: the cover grows by at
-# most one and saves a padded index. The start channel needs no counterpart: König never covers the
-# degree-one sentinel, so its left vertex is covered-left, and it is not adjacent to the finish class.
-function _force_finish!(cUbits, cVbits, localadj::Vector{Vector{Int}}, pf::Int)
-    cVbits[pf] && return false
-    cVbits[pf] = true
-    @inbounds for k in eachindex(localadj)
-        cUbits[k] || continue
-        all(q -> cVbits[q], localadj[k]) && (cUbits[k] = false)
-    end
-    return true
-end
-
 # Minimum-vertex-cover backend for component `(us, vs)` (global ids). Covered-left forwards its
 # weights and emits the bare letter; covered-right resets the weight to 1 and folds `op × weight` into
 # every uncovered neighbour's block. `Θ(E_component)`.
@@ -25,8 +10,9 @@ end
 # forwards (empty at the last site) and `origins` `(0, left)` / `(1, right)` per index, for canonical ordering.
 # Returns the global indices of the start and finish channels (0 if not here).
 #
-# Finish channel: only `g.bound.rfinish` or `g.bound.finishleft` can carry it; `_force_finish!` covers
-# `rfinish` so the pass-through folds in. The sentinel is never covered (see `_force_finish!`); the
+# Finish channel: only `g.bound.rfinish` or `g.bound.finishleft` can carry it; `_forced_cover` covers
+# `rfinish` so the pass-through folds in. The start channel needs no counterpart: König never covers the
+# degree-one sentinel, so its left vertex is covered-left, and it is not adjacent to the finish class; the
 # covered-right case is its unreachable dual.
 function _vc_component(
         g::SweepGraph{I}, us::Vector{Int}, vs::Vector{Int}, i::Int, site::Dictionary{CartesianIndex{2}, SiteOperator{I}},
@@ -48,10 +34,6 @@ function _vc_component(
     end
 
     cUbits, cVbits = _forced_cover(g, localadj, nus, nvs, vs)
-    if !iszero(g.bound.rfinish)
-        pf = vlocal[g.bound.rfinish]                # stale unless `rfinish` is in this component
-        (1 <= pf <= nvs && vs[pf] == g.bound.rfinish) && _force_finish!(cUbits, cVbits, localadj, pf)
-    end
     cU = findall(cUbits)
     cV = findall(cVbits)
     nleft = length(cU)
@@ -121,13 +103,16 @@ function _vc_component(
     return startidx, finishidx
 end
 
-# Minimum vertex cover of one component with every cyclic channel state forced into it: otherwise the
-# predecessor is covered-left and forwards `λ·w` instead of landing `λ · pass-through` on the diagonal.
-# Free in the bulk (the state has a pendant predecessor); at most one index in a window's boundary cells.
+# Minimum vertex cover of one component with two kinds of right vertex forced into it. Every cyclic channel
+# state: otherwise the predecessor is covered-left and forwards `λ·w` instead of landing `λ · pass-through`
+# on the diagonal; free in the bulk (the state has a pendant predecessor), at most one index in a window's
+# boundary cells. And the finish class `g.bound.rfinish`: a minimum cover may cover it from the left, whose
+# index would emit the last factor's letter rather than the identity, and Jordan form needs the covered-right
+# reading; this can cost one index (e.g. a constant next to two-site terms).
 function _forced_cover(
         g::SweepGraph, localadj::Vector{Vector{Int}}, nus::Int, nvs::Int, vs::Vector{Int}
     )
-    forced = BitVector(iscyclic(g, vs[p]) for p in 1:nvs)
+    forced = BitVector(iscyclic(g, vs[p]) || vs[p] == g.bound.rfinish for p in 1:nvs)
     any(forced) || return minimum_vertex_cover(localadj, nus, nvs)
     residual = [filter(p -> !forced[p], adj) for adj in localadj]
     cUbits, cVbits = minimum_vertex_cover(residual, nus, nvs)

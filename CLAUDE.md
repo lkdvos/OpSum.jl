@@ -52,7 +52,7 @@ vertex-cover (or SVD) compression → `SymbolicMPO` → tensors.
 * **Container and output** (`operatorsum.jl`, `mpo/{symbolicmpo,tensors,jordan}.jl`: `symbolicmpo.jl` has `mpo`, its finite compression, `mpo_terms`, `islossless`; `tensors.jl` the dense assembly): `OperatorSum` holds
   lattice + `Terms` + `ExpSum` channels and validates on insertion (`checkinsert`, `checkchannels`, `checkgenerator`). `mpo(H[, alg])`
   → `SymbolicMPO` (`start`/`finish` always have length `N`); on a finite chain the finish channel is forced into the
-  cover (`_force_finish!`) so a Jordan form exists, with decaying channels too. `mpo_terms(W)` (finite) inverts it;
+  cover (`_forced_cover`) so a Jordan form exists, with decaying channels too. `mpo_terms(W)` (finite) inverts it;
   `mpo_tensors(W)`, `jordan_mpo_tensors` (via `jordan_layout`; BlockTensorKit, MPSKit layout) and `instantiate(W)`
   (a method of the MPSKit extension, `ext/`) emit tensors; the `(Ws, bondsectors)` forms are internal
   (`reduced_terms`, `reduced_tensors`). `H'` goes through dense blocks (`adjoint_terms`).

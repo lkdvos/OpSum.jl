@@ -86,9 +86,7 @@ end
 function _checked_charge_leg(h::AbstractTensorMap, Vs::AbstractVector{<:ElementarySpace})
     K = length(Vs)
     I = sectortype(h)
-    FusionStyle(I) isa GenericFusion && throw(
-        ArgumentError("project: GenericFusion sectors ($I) are deferred (fusion multiplicity > 1)")
-    )
+    requirefusion(canfuse, I, "project: GenericFusion sectors are deferred (fusion multiplicity > 1)")
     # `Vect[Trivial] === ComplexSpace`; this rejects e.g. `CartesianSpace`, which cannot carry a charge leg
     spacetype(h) === Vect[I] || throw(
         ArgumentError("project: `h` must live on $(Vect[I]) spaces, got $(spacetype(h))")

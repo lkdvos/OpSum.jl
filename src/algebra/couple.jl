@@ -1,8 +1,8 @@
 # Coupling of placed operators into one caterpillar: `couple`, its channel bookkeeping, and `·`.
 
 using TensorKit
-using TensorKit: Sector, unit, dim, Nsymbol, Rsymbol, FusionStyle, UniqueFusion,
-    BraidingStyle, SymmetricBraiding, GenericFusion
+using TensorKit: Sector, unit, dim, Nsymbol, Rsymbol, FusionStyle,
+    BraidingStyle, SymmetricBraiding
 using LinearAlgebra: LinearAlgebra
 
 function Base.getindex(O::SiteOperator{I}, ind::Integer, inds::Integer...) where {I}
@@ -30,17 +30,7 @@ end
 
 # Both `couple` forms are multiplicity-free: the vertex labels are not tracked.
 check_uniquefusion(::Type{I}) where {I <: Sector} =
-    FusionStyle(I) isa GenericFusion && throw(
-    ArgumentError(
-        "couple: multi-channel (GenericFusion) coupling is deferred, and $I has $(FusionStyle(I))"
-    )
-)
-
-# Whether a leg may be *inserted* left of others: `UniqueFusion` forces every invalidated running
-# charge and makes a transposition one scalar `Rsymbol(x, y, x ⊗ y)`; `SymmetricBraiding` makes
-# over/under irrelevant.
-canreorder(::Type{I}) where {I <: Sector} =
-    FusionStyle(I) isa UniqueFusion && BraidingStyle(I) isa SymmetricBraiding
+    requirefusion(canfuse, I, "couple: multi-channel (GenericFusion) coupling is deferred")
 
 # Fermion-odd: a fermionic sector whose twist is -1 (not SU(2)'s half-integer spin, which is bosonic).
 isfermionodd(c::Sector) = BraidingStyle(typeof(c)) isa Fermionic && real(twist(c)) < 0

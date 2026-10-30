@@ -4,7 +4,20 @@
 
 using TensorKit
 using TensorKit: Sector, unit, FusionTreeBlock, permute, BraidingStyle, SymmetricBraiding,
-    FusionStyle, GenericFusion
+    FusionStyle, UniqueFusion, GenericFusion
+
+# What a sector's fusion category supports. Caterpillars are multiplicity-free (`canfuse`: the bond
+# charges determine the tree); a leg may be moved past others by a tree permutation (`canrecouple`) or,
+# with unique fusion, by one scalar R-symbol per transposition (`canreorder`, the abelian case).
+canfuse(::Type{I}) where {I <: Sector} = !(FusionStyle(I) isa GenericFusion)
+canrecouple(::Type{I}) where {I <: Sector} = canfuse(I) && BraidingStyle(I) isa SymmetricBraiding
+canreorder(::Type{I}) where {I <: Sector} =
+    FusionStyle(I) isa UniqueFusion && BraidingStyle(I) isa SymmetricBraiding
+
+# Throw unless `can(I)`; `what` says what was attempted.
+requirefusion(can, ::Type{I}, what::AbstractString) where {I} = can(I) || throw(
+    ArgumentError("$what (got $I with $(FusionStyle(I)) fusion and $(BraidingStyle(I)) braiding)")
+)
 
 # Re-coupling under a non-abelian symmetry. A caterpillar is a left-nested fusion tree of the letters'
 # charges; the running bond charges *are* its inner lines. Permuting the legs, or fusing two caterpillars,
@@ -18,17 +31,9 @@ terms: those trees are dropped (a tree in the expansion has coefficient of order
 """
 const RECOUPLE_ATOL = 1.0e-13
 
-_canrecouple(::Type{I}) where {I <: Sector} =
-    !(FusionStyle(I) isa GenericFusion) && BraidingStyle(I) isa SymmetricBraiding
-
-function _checkrecouple(::Type{I}) where {I}
-    return _canrecouple(I) || throw(
-        ArgumentError(
-            "re-coupling the legs of a $(FusionStyle(I)) coupling with $(BraidingStyle(I)) braiding " *
-                "is not supported: write the factors in increasing site order"
-        )
-    )
-end
+_checkrecouple(::Type{I}) where {I} = requirefusion(
+    canrecouple, I, "re-coupling the legs is not supported: write the factors in increasing site order"
+)
 
 # The running charges of each tree of an expansion `tree => coefficient`, above the noise level.
 function _expansion(::Type{I}, trees) where {I}

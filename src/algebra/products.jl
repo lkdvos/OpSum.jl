@@ -7,7 +7,7 @@
 # one R-symbol per swapped pair when abelian, `recouple` otherwise) or a `PendingTerm` (a repeated site).
 
 using TensorKit: Sector, unit, Rsymbol, Nsymbol, FusionTree, Vect, id, permute, numin, numout, domain,
-    fusiontrees, BraidingStyle, SymmetricBraiding, FusionStyle, GenericFusion
+    fusiontrees, FusionStyle
 
 # Push a term written in any order, as `Term`s or a `PendingTerm`.
 function written!(out::TermBag{I}, sites::Vector{Int}, keys::Vector{Factor{I}}, coeff::ComplexF64) where {I}

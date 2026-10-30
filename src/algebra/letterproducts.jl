@@ -6,7 +6,7 @@
 # The two charge legs are fused to the unique channel `x.c ⊗ y.c`, with the graded sign `a[i] * b[i]` uses
 # (`c†` then `c` is `n`). Abelian symmetries only: the channel must be forced and the legs reorder freely.
 
-using TensorKit: Sector, FusionStyle, BraidingStyle
+using TensorKit: Sector
 
 """
 Coefficients of a `SiteOperator` product below this, relative to the larger of one and the largest
@@ -14,15 +14,9 @@ coefficient, are cancellation noise of the structure constants and the letter is
 """
 const PRODUCT_RTOL = 1.0e-14
 
-function checkkron(::Type{I}) where {I <: Sector}
-    canreorder(I) || throw(
-        ArgumentError(
-            "on-site products of letters need an abelian symmetry (unique fusion, symmetric braiding), " *
-                "got $I with $(FusionStyle(I)) fusion and $(BraidingStyle(I)) braiding"
-        )
-    )
-    return nothing
-end
+checkkron(::Type{I}) where {I <: Sector} = requirefusion(
+    canreorder, I, "on-site products of letters need an abelian symmetry (unique fusion, symmetric braiding)"
+)
 
 # `e_x · e_y` (`x` written first, leftmost) in the basis `B`: a `SiteOperator` on letters of charge `x.c ⊗ y.c`.
 function letter_product(B::Basis{I}, x::Letter{I}, y::Letter{I}) where {I}

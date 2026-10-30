@@ -1,7 +1,7 @@
 using Test
 using OpSum
 using OpSum: AbstractLattice, FiniteChain, InfiniteChain,
-    _tolattice, mpo, opsum, couple,
+    mpo, opsum, couple,
     jordan_mpo_tensors, instantiate, Terms
 using TensorKit
 using TensorKit: sectortype
@@ -61,41 +61,24 @@ end
     @test_throws ArgumentError InfiniteChain(typeof(BSU2)[])
 end
 
-@testset "_tolattice accepts anything naming one space per site" begin
+@testset "lattice constructors take one Basis per site" begin
     ref = FiniteChain(BSU2, 3)
-    @test _tolattice([BSU2, BSU2, BSU2]) == ref                # vector
+    @test FiniteChain([BSU2, BSU2, BSU2]) == ref                # vector of bases
+    @test OperatorSum([BSU2, BSU2, BSU2]).lattice == ref
+    @test opsum([BSU2, BSU2, BSU2]).lattice == ref
+    @test InfiniteChain([BSU2, BSU2b]) isa InfiniteChain
 
-    @test_throws ArgumentError _tolattice([1, 2, 3])           # wrong element type
-    @test_throws ArgumentError _tolattice(3)                   # not iterable at all
-    @test_throws ArgumentError _tolattice(BipartiteAlgorithm())
-    h = opsum(dot(spinvector(BSU2)[1], spinvector(BSU2)[2]))
-    @test_throws ArgumentError mpo(h, SVDBondAlgorithm())
-end
-
-@testset "SymbolicMPO surface" begin
-    S = spinvector(BSU2)
-    N = 4
-    lat = FiniteChain(BSU2, N)
-    h = opsum(dot(S[i], S[i + 1]) for i in 1:(N - 1))
-
-    W = mpo(opsum(lat, h))
-    @test W isa SymbolicMPO{SU2Irrep, <:FiniteChain}
-    @test length(W) == N && W.lattice == lat
-    # iterates over its sites; `reduced` is the `(Ws, bondsectors)` pair
-    @test collect(W) == W.Ws
-    Ws, secs = reduced(W)
-    @test Ws === W.Ws && secs === W.bondsectors
-    @test length(Ws) == N && length(secs) == N
-    @test occursin("N = $N", sprint(show, W))
-
-    inf = mpo(opsum(InfiniteChain([BSU2]), dot(S[1], S[2])))
-    @test inf isa SymbolicMPO{SU2Irrep, <:InfiniteChain}
-    @test length(inf) == 1
+    @test_throws ArgumentError FiniteChain([1, 2, 3])           # wrong element type
+    @test_throws ArgumentError InfiniteChain([VSU2])            # a bare space is not an alphabet
+    @test_throws ArgumentError FiniteChain(VSU2, 3)
+    @test_throws ArgumentError FiniteChain([BSU2, BU1])         # two symmetries
+    h = Terms(dot(spinvector(BSU2)[1], spinvector(BSU2)[2]))
+    @test_throws ArgumentError mpo(h, IndependentSVD())
 end
 
 @testset "the lattice boundary is where operator and spaces are confronted" begin
     S = spinvector(BSU2)
-    h = opsum(dot(S[i], S[i + 1]) for i in 1:3)
+    h = Terms(dot(S[i], S[i + 1]) for i in 1:3)
     good = FiniteChain(BSU2, 4)
 
     @test mpo(opsum(good, h)) isa SymbolicMPO
@@ -116,21 +99,26 @@ end
     @test_throws ArgumentError opsum(InfiniteChain([BSU2_0]), dot(S[1], S[2]))
 end
 
-@testset "opsum without a lattice is latticeless; with one it is an OperatorSum" begin
+@testset "Terms collects latticeless; opsum with a lattice is an OperatorSum" begin
     S = spinvector(BSU2)
     t = dot(S[1], S[2])
 
-    @test opsum(t) isa Terms
-    # a lattice (or a vector of spaces) as the first argument binds it
+    @test Terms(t) isa Terms
+    # a lattice (or a vector of bases) as the first argument binds it
     @test opsum(fill(BSU2, 4), t) isa OperatorSum
     @test opsum(FiniteChain(BSU2, 4), t) isa OperatorSum
     @test opsum(InfiniteChain([BSU2]), t) isa OperatorSum
     @test opsum(fill(BSU2, 4), t) ≈ opsum(FiniteChain(BSU2, 4), t)
 
     # with no terms there is no sector type to infer
-    @test_throws ArgumentError opsum()
-    @test_throws ArgumentError opsum(Term{SU2Irrep}[])
-    @test isempty(opsum(Terms{SU2Irrep}())) && isempty(opsum(FiniteChain(BSU2, 4)))
+    @test_throws ArgumentError Terms()
+    @test_throws ArgumentError Terms(Any[])
+    @test_throws ArgumentError Terms(Any[], Any[])
+    @test isempty(Terms{SU2Irrep}()) && isempty(Terms{SU2Irrep}(Any[])) && isempty(Terms(Term{SU2Irrep}[]))
+    @test isempty(Terms(Terms{SU2Irrep}())) && isempty(opsum(FiniteChain(BSU2, 4)))
+    @test_throws MethodError opsum(t)                       # `opsum` always has a lattice
+    @test Terms{SU2Irrep}(t, [t]) ≈ 2 * t && Terms(Term{SU2Irrep}[only(t)]) ≈ t
+    @test_throws ArgumentError Terms{U1Irrep}(t)            # a term of another sector
 
     # the postfix adjoint of a bare bag needs spaces and points at the replacement
     @test_throws ArgumentError t'
@@ -140,7 +128,7 @@ end
     Vf = Vect[FermionNumber](0 => 1, 1 => 1)
     Bf = unitbasis(Vf)
     F = fermionmode(Bf, FermionNumber(0), FermionNumber(1))
-    T = opsum(-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:3)
+    T = Terms(-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:3)
     for lat in (FiniteChain(Bf, 4), fill(Bf, 4), InfiniteChain([Bf]))
         @test opsum(lat, T)' ≈ opsum(lat, -1.0 * couple(F.cd[i + 1], F.c[i]) for i in 1:3)
     end
@@ -150,7 +138,7 @@ end
 @testset "non-uniform FiniteChain compresses" begin
     Sa, Sb = spinvector(BSU2), spinvector(BSU2b)
     lat = FiniteChain([BSU2, BSU2b, BSU2, BSU2b])
-    h = opsum(
+    h = Terms(
         dot((isodd(i) ? Sa : Sb)[i], (isodd(i + 1) ? Sa : Sb)[i + 1]) for i in 1:3
     )
     H = opsum(lat, h)
@@ -159,7 +147,7 @@ end
     @test length(secs) == 4
     @test secs[4] == [SU2Irrep(0)]
     # the alternating spaces are what the assembled tensors have to honour
-    Ts = irrep_mpo_tensors(mpo(H))
+    Ts = mpo_tensors(mpo(H))
     @test space(Ts[1], 2) == VSU2
     @test space(Ts[2], 2) == VSU2b
 end

@@ -6,12 +6,12 @@
 #
 #   OPSUM_BENCH_SWEEP      smoke | ci | full        (default: ci)
 #   OPSUM_BENCH_MODELS     comma-separated model keys (default: all)
-#   OPSUM_BENCH_SVD        1 to also time SVDBondAlgorithm
+#   OPSUM_BENCH_SVD        1 to also time IndependentSVD
 #   OPSUM_BENCH_INTERNALS  1 to also time the intermediate term table
 
 using BenchmarkTools
 using OpSum
-using OpSum: mpo, BipartiteAlgorithm, SVDBondAlgorithm
+using OpSum: mpo, VertexCover, IndependentSVD
 
 # `run.jl` includes this file after already loading the models; including it twice would create a
 # second copy of the module and a conflicting-import warning.
@@ -56,20 +56,20 @@ for spec in selected()
         # a time and its (untimed) construction is excluded from the compression measurement.
         g_t["N=$N"] = @benchmarkable $builder($N) samples = p.samples seconds = p.seconds evals = 1
         g_m["N=$N"] = @benchmarkable(
-            mpo(H, $(BipartiteAlgorithm())),
+            mpo(H, $(VertexCover())),
             setup = (H = $builder($N)),
             samples = p.samples, seconds = p.seconds, evals = 1,
         )
         if WITH_SVD
             g_s["N=$N"] = @benchmarkable(
-                mpo(H, $(SVDBondAlgorithm())),
+                mpo(H, $(IndependentSVD())),
                 setup = (H = $builder($N)),
                 samples = min(p.samples, 3), seconds = p.seconds, evals = 1,
             )
         end
         if WITH_INTERNALS
             g_i["N=$N"] = @benchmarkable(
-                OpSum.ITOTermTable(H.terms, length(H.lattice)),
+                OpSum.TermTable(H.terms),
                 setup = (H = $builder($N)),
                 samples = p.samples, seconds = p.seconds, evals = 1,
             )
@@ -83,5 +83,5 @@ for spec in selected()
     N0 = minimum(get(spec.timesizes, :smoke, [8]))
     H = spec.build(N0)
     mpo(H)
-    WITH_SVD && mpo(H, SVDBondAlgorithm())
+    WITH_SVD && mpo(H, IndependentSVD())
 end

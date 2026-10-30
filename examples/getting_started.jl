@@ -52,7 +52,7 @@ islossless(H2)
 
 # Equivalently, spelled out: [`mpo_terms`](@ref OpSum.mpo_terms) is the inverse of the compression.
 
-mpo_terms(Ws, secs) ≈ h
+mpo_terms(W) ≈ h
 
 # **The assembled tensors.** Build the symmetric `TensorMap`s, contract the chain, and compare
 # against the dense oracle. Exponential in `N`, so small systems only, but it never leaves TensorKit

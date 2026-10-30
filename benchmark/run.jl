@@ -11,7 +11,7 @@
 #   --timings PATH    BenchmarkTools results JSON  [default: benchmark/results.json]
 #   --metrics PATH    bond-dimension JSON          [default: <timings stem>.metrics.json]
 #   --dims-only       skip the timing suite
-#   --svd             additionally time SVDBondAlgorithm
+#   --svd             additionally time IndependentSVD
 #   --internals       additionally time the intermediate term table
 
 using BenchmarkTools

@@ -124,7 +124,7 @@ maxdensedim(secs) = maximum(b -> densedim(secs, b), eachindex(secs))
 
 Construct the MPO and report its bond dimensions and (warm) construction time.
 """
-function build(name, H::OperatorSum; alg = BipartiteAlgorithm(), quiet = false)
+function build(name, H::OperatorSum; alg = VertexCover(), quiet = false)
     mpo(H, alg)   # warm up compilation so the timing is meaningful
     stats = @timed mpo(H, alg)
     Ws, secs = stats.value.Ws, stats.value.bondsectors
@@ -153,9 +153,9 @@ end
 # [`mpo_tensormap`](@ref OpSum.mpo_tensormap) and compare against the dense oracle. Exponential in
 # `N`, so small systems only, but it stays inside TensorKit and is valid for fermions too.
 
-function mpo_matches_oracle(H::OperatorSum; alg = BipartiteAlgorithm())
+function mpo_matches_oracle(H::OperatorSum; alg = VertexCover())
     m = mpo(H, alg)
-    return mpo_tensormap(irrep_mpo_tensors(m.Ws, m.bondsectors, H.lattice)) ≈ instantiate(H)
+    return mpo_tensormap(mpo_tensors(m)) ≈ instantiate(H)
 end
 
 # **3. Spectrum** — the physics check, and the only honest route for fermions when comparing

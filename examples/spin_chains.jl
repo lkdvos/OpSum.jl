@@ -118,9 +118,8 @@ h_bond = instantiate(
 B_xxz = project(h_bond, Bu)
 
 # The result is a [`LocalOperator`](@ref OpSum.LocalOperator): the two-site operator *before* it is
-# told where it acts. `B_xxz[i]` places it on sites `i, i + 1`, so the projection — and its
-# faithfulness check, which re-materializes the output and compares it against the input — is paid
-# once rather than once per bond:
+# told where it acts. `B_xxz[i]` places it on sites `i, i + 1`, so the projection — the overlaps
+# of the operator with the dual elements of the basis — is paid once rather than once per bond:
 
 H_proj = opsum(u1chain(N), B_xxz[i] for i in 1:(N - 1))
 
@@ -226,10 +225,10 @@ end
 #
 # Construction time and bond dimension across system size, for these and the other models, are
 # collected by the benchmark harness in `benchmark/` and plotted by
-# `scripts/plot_benchmarks.jl`. Reproduce the figure with
+# `benchmark/plot.jl`. Reproduce the figure with
 #
 # ```
-# julia --project=benchmark scripts/plot_benchmarks.jl --run --sweep full
+# julia --project=benchmark benchmark/plot.jl --run --sweep full
 # ```
 #
 # ![Bond dimension and construction time versus system size](../assets/scaling.png)

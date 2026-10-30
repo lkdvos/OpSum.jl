@@ -192,7 +192,7 @@ sweeps(smoke, ci, full) = Dict(:smoke => smoke, :ci => ci, :full => full)
 # So finite-range models (spans `O(1)`, or `O(Ly)` on a cylinder) come out linear in N, while
 # all-to-all models are `Θ(N³)` -- there the bond coefficient matrix `J(n,m)` restricted to
 # `n <= b < m` is genuinely dense, so that is intrinsic to an exact minimum-vertex-cover sweep rather
-# than an artefact. Use `SVDBondAlgorithm` with truncation for large long-range systems.
+# than an artefact. Use `IndependentSVD` with truncation for large long-range systems.
 # Bond-dimension metrics cost a single `mpo` call while timings cost several samples, so the
 # metric sweeps run to roughly twice the size.
 #

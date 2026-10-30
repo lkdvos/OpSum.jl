@@ -1,6 +1,6 @@
 using Test
 using OpSum
-using OpSum: LocalOperator, mpo_tensormap, irrep_mpo_tensors, jordan_mpo_tensors, mpo_terms
+using OpSum: LocalOperator, mpo_tensormap, mpo_tensors, jordan_mpo_tensors, mpo_terms, chain_terms
 using TensorKit
 using TensorKit: removeunit, numind, BraidingTensor
 using MPSKit: MPSKit, FiniteMPOHamiltonian, InfiniteMPOHamiltonian, FiniteMPS, InfiniteMPS,
@@ -10,7 +10,7 @@ using TensorKitTensors.FermionOperators: FermionOperators as FO
 using Random: Random
 using LinearAlgebra: norm
 
-include("testutils.jl")
+include(joinpath(@__DIR__, "testutils.jl"))
 
 # `instantiate(W::SymbolicMPO)` (ext/OpSumMPSKitExt.jl) against MPSKit's own construction from local
 # operators, compared on random states. Models use TensorKitTensors operators projected into bases built from them.
@@ -22,11 +22,6 @@ Random.seed!(1234)
 gap3(h2, V) = permute(h2 ⊗ id(V), ((1, 3, 2), (4, 6, 5)))
 
 centre(secs, b) = sum(dim, secs[b])
-
-@testset "without MPSKit's methods the fallback says what to load" begin
-    @test_throws ArgumentError OpSum._mpskit_mpo(nothing)
-    @test_throws ArgumentError OpSum._mpskit_mpo(nothing, 0.1)
-end
 
 # One spinless-fermion site (parity only) shared by the testsets, so each MPSKit method compiles for
 # one sector type
@@ -140,14 +135,25 @@ end
     @test mpo_terms(W) ≈ H.terms
     _, op = first((Tuple(k), v) for (k, v) in OpSum.storedpairs(W[2]) if !isone(v))
     @test instantiate(op, B) isa AbstractTensorMap
-    @test mpo_tensormap(irrep_mpo_tensors(W)) ≈ instantiate(H)
+    @test mpo_tensormap(mpo_tensors(W)) ≈ instantiate(H)
 
-    # decaying channels on a finite chain: compressed, but no Jordan form yet
-    Hd = opsum(FiniteChain(B, N), expterm(couple(n[1], n[2]); decay = 0.5))
+end
+
+@testset "a finite chain with a decaying interaction" begin
+    # Σ_{i<j} λ^{j-i-1} nᵢ nⱼ, truncated to the chain, against MPSKit's own construction
+    N, λ = 4, 0.5
+    Hd = opsum(FiniteChain(B, N), expterm(couple(n[1], n[2]); decay = λ))
     Wd = mpo(Hd)
-    @test isempty(Wd.start)
-    @test_throws ArgumentError jordan_mpo_tensors(Wd)
-    @test_throws ArgumentError instantiate(Wd)
+    @test length(Wd.start) == N && length(Wd.finish) == N
+    @test mpo_terms(Wd) ≈ chain_terms(Hd)
+    @test mpo_tensormap(mpo_tensors(Wd)) ≈ instantiate(Hd)
+    Hmps = instantiate(Wd)
+    @test Hmps isa FiniteMPOHamiltonian
+    nn = num ⊗ num
+    ref = FiniteMPOHamiltonian(fill(V, N), ((i, j) => λ^(j - i - 1) * nn for i in 1:(N - 1) for j in (i + 1):N)...)
+    ψ = FiniteMPS(randn, ComplexF64, N, V, Vmps)
+    @test expectation_value(ψ, Hmps) ≈ expectation_value(ψ, ref)
+    @test abs(expectation_value(ψ, ref)) > 1.0e-3
 end
 
 @testset "an infinite chain with a decaying interaction" begin

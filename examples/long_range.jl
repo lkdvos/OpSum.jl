@@ -95,8 +95,8 @@ end
 
 # ## Truncation as a workflow
 #
-# `BipartiteAlgorithm` (the default) is exact: it chooses each bond's basis by a minimum vertex
-# cover, and the result reproduces every term. `SVDBondAlgorithm` instead compresses each bond by a
+# `VertexCover` (the default) is exact: it chooses each bond's basis by a minimum vertex
+# cover, and the result reproduces every term. `IndependentSVD` instead compresses each bond by a
 # truncated SVD across all charge sectors at once, so a fast-decaying power law can be squeezed hard
 # for a controlled error. That is the lever for long-range models at large `N`, where the exact bond
 # dimension is the thing that hurts.
@@ -112,7 +112,7 @@ using MatrixAlgebraKit: truncrank, trunctol
 
 let H = powerlaw(6; α = 3.0)
     println("  exact:          islossless = ", islossless(H))
-    println("  truncrank(2):   islossless = ", islossless(H, SVDBondAlgorithm(truncrank(2))))
+    println("  truncrank(2):   islossless = ", islossless(H, IndependentSVD(truncrank(2))))
 end
 
 # ### The check you must use
@@ -129,7 +129,7 @@ function truncation_error(H, alg; oracle = instantiate(H))
     ## an *empty* trailing charge leg, and subtracting the oracle throws a `SpaceMismatch` rather
     ## than returning a number. So report it instead of measuring it.
     any(iszero, bonds) && return (; D, bonds, error = NaN)
-    O = mpo_tensormap(irrep_mpo_tensors(m.Ws, secs, H.lattice))
+    O = mpo_tensormap(mpo_tensors(m))
     return (; D, bonds, error = norm(O - oracle) / norm(oracle))
 end
 
@@ -139,7 +139,7 @@ let H = powerlaw(6; α = 3.0)
     exact = build("powerlaw exact", H; quiet = true)
     println("  exact:            D_dense=$(exact.Ddense)   rel. error 0")
     for k in (8, 6, 4, 2, 1)
-        r = truncation_error(H, SVDBondAlgorithm(truncrank(k)))
+        r = truncation_error(H, IndependentSVD(truncrank(k)))
         println("  truncrank($(rpad(k, 2)))     D_dense=$(rpad(r.D, 4))  rel. error $(showerr(r.error))")
     end
 end
@@ -150,7 +150,7 @@ end
 # truncate:
 
 for α in (2.0, 3.0, 5.0)
-    r = truncation_error(powerlaw(6; α), SVDBondAlgorithm(truncrank(4)))
+    r = truncation_error(powerlaw(6; α), IndependentSVD(truncrank(4)))
     println("  α=$(rpad(α, 4))  truncrank(4)  D_dense=$(rpad(r.D, 4))  rel. error $(showerr(r.error))")
 end
 
@@ -162,13 +162,13 @@ end
 # about:
 
 for τ in (1.0e-2, 1.0e-4, 1.0e-8)
-    r = truncation_error(powerlaw(6; α = 3.0), SVDBondAlgorithm(trunctol(; atol = τ)))
+    r = truncation_error(powerlaw(6; α = 3.0), IndependentSVD(trunctol(; atol = τ)))
     println("  trunctol(atol=$(rpad(τ, 7)))  D_dense=$(rpad(r.D, 4))  rel. error $(showerr(r.error))")
 end
 
 # ### Two sweeps, and why `truncrank(k)` means different things
 #
-# `SVDBondAlgorithm(trunc; sweep)` picks the strategy. Both are exact when `trunc` is `nothing`, and
+# `IndependentSVD(trunc)` and `SequentialSVD(trunc)` are the two strategies. Both are exact without `trunc`, and
 # then agree exactly — same per-sector bond dimensions, same operator. Under truncation they differ
 # *by design*:
 #
@@ -183,7 +183,7 @@ end
 let H = powerlaw(8; α = 2.0), oracle = instantiate(H)
     for sweep in (IndependentSVD, SequentialSVD)
         for k in (6, 4, 2)
-            r = truncation_error(H, SVDBondAlgorithm(truncrank(k); sweep); oracle)
+            r = truncation_error(H, sweep(truncrank(k)); oracle)
             println(
                 "  ", rpad(string(sweep), 15), " truncrank($k)  per-bond = ", r.bonds,
                 "  rel. error ", showerr(r.error)
@@ -206,8 +206,8 @@ end
 # Losslessly the two coincide, which is the statement that neither sweep is doing anything exotic:
 
 let H = powerlaw(6; α = 3.0)
-    a = mpo(H, SVDBondAlgorithm(; sweep = IndependentSVD))
-    b = mpo(H, SVDBondAlgorithm(; sweep = SequentialSVD))
+    a = mpo(H, IndependentSVD())
+    b = mpo(H, SequentialSVD())
     (; same_bonds = a.bondsectors == b.bondsectors, both_lossless = islossless(H))
 end
 

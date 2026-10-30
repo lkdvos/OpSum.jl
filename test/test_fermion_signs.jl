@@ -1,10 +1,10 @@
 using Test
 using OpSum
-using OpSum: instantiate, couple, opsum, _isfermionodd
+using OpSum: instantiate, couple, opsum, isfermionodd
 using TensorKit
 using LinearAlgebra
 
-include("testutils.jl")
+include(joinpath(@__DIR__, "testutils.jl"))
 
 # `couple(cd[i], c[j])` is the physical `c†ᵢcⱼ` (Jordan–Wigner `c_j = Z₁⋯Z_{j-1} σ⁻_j`, sites 1..N);
 # the hop sign is physical on odd loops. Pinned against a dense oracle written independently of OpSum.
@@ -45,7 +45,7 @@ dense(h, N) = densemat(instantiate(opsum(FiniteChain(Bf, N), h)))
         bonds = [(1, 2), (2, 3), (1, 3)]
         hop(i, j) = -(couple(F.cd[i], F.c[j]) + couple(F.cd[j], F.c[i]))
         Hjw = sum(-(jw_cd(i, 3) * jw_c(j, 3) + jw_cd(j, 3) * jw_c(i, 3)) for (i, j) in bonds)
-        h = opsum(hop(i, j) for (i, j) in bonds)
+        h = Terms(hop(i, j) for (i, j) in bonds)
         @test dense(h, 3) ≈ Hjw
         one = [count_ones(m) == 1 for m in 0:7]
         @test sort(real(eigvals(Hermitian(Hjw[one, one])))) ≈ [-2.0, 1.0, 1.0]
@@ -61,9 +61,9 @@ dense(h, N) = densemat(instantiate(opsum(FiniteChain(Bf, N), h)))
 
     @testset "parity of product sectors" begin
         Hub = ProductSector{Tuple{U1Irrep, SU2Irrep, FermionParity}}
-        @test _isfermionodd(Hub((1, 1 // 2, 1)))
-        @test !_isfermionodd(Hub((2, 0, 0)))
-        @test _isfermionodd(FermionNumber(1)) && !_isfermionodd(FermionNumber(2))
-        @test !_isfermionodd(SU2Irrep(1 // 2)) && !_isfermionodd(U1Irrep(1))
+        @test isfermionodd(Hub((1, 1 // 2, 1)))
+        @test !isfermionodd(Hub((2, 0, 0)))
+        @test isfermionodd(FermionNumber(1)) && !isfermionodd(FermionNumber(2))
+        @test !isfermionodd(SU2Irrep(1 // 2)) && !isfermionodd(U1Irrep(1))
     end
 end

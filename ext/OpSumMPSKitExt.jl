@@ -4,7 +4,7 @@ module OpSumMPSKitExt
 # `SparseBlockTensorMap` per site (`jordan_mpo_tensors`); MPSKit wants `JordanMPOTensor`s.
 
 using OpSum: OpSum, SymbolicMPO, TaylorMPO, OperatorSum, FiniteChain, InfiniteChain, jordan_mpo_tensors,
-    irrep_mpo_tensors, taylor_mpo, instantiate
+    mpo_tensors, taylor_mpo, instantiate
 using MPSKit: MPSKit, FiniteMPOHamiltonian, InfiniteMPOHamiltonian, FiniteMPO, InfiniteMPO, TaylorCluster
 using BlockTensorKit: nonzero_pairs
 using TensorKit: spacetype, storagetype, space
@@ -20,15 +20,15 @@ function _jordan(W)
     return O
 end
 
-OpSum._mpskit_mpo(W::SymbolicMPO{I, <:FiniteChain}) where {I} =
+OpSum.instantiate(W::SymbolicMPO{I, <:FiniteChain}) where {I} =
     FiniteMPOHamiltonian(map(_jordan, jordan_mpo_tensors(W)))
-OpSum._mpskit_mpo(W::SymbolicMPO{I, <:InfiniteChain}) where {I} =
+OpSum.instantiate(W::SymbolicMPO{I, <:InfiniteChain}) where {I} =
     InfiniteMPOHamiltonian(map(_jordan, jordan_mpo_tensors(W)))
 
 # `instantiate(W::TaylorMPO, τ)`: the evaluated site tensors `B ⊗ V ← V ⊗ B` are MPSKit's `MPO` tensors as they
 # stand (finite: one-dimensional boundary bonds).
-OpSum._mpskit_mpo(W::TaylorMPO{I, <:FiniteChain}, τ::Number) where {I} = FiniteMPO(irrep_mpo_tensors(W, τ))
-OpSum._mpskit_mpo(W::TaylorMPO{I, <:InfiniteChain}, τ::Number) where {I} = InfiniteMPO(irrep_mpo_tensors(W, τ))
+OpSum.instantiate(W::TaylorMPO{I, <:FiniteChain}, τ::Number) where {I} = FiniteMPO(mpo_tensors(W, τ))
+OpSum.instantiate(W::TaylorMPO{I, <:InfiniteChain}, τ::Number) where {I} = InfiniteMPO(mpo_tensors(W, τ))
 
 # Route MPSKit's own entry point to the symbolic builder: `exp(-i dt H)`, or `exp(-dt H)` for imaginary time.
 # `tol` is accepted for signature parity; the symbolic construction has nothing to drop.

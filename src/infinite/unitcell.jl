@@ -1,0 +1,83 @@
+# Infinite chains: translation, and the canonicalisation of a generating set (one representative per
+# translation class) for `Σ_n translate(H, n·L)`.
+
+using TensorKit: Sector, ElementarySpace
+
+translate(t::Term{I}, Δ) where {I} = Term{I}(t.sites .+ Int(Δ), t.factors, t.coeff)
+translate(ts::Terms{I}, Δ) where {I} =
+    iszero(Δ) ? ts : Terms{I}([translate(t, Δ) for t in ts.terms])
+
+termspan(t::Term) = isempty(t.sites) ? 0 : maximum(t.sites) - minimum(t.sites)
+maxspan(ts::Terms) = maximum(termspan, ts.terms; init = 0)
+maxspan(es::ExpSum) = maximum(channelspan, keys(es.channels); init = 0)
+# range of the shortest translates (a channel's actual range is unbounded)
+maxspan(H::OperatorSum) = max(maxspan(H.terms), maxspan(H.channels))
+
+# shift putting the leftmost site into `1:L`
+_cellshift(sites, L) = -L * fld(minimum(sites) - 1, L)
+
+_translates_error(what, s1, s2, L) = throw(
+    ArgumentError(
+        "$what on sites $s1 and $s2 are $L-translates of each other; the unit-cell generating set " *
+            "must contain exactly one representative per translation class " *
+            "(`H` means `Σ_n translate(H, n·$L)`)"
+    )
+)
+
+# Shift each generator so its leftmost site lies in `1:L`; two `L`-translates of each other are an error.
+function unitcell_terms(ts::Terms{I}, L::Int) where {I}
+    L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
+    seen = Dictionary{Support{I}, Int}()   # by support: translates with other coefficients still clash
+    out = Term{I}[]
+    origin = Vector{Int}[]   # the sites each shifted term was written on
+    for t in ts.terms
+        checkgenerator(t)
+        ct = translate(t, _cellshift(t.sites, L))
+        prev = get(seen, support(ct), 0)
+        iszero(prev) || _translates_error("terms", t.sites, origin[prev], L)
+        push!(out, ct)
+        push!(origin, t.sites)
+        insert!(seen, support(ct), length(out))
+    end
+    return Terms{I}(out)
+end
+
+function unitcell_terms(es::ExpSum{I}, L::Int) where {I}
+    L ≥ 1 || throw(ArgumentError("unit cell length must be positive, got $L"))
+    d = Dictionary{ExpKey{I}, ComplexF64}()
+    origin = Dictionary{ExpKey{I}, Vector{Int}}()   # the support each shifted key was written with
+    for (k, v) in pairs(es.channels)
+        checkgenerator(k)
+        ck = translate(k, _cellshift(k.support[1], L))
+        haskey(d, ck) && _translates_error("the decaying channels", k.support[1], origin[ck], L)
+        insert!(d, ck, v)
+        insert!(origin, ck, k.support[1])
+    end
+    return ExpSum{I}(d)
+end
+
+function unitcell_terms(H::OperatorSum{I, <:InfiniteChain}) where {I}
+    L = length(H.lattice)
+    return OperatorSum{I, typeof(H.lattice)}(
+        H.lattice, unitcell_terms(H.terms, L), unitcell_terms(H.channels, L)
+    )
+end
+
+# Every translate of the generating set (terms and channels) inside `ncells` cells.
+function window_terms(H::OperatorSum{I, <:InfiniteChain}, ncells::Int) where {I}
+    L = length(H.lattice)
+    return Terms(window_terms(H.terms, L, ncells), expand_channels(H.channels, L, ncells * L))
+end
+
+# Translates sticking out of either end are dropped, so only the bulk agrees with the periodic problem.
+function window_terms(gen::Terms{I}, L::Int, ncells::Int) where {I}
+    N = ncells * L
+    out = Term{I}[]
+    for t in gen.terms
+        lo, hi = minimum(t.sites), maximum(t.sites)
+        for n in cld(1 - lo, L):fld(N - hi, L)
+            push!(out, translate(t, n * L))
+        end
+    end
+    return Terms{I}(out)
+end

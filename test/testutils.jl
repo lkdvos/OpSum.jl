@@ -1,7 +1,7 @@
 # Helpers shared by the test files (not a test file: runtests.jl excludes it; each test file includes it).
 
 using OpSum
-using OpSum: Term, Terms, SiteOperator, ops, tree, total, arity
+using OpSum: Term, Terms, SiteOperator, letters, tree, total, arity
 using TensorKit: dim
 
 # The reduced data of an `mpo(H)`: `Ws, secs = reduced(mpo(H))`.
@@ -39,7 +39,7 @@ densify(H) = plain(instantiate(H))
 
 using TensorKit: TensorKit, ElementarySpace, Sector, Vect, sectortype, block, dual, unit, sectors,
     isomorphism, numind, numout, removeunit, ⊗, ←, Trivial, U1Irrep, @tensor
-using OpSum: opsum, expterm, mpo_tensormap, _bond_space, _deg_indices
+using OpSum: opsum, expterm, mpo_tensormap, bond_space
 
 # The complete basis of matrix units on `V`: the identity, then every matrix unit except the first of
 # trivial charge (dependent on the identity), so a fermion's `n` is one letter. Memoised per space.
@@ -49,10 +49,10 @@ function unitbasis(V::ElementarySpace)
         I = sectortype(V)
         idel = isomorphism(ComplexF64, V ← V ⊗ Vect[I](unit(I) => 1))
         units = [
-            instantiate(mu, V) for mu in instances(OpSum.IrrepOperator, V)
+            OpSum.matrixunit(mu, V) for mu in OpSum.matrixunits(V)
                 if !(mu.c == unit(I) && mu.n <= 2)    # n = 1 is the identity itself
         ]
-        OpSum._basis_from_elements(V, [idel; units])
+        OpSum.basis_from_elements(V, [idel; units])
     end
 end
 
@@ -60,7 +60,7 @@ end
 element(B::Basis, n::Integer) = SiteOperator(B.letters[n])
 
 # The matrix unit `|out⟩⟨in|` (one-dimensional, multiplicity-one sectors) in the basis `B`.
-function matrixunit(B::Basis, out::I, in::I) where {I <: Sector}
+function ketbra(B::Basis, out::I, in::I) where {I <: Sector}
     V = TensorKit.space(B)
     c = only(⊗(out, dual(in)))
     t = zeros(ComplexF64, V ← V ⊗ Vect[I](c => 1))
@@ -73,7 +73,7 @@ end
 function spinvector(B::Basis)
     V = TensorKit.space(B)
     s = only(sectors(V)).j
-    mu = instantiate(OpSum.IrrepOperator(TensorKit.SU2Irrep(1), 1), V)   # the spin-1 matrix unit
+    mu = OpSum.matrixunit(OpSum.Letter(TensorKit.SU2Irrep(1), 1), V)   # the spin-1 matrix unit
     return sqrt(s * (s + 1) * (2s + 1)) * project(mu, B)
 end
 
@@ -83,15 +83,15 @@ function spinladder(B::Basis, sectors::AbstractVector)
     s = (n - 1) / 2
     m(k) = s - (k - 1)
     ladder(k) = sqrt(s * (s + 1) - m(k + 1) * (m(k + 1) + 1))
-    Sz = sum(m(k) * matrixunit(B, sectors[k], sectors[k]) for k in 1:n if !iszero(m(k)))
-    Sp = sum(ladder(k) * matrixunit(B, sectors[k], sectors[k + 1]) for k in 1:(n - 1))
-    Sm = sum(ladder(k) * matrixunit(B, sectors[k + 1], sectors[k]) for k in 1:(n - 1))
+    Sz = sum(m(k) * ketbra(B, sectors[k], sectors[k]) for k in 1:n if !iszero(m(k)))
+    Sp = sum(ladder(k) * ketbra(B, sectors[k], sectors[k + 1]) for k in 1:(n - 1))
+    Sm = sum(ladder(k) * ketbra(B, sectors[k + 1], sectors[k]) for k in 1:(n - 1))
     return (; Sp, Sm, Sz)
 end
 
 # `(; c, cd, n)` of a spinless fermionic mode between the sectors `vac` and `occ`, in the basis `B`.
 fermionmode(B::Basis, vac, occ) =
-    (; c = matrixunit(B, vac, occ), cd = matrixunit(B, occ, vac), n = matrixunit(B, occ, occ))
+    (; c = ketbra(B, vac, occ), cd = ketbra(B, occ, vac), n = ketbra(B, occ, occ))
 
 # Test models, `name => H`, built on demand: every model compiles its own operator-sum code on first use, so only the
 # requested ones are constructed. `finite_models()` gives all of them, `finite_models(names...)` the subset (in the given
@@ -138,6 +138,31 @@ function finite_models(names::AbstractString...)
                 FiniteChain(fermion_basis(), 4),
                 (F0.f_plus_f_min[i, i + 1] + F0.f_plus_f_min[i + 1, i] + 2 * F0.f_num[i] * F0.f_num[i + 1] for i in 1:3),
                 (0.3 * (F0.f_plus_f_min[i, i + 2] + F0.f_plus_f_min[i + 2, i]) for i in 1:2)
+            )
+        end,
+        # three-site versions for the dense oracles: the cost of a dense contraction is compilation, which grows with the
+        # number of legs (2L + 2) and is paid per (sector type, L), so the oracles use the shortest chain with the
+        # feature at stake (the parity fermions need three sites for a next-nearest hop)
+        "Ising (Trivial), 3 sites" => function ()
+            S = spin_ops(Trivial)
+            return opsum(
+                FiniteChain(spin_basis(Trivial), 3),
+                (-S.S_z_S_z[i, i + 1] for i in 1:2), (0.7 * S.S_x[i] for i in 1:3)
+            )
+        end,
+        "t-V fermions (U1), 3 sites" => function ()
+            F1 = fermion_ops(U1Irrep)
+            return opsum(
+                FiniteChain(fermion_basis(U1Irrep), 3),
+                (F1.f_plus_f_min[i, i + 1] + F1.f_plus_f_min[i + 1, i] + 2 * F1.f_num[i] * F1.f_num[i + 1] for i in 1:2)
+            )
+        end,
+        "t-V fermions (parity), next-nearest hop, 3 sites" => function ()
+            F0 = fermion_ops()
+            return opsum(
+                FiniteChain(fermion_basis(), 3),
+                (F0.f_plus_f_min[i, i + 1] + F0.f_plus_f_min[i + 1, i] + 2 * F0.f_num[i] * F0.f_num[i + 1] for i in 1:2),
+                0.3 * (F0.f_plus_f_min[1, 3] + F0.f_plus_f_min[3, 1])
             )
         end,
         "pairing (parity)" => function ()
@@ -212,16 +237,16 @@ end
 function select_left(T, sec, k)
     I = eltype(sec)
     sec[k] == unit(I) || error("not a neutral index")
-    P = zeros(ComplexF64, Vect[I](unit(I) => 1) ← _bond_space(sec))
-    block(P, unit(I))[1, _deg_indices(sec)[k]] = 1
+    P = zeros(ComplexF64, Vect[I](unit(I) => 1) ← first(bond_space(sec)))
+    block(P, unit(I))[1, last(bond_space(sec))[k]] = 1
     @tensor R[a o; i br] := P[a; bl] * T[bl o; i br]
     return R
 end
 function select_right(T, sec, k)
     I = eltype(sec)
     sec[k] == unit(I) || error("not a neutral index")
-    Q = zeros(ComplexF64, _bond_space(sec) ← Vect[I](unit(I) => 1))
-    block(Q, unit(I))[_deg_indices(sec)[k], 1] = 1
+    Q = zeros(ComplexF64, first(bond_space(sec)) ← Vect[I](unit(I) => 1))
+    block(Q, unit(I))[last(bond_space(sec))[k], 1] = 1
     @tensor R[bl o; i a] := T[bl o; i br] * Q[br; a]
     return R
 end
@@ -232,3 +257,18 @@ function window_operator(Ts, secs, s, f, cells)
     window[end] = select_right(window[end], secs[L], f)
     return plain(mpo_tensormap(window))
 end
+
+# Terms an infinite MPO generates in a window of `ncells` cells (cell tiled, paths start → finish). A
+# sandwich against `window_terms`, not an equality: everything produced is a translate in the window at
+# its exact coefficient, but a path may run up to `R` sites past its term's support (the pending/started
+# collision), so only translates ending `R + 1` sites before the right edge are all produced.
+function mpo_terms_window(H::SymbolicMPO{I, <:InfiniteChain}, ncells::Int) where {I}
+    L = length(H)
+    N = ncells * L
+    Ws = [H.Ws[mod1(j, L)] for j in 1:N]
+    secs = [H.bondsectors[mod1(j, L)] for j in 1:N]
+    return OpSum.reduced_terms(Ws, secs; leftidx = H.start[L], rightidx = H.finish[L])
+end
+
+# a term sum as a dictionary `support => coefficient`; `Term` equality includes the coefficient
+termdict(ts) = Dict(OpSum.support(t) => t.coeff for t in ts)

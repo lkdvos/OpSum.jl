@@ -60,7 +60,7 @@ mpo(Hfinite)
 
 let H6 = opsum(FiniteChain(B, 6), ex[1, 2], tail)
     m = mpo(H6)
-    mpo_terms(m.Ws, m.bondsectors) ≈ OpSum.chain_terms(H6)
+    mpo_terms(m) ≈ OpSum.chain_terms(H6)
 end
 
 # ## `decay` counts per site
@@ -74,7 +74,7 @@ base = only(ex[1, 2]).coeff
 
 let lat = FiniteChain(B, 5), λ = 0.5
     m = mpo(opsum(lat, expterm(ex[1, 2]; decay = λ)))
-    for t in mpo_terms(m.Ws, m.bondsectors)
+    for t in mpo_terms(m)
         gap = t.sites[end] - t.sites[1] - 1
         println("  sites=", t.sites, "  gap=", gap, "  coeff/base=", round(real(t.coeff / base); digits = 6))
     end
@@ -91,7 +91,7 @@ end
 
 let lat = FiniteChain(B, 4), λ = 0.5
     m = mpo(opsum(lat, ex[1, 2], expterm(ex[1, 2]; decay = λ)))
-    for t in mpo_terms(m.Ws, m.bondsectors)
+    for t in mpo_terms(m)
         println("  sites=", t.sites, "  coeff/base=", round(real(t.coeff / base); digits = 6))
     end
 end

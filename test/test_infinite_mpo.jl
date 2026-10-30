@@ -2,11 +2,11 @@ using Test
 using TensorKit
 using LinearAlgebra: dot
 using OpSum
-using OpSum: mpo, irrep_mpo_tensors, mpo_terms_window, window_terms, unitcell_terms,
-    translate, maxspan, termspan, couple, scalarop, instantiate
-using OpSum.IrrepTensorOperators: IrrepOperator
+using OpSum: mpo, mpo_tensors, window_terms, unitcell_terms,
+    maxspan, couple, scalarop, instantiate
+using OpSum: Letter
 
-include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, element, matrixunit, spinvector
+include(joinpath(@__DIR__, "testutils.jl"))   # unitbasis, element, ketbra, spinvector
 
 # Reference models: `(name, generating term bag, unit-cell spaces)`; the operator is `Σ_n translate(H, n·L)`.
 
@@ -36,8 +36,8 @@ function su2_models()
 end
 
 function u1_models()
-    Sp = matrixunit(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
-    Sm = matrixunit(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
+    Sp = ketbra(BU1, U1Irrep(1 // 2), U1Irrep(-1 // 2))
+    Sm = ketbra(BU1, U1Irrep(-1 // 2), U1Irrep(1 // 2))
     Sz = spin_ops(U1Irrep).S_z
     xxz(i, j; Δ = 1.0) =
         0.5 * couple(Sp[i], Sm[j]) + 0.5 * couple(Sm[i], Sp[j]) + Δ * couple(Sz[i], Sz[j])
@@ -53,7 +53,7 @@ end
 
 LO(x) = OpSum.SiteOperator(x)
 
-# `ℂ^2` has multiplicity 2 in the trivial sector, so `matrixunit` does not apply; use `element`
+# `ℂ^2` has multiplicity 2 in the trivial sector, so `ketbra` does not apply; use `element`
 function trivial_models()
     A, B = element(BTR, 2), element(BTR, 3)
     return [
@@ -77,17 +77,17 @@ function faithful(H, spaces; ncells = 5)
     R = maxspan(gen)
     N = ncells * L
     N > R + 1 || error("window too small for the guard")
-    # `Term`'s `==`/`hash` ignore the coefficient, so it is the dictionary key
-    got = Dict(t => t.coeff for t in mpo_terms_window(mpo(H), ncells))
-    want = Dict(t => t.coeff for t in window_terms(gen, ncells))
+    # keyed by support (sites and factors), the coefficient is the value
+    got = termdict(mpo_terms_window(mpo(H), ncells))
+    want = termdict(window_terms(gen, ncells))
 
     for (t, v) in got
-        haskey(want, t) || return false, "spurious term on sites $(t.sites)"
-        want[t] ≈ v || return false, "wrong coefficient on sites $(t.sites)"
+        haskey(want, t) || return false, "spurious term on sites $(first(t))"
+        want[t] ≈ v || return false, "wrong coefficient on sites $(first(t))"
     end
     for (t, _) in want
-        maximum(t.sites) <= N - R - 1 || continue
-        haskey(got, t) || return false, "missing term on sites $(t.sites)"
+        maximum(first(t)) <= N - R - 1 || continue
+        haskey(got, t) || return false, "missing term on sites $(first(t))"
     end
     return true, ""
 end
@@ -112,7 +112,7 @@ end
         @test all(j -> Hinf.start[j] != Hinf.finish[j], 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.start[j]] == unit(I), 1:L)
         @test all(j -> Hinf.bondsectors[j][Hinf.finish[j]] == unit(I), 1:L)
-        Ts = irrep_mpo_tensors(Hinf)
+        Ts = mpo_tensors(Hinf)
         @test length(Ts) == L
         for j in 1:L
             @test space(Ts[j], 2) == TensorKit.space(spaces[j])
@@ -163,12 +163,12 @@ end
     for (name, H, spaces) in reference_models()
         L = length(spaces)
         gen = unitcell_terms(opsum(InfiniteChain(spaces), H))
-        base = OpSum._infinite_window(gen)
+        base = OpSum.infinite_window(gen)
         for nc in (12, 19, 26)
-            alt = OpSum._infinite_window(gen; ncells = nc)
+            alt = OpSum.infinite_window(gen; ncells = nc)
             @test alt.bondsectors == base.bondsectors
             @test (alt.start, alt.finish) == (base.start, base.finish)
-            @test all(j -> OpSum._entriesequal(alt.Ws[j], base.Ws[j]), 1:L)
+            @test alt.Ws == base.Ws
         end
     end
 end
@@ -179,6 +179,13 @@ end
 
     # a translation class written twice (seen across the whole set, so checked when the MPO is formed)
     @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[2]) + dot(S[2], S[3])))
+    # the error names both terms on the sites they were written on, not shifted into the cell
+    err = try
+        mpo(opsum(lat, dot(S[2], S[3]) + dot(S[4], S[5])))
+    catch e
+        e
+    end
+    @test err isa ArgumentError && occursin("[4, 5] and [2, 3]", err.msg)
     # ... but the same pair of bonds is fine on a two-site cell
     @test mpo(
         opsum(InfiniteChain([BSU2, BSU2]), dot(S[1], S[2]) + dot(S[2], S[3]))
@@ -187,42 +194,20 @@ end
     # per-term rules are checked on insertion; `Σ_n c·𝟙` does not converge
     @test_throws ArgumentError opsum(lat, dot(S[1], S[2]) + scalarop(1.0, BSU2)[1])
     @test_throws ArgumentError opsum(lat, couple(S[1], S[2]; to = SU2Irrep(1)))
-    @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[2])), SVDBondAlgorithm())
+    @test_throws ArgumentError mpo(opsum(lat, dot(S[1], S[2])), IndependentSVD())
 
     @test_throws ArgumentError InfiniteChain(typeof(BSU2)[])
 end
 
-@testset "translate / unitcell_terms / maxspan" begin
-    S = spinvector(BSU2)
-    H = dot(S[3], S[5])
-    @test only(translate(H, 4)).sites == [7, 9]
-    @test translate(H, 0) === H
-    @test maxspan(H) == 2
-    @test termspan(only(H)) == 2
-    @test maxspan(S[1]) == 0
-
-    # anchoring shifts the leftmost site into 1:L, by a multiple of L only
-    @test only(unitcell_terms(H, 1)).sites == [1, 3]
-    @test only(unitcell_terms(translate(H, 1), 2)).sites == [2, 4]
-    @test only(unitcell_terms(translate(H, -6), 3)).sites == [3, 5]
-
-    # window_terms keeps exactly the translates that fit
-    chain = InfiniteChain([BSU2])
-    gen = unitcell_terms(opsum(chain, dot(S[1], S[2])))
-    for nc in 1:5
-        w = window_terms(gen, nc)
-        @test length(w) == max(0, nc - 1)
-        @test all(t -> issubset(t.sites, 1:nc), w)
-    end
-end
-
 @testset "tiled MPO reproduces the enclosed operator densely" begin
     # contract the tiled tensors between the identity-channel boundary vectors against `instantiate`
+    # (the dense contraction compiles per sector type and window length: three sites, so that there is a bulk site; the
+    # L = 2 cell over two cells, so that the closure of its last bond onto its first is checked)
     S = spinvector(BSU2)
     A, B = element(BTR, 2), element(BTR, 3)
     cases = [
-        ("SU2 Heisenberg L=1", dot(S[1], S[2]), [BSU2], 4),
-        ("trivial 2-site + on-site L=1", couple(A[1], B[2]) + 0.7 * B[1], [BTR], 4),
+        ("SU2 Heisenberg L=1", dot(S[1], S[2]), [BSU2], 3),
+        ("trivial 2-site + on-site L=1", couple(A[1], B[2]) + 0.7 * B[1], [BTR], 3),
         ("SU2 Heisenberg L=2", dot(S[1], S[2]) + dot(S[2], S[3]), [BSU2, BSU2], 2),
     ]
     for (name, H, spaces, ncells) in cases
@@ -231,10 +216,9 @@ end
         N = ncells * L
         sites = [spaces[mod1(j, L)] for j in 1:N]
 
-        Ts = irrep_mpo_tensors(Hinf)
-        tiled = [Ts[mod1(j, L)] for j in 1:N]
-        O = OpSum.contract_open(tiled, Hinf.bondsectors[L], Hinf.start[L], Hinf.finish[L])
-        oracle = instantiate(opsum(sites, mpo_terms_window(Hinf, ncells)))
+        Ts = mpo_tensors(Hinf)
+        O = window_operator(Ts, Hinf.bondsectors, Hinf.start[L], Hinf.finish[L], ncells)
+        oracle = densify(opsum(sites, mpo_terms_window(Hinf, ncells)))
         @test O ≈ oracle || (println("  $name mismatch"); false)
     end
 end

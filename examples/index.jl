@@ -49,7 +49,7 @@ H = opsum(chain, ops.S_exchange[i, i + 1] for i in 1:(N - 1))   # the terms on t
 
 m = mpo(H)         # reduced bond matrices + per-bond charge sectors
 
-Ws, sectors = m.Ws, m.bondsectors
+sectors = m.bondsectors
 
 # The bond dimension: `sectors[b]` lists the irrep labels on the bond to the right of site `b`, so
 # its length is the number of symmetry-resolved indices, and the quantum-dimension-weighted sum is
@@ -67,7 +67,7 @@ bulk = 4
 #
 # The compression is exact, which `mpo_terms` verifies by reconstructing the original term sum:
 
-back = mpo_terms(Ws, sectors)
+back = mpo_terms(m)
 back ≈ H.terms
 
 # ## Examples
@@ -97,7 +97,7 @@ back ≈ H.terms
 #   compressed MPO, and where the finite and infinite paths diverge.
 #
 # Construction time and bond dimension across system size are measured by the benchmark harness in
-# `benchmark/` and plotted with `scripts/plot_benchmarks.jl`.
+# `benchmark/` and plotted with `benchmark/plot.jl`.
 
 # ## Acknowledgements
 #

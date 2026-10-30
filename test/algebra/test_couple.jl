@@ -1,0 +1,376 @@
+using Test
+using OpSum
+using OpSum: instantiate, total, bondcharges, tree, opsum
+using OpSum: Letter
+using TensorKit
+using LinearAlgebra: dot, norm, eigvals, I as Id
+
+include(joinpath(@__DIR__, "..", "testutils.jl"))
+
+# dense oracle of a latticeless bag over a list of sites; a bare space stands for its `unitbasis`
+sitebasis(V::ElementarySpace) = unitbasis(V)
+sitebasis(B::Basis) = B
+inst(ts, sites) = instantiate(opsum(map(sitebasis, sites), ts))
+
+# U(1) spin-½ ladder operators in the stock basis, where `Sz` is a single letter
+const U1B = spin_basis(U1Irrep)
+const U1UP, U1DN = U1Irrep(1 // 2), U1Irrep(-1 // 2)
+u1ladder() = spinladder(U1B, [U1UP, U1DN])
+
+const σX = ComplexF64[0 1; 1 0]
+const σY = ComplexF64[0 -im; im 0]
+const σZ = ComplexF64[1 0; 0 -1]
+
+@testset "SiteOperator scalar / sum instantiation" begin
+    V = SU2Space(1 // 2 => 1)
+
+    Vu = Vect[SU2Irrep](SU2Irrep(0) => 1)
+    Osc = OpSum.matrixunit(scalarop(2.0, SU2Irrep), V)
+    @test space(Osc) == (V ← V ⊗ Vu)
+    @test reshape(convert(Array, Osc), 2, 2) ≈ 2 * Matrix{ComplexF64}(Id, 2, 2)
+
+    @test space(OpSum.matrixunit(scalarop(1, SU2Irrep), V)) == (V ← V ⊗ Vu)
+
+    B = unitbasis(V)
+    S = spinvector(B)
+    Osp = instantiate(S, B)
+    @test space(Osp) == (V ← V ⊗ Vect[SU2Irrep](SU2Irrep(1) => 1))
+    @test norm(convert(Array, Osp)) > 0
+
+    @test convert(Array, instantiate(S + 0.5 * S, B)) ≈ 1.5 * convert(Array, Osp)
+    @test only(values(S)) ≈ sqrt(3 / 2)          # reduced element √(s(s+1)(2s+1))
+end
+
+@testset "single-site field embedding" begin
+    V = SU2Space(1 // 2 => 1)
+    S = spinvector(unitbasis(V))
+    B = convert(Array, instantiate(S, unitbasis(V)))     # (2,2,3)
+    Wf = convert(Array, inst(S[2], [V, V, V]))
+    @test size(Wf) == (2, 2, 2, 2, 2, 2, 3)
+    I2 = Matrix{ComplexF64}(Id, 2, 2)
+    oracle = [
+        I2[o1, i1] * B[o2, i2, q] * I2[o3, i3]
+            for o1 in 1:2, o2 in 1:2, o3 in 1:2, i1 in 1:2, i2 in 1:2, i3 in 1:2, q in 1:3
+    ]
+    @test Wf ≈ oracle
+
+    @test reshape(convert(Array, inst(one(S[1]), [V, V])), 4, 4) ≈ Matrix{Float64}(Id, 4, 4)
+end
+
+@testset "SU(2) two-site S·S = Cartesian dot" begin
+    V = SU2Space(1 // 2 => 1)
+    Sx, Sy, Sz = σX / 2, σY / 2, σZ / 2
+    S = spinvector(unitbasis(V))
+    Wd = dropdims(convert(Array, inst(dot(S[1], S[2]), [V, V])); dims = 5)
+    orc = [
+        Sx[o1, i1] * Sx[o2, i2] + Sy[o1, i1] * Sy[o2, i2] + Sz[o1, i1] * Sz[o2, i2]
+            for o1 in 1:2, o2 in 1:2, i1 in 1:2, i2 in 1:2
+    ]
+    @test Wd ≈ orc
+
+    V1 = SU2Space(1 => 1)
+    sq2 = sqrt(2.0)
+    Sz1 = ComplexF64[1 0 0; 0 0 0; 0 0 -1]
+    Sp1 = ComplexF64[0 sq2 0; 0 0 sq2; 0 0 0]
+    Sm1 = collect(Sp1')
+    Sx1, Sy1 = (Sp1 + Sm1) / 2, (Sp1 - Sm1) / (2im)
+    S1 = spinvector(unitbasis(V1))
+    Wd1 = dropdims(convert(Array, inst(dot(S1[1], S1[2]), [V1, V1])); dims = 5)
+    orc1 = [
+        Sx1[o1, i1] * Sx1[o2, i2] + Sy1[o1, i1] * Sy1[o2, i2] + Sz1[o1, i1] * Sz1[o2, i2]
+            for o1 in 1:3, o2 in 1:3, i1 in 1:3, i2 in 1:3
+    ]
+    @test Wd1 ≈ orc1
+end
+
+@testset "trivial-sector coupling (ℂ²)" begin
+    V = ℂ^2
+    B = unitbasis(V)
+    ops = [l for l in B.letters if !OpSum.ispassthrough(l)]    # the two trivial-charge letters of ℂ²: here, all of them
+    E2 = convert(Array, instantiate(LO(ops[1]), B))[:, :, 1]
+    E3 = convert(Array, instantiate(LO(ops[2]), B))[:, :, 1]
+    Cd = dropdims(convert(Array, inst(couple(LO(ops[1])[1], LO(ops[2])[2]; to = unit(Trivial)), [V, V])); dims = 5)
+    orc = [E2[o1, i1] * E3[o2, i2] for o1 in 1:2, o2 in 1:2, i1 in 1:2, i2 in 1:2]
+    @test Cd ≈ orc
+end
+
+@testset "U(1) coupling / charge structure" begin
+    V = Rep[U₁](0 => 1, 1 => 1)
+    raise = LO(Letter(U1Irrep(1), 1))
+    lower = LO(Letter(U1Irrep(-1), 1))
+
+    Hop = inst(dot(raise[1], lower[2]), [V, V])
+    @test space(Hop) == ((V ⊗ V) ← (V ⊗ V ⊗ Vect[U1Irrep](U1Irrep(0) => 1)))
+    rd = dropdims(convert(Array, OpSum.matrixunit(raise, V)); dims = 3)
+    ld = dropdims(convert(Array, OpSum.matrixunit(lower, V)); dims = 3)
+    Hd = dropdims(convert(Array, Hop); dims = 5)
+    orc = [-rd[o1, i1] * ld[o2, i2] for o1 in 1:2, o2 in 1:2, i1 in 1:2, i2 in 1:2]
+    @test Hd ≈ orc
+
+    C2 = inst(couple(raise[1], raise[2]; to = U1Irrep(2)), [V, V])
+    @test collect(blocksectors(C2)) == [U1Irrep(2)]
+end
+
+@testset "coupling API errors / deferrals" begin
+    V = SU2Space(1 // 2 => 1)
+    S = spinvector(unitbasis(V))
+    a, b, c = S[1], S[2], S[3]
+    # four rank-1 operators leave (j₁₂, j₁₂₃) free, and the error says so rather than picking one
+    d = S[4]
+    err = try
+        couple(a, b, c, d)
+    catch e
+        e isa ArgumentError || rethrow()
+        sprint(showerror, e)
+    end
+    @test err isa String && occursin("genuine choice", err) && occursin("couple_channels", err)
+    @test_throws ArgumentError inst(couple(scalarop(1, sectortype(V))[1], b; to = SU2Irrep(0)), [V, V, V])
+end
+
+@testset "`to` defaults to the unit sector" begin
+    (; Sp, Sm, Sz) = u1ladder()
+
+    @test collect(couple(Sp[1], Sm[2])) == collect(couple(Sp[1], Sm[2]; to = unit(U1Irrep)))
+
+    @test_throws ArgumentError couple(Sp[1], Sp[2])
+    @test length(couple(Sp[1], Sp[2]; to = U1Irrep(2))) == 1
+
+    V2 = SU2Space(1 // 2 => 1)
+    S2 = spinvector(unitbasis(V2))
+    @test total(only(couple(S2[1], S2[2]))) == unit(SU2Irrep)
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    (; c, cd) = fermionmode(unitbasis(Vf), FermionNumber(0), FermionNumber(1))
+    @test total(only(couple(cd[1], c[2]))) == unit(FermionNumber)
+end
+
+@testset "forced channels, non-abelian" begin
+    V = SU2Space(1 // 2 => 1)
+    S = spinvector(unitbasis(V))
+    zero_, one_ = SU2Irrep(0), SU2Irrep(1)
+
+    @test couple_channels(S[1], S[2], S[3]; to = zero_) == [(one_,)]
+    @test couple(S[1], S[2], S[3]) ≈ couple(couple(S[1], S[2]; to = one_), S[3]; to = zero_)
+    @test bondcharges(tree(only(couple(S[1], S[2], S[3])))) == [one_, one_, zero_]
+
+    # four leave two of the three (j₁₂, j₁₂₃) tuples genuinely free
+    @test couple_channels(S[1], S[2], S[3], S[4]) ==
+        [(SU2Irrep(0), one_), (one_, one_), (SU2Irrep(2), one_)]
+    @test_throws ArgumentError couple(S[1], S[2], S[3], S[4])
+    for (j12, j123) in couple_channels(S[1], S[2], S[3], S[4])
+        t = couple(couple(couple(S[1], S[2]; to = j12), S[3]; to = j123), S[4])
+        @test length(t) == 1
+        @test bondcharges(tree(only(t))) == [one_, j12, j123, zero_]
+    end
+
+    @test couple_channels(S[1], S[2]) == [()]
+    @test isempty(couple_channels(S[1], S[2]; to = SU2Irrep(5)))
+    @test_throws ArgumentError couple(S[1], S[2], S[3]; to = SU2Irrep(5))
+    @test_throws ArgumentError couple_channels(S[1])
+
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    (; c, cd) = fermionmode(unitbasis(Vf), FermionNumber(0), FermionNumber(1))
+    @test couple_channels(cd[1], c[2], cd[3], c[4]) ==
+        [(unit(FermionNumber), FermionNumber(1))]
+end
+
+@testset "variadic coupling (abelian)" begin
+    z = unit(U1Irrep)
+    (; Sp, Sm, Sz) = u1ladder()
+
+    @test collect(couple(Sp[1], Sm[2], Sz[3])) ==
+        collect(couple(couple(Sp[1], Sm[2]; to = z), Sz[3]; to = z))
+
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    u = unit(FermionNumber)
+    (; c, cd) = fermionmode(unitbasis(Vf), FermionNumber(0), FermionNumber(1))
+    H4 = couple(cd[1], c[2], cd[3], c[4])
+    nested = couple(
+        couple(couple(cd[1], c[2]; to = u), cd[3]; to = FermionNumber(1)), c[4]; to = u
+    )
+    @test collect(H4) == collect(nested)
+    @test bondcharges(tree(only(H4))) == [FermionNumber(1), u, FermionNumber(1), u]
+
+    # composite operands still distribute over every chain: two neutral letters per site, 2³ chains
+    # (a spin-1 basis, where P₀ + P₊ is a genuine two-letter operand)
+    B3 = unitbasis(Rep[U₁](-1 => 1, 0 => 1, 1 => 1))
+    Z = sum(
+        element(B3, n) for n in eachindex(B3.letters)
+            if B3.letters[n].c == unit(U1Irrep) && !OpSum.ispassthrough(B3.letters[n])
+    )
+    @test length(Z) == 2
+    @test length(couple(Z[1], Z[2], Z[3])) == 8
+
+    @test_throws ArgumentError couple(cd[1], cd[2], cd[3], c[4])     # a total the charges cannot reach
+
+    # independent dense check: S⁺₁ S⁻₂ Sᶻ₃, with the basis order of `spin_space(U1Irrep)` (up, dn)
+    Spm = ComplexF64[0 1; 0 0]
+    Smm = ComplexF64[0 0; 1 0]
+    Szm = ComplexF64[0.5 0; 0 -0.5]
+    A = dropdims(convert(Array, inst(couple(Sp[1], Sm[2], Sz[3]), fill(U1B, 3))); dims = 7)
+    ref = [
+        Spm[o1, i1] * Smm[o2, i2] * Szm[o3, i3]
+            for o1 in 1:2, o2 in 1:2, o3 in 1:2, i1 in 1:2, i2 in 1:2, i3 in 1:2
+    ]
+    @test A ≈ ref
+end
+
+# Out-of-order coupling: an operand left of an earlier one has its leg inserted and the coefficient
+# picks up the braiding phase; pinned against the site-ordered spelling and independent oracles.
+
+# Spectrum computed block by block, so it is valid for any sector (`convert(Array, t)` is not, for fermionic ones).
+function blockspectrum(H, sites)
+    O = inst(H, sites)
+    Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
+    vals = Float64[]
+    for (c, b) in blocks(Oop)
+        ev = real(eigvals(Matrix(b)))
+        for _ in 1:dim(c)
+            append!(vals, ev)
+        end
+    end
+    return sort!(vals)
+end
+
+function relative_hermiticity_error(H, sites)
+    O = inst(H, sites)
+    Oop = numind(O) == 2 * numout(O) ? O : removeunit(O, numind(O))
+    return norm(Oop - Oop') / norm(Oop)
+end
+
+@testset "out-of-order couple inserts the braiding phase" begin
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    F = fermionmode(unitbasis(Vf), FermionNumber(0), FermionNumber(1))
+
+    @test couple(F.cd[2], F.c[1]) ≈ -couple(F.c[1], F.cd[2])
+    @test couple(F.c[2], F.cd[1]) ≈ -couple(F.cd[1], F.c[2])
+    @test couple(F.n[2], F.n[1]) ≈ couple(F.n[1], F.n[2])
+    @test couple(F.n[2], F.cd[1]; to = FermionNumber(1)) ≈
+        couple(F.cd[1], F.n[2]; to = FermionNumber(1))
+
+    S = u1ladder()                                   # bosonic abelian: no phase
+    @test couple(S.Sm[2], S.Sp[1]) ≈ couple(S.Sp[1], S.Sm[2])
+
+    t = only(couple(F.cd[2], F.c[1]))
+    @test t.sites == [1, 2]
+    @test bondcharges(tree(t)) == [FermionNumber(-1), unit(FermionNumber)]
+
+    # insertion in the *middle* of an existing caterpillar
+    lhs = couple(couple(F.cd[1], F.c[4]), F.n[2])
+    rhs = couple(couple(F.cd[1], F.n[2]; to = FermionNumber(1)), F.c[4])
+    @test lhs ≈ rhs
+    @test only(lhs).sites == [1, 2, 4]
+
+    # a four-leg permutation: reordering [3,1,4,2] has three inversions among odd legs, so -1
+    @test couple(F.cd[3], F.c[1], F.cd[4], F.c[2]) ≈
+        -couple(F.c[1], F.c[2], F.cd[3], F.cd[4])
+
+    @test_throws ArgumentError couple(F.cd[2], F.c[2])        # same site, whichever order
+    @test_throws ArgumentError couple(couple(F.cd[1], F.c[3]), F.n[3])
+
+    # non-abelian: re-coupled into site order (algebra/test_products.jl checks it against the dense product);
+    # to a singlet, three spin-½ vectors leave only j₁₂ = 1
+    Vs = SU2Space(1 // 2 => 1)
+    S2 = spinvector(unitbasis(Vs))
+    t = only(couple(couple(S2[1], S2[3]; to = SU2Irrep(1)), S2[2]))
+    @test t.sites == [1, 2, 3]
+    @test bondcharges(tree(t)) == SU2Irrep[1, 1, 0]
+end
+
+@testset "the sign out-of-order couple supplies is the physical one" begin
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    Bf = unitbasis(Vf)
+    F = fermionmode(Bf, FermionNumber(0), FermionNumber(1))
+    N, t = 6, 1.0
+    sites = fill(Bf, N)
+
+    # the textbook spelling of a hopping term, hermitian and with the analytic spectrum
+    H = Terms(
+        (-t * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1))
+    )
+    @test relative_hermiticity_error(H, sites) < 1.0e-12
+    ε = [-2t * cos(k * π / (N + 1)) for k in 1:N]
+    exact = sort(
+        [sum(ε[k] for k in 1:N if (m >> (k - 1)) & 1 == 1; init = 0.0) for m in 0:(2^N - 1)]
+    )
+    @test blockspectrum(H, sites) ≈ exact
+end
+
+@testset "dot accepts either site order, with the swap phase" begin
+    Vs = SU2Space(1 // 2 => 1)
+    S = spinvector(unitbasis(Vs))
+    @test dot(S[3], S[1]) ≈ dot(S[1], S[3])          # integer operator charge: R = +1
+
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    F = fermionmode(unitbasis(Vf), FermionNumber(0), FermionNumber(1))
+    @test dot(F.cd[3], F.c[1]) ≈ -dot(F.c[1], F.cd[3])
+
+    # half-integer SU(2) operator charges pick it up too (R(½, ½, 0) = -1)
+    spinor = LO(Letter(SU2Irrep(1 // 2), 1))
+    @test dot(spinor[3], spinor[1]) ≈ -dot(spinor[1], spinor[3])
+
+    @test_throws ArgumentError dot(S[1], S[1])
+end
+
+@testset "adjoint is the hermitian conjugate" begin
+    Vf = Vect[FermionNumber](0 => 1, 1 => 1)
+    Bf = unitbasis(Vf)
+    F = fermionmode(Bf, FermionNumber(0), FermionNumber(1))
+    N = 4
+    sites = fill(Bf, N)
+
+    T = Terms(-1.0 * couple(F.cd[i], F.c[i + 1]) for i in 1:(N - 1))
+    Td = opsum(sites, T)'
+    @test T + Td.terms ≈ Terms(
+        -1.0 * (couple(F.cd[i], F.c[i + 1]) + couple(F.cd[i + 1], F.c[i])) for i in 1:(N - 1)
+    )
+    @test relative_hermiticity_error(T + Td.terms, sites) < 1.0e-12
+    @test Td'.terms ≈ T
+
+    # a complex amplitude has to be conjugated, and a longer-range hop crosses a site
+    for T2 in (
+            0.5im * couple(F.cd[1], F.c[3]),
+            (1.0 + 0.5im) * couple(F.cd[1], F.cd[2], F.c[3], F.c[4]),
+            2.0im * F.n[2] + scalarop(1.0 + 1.0im, sectortype(Vf))[1],
+        )
+        Tl = Terms(T2)
+        Tld = opsum(sites, Tl)'
+        @test relative_hermiticity_error(Tl + Tld.terms, sites) < 1.0e-12
+        @test Tld'.terms ≈ Tl
+    end
+
+    # non-abelian, including a 3-body term with a genuine inner line
+    Vs = SU2Space(1 // 2 => 1)
+    S = spinvector(unitbasis(Vs))
+    ssites = fill(unitbasis(Vs), 4)
+    T3 = Terms(
+        (0.4 + 0.2im) * couple(couple(S[1], S[2]; to = SU2Irrep(1)), S[3]; to = SU2Irrep(0))
+    )
+    T3d = opsum(ssites, T3)'
+    @test relative_hermiticity_error(T3 + T3d.terms, ssites) < 1.0e-12
+    @test T3d'.terms ≈ T3
+
+    @test_throws ArgumentError opsum(sites, F.cd[1])'
+    @test isempty(opsum(sites, Terms{FermionNumber}())')
+    @test_throws ArgumentError couple(F.cd[1], F.c[2])'    # no lattice: says so rather than a MethodError
+end
+
+@testset "operator builders" begin
+    # U(1) spin ladders against the SU(2) build of the same Heisenberg chain (pins the ladder normalisation)
+    for s in (1 // 2, 1, 3 // 2)
+        L = 4
+        su2 = SU2Space(s => 1)
+        S = spinvector(unitbasis(su2))
+        Hsu2 = Terms((dot(S[i], S[i + 1]) for i in 1:(L - 1)))
+        Bu = spin_basis(U1Irrep; spin = s)
+        F = spinladder(Bu, [U1Irrep(m) for m in s:-1:(-s)])
+        Hu1 = Terms(
+            (
+                F.Sz[i] * F.Sz[i + 1] +      # `*`: for s = 3/2 `Sz` carries an identity component, which `couple` refuses
+                    (couple(F.Sp[i], F.Sm[i + 1]) + couple(F.Sm[i], F.Sp[i + 1])) / 2
+                    for i in 1:(L - 1)
+            )
+        )
+        @test blockspectrum(Hsu2, fill(unitbasis(su2), L)) ≈ blockspectrum(Hu1, fill(Bu, L))
+        @test islossless(opsum(fill(Bu, L), Hu1))
+    end
+end
